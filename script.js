@@ -281,21 +281,16 @@ function setupEventListeners() {
     });
     document.getElementById('mapImageInput').addEventListener('change', handleMapImageUpload);
     
-    // Arena boundary drawing controls
-    document.getElementById('startDrawingBtn').addEventListener('click', startDrawingBoundary);
-    document.getElementById('finishDrawingBtn').addEventListener('click', finishDrawingBoundary);
-    document.getElementById('clearBoundaryBtn').addEventListener('click', clearBoundary);
-    
-    // Load saved boundary from localStorage
+    // Arena boundary is now auto-detected from map image
+    // Load saved boundary from localStorage if exists
     const savedBoundary = localStorage.getItem('gruulArenaBoundary');
     if (savedBoundary) {
         try {
             arenaBoundary = JSON.parse(savedBoundary);
             if (arenaBoundary && arenaBoundary.length >= 3) {
-                document.getElementById('clearBoundaryBtn').style.display = 'inline-block';
+                updateBoundaryDisplay();
+                regeneratePositions();
             }
-            updateBoundaryDisplay();
-            regeneratePositions();
         } catch (e) {
             console.error('Failed to load saved boundary:', e);
         }
@@ -359,14 +354,138 @@ function initializeMapUnderlay() {
     setMapUnderlay(DEFAULT_MAP_UNDERLAY, false);
 }
 
+// Detect reddish floor area from map image and create boundary
+function detectArenaBoundaryFromMap(image) {
+    return new Promise((resolve, reject) => {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = image.naturalWidth || image.width;
+            canvas.height = image.naturalHeight || image.height;
+            
+            ctx.drawImage(image, 0, 0);
+            
+            // Check for CORS issues
+            try {
+                ctx.getImageData(0, 0, 1, 1);
+            } catch (e) {
+                // CORS issue - use fallback ellipse
+                console.log('CORS issue with image, using ellipse fallback');
+                resolve(createEllipseBoundary(400, 400, 280, 240));
+                return;
+            }
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Scale to our SVG coordinate system (800x800)
+            const scaleX = 800 / canvas.width;
+            const scaleY = 800 / canvas.height;
+            
+            // Find reddish pixels (reddish-brown/orange floor area)
+            // Reddish colors have high red, medium green, low blue
+            const boundaryPoints = [];
+            const step = 3; // Sample every 3 pixels for better detection
+            
+            for (let y = 0; y < canvas.height; y += step) {
+                for (let x = 0; x < canvas.width; x += step) {
+                    const idx = (y * canvas.width + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
+                    
+                    // Detect reddish-brown/orange colors (the floor)
+                    // Reddish floor: high red (140+), medium green (70-200), low blue (<120)
+                    if (r > 140 && g > 70 && g < 200 && b < 120) {
+                        const svgX = x * scaleX;
+                        const svgY = y * scaleY;
+                        boundaryPoints.push({ x: svgX, y: svgY });
+                    }
+                }
+            }
+            
+            // Create a boundary polygon from the detected points
+            if (boundaryPoints.length > 50) {
+                const boundary = createSimplifiedBoundary(boundaryPoints);
+                resolve(boundary);
+            } else {
+                // Fallback: use ellipse approximation for reddish floor
+                // Based on the map, the reddish floor is roughly centered and oval
+                resolve(createEllipseBoundary(400, 400, 280, 240));
+            }
+        } catch (error) {
+            console.error('Error detecting boundary:', error);
+            // Fallback to ellipse
+            resolve(createEllipseBoundary(400, 400, 280, 240));
+        }
+    });
+}
+
+// Create simplified boundary from point cloud
+function createSimplifiedBoundary(points) {
+    if (points.length < 3) {
+        return createEllipseBoundary(400, 400, 280, 240);
+    }
+    
+    // Find bounding box
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    points.forEach(p => {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+    });
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    // Create ellipse boundary based on detected area
+    return createEllipseBoundary(centerX, centerY, width * 0.9, height * 0.9);
+}
+
+// Create ellipse boundary (approximation of reddish floor)
+function createEllipseBoundary(centerX, centerY, width, height) {
+    const points = [];
+    const numPoints = 32; // Smooth ellipse
+    
+    for (let i = 0; i < numPoints; i++) {
+        const angle = (i / numPoints) * Math.PI * 2;
+        const x = centerX + (width / 2) * Math.cos(angle);
+        const y = centerY + (height / 2) * Math.sin(angle);
+        points.push({ x, y });
+    }
+    
+    return points;
+}
+
 function setMapUnderlay(src, persist) {
     const underlay = document.getElementById('mapUnderlay');
     const dimmer = document.getElementById('mapUnderlayDimmer');
 
-    underlay.onload = () => {
+    underlay.onload = async () => {
         if (persist) {
             localStorage.setItem(MAP_UNDERLAY_STORAGE_KEY, src);
         }
+        
+        // Auto-detect arena boundary from map image
+        if (underlay.complete && underlay.naturalWidth > 0) {
+            try {
+                const detectedBoundary = await detectArenaBoundaryFromMap(underlay);
+                arenaBoundary = detectedBoundary;
+                localStorage.setItem('gruulArenaBoundary', JSON.stringify(arenaBoundary));
+                updateBoundaryDisplay();
+                regeneratePositions();
+            } catch (e) {
+                console.error('Error detecting boundary:', e);
+                // Fallback to ellipse
+                arenaBoundary = createEllipseBoundary(400, 400, 280, 240);
+                updateBoundaryDisplay();
+                regeneratePositions();
+            }
+        }
+        
         toggleMapUnderlayVisibility();
     };
 
@@ -796,6 +915,7 @@ function updateBoundaryDisplay() {
     
     if (!arenaBoundary || arenaBoundary.length < 3) {
         polygon.setAttribute('points', '');
+        polygon.style.display = 'none';
         return;
     }
     
@@ -803,9 +923,8 @@ function updateBoundaryDisplay() {
     const pointsStr = arenaBoundary.map(p => `${p.x},${p.y}`).join(' ');
     polygon.setAttribute('points', pointsStr);
     
-    // Always hide stroke - only show subtle fill
-    polygon.setAttribute('stroke', 'none');
-    polygon.setAttribute('fill', 'rgba(255, 215, 0, 0.08)');
+    // Hide the boundary completely - it's only used for position calculation
+    polygon.style.display = 'none';
 }
 
 // Render the map with positions
