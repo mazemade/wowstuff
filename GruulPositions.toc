@@ -1,0 +1,7 @@
+## Interface: 20504
+## Title: Gruul Positions Exporter
+## Notes: Exports raid roster for Gruul positioning tool
+## Author: YourName
+## Version: 1.0
+
+GruulPositions.lua
