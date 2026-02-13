@@ -759,55 +759,132 @@ function exportSetup() {
     URL.revokeObjectURL(url);
 }
 
-// Generate shareable link for view-only mode
-function generateShareLink() {
+// Generate shareable link for view-only mode with URL shortening
+async function generateShareLink() {
     if (raiders.length === 0) {
         alert('Please add raiders and assign positions before generating a share link.');
         return;
     }
     
-    const setup = {
-        raiders: raiders,
-        positions: positions,
-        timestamp: new Date().toISOString()
-    };
+    // Disable button and show loading state
+    const shareBtn = document.getElementById('generateShareLinkBtn');
+    const originalText = shareBtn.textContent;
+    shareBtn.disabled = true;
+    shareBtn.textContent = 'Generating...';
     
-    // Encode to base64
-    const jsonStr = JSON.stringify(setup);
-    const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
-    
-    // Create the share URL
-    let baseUrl = window.location.origin;
-    let path = window.location.pathname;
-    
-    // Remove index.html if present, or just use directory
-    if (path.endsWith('index.html')) {
-        path = path.replace('index.html', '');
-    } else if (!path.endsWith('/')) {
-        path = path.substring(0, path.lastIndexOf('/') + 1);
-    }
-    
-    const shareUrl = `${baseUrl}${path}view.html?data=${encoded}`;
-    
-    // Copy to clipboard
-    navigator.clipboard.writeText(shareUrl).then(() => {
-        alert('Share link copied to clipboard!\n\nShare this link with your raiders so they can see their positions.');
-    }).catch(err => {
-        // Fallback for older browsers
-        const textarea = document.createElement('textarea');
-        textarea.value = shareUrl;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            alert('Share link copied to clipboard!\n\nShare this link with your raiders so they can see their positions.');
-        } catch (e) {
-            prompt('Copy this link to share with your raiders:', shareUrl);
+    try {
+        const setup = {
+            raiders: raiders,
+            positions: positions,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Encode to base64
+        const jsonStr = JSON.stringify(setup);
+        const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+        
+        // Create the full share URL
+        let baseUrl = window.location.origin;
+        let path = window.location.pathname;
+        
+        // Remove index.html if present, or just use directory
+        if (path.endsWith('index.html')) {
+            path = path.replace('index.html', '');
+        } else if (!path.endsWith('/')) {
+            path = path.substring(0, path.lastIndexOf('/') + 1);
         }
-        document.body.removeChild(textarea);
-    });
+        
+        const fullUrl = `${baseUrl}${path}view.html?data=${encoded}`;
+        
+        // Try to shorten the URL (skip for localhost as most services don't accept it)
+        let finalUrl = fullUrl;
+        const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
+        
+        if (!isLocalhost) {
+            try {
+                // Use v.gd API (handles longer URLs better than is.gd)
+                const formData = new URLSearchParams();
+                formData.append('url', fullUrl);
+                formData.append('format', 'json');
+                
+                let response = await fetch('https://v.gd/create.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                // If POST fails, try GET
+                if (!response.ok) {
+                    const getUrl = `https://v.gd/create.php?format=json&url=${encodeURIComponent(fullUrl)}`;
+                    response = await fetch(getUrl);
+                }
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('API Response:', data);
+                    
+                    if (data.shorturl) {
+                        finalUrl = data.shorturl;
+                        console.log('Using shortened URL:', finalUrl);
+                    } else if (data.errorcode) {
+                        console.warn('v.gd API error:', data.errormessage);
+                        // If v.gd fails, try tinyurl as backup
+                        try {
+                            const tinyUrlResponse = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(fullUrl)}`);
+                            if (tinyUrlResponse.ok) {
+                                const tinyUrl = await tinyUrlResponse.text();
+                                if (tinyUrl && !tinyUrl.includes('Error') && tinyUrl.startsWith('http')) {
+                                    finalUrl = tinyUrl.trim();
+                                    console.log('Using TinyURL shortened URL:', finalUrl);
+                                }
+                            }
+                        } catch (tinyError) {
+                            console.warn('TinyURL also failed:', tinyError);
+                        }
+                    }
+                } else {
+                    console.warn('API request failed:', response.status, response.statusText);
+                }
+            } catch (apiError) {
+                console.error('URL shortening API error:', apiError);
+                console.warn('Using full URL as fallback');
+            }
+        } else {
+            console.log('Skipping URL shortening for localhost (most services don\'t accept localhost URLs)');
+        }
+        
+        // Copy to clipboard
+        const wasShortened = finalUrl !== fullUrl;
+        const urlMessage = wasShortened 
+            ? `Shortened link copied to clipboard!\n\n${finalUrl}\n\nShare this link with your raiders so they can see their positions.`
+            : `Share link copied to clipboard!\n\nNote: URL shortening failed, using full URL.\n\n${finalUrl}\n\nShare this link with your raiders so they can see their positions.`;
+        
+        try {
+            await navigator.clipboard.writeText(finalUrl);
+            alert(urlMessage);
+        } catch (clipboardError) {
+            // Fallback for older browsers
+            const textarea = document.createElement('textarea');
+            textarea.value = finalUrl;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                alert(`Share link copied to clipboard!\n\n${finalUrl}\n\nShare this link with your raiders so they can see their positions.`);
+            } catch (e) {
+                prompt('Copy this link to share with your raiders:', finalUrl);
+            }
+            document.body.removeChild(textarea);
+        }
+    } catch (error) {
+        console.error('Error generating share link:', error);
+        alert('Error generating share link. Please try again.');
+    } finally {
+        // Restore button state
+        shareBtn.disabled = false;
+        shareBtn.textContent = originalText;
+    }
 }
 
 // Convert SVG coordinates from mouse event
