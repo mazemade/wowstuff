@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gruul's Lair - Raid Positions</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .view-only-header {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255, 215, 0, 0.1);
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .view-only-header h1 {
+            color: #ffd700;
+            margin-bottom: 5px;
+        }
+        .view-only-header p {
+            color: #b0b0b0;
+            font-size: 0.9em;
+        }
+        .view-only-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .view-only-map-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="view-only-container">
+        <div class="view-only-header">
+            <h1>Gruul's Lair - Raid Positions</h1>
+            <p>View-only mode - Your assigned position is shown on the map</p>
+        </div>
+
+        <div class="view-only-map-section">
+            <h2>Gruul's Lair Map</h2>
+            <div class="map-controls">
+                <label>
+                    <input type="checkbox" id="showGridLines" checked />
+                    Show Grid Lines
+                </label>
+                <label>
+                    <input type="checkbox" id="showRoleColors" checked />
+                    Role Colors
+                </label>
+                <label>
+                    <input type="checkbox" id="showMapUnderlay" checked />
+                    Show Map Underlay
+                </label>
+            </div>
+            <div class="map-container">
+                <div class="map-stage">
+                    <img id="mapUnderlay" alt="Gruul map underlay" />
+                    <div id="mapUnderlayDimmer"></div>
+                    <svg id="gruulMap" width="800" height="800" viewBox="0 0 800 800">
+                        <!-- Arena boundary drawing -->
+                        <g id="arenaBoundary">
+                            <polygon id="arenaPolygon" fill="rgba(255, 215, 0, 0.1)" stroke="none" points="" />
+                        </g>
+                        
+                        <!-- Grid lines -->
+                        <g id="gridLines" class="grid-lines"></g>
+
+                        <!-- Boss position -->
+                        <circle cx="400" cy="400" r="30" fill="#8B0000" stroke="#fff" stroke-width="3" filter="drop-shadow(0 0 4px rgba(0, 0, 0, 0.9))"/>
+                        <text x="400" y="405" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold" filter="drop-shadow(0 0 3px rgba(0, 0, 0, 0.9))">GRUUL</text>
+
+                        <!-- Position markers -->
+                        <g id="positionMarkers"></g>
+                    </svg>
+                </div>
+            </div>
+            <div class="legend">
+                <h3>Legend</h3>
+                <div class="legend-item"><span class="color-box tank"></span> Tank</div>
+                <div class="legend-item"><span class="color-box healer"></span> Healer</div>
+                <div class="legend-item"><span class="color-box melee"></span> Melee DPS</div>
+                <div class="legend-item"><span class="color-box ranged"></span> Ranged DPS</div>
+                <div class="legend-item"><span class="color-box empty"></span> Empty</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="view.js"></script>
+</body>
+</html>

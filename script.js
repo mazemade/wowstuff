@@ -255,6 +255,7 @@ function setupEventListeners() {
     document.getElementById('autoAssignBtn').addEventListener('click', autoAssign);
     document.getElementById('clearAssignmentsBtn').addEventListener('click', clearAssignments);
     document.getElementById('exportBtn').addEventListener('click', exportSetup);
+    document.getElementById('generateShareLinkBtn').addEventListener('click', generateShareLink);
     
     // Filters
     document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -756,6 +757,57 @@ function exportSetup() {
     link.click();
     
     URL.revokeObjectURL(url);
+}
+
+// Generate shareable link for view-only mode
+function generateShareLink() {
+    if (raiders.length === 0) {
+        alert('Please add raiders and assign positions before generating a share link.');
+        return;
+    }
+    
+    const setup = {
+        raiders: raiders,
+        positions: positions,
+        timestamp: new Date().toISOString()
+    };
+    
+    // Encode to base64
+    const jsonStr = JSON.stringify(setup);
+    const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+    
+    // Create the share URL
+    let baseUrl = window.location.origin;
+    let path = window.location.pathname;
+    
+    // Remove index.html if present, or just use directory
+    if (path.endsWith('index.html')) {
+        path = path.replace('index.html', '');
+    } else if (!path.endsWith('/')) {
+        path = path.substring(0, path.lastIndexOf('/') + 1);
+    }
+    
+    const shareUrl = `${baseUrl}${path}view.html?data=${encoded}`;
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(shareUrl).then(() => {
+        alert('Share link copied to clipboard!\n\nShare this link with your raiders so they can see their positions.');
+    }).catch(err => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = shareUrl;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            alert('Share link copied to clipboard!\n\nShare this link with your raiders so they can see their positions.');
+        } catch (e) {
+            prompt('Copy this link to share with your raiders:', shareUrl);
+        }
+        document.body.removeChild(textarea);
+    });
 }
 
 // Convert SVG coordinates from mouse event
