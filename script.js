@@ -281,21 +281,16 @@ function setupEventListeners() {
     });
     document.getElementById('mapImageInput').addEventListener('change', handleMapImageUpload);
     
-    // Arena boundary drawing controls
-    document.getElementById('startDrawingBtn').addEventListener('click', startDrawingBoundary);
-    document.getElementById('finishDrawingBtn').addEventListener('click', finishDrawingBoundary);
-    document.getElementById('clearBoundaryBtn').addEventListener('click', clearBoundary);
-    
-    // Load saved boundary from localStorage
+    // Arena boundary is now auto-detected from map image (white border)
+    // Load saved boundary from localStorage if exists
     const savedBoundary = localStorage.getItem('gruulArenaBoundary');
     if (savedBoundary) {
         try {
             arenaBoundary = JSON.parse(savedBoundary);
             if (arenaBoundary && arenaBoundary.length >= 3) {
-                document.getElementById('clearBoundaryBtn').style.display = 'inline-block';
+                updateBoundaryDisplay();
+                regeneratePositions();
             }
-            updateBoundaryDisplay();
-            regeneratePositions();
         } catch (e) {
             console.error('Failed to load saved boundary:', e);
         }
@@ -359,14 +354,167 @@ function initializeMapUnderlay() {
     setMapUnderlay(DEFAULT_MAP_UNDERLAY, false);
 }
 
+// Detect white border from map image and create boundary
+function detectWhiteBorderFromMap(image) {
+    return new Promise((resolve, reject) => {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = image.naturalWidth || image.width;
+            canvas.height = image.naturalHeight || image.height;
+            
+            ctx.drawImage(image, 0, 0);
+            
+            // Check for CORS issues
+            try {
+                ctx.getImageData(0, 0, 1, 1);
+            } catch (e) {
+                // CORS issue - use fallback ellipse
+                console.log('CORS issue with image, using ellipse fallback');
+                resolve(createEllipseBoundary(400, 400, 320, 280));
+                return;
+            }
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Scale to our SVG coordinate system (800x800)
+            const scaleX = 800 / canvas.width;
+            const scaleY = 800 / canvas.height;
+            
+            // Find white border pixels (thick white line)
+            // White: high red, green, blue (all > 200)
+            const borderPoints = [];
+            const step = 2; // Sample every 2 pixels for accuracy
+            
+            for (let y = 0; y < canvas.height; y += step) {
+                for (let x = 0; x < canvas.width; x += step) {
+                    const idx = (y * canvas.width + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
+                    const a = data[idx + 3];
+                    
+                    // Detect white border: very high RGB values (white line)
+                    // White border: r > 240, g > 240, b > 240 (almost pure white)
+                    if (r > 240 && g > 240 && b > 240 && a > 200) {
+                        const svgX = x * scaleX;
+                        const svgY = y * scaleY;
+                        borderPoints.push({ x: svgX, y: svgY });
+                    }
+                }
+            }
+            
+            // Create boundary from white border points
+            if (borderPoints.length > 100) {
+                const boundary = createBoundaryFromBorderPoints(borderPoints);
+                resolve(boundary);
+            } else {
+                // Fallback: use ellipse approximation
+                resolve(createEllipseBoundary(400, 400, 320, 280));
+            }
+        } catch (error) {
+            console.error('Error detecting white border:', error);
+            // Fallback to ellipse
+            resolve(createEllipseBoundary(400, 400, 320, 280));
+        }
+    });
+}
+
+// Create boundary polygon from border points (find inner boundary)
+function createBoundaryFromBorderPoints(borderPoints) {
+    if (borderPoints.length < 3) {
+        return createEllipseBoundary(400, 400, 320, 280);
+    }
+    
+    // Find the center of the border points
+    let sumX = 0, sumY = 0;
+    borderPoints.forEach(p => {
+        sumX += p.x;
+        sumY += p.y;
+    });
+    const centerX = sumX / borderPoints.length;
+    const centerY = sumY / borderPoints.length;
+    
+    // Sort points by angle from center to create a polygon
+    const sortedPoints = borderPoints
+        .map(p => ({
+            x: p.x,
+            y: p.y,
+            angle: Math.atan2(p.y - centerY, p.x - centerX),
+            dist: Math.sqrt((p.x - centerX) ** 2 + (p.y - centerY) ** 2)
+        }))
+        .sort((a, b) => a.angle - b.angle);
+    
+    // Group by angle and take the closest point to center for each angle (inner boundary)
+    const angleGroups = {};
+    sortedPoints.forEach(p => {
+        const angleKey = Math.round(p.angle * 100) / 100; // Round to 2 decimals
+        if (!angleGroups[angleKey] || p.dist < angleGroups[angleKey].dist) {
+            angleGroups[angleKey] = p;
+        }
+    });
+    
+    // Convert back to array and create polygon
+    const boundaryPoints = Object.values(angleGroups)
+        .sort((a, b) => a.angle - b.angle)
+        .map(p => ({ x: p.x, y: p.y }));
+    
+    // Simplify: remove points that are too close together
+    const simplified = [];
+    const minDist = 10;
+    for (let i = 0; i < boundaryPoints.length; i++) {
+        const prev = simplified[simplified.length - 1];
+        const curr = boundaryPoints[i];
+        if (!prev || Math.sqrt((curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2) >= minDist) {
+            simplified.push(curr);
+        }
+    }
+    
+    return simplified.length >= 3 ? simplified : createEllipseBoundary(400, 400, 320, 280);
+}
+
+// Create ellipse boundary (fallback)
+function createEllipseBoundary(centerX, centerY, width, height) {
+    const points = [];
+    const numPoints = 40; // Smooth ellipse
+    
+    for (let i = 0; i < numPoints; i++) {
+        const angle = (i / numPoints) * Math.PI * 2;
+        const x = centerX + (width / 2) * Math.cos(angle);
+        const y = centerY + (height / 2) * Math.sin(angle);
+        points.push({ x, y });
+    }
+    
+    return points;
+}
+
 function setMapUnderlay(src, persist) {
     const underlay = document.getElementById('mapUnderlay');
     const dimmer = document.getElementById('mapUnderlayDimmer');
 
-    underlay.onload = () => {
+    underlay.onload = async () => {
         if (persist) {
             localStorage.setItem(MAP_UNDERLAY_STORAGE_KEY, src);
         }
+        
+        // Auto-detect white border from map image
+        if (underlay.complete && underlay.naturalWidth > 0) {
+            try {
+                const detectedBoundary = await detectWhiteBorderFromMap(underlay);
+                arenaBoundary = detectedBoundary;
+                localStorage.setItem('gruulArenaBoundary', JSON.stringify(arenaBoundary));
+                updateBoundaryDisplay();
+                regeneratePositions();
+            } catch (e) {
+                console.error('Error detecting white border:', e);
+                // Fallback to ellipse
+                arenaBoundary = createEllipseBoundary(400, 400, 320, 280);
+                updateBoundaryDisplay();
+                regeneratePositions();
+            }
+        }
+        
         toggleMapUnderlayVisibility();
     };
 
@@ -796,6 +944,7 @@ function updateBoundaryDisplay() {
     
     if (!arenaBoundary || arenaBoundary.length < 3) {
         polygon.setAttribute('points', '');
+        polygon.style.display = 'none';
         return;
     }
     
@@ -803,9 +952,8 @@ function updateBoundaryDisplay() {
     const pointsStr = arenaBoundary.map(p => `${p.x},${p.y}`).join(' ');
     polygon.setAttribute('points', pointsStr);
     
-    // Always hide stroke - only show subtle fill
-    polygon.setAttribute('stroke', 'none');
-    polygon.setAttribute('fill', 'rgba(255, 215, 0, 0.08)');
+    // Hide the boundary completely - it's only used for position calculation
+    polygon.style.display = 'none';
 }
 
 // Render the map with positions
