@@ -1,0 +1,21 @@
+{
+  "name": "gruul-lair-positioning",
+  "version": "1.0.0",
+  "description": "Gruul's Lair raid positioning tool with custom boundary drawing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "wow",
+    "world-of-warcraft",
+    "raid",
+    "positioning",
+    "gruul"
+  ],
+  "author": "mazemade",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
