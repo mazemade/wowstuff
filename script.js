@@ -17,6 +17,8 @@ let arenaBoundary = null; // Array of {x, y} points defining the arena boundary
 let isDrawingBoundary = false;
 let isDragging = false;
 let drawingPoints = []; // Points collected during freehand drawing
+let swapMode = false; // Whether swap mode is active
+let selectedPositions = []; // Array of selected position IDs for swapping
 
 // Check if a point is inside a polygon using ray casting algorithm
 function pointInPolygon(point, polygon) {
@@ -256,6 +258,7 @@ function setupEventListeners() {
     document.getElementById('clearAssignmentsBtn').addEventListener('click', clearAssignments);
     document.getElementById('exportBtn').addEventListener('click', exportSetup);
     document.getElementById('generateShareLinkBtn').addEventListener('click', generateShareLink);
+    document.getElementById('swapModeBtn').addEventListener('click', toggleSwapMode);
     
     // Filters
     document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -1175,17 +1178,24 @@ function renderMap() {
         group.appendChild(numberText);
         group.appendChild(text);
         
-        // Click to unassign
-        if (raider) {
-            group.style.cursor = 'pointer';
-            group.addEventListener('click', () => {
+        // Click handler - supports both swap mode and normal unassign
+        group.style.cursor = 'pointer';
+        group.addEventListener('click', () => {
+            if (swapMode) {
+                handlePositionClickForSwap(pos.id);
+            } else if (raider) {
                 if (confirm(`Unassign ${raider.name} from position ${pos.id}?`)) {
                     raider.position = null;
                     pos.assignedRaider = null;
                     renderRaiderList();
                     renderMap();
                 }
-            });
+            }
+        });
+        
+        // Add selected class if position is selected for swapping
+        if (swapMode && selectedPositions.includes(pos.id)) {
+            circle.classList.add('selected');
         }
         
         markersGroup.appendChild(group);
@@ -1295,6 +1305,71 @@ function regeneratePositions() {
     
     renderMap();
     renderRaiderList();
+}
+
+// Toggle swap mode
+function toggleSwapMode() {
+    swapMode = !swapMode;
+    selectedPositions = [];
+    
+    const btn = document.getElementById('swapModeBtn');
+    if (swapMode) {
+        btn.classList.add('active');
+        btn.textContent = 'Swap Mode: ON (Click 2 positions to swap)';
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Swap Positions';
+    }
+    
+    renderMap();
+}
+
+// Handle position click in swap mode
+function handlePositionClickForSwap(positionId) {
+    if (!selectedPositions.includes(positionId)) {
+        selectedPositions.push(positionId);
+        
+        // If we have 2 positions selected, swap them
+        if (selectedPositions.length === 2) {
+            swapPositions(selectedPositions[0], selectedPositions[1]);
+            selectedPositions = [];
+            renderMap();
+            renderRaiderList();
+        } else {
+            // Just update the visual feedback
+            renderMap();
+        }
+    } else {
+        // Deselect if clicking the same position again
+        selectedPositions = selectedPositions.filter(id => id !== positionId);
+        renderMap();
+    }
+}
+
+// Swap two positions
+function swapPositions(posId1, posId2) {
+    const pos1 = positions.find(p => p.id === posId1);
+    const pos2 = positions.find(p => p.id === posId2);
+    
+    if (!pos1 || !pos2) return;
+    
+    const raider1Id = pos1.assignedRaider;
+    const raider2Id = pos2.assignedRaider;
+    
+    // Swap the assignments
+    pos1.assignedRaider = raider2Id;
+    pos2.assignedRaider = raider1Id;
+    
+    // Update raider position references
+    if (raider1Id) {
+        const raider1 = raiders.find(r => r.id === raider1Id);
+        if (raider1) raider1.position = posId2;
+    }
+    
+    if (raider2Id) {
+        const raider2 = raiders.find(r => r.id === raider2Id);
+        if (raider2) raider2.position = posId1;
+    }
 }
 
 // Initialize on page load

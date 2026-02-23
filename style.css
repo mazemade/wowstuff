@@ -111,6 +111,12 @@ h3 {
     background: #fc8181;
 }
 
+.btn.active {
+    background: #48bb78;
+    border: 2px solid #00ff00;
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
 .import-options {
     display: flex;
     flex-wrap: wrap;
@@ -370,6 +376,21 @@ h3 {
 .position-circle.melee { fill: rgba(214, 158, 46, 0.9); }
 .position-circle.ranged { fill: rgba(49, 130, 206, 0.9); }
 .position-circle.assigned { stroke: #ffd700; stroke-width: 3; }
+.position-circle.selected {
+    stroke: #00ff00 !important;
+    stroke-width: 4 !important;
+    filter: drop-shadow(0 0 8px rgba(0, 255, 0, 0.8)) !important;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
 
 .position-text {
     fill: white;
