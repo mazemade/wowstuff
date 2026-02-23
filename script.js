@@ -23,6 +23,9 @@ let dragMode = false; // Whether drag mode is active
 let draggedPosition = null; // Currently dragged position object
 let dragOffset = { x: 0, y: 0 }; // Offset from mouse to position center when dragging starts
 let isDraggingPosition = false; // Whether we're currently dragging a position
+let dragStarted = false; // Whether a drag operation has actually started (mouse moved)
+let currentDragMoveHandler = null; // Bound handler for drag move events
+let currentDragEndHandler = null; // Bound handler for drag end events
 
 // Check if a point is inside a polygon using ray casting algorithm
 function pointInPolygon(point, polygon) {
@@ -1187,35 +1190,63 @@ function renderMap() {
         if (dragMode) {
             group.style.cursor = 'move';
             
-            group.addEventListener('mousedown', (e) => {
+            // Add drag handler to the group - use capture phase to ensure we get the event
+            const startDrag = (e) => {
                 if (swapMode) return; // Don't drag in swap mode
                 e.preventDefault();
                 e.stopPropagation();
+                
+                dragStarted = false;
                 isDraggingPosition = true;
                 draggedPosition = pos;
                 
                 const svg = document.getElementById('gruulMap');
-                const svgPoint = svg.createSVGPoint();
-                svgPoint.x = e.clientX;
-                svgPoint.y = e.clientY;
-                const ctm = svg.getScreenCTM();
-                const mousePos = svgPoint.matrixTransform(ctm.inverse());
+                let mousePos;
+                
+                try {
+                    const svgPoint = svg.createSVGPoint();
+                    svgPoint.x = e.clientX;
+                    svgPoint.y = e.clientY;
+                    const ctm = svg.getScreenCTM();
+                    if (ctm) {
+                        mousePos = svgPoint.matrixTransform(ctm.inverse());
+                    } else {
+                        const rect = svg.getBoundingClientRect();
+                        mousePos = {
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top
+                        };
+                    }
+                } catch (err) {
+                    const rect = svg.getBoundingClientRect();
+                    mousePos = {
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top
+                    };
+                }
                 
                 dragOffset.x = mousePos.x - pos.x;
                 dragOffset.y = mousePos.y - pos.y;
                 
                 group.classList.add('dragging');
-                document.addEventListener('mousemove', handleDragMove);
-                document.addEventListener('mouseup', handleDragEnd);
-            });
+                
+                // Create bound handlers
+                currentDragMoveHandler = (moveEvent) => {
+                    handleDragMove(moveEvent);
+                };
+                
+                currentDragEndHandler = (endEvent) => {
+                    handleDragEnd(endEvent);
+                };
+                
+                document.addEventListener('mousemove', currentDragMoveHandler, { passive: false });
+                document.addEventListener('mouseup', currentDragEndHandler, { passive: false });
+                document.addEventListener('mouseleave', currentDragEndHandler, { passive: false });
+            };
             
-            // Prevent click events when dragging
-            group.addEventListener('click', (e) => {
-                if (isDraggingPosition) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            });
+            // Add to both group and circle to ensure we catch the event
+            group.addEventListener('mousedown', startDrag, true); // Use capture phase
+            circle.addEventListener('mousedown', startDrag, true);
         } else {
             // Click handler - supports both swap mode and normal unassign
             group.style.cursor = 'pointer';
@@ -1399,83 +1430,134 @@ function toggleDragMode() {
 
 // Handle drag move
 function handleDragMove(e) {
-    if (!draggedPosition) return;
+    if (!draggedPosition) {
+        console.log('handleDragMove: no draggedPosition');
+        return;
+    }
+    e.preventDefault();
+    dragStarted = true; // Mark that dragging has actually started
     
     const svg = document.getElementById('gruulMap');
-    const svgPoint = svg.createSVGPoint();
-    svgPoint.x = e.clientX;
-    svgPoint.y = e.clientY;
-    const ctm = svg.getScreenCTM();
-    const mousePos = svgPoint.matrixTransform(ctm.inverse());
+    let mousePos;
+    
+    try {
+        const svgPoint = svg.createSVGPoint();
+        svgPoint.x = e.clientX;
+        svgPoint.y = e.clientY;
+        const ctm = svg.getScreenCTM();
+        if (ctm) {
+            mousePos = svgPoint.matrixTransform(ctm.inverse());
+        } else {
+            // Fallback if CTM is not available
+            const rect = svg.getBoundingClientRect();
+            mousePos = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+    } catch (err) {
+        console.error('Error getting mouse position:', err);
+        // Fallback to getBoundingClientRect
+        const rect = svg.getBoundingClientRect();
+        mousePos = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+    }
     
     // Calculate new position
     let newX = mousePos.x - dragOffset.x;
     let newY = mousePos.y - dragOffset.y;
     
-    // Constrain to map bounds
+    // Constrain to map bounds only - allow free placement anywhere on the map
     newX = Math.max(15, Math.min(MAP_SIZE - 15, newX));
     newY = Math.max(15, Math.min(MAP_SIZE - 15, newY));
     
-    // Constrain to boundary if it exists
-    if (arenaBoundary && arenaBoundary.length >= 3) {
-        const constrainedPoint = findClosestPointInBoundary({ x: newX, y: newY }, arenaBoundary);
-        newX = constrainedPoint.x;
-        newY = constrainedPoint.y;
-    }
+    // Don't constrain to arena boundary - allow free placement anywhere
     
-    // Check minimum spacing from other positions (18 yards = 144 pixels)
-    const minSpacing = REQUIRED_SPACING * YARDS_TO_PIXELS;
-    let tooClose = false;
-    for (const otherPos of positions) {
-        if (otherPos.id === draggedPosition.id) continue;
-        
-        const dist = Math.sqrt((newX - otherPos.x) ** 2 + (newY - otherPos.y) ** 2);
-        if (dist < minSpacing * 0.9) {
-            tooClose = true;
-            break;
-        }
-    }
+    // During dragging, allow movement even if temporarily too close
+    // We'll enforce spacing when the drag ends
+    draggedPosition.x = newX;
+    draggedPosition.y = newY;
     
-    // Only update if not too close to other positions
-    if (!tooClose) {
-        draggedPosition.x = newX;
-        draggedPosition.y = newY;
+    // Update the visual position immediately
+    const group = document.querySelector(`[data-position-id="${draggedPosition.id}"]`);
+    if (group) {
+        const circle = group.querySelector('.position-circle');
+        const numberText = group.querySelector('.position-number');
+        const text = group.querySelector('.position-text');
         
-        // Update the visual position immediately
-        const group = document.querySelector(`[data-position-id="${draggedPosition.id}"]`);
-        if (group) {
-            const circle = group.querySelector('.position-circle');
-            const numberText = group.querySelector('.position-number');
-            const text = group.querySelector('.position-text');
-            
-            if (circle) circle.setAttribute('cx', newX);
-            if (circle) circle.setAttribute('cy', newY);
-            if (numberText) {
-                numberText.setAttribute('x', newX);
-                numberText.setAttribute('y', newY - 18);
-            }
-            if (text) {
-                text.setAttribute('x', newX);
-                text.setAttribute('y', newY + 4);
-            }
+        if (circle) {
+            circle.setAttribute('cx', newX);
+            circle.setAttribute('cy', newY);
         }
+        if (numberText) {
+            numberText.setAttribute('x', newX);
+            numberText.setAttribute('y', newY - 18);
+        }
+        if (text) {
+            text.setAttribute('x', newX);
+            text.setAttribute('y', newY + 4);
+        }
+    } else {
+        console.error('Could not find group element for position', draggedPosition.id);
     }
 }
 
 // Handle drag end
 function handleDragEnd(e) {
+    e.preventDefault();
     if (draggedPosition) {
+        // Only enforce very minimal spacing - just prevent exact overlap
+        const minSpacing = 30; // Much smaller - just prevent overlap, not enforce 18 yards
+        let tooClose = false;
+        let closestPos = null;
+        let closestDist = Infinity;
+        
+        for (const otherPos of positions) {
+            if (otherPos.id === draggedPosition.id) continue;
+            
+            const dist = Math.sqrt((draggedPosition.x - otherPos.x) ** 2 + (draggedPosition.y - otherPos.y) ** 2);
+            if (dist < minSpacing) {
+                tooClose = true;
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestPos = otherPos;
+                }
+            }
+        }
+        
+        // Only adjust if positions are overlapping (very close)
+        if (tooClose && closestPos && closestDist < 20) {
+            const angle = Math.atan2(draggedPosition.y - closestPos.y, draggedPosition.x - closestPos.x);
+            const requiredDist = minSpacing;
+            draggedPosition.x = closestPos.x + Math.cos(angle) * requiredDist;
+            draggedPosition.y = closestPos.y + Math.sin(angle) * requiredDist;
+            
+            // Constrain to map bounds
+            draggedPosition.x = Math.max(15, Math.min(MAP_SIZE - 15, draggedPosition.x));
+            draggedPosition.y = Math.max(15, Math.min(MAP_SIZE - 15, draggedPosition.y));
+        }
+        
         const group = document.querySelector(`[data-position-id="${draggedPosition.id}"]`);
         if (group) {
             group.classList.remove('dragging');
         }
         draggedPosition = null;
         isDraggingPosition = false;
+        dragStarted = false;
         renderMap(); // Re-render to ensure everything is in sync
     }
     
-    document.removeEventListener('mousemove', handleDragMove);
-    document.removeEventListener('mouseup', handleDragEnd);
+    if (currentDragMoveHandler) {
+        document.removeEventListener('mousemove', currentDragMoveHandler);
+        currentDragMoveHandler = null;
+    }
+    if (currentDragEndHandler) {
+        document.removeEventListener('mouseup', currentDragEndHandler);
+        document.removeEventListener('mouseleave', currentDragEndHandler);
+        currentDragEndHandler = null;
+    }
 }
 
 // Handle position click in swap mode

@@ -272,23 +272,26 @@ function renderMap() {
             circle.classList.add('empty');
         }
         
-        // Position number
+        // Position number (shown above)
         const numberText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         numberText.classList.add('position-number');
         numberText.setAttribute('x', pos.x);
         numberText.setAttribute('y', pos.y - 18);
         numberText.textContent = pos.id;
         
-        // Raider name or position number
+        // Raider name (shown below with position number prefix if assigned)
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         text.classList.add('position-text');
         text.setAttribute('x', pos.x);
         text.setAttribute('y', pos.y + 4);
         
         if (raider) {
+            // Show position number and raider name together: "1 - RaiderName"
             const displayName = raider.name.length > 8 ? raider.name.substring(0, 7) + '...' : raider.name;
-            text.textContent = displayName;
+            text.textContent = `${pos.id} - ${displayName}`;
+            text.style.opacity = '1';
         } else {
+            // Just show position number if empty
             text.textContent = pos.id;
             text.style.opacity = '0.5';
         }
