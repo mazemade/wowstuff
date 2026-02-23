@@ -347,10 +347,41 @@ function init() {
         // Render map
         renderMap();
         
+        // Render position list
+        renderPositionList();
+        
     } catch (error) {
         console.error('Error loading share data:', error);
         document.body.innerHTML = '<div style="text-align: center; padding: 50px; color: #e0e0e0;"><h1>Error Loading Data</h1><p>The share link appears to be invalid or corrupted. Please request a new link from your raid leader.</p></div>';
     }
+}
+
+// Render position list below the map
+function renderPositionList() {
+    const container = document.getElementById('positionList');
+    if (!container) return;
+    
+    container.innerHTML = '<h3>Position Assignments</h3><div class="position-list-items"></div>';
+    const itemsContainer = container.querySelector('.position-list-items');
+    
+    // Sort positions by ID
+    const sortedPositions = [...positions].sort((a, b) => a.id - b.id);
+    
+    sortedPositions.forEach(pos => {
+        const raider = raiders.find(r => r.id === pos.assignedRaider);
+        
+        const item = document.createElement('div');
+        item.classList.add('position-list-item');
+        
+        if (!raider) {
+            item.classList.add('empty');
+            item.innerHTML = `<span class="position-number">${pos.id}.</span> Empty`;
+        } else {
+            item.innerHTML = `<span class="position-number">${pos.id}.</span> ${raider.name}`;
+        }
+        
+        itemsContainer.appendChild(item);
+    });
 }
 
 // Initialize on page load

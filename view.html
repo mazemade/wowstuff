@@ -31,6 +31,41 @@
             border-radius: 10px;
             padding: 20px;
         }
+        .position-list {
+            margin-top: 30px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .position-list h3 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        .position-list-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .position-list-item {
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 5px;
+            border-left: 3px solid #ffd700;
+            font-size: 14px;
+        }
+        .position-list-item.empty {
+            opacity: 0.5;
+            border-left-color: #4a5568;
+        }
+        .position-list-item .position-number {
+            font-weight: bold;
+            color: #ffd700;
+            margin-right: 8px;
+        }
+        .position-list-item.empty .position-number {
+            color: #718096;
+        }
     </style>
 </head>
 <body>
@@ -86,6 +121,8 @@
                 <div class="legend-item"><span class="color-box ranged"></span> Ranged DPS</div>
                 <div class="legend-item"><span class="color-box empty"></span> Empty</div>
             </div>
+            
+            <div id="positionList" class="position-list"></div>
         </div>
     </div>
 
