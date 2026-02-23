@@ -383,6 +383,16 @@ h3 {
     animation: pulse 1s ease-in-out infinite;
 }
 
+.position-marker.dragging {
+    opacity: 0.8;
+}
+
+.position-marker.dragging .position-circle {
+    stroke: #ffd700 !important;
+    stroke-width: 4 !important;
+    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.8)) !important;
+}
+
 @keyframes pulse {
     0%, 100% {
         opacity: 1;

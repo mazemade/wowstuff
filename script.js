@@ -19,6 +19,10 @@ let isDragging = false;
 let drawingPoints = []; // Points collected during freehand drawing
 let swapMode = false; // Whether swap mode is active
 let selectedPositions = []; // Array of selected position IDs for swapping
+let dragMode = false; // Whether drag mode is active
+let draggedPosition = null; // Currently dragged position object
+let dragOffset = { x: 0, y: 0 }; // Offset from mouse to position center when dragging starts
+let isDraggingPosition = false; // Whether we're currently dragging a position
 
 // Check if a point is inside a polygon using ray casting algorithm
 function pointInPolygon(point, polygon) {
@@ -259,6 +263,7 @@ function setupEventListeners() {
     document.getElementById('exportBtn').addEventListener('click', exportSetup);
     document.getElementById('generateShareLinkBtn').addEventListener('click', generateShareLink);
     document.getElementById('swapModeBtn').addEventListener('click', toggleSwapMode);
+    document.getElementById('dragModeBtn').addEventListener('click', toggleDragMode);
     
     // Filters
     document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -1178,20 +1183,55 @@ function renderMap() {
         group.appendChild(numberText);
         group.appendChild(text);
         
-        // Click handler - supports both swap mode and normal unassign
-        group.style.cursor = 'pointer';
-        group.addEventListener('click', () => {
-            if (swapMode) {
-                handlePositionClickForSwap(pos.id);
-            } else if (raider) {
-                if (confirm(`Unassign ${raider.name} from position ${pos.id}?`)) {
-                    raider.position = null;
-                    pos.assignedRaider = null;
-                    renderRaiderList();
-                    renderMap();
+        // Drag functionality when drag mode is active
+        if (dragMode) {
+            group.style.cursor = 'move';
+            
+            group.addEventListener('mousedown', (e) => {
+                if (swapMode) return; // Don't drag in swap mode
+                e.preventDefault();
+                e.stopPropagation();
+                isDraggingPosition = true;
+                draggedPosition = pos;
+                
+                const svg = document.getElementById('gruulMap');
+                const svgPoint = svg.createSVGPoint();
+                svgPoint.x = e.clientX;
+                svgPoint.y = e.clientY;
+                const ctm = svg.getScreenCTM();
+                const mousePos = svgPoint.matrixTransform(ctm.inverse());
+                
+                dragOffset.x = mousePos.x - pos.x;
+                dragOffset.y = mousePos.y - pos.y;
+                
+                group.classList.add('dragging');
+                document.addEventListener('mousemove', handleDragMove);
+                document.addEventListener('mouseup', handleDragEnd);
+            });
+            
+            // Prevent click events when dragging
+            group.addEventListener('click', (e) => {
+                if (isDraggingPosition) {
+                    e.preventDefault();
+                    e.stopPropagation();
                 }
-            }
-        });
+            });
+        } else {
+            // Click handler - supports both swap mode and normal unassign
+            group.style.cursor = 'pointer';
+            group.addEventListener('click', () => {
+                if (swapMode) {
+                    handlePositionClickForSwap(pos.id);
+                } else if (raider) {
+                    if (confirm(`Unassign ${raider.name} from position ${pos.id}?`)) {
+                        raider.position = null;
+                        pos.assignedRaider = null;
+                        renderRaiderList();
+                        renderMap();
+                    }
+                }
+            });
+        }
         
         // Add selected class if position is selected for swapping
         if (swapMode && selectedPositions.includes(pos.id)) {
@@ -1312,6 +1352,14 @@ function toggleSwapMode() {
     swapMode = !swapMode;
     selectedPositions = [];
     
+    // Disable drag mode when enabling swap mode
+    if (swapMode && dragMode) {
+        dragMode = false;
+        const dragBtn = document.getElementById('dragModeBtn');
+        dragBtn.classList.remove('active');
+        dragBtn.textContent = 'Drag Positions';
+    }
+    
     const btn = document.getElementById('swapModeBtn');
     if (swapMode) {
         btn.classList.add('active');
@@ -1322,6 +1370,112 @@ function toggleSwapMode() {
     }
     
     renderMap();
+}
+
+// Toggle drag mode
+function toggleDragMode() {
+    dragMode = !dragMode;
+    
+    // Disable swap mode when enabling drag mode
+    if (dragMode && swapMode) {
+        swapMode = false;
+        selectedPositions = [];
+        const swapBtn = document.getElementById('swapModeBtn');
+        swapBtn.classList.remove('active');
+        swapBtn.textContent = 'Swap Positions';
+    }
+    
+    const btn = document.getElementById('dragModeBtn');
+    if (dragMode) {
+        btn.classList.add('active');
+        btn.textContent = 'Drag Mode: ON (Click and drag positions)';
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Drag Positions';
+    }
+    
+    renderMap();
+}
+
+// Handle drag move
+function handleDragMove(e) {
+    if (!draggedPosition) return;
+    
+    const svg = document.getElementById('gruulMap');
+    const svgPoint = svg.createSVGPoint();
+    svgPoint.x = e.clientX;
+    svgPoint.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    const mousePos = svgPoint.matrixTransform(ctm.inverse());
+    
+    // Calculate new position
+    let newX = mousePos.x - dragOffset.x;
+    let newY = mousePos.y - dragOffset.y;
+    
+    // Constrain to map bounds
+    newX = Math.max(15, Math.min(MAP_SIZE - 15, newX));
+    newY = Math.max(15, Math.min(MAP_SIZE - 15, newY));
+    
+    // Constrain to boundary if it exists
+    if (arenaBoundary && arenaBoundary.length >= 3) {
+        const constrainedPoint = findClosestPointInBoundary({ x: newX, y: newY }, arenaBoundary);
+        newX = constrainedPoint.x;
+        newY = constrainedPoint.y;
+    }
+    
+    // Check minimum spacing from other positions (18 yards = 144 pixels)
+    const minSpacing = REQUIRED_SPACING * YARDS_TO_PIXELS;
+    let tooClose = false;
+    for (const otherPos of positions) {
+        if (otherPos.id === draggedPosition.id) continue;
+        
+        const dist = Math.sqrt((newX - otherPos.x) ** 2 + (newY - otherPos.y) ** 2);
+        if (dist < minSpacing * 0.9) {
+            tooClose = true;
+            break;
+        }
+    }
+    
+    // Only update if not too close to other positions
+    if (!tooClose) {
+        draggedPosition.x = newX;
+        draggedPosition.y = newY;
+        
+        // Update the visual position immediately
+        const group = document.querySelector(`[data-position-id="${draggedPosition.id}"]`);
+        if (group) {
+            const circle = group.querySelector('.position-circle');
+            const numberText = group.querySelector('.position-number');
+            const text = group.querySelector('.position-text');
+            
+            if (circle) circle.setAttribute('cx', newX);
+            if (circle) circle.setAttribute('cy', newY);
+            if (numberText) {
+                numberText.setAttribute('x', newX);
+                numberText.setAttribute('y', newY - 18);
+            }
+            if (text) {
+                text.setAttribute('x', newX);
+                text.setAttribute('y', newY + 4);
+            }
+        }
+    }
+}
+
+// Handle drag end
+function handleDragEnd(e) {
+    if (draggedPosition) {
+        const group = document.querySelector(`[data-position-id="${draggedPosition.id}"]`);
+        if (group) {
+            group.classList.remove('dragging');
+        }
+        draggedPosition = null;
+        isDraggingPosition = false;
+        renderMap(); // Re-render to ensure everything is in sync
+    }
+    
+    document.removeEventListener('mousemove', handleDragMove);
+    document.removeEventListener('mouseup', handleDragEnd);
 }
 
 // Handle position click in swap mode
