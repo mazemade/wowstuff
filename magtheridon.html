@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magtheridon's Lair - Cube Assignment</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .cube-assignment {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .cube-card {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            border: 2px solid #4a5568;
+        }
+        
+        .cube-card h3 {
+            color: #ffd700;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .cube-assignment-row {
+            margin-bottom: 15px;
+        }
+        
+        .cube-assignment-row label {
+            display: block;
+            color: #b0b0b0;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        
+        .cube-assignment-row select {
+            width: 100%;
+            padding: 8px;
+            background: #2d3748;
+            color: white;
+            border: 1px solid #4a5568;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .cube-icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background: #00bfff;
+            border: 2px solid #0080ff;
+            border-radius: 3px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .map-container-mag {
+            margin-top: 20px;
+        }
+        
+        .map-container {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: auto;
+        }
+        
+        .map-stage {
+            position: relative;
+            width: 800px;
+            height: 800px;
+            flex: 0 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #1a1a1a;
+        }
+        
+        #mapUnderlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            display: none;
+            z-index: 0;
+        }
+        
+        #mapUnderlayDimmer {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.15);
+            pointer-events: none;
+            z-index: 1;
+            display: none;
+        }
+        
+        #magtheridonMap {
+            position: relative;
+            z-index: 2;
+            max-width: 100%;
+            height: auto;
+        }
+        
+        .map-controls {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .map-controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        
+        .map-controls input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .calibration-info {
+            background: rgba(255, 215, 0, 0.1);
+            border-left: 4px solid #ffd700;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        
+        .calibration-info p {
+            color: #ffd700;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        
+        .cube-group.calibrating {
+            cursor: move;
+        }
+        
+        .cube-group.calibrating .cube-outer {
+            stroke: #ffd700 !important;
+            stroke-width: 4 !important;
+            filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.8)) !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Magtheridon's Lair - Cube Assignment</h1>
+            <p>Assign main and backup raiders to each cube</p>
+            <p style="margin-top: 10px;"><a href="index.html" style="color: #ffd700; text-decoration: none;">← Back to Fight Selection</a></p>
+        </header>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <section class="raider-import">
+                    <h2>Import Raiders</h2>
+                    <div class="import-options">
+                        <button id="manualAddBtn" class="btn">Add Raider Manually</button>
+                        <button id="bulkImportBtn" class="btn">Bulk Import</button>
+                        <button id="clearAllBtn" class="btn btn-danger">Clear All</button>
+                    </div>
+                    
+                    <div id="manualAddForm" class="form-section" style="display: none;">
+                        <h3>Add Raider</h3>
+                        <input type="text" id="raiderName" placeholder="Raider Name" />
+                        <button id="addRaiderBtn" class="btn btn-primary">Add</button>
+                        <button id="cancelAddBtn" class="btn">Cancel</button>
+                    </div>
+
+                    <div id="bulkImportForm" class="form-section" style="display: none;">
+                        <h3>Bulk Import</h3>
+                        <div class="import-format-tabs">
+                            <button class="format-tab active" data-format="names">Names Only</button>
+                            <button class="format-tab" data-format="csv">CSV Format</button>
+                        </div>
+                        
+                        <div id="namesFormatHelp" class="format-help">
+                            <p class="help-text">Paste names only (one per line)</p>
+                        </div>
+                        
+                        <div id="csvFormatHelp" class="format-help" style="display: none;">
+                            <p class="help-text">Enter one raider per line: Name,Role (role optional)</p>
+                        </div>
+                        
+                        <textarea id="bulkImportText" rows="10" placeholder="Example:&#10;Player1&#10;Player2&#10;Player3"></textarea>
+                        <button id="importBtn" class="btn btn-primary">Import</button>
+                        <button id="cancelImportBtn" class="btn">Cancel</button>
+                    </div>
+                </section>
+
+                <section class="raider-list">
+                    <h2>Raiders (<span id="raiderCount">0</span>)</h2>
+                    <div id="raiderListContainer"></div>
+                </section>
+            </div>
+
+            <div class="right-panel">
+                <section class="cube-assignments">
+                    <h2>Cube Assignments</h2>
+                    <div class="cube-assignment">
+                        <div class="cube-card">
+                            <h3><span class="cube-icon"></span>Front Left Cube (FL)</h3>
+                            <div class="cube-assignment-row">
+                                <label>Main:</label>
+                                <select id="cubeFLMain">
+                                    <option value="">-- Select Main --</option>
+                                </select>
+                            </div>
+                            <div class="cube-assignment-row">
+                                <label>Backup:</label>
+                                <select id="cubeFLBackup">
+                                    <option value="">-- Select Backup --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="cube-card">
+                            <h3><span class="cube-icon"></span>Front Right Cube (FR)</h3>
+                            <div class="cube-assignment-row">
+                                <label>Main:</label>
+                                <select id="cubeFRMain">
+                                    <option value="">-- Select Main --</option>
+                                </select>
+                            </div>
+                            <div class="cube-assignment-row">
+                                <label>Backup:</label>
+                                <select id="cubeFRBackup">
+                                    <option value="">-- Select Backup --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="cube-card">
+                            <h3><span class="cube-icon"></span>Back Left Cube (BL)</h3>
+                            <div class="cube-assignment-row">
+                                <label>Main:</label>
+                                <select id="cubeBLMain">
+                                    <option value="">-- Select Main --</option>
+                                </select>
+                            </div>
+                            <div class="cube-assignment-row">
+                                <label>Backup:</label>
+                                <select id="cubeBLBackup">
+                                    <option value="">-- Select Backup --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="cube-card">
+                            <h3><span class="cube-icon"></span>Back Right Cube (BR)</h3>
+                            <div class="cube-assignment-row">
+                                <label>Main:</label>
+                                <select id="cubeBRMain">
+                                    <option value="">-- Select Main --</option>
+                                </select>
+                            </div>
+                            <div class="cube-assignment-row">
+                                <label>Backup:</label>
+                                <select id="cubeBRBackup">
+                                    <option value="">-- Select Backup --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="cube-card">
+                            <h3><span class="cube-icon"></span>Back Middle Cube (BM)</h3>
+                            <div class="cube-assignment-row">
+                                <label>Main:</label>
+                                <select id="cubeBMMain">
+                                    <option value="">-- Select Main --</option>
+                                </select>
+                            </div>
+                            <div class="cube-assignment-row">
+                                <label>Backup:</label>
+                                <select id="cubeBMBackup">
+                                    <option value="">-- Select Backup --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="actions">
+                    <button id="exportBtn" class="btn btn-primary">Export Setup</button>
+                    <button id="generateShareLinkBtn" class="btn btn-primary">Generate Share Link</button>
+                </section>
+
+                <section class="map-container-mag">
+                    <h2>Magtheridon's Lair Map</h2>
+                    <div class="map-controls">
+                        <label>
+                            <input type="checkbox" id="showMapUnderlay" checked />
+                            Show Map Underlay
+                        </label>
+                        <button id="uploadMapBtn" class="btn">Upload Map</button>
+                        <button id="calibrateBtn" class="btn">Calibrate Positions</button>
+                        <input type="file" id="mapImageInput" accept="image/*" hidden />
+                    </div>
+                    <div id="calibrationInfo" class="calibration-info" style="display: none;">
+                        <p>Calibration Mode: Drag the cubes to match their positions on the map, then click "Save Positions"</p>
+                        <button id="saveCalibrationBtn" class="btn btn-success">Save Positions</button>
+                        <button id="cancelCalibrationBtn" class="btn">Cancel</button>
+                    </div>
+                    <div class="map-container">
+                        <div class="map-stage">
+                            <img id="mapUnderlay" alt="Magtheridon map underlay" />
+                            <div id="mapUnderlayDimmer"></div>
+                            <svg id="magtheridonMap" width="800" height="800" viewBox="0 0 800 800">
+                                <!-- Cube positions - will be positioned dynamically based on calibration -->
+                                <!-- Front Left Cube (FL) -->
+                                <g id="cubeFL" class="cube-group">
+                                    <circle class="cube-outer" cx="245" cy="205" r="30" fill="#00bfff" stroke="#0066cc" stroke-width="3" opacity="0.9"/>
+                                    <rect class="cube-inner" x="230" y="190" width="30" height="30" fill="#0080ff" rx="2" opacity="0.9"/>
+                                    <text class="cube-label" x="245" y="210" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold" filter="drop-shadow(0 0 2px rgba(0, 0, 0, 0.9))">FL</text>
+                                </g>
+                                
+                                <!-- Front Right Cube (FR) -->
+                                <g id="cubeFR" class="cube-group">
+                                    <circle class="cube-outer" cx="555" cy="205" r="30" fill="#00bfff" stroke="#0066cc" stroke-width="3" opacity="0.9"/>
+                                    <rect class="cube-inner" x="540" y="190" width="30" height="30" fill="#0080ff" rx="2" opacity="0.9"/>
+                                    <text class="cube-label" x="555" y="210" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold" filter="drop-shadow(0 0 2px rgba(0, 0, 0, 0.9))">FR</text>
+                                </g>
+                                
+                                <!-- Back Left Cube (BL) -->
+                                <g id="cubeBL" class="cube-group">
+                                    <circle class="cube-outer" cx="245" cy="505" r="30" fill="#00bfff" stroke="#0066cc" stroke-width="3" opacity="0.9"/>
+                                    <rect class="cube-inner" x="230" y="490" width="30" height="30" fill="#0080ff" rx="2" opacity="0.9"/>
+                                    <text class="cube-label" x="245" y="510" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold" filter="drop-shadow(0 0 2px rgba(0, 0, 0, 0.9))">BL</text>
+                                </g>
+                                
+                                <!-- Back Right Cube (BR) -->
+                                <g id="cubeBR" class="cube-group">
+                                    <circle class="cube-outer" cx="555" cy="505" r="30" fill="#00bfff" stroke="#0066cc" stroke-width="3" opacity="0.9"/>
+                                    <rect class="cube-inner" x="540" y="490" width="30" height="30" fill="#0080ff" rx="2" opacity="0.9"/>
+                                    <text class="cube-label" x="555" y="510" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold" filter="drop-shadow(0 0 2px rgba(0, 0, 0, 0.9))">BR</text>
+                                </g>
+                                
+                                <!-- Back Middle Cube (BM) -->
+                                <g id="cubeBM" class="cube-group">
+                                    <circle class="cube-outer" cx="400" cy="645" r="30" fill="#00bfff" stroke="#0066cc" stroke-width="3" opacity="0.9"/>
+                                    <rect class="cube-inner" x="385" y="630" width="30" height="30" fill="#0080ff" rx="2" opacity="0.9"/>
+                                    <text class="cube-label" x="400" y="650" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold" filter="drop-shadow(0 0 2px rgba(0, 0, 0, 0.9))">BM</text>
+                                </g>
+                            </svg>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="magtheridon.js"></script>
+</body>
+</html>

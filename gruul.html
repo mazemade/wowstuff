@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gruul's Lair Positioning Tool</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Gruul's Lair Positioning Tool</h1>
+            <p>Manage 25-player positioning with 18-yard spacing</p>
+            <p style="margin-top: 10px;"><a href="index.html" style="color: #ffd700; text-decoration: none;">← Back to Fight Selection</a></p>
+        </header>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <section class="raider-import">
+                    <h2>Import Raiders</h2>
+                    <div class="addon-info">
+                        <p class="info-text">💡 <strong>Pro Tip:</strong> Use the WoW addon to auto-export your raid! See instructions below.</p>
+                    </div>
+                    <div class="import-options">
+                        <button id="manualAddBtn" class="btn">Add Raider Manually</button>
+                        <button id="bulkImportBtn" class="btn">Bulk Import</button>
+                        <button id="showAddonInfoBtn" class="btn">WoW Addon Info</button>
+                        <button id="clearAllBtn" class="btn btn-danger">Clear All</button>
+                    </div>
+                    
+                    <div id="manualAddForm" class="form-section" style="display: none;">
+                        <h3>Add Raider</h3>
+                        <input type="text" id="raiderName" placeholder="Raider Name" />
+                        <select id="raiderRole">
+                            <option value="tank">Tank</option>
+                            <option value="healer">Healer</option>
+                            <option value="melee">Melee DPS</option>
+                            <option value="ranged">Ranged DPS</option>
+                        </select>
+                        <button id="addRaiderBtn" class="btn btn-primary">Add</button>
+                        <button id="cancelAddBtn" class="btn">Cancel</button>
+                    </div>
+
+                    <div id="bulkImportForm" class="form-section" style="display: none;">
+                        <h3>Bulk Import</h3>
+                        <div class="import-format-tabs">
+                            <button class="format-tab active" data-format="csv">CSV Format</button>
+                            <button class="format-tab" data-format="addon">WoW Addon Export</button>
+                            <button class="format-tab" data-format="names">Names Only</button>
+                        </div>
+                        
+                        <div id="csvFormatHelp" class="format-help">
+                            <p class="help-text">Enter one raider per line: Name,Role</p>
+                            <p class="help-text"><strong>Roles:</strong> tank, healer, melee, ranged</p>
+                        </div>
+                        
+                        <div id="addonFormatHelp" class="format-help" style="display: none;">
+                            <p class="help-text">Paste the export from the /gruulpos addon in-game</p>
+                        </div>
+                        
+                        <div id="namesFormatHelp" class="format-help" style="display: none;">
+                            <p class="help-text">Paste names only (one per line). You can manually assign roles after.</p>
+                            <label>
+                                Default Role: 
+                                <select id="defaultRole">
+                                    <option value="ranged">Ranged DPS</option>
+                                    <option value="melee">Melee DPS</option>
+                                    <option value="healer">Healer</option>
+                                    <option value="tank">Tank</option>
+                                </select>
+                            </label>
+                        </div>
+                        
+                        <textarea id="bulkImportText" rows="10" placeholder="Example:&#10;Tankadin,tank&#10;Holypally,healer&#10;Rogue1,melee&#10;Mage1,ranged"></textarea>
+                        <button id="importBtn" class="btn btn-primary">Import</button>
+                        <button id="cancelImportBtn" class="btn">Cancel</button>
+                    </div>
+                    
+                    <div id="addonInfoModal" class="modal" style="display: none;">
+                        <div class="modal-content">
+                            <span class="close-modal">&times;</span>
+                            <h3>WoW Addon Installation</h3>
+                            <ol class="addon-instructions">
+                                <li>Copy the files <code>GruulPositions.toc</code> and <code>GruulPositions.lua</code> from this folder</li>
+                                <li>Navigate to your WoW folder: <code>World of Warcraft/_classic_/Interface/AddOns/</code></li>
+                                <li>Create a new folder called <code>GruulPositions</code></li>
+                                <li>Place both files inside that folder</li>
+                                <li>Restart WoW or type <code>/reload</code> in-game</li>
+                                <li>In your raid, type <code>/gruulpos</code> or <code>/gpos</code></li>
+                                <li>Copy the exported text and paste it into the bulk import (WoW Addon Export format)</li>
+                            </ol>
+                            <p class="help-text"><strong>Note:</strong> The addon will auto-detect roles based on class and stance/aura. You can manually adjust roles after import if needed.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="raider-list">
+                    <h2>Raiders (<span id="raiderCount">0</span>/25)</h2>
+                    <div class="role-filter">
+                        <button class="filter-btn active" data-role="all">All</button>
+                        <button class="filter-btn" data-role="tank">Tanks</button>
+                        <button class="filter-btn" data-role="healer">Healers</button>
+                        <button class="filter-btn" data-role="melee">Melee</button>
+                        <button class="filter-btn" data-role="ranged">Ranged</button>
+                    </div>
+                    <div id="raiderListContainer"></div>
+                </section>
+
+                <section class="actions">
+                    <button id="autoAssignBtn" class="btn btn-success">Auto-Assign Positions</button>
+                    <button id="swapModeBtn" class="btn">Swap Positions</button>
+                    <button id="dragModeBtn" class="btn">Drag Positions</button>
+                    <button id="clearAssignmentsBtn" class="btn">Clear Assignments</button>
+                    <button id="exportBtn" class="btn">Export Setup</button>
+                    <button id="generateShareLinkBtn" class="btn btn-primary">Generate Share Link</button>
+                </section>
+            </div>
+
+            <div class="right-panel">
+                <section class="map-section">
+                    <h2>Gruul's Lair Map</h2>
+                    <div class="map-controls">
+                        <label>
+                            <input type="checkbox" id="showGridLines" checked />
+                            Show Grid Lines
+                        </label>
+                        <label>
+                            <input type="checkbox" id="showRoleColors" checked />
+                            Role Colors
+                        </label>
+                        <label>
+                            <input type="checkbox" id="showMapUnderlay" checked />
+                            Show Map Underlay
+                        </label>
+                        <button id="uploadMapBtn" class="btn">Upload Map</button>
+                        <input type="file" id="mapImageInput" accept="image/*" hidden />
+                    </div>
+                    <div class="map-container">
+                        <div class="map-stage">
+                            <img id="mapUnderlay" alt="Gruul map underlay" />
+                            <div id="mapUnderlayDimmer"></div>
+                            <svg id="gruulMap" width="800" height="800" viewBox="0 0 800 800">
+                                <!-- Arena boundary drawing -->
+                                <g id="arenaBoundary">
+                                    <polygon id="arenaPolygon" fill="rgba(255, 215, 0, 0.1)" stroke="none" points="" />
+                                    <path id="drawingPath" stroke="rgba(255, 215, 0, 0.9)" stroke-width="3" fill="none" style="display: none;" />
+                                </g>
+                                
+                                <!-- Grid lines -->
+                                <g id="gridLines" class="grid-lines"></g>
+
+                                <!-- Boss position -->
+                                <circle cx="400" cy="400" r="30" fill="#8B0000" stroke="#fff" stroke-width="3" filter="drop-shadow(0 0 4px rgba(0, 0, 0, 0.9))"/>
+                                <text x="400" y="405" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold" filter="drop-shadow(0 0 3px rgba(0, 0, 0, 0.9))">GRUUL</text>
+
+                                <!-- Position markers -->
+                                <g id="positionMarkers"></g>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="legend">
+                        <h3>Legend</h3>
+                        <div class="legend-item"><span class="color-box tank"></span> Tank</div>
+                        <div class="legend-item"><span class="color-box healer"></span> Healer</div>
+                        <div class="legend-item"><span class="color-box melee"></span> Melee DPS</div>
+                        <div class="legend-item"><span class="color-box ranged"></span> Ranged DPS</div>
+                        <div class="legend-item"><span class="color-box empty"></span> Empty</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
