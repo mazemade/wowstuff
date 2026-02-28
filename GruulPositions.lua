@@ -55,28 +55,32 @@ function GruulPositions:ExportRaid()
     for i = 1, GetNumGroupMembers() do
         local unit = "raid" .. i
         if UnitExists(unit) then
-            local name = UnitName(unit)
+            local name, _, subgroup = GetRaidRosterInfo(i)
             local class = UnitClass(unit)
             local role = GetRaiderRole(unit)
-            
+
             table.insert(raidData, {
                 name = name,
                 class = class,
-                role = role
+                role = role,
+                group = subgroup or 1
             })
         end
     end
-    
-    -- Sort by role for better organization
+
+    -- Sort by group, then role
     table.sort(raidData, function(a, b)
+        if a.group ~= b.group then
+            return a.group < b.group
+        end
         local roleOrder = {tank = 1, healer = 2, melee = 3, ranged = 4}
         return roleOrder[a.role] < roleOrder[b.role]
     end)
-    
+
     -- Create export string
     local exportString = ""
     for _, raider in ipairs(raidData) do
-        exportString = exportString .. raider.name .. "," .. raider.role .. "\n"
+        exportString = exportString .. raider.name .. "," .. raider.role .. "," .. raider.group .. "\n"
     end
     
     -- Show in a frame for easy copying

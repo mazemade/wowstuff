@@ -37,6 +37,14 @@
                             <option value="melee">Melee DPS</option>
                             <option value="ranged">Ranged DPS</option>
                         </select>
+                        <select id="raiderGroup">
+                            <option value="">No Group</option>
+                            <option value="1">Group 1</option>
+                            <option value="2">Group 2</option>
+                            <option value="3">Group 3</option>
+                            <option value="4">Group 4</option>
+                            <option value="5">Group 5</option>
+                        </select>
                         <button id="addRaiderBtn" class="btn btn-primary">Add</button>
                         <button id="cancelAddBtn" class="btn">Cancel</button>
                     </div>
@@ -50,8 +58,8 @@
                         </div>
                         
                         <div id="csvFormatHelp" class="format-help">
-                            <p class="help-text">Enter one raider per line: Name,Role</p>
-                            <p class="help-text"><strong>Roles:</strong> tank, healer, melee, ranged</p>
+                            <p class="help-text">Enter one raider per line: <code>Name,Role</code> or <code>Name,Role,Group</code></p>
+                            <p class="help-text"><strong>Roles:</strong> tank, healer, melee, ranged &nbsp; <strong>Group:</strong> 1–5 (optional)</p>
                         </div>
                         
                         <div id="addonFormatHelp" class="format-help" style="display: none;">
@@ -71,7 +79,7 @@
                             </label>
                         </div>
                         
-                        <textarea id="bulkImportText" rows="10" placeholder="Example:&#10;Tankadin,tank&#10;Holypally,healer&#10;Rogue1,melee&#10;Mage1,ranged"></textarea>
+                        <textarea id="bulkImportText" rows="10" placeholder="Example:&#10;Tankadin,tank,1&#10;Holypally,healer,1&#10;Rogue1,melee,2&#10;Mage1,ranged,2"></textarea>
                         <button id="importBtn" class="btn btn-primary">Import</button>
                         <button id="cancelImportBtn" class="btn">Cancel</button>
                     </div>

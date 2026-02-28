@@ -193,13 +193,13 @@ function generatePositions() {
     ];
     
     let posId = 1;
-    
+
     positionConfigs.forEach(config => {
         const angleStep = (2 * Math.PI) / config.count;
         for (let i = 0; i < config.count; i++) {
             const angle = i * angleStep;
             const targetRadius = config.radius;
-            
+
             let position;
             if (arenaBoundary && arenaBoundary.length >= 3) {
                 // Use optimized search to find best position within boundary
@@ -210,15 +210,25 @@ function generatePositions() {
                     y: MAP_CENTER + targetRadius * Math.sin(angle)
                 };
             }
-            
+
             positions.push({
                 id: posId++,
                 x: position.x,
                 y: position.y,
                 preferredRole: config.preferredRole,
-                assignedRaider: null
+                assignedRaider: null,
+                sector: null
             });
         }
+    });
+
+    // Assign sectors 1-5 based on angular position (each sector covers ~72°)
+    const sorted = [...positions].sort((a, b) =>
+        Math.atan2(a.y - MAP_CENTER, a.x - MAP_CENTER) -
+        Math.atan2(b.y - MAP_CENTER, b.x - MAP_CENTER)
+    );
+    sorted.forEach((pos, i) => {
+        pos.sector = Math.floor(i / 5) + 1;
     });
 }
 
@@ -326,7 +336,7 @@ function setupEventListeners() {
             // Show relevant help
             if (currentImportFormat === 'csv') {
                 document.getElementById('csvFormatHelp').style.display = 'block';
-                document.getElementById('bulkImportText').placeholder = 'Example:\nTankadin,tank\nHolypally,healer\nRogue1,melee\nMage1,ranged';
+                document.getElementById('bulkImportText').placeholder = 'Example:\nTankadin,tank,1\nHolypally,healer,1\nRogue1,melee,2\nMage1,ranged,2';
             } else if (currentImportFormat === 'addon') {
                 document.getElementById('addonFormatHelp').style.display = 'block';
                 document.getElementById('bulkImportText').placeholder = 'Paste the export from /gruulpos addon here...';
@@ -582,10 +592,15 @@ function addRaider() {
         return;
     }
     
+    const groupSelect = document.getElementById('raiderGroup');
+    const groupVal = groupSelect ? parseInt(groupSelect.value) : NaN;
+    const group = isNaN(groupVal) ? null : groupVal;
+
     raiders.push({
         id: Date.now(),
         name: name,
         role: role,
+        group: group,
         position: null
     });
     
@@ -612,8 +627,8 @@ function bulkImport() {
         const trimmed = line.trim();
         if (!trimmed) return;
         
-        let name, role;
-        
+        let name, role, group = null;
+
         if (currentImportFormat === 'names') {
             // Names only format
             name = trimmed;
@@ -621,29 +636,34 @@ function bulkImport() {
         } else {
             // CSV or addon format (both use comma separation)
             const parts = trimmed.split(',');
-            if (parts.length !== 2) {
+            if (parts.length < 2) {
                 console.warn(`Invalid line format: ${line}`);
                 return;
             }
-            
+
             name = parts[0].trim();
             role = parts[1].trim().toLowerCase();
+            if (parts.length >= 3) {
+                const g = parseInt(parts[2].trim());
+                if (g >= 1 && g <= 5) group = g;
+            }
         }
-        
+
         if (!['tank', 'healer', 'melee', 'ranged'].includes(role)) {
             console.warn(`Invalid role for ${name}: ${role}`);
             return;
         }
-        
+
         if (raiders.length >= MAX_RAIDERS) {
             console.warn('Max raiders reached');
             return;
         }
-        
+
         raiders.push({
             id: Date.now() + imported,
             name: name,
             role: role,
+            group: group,
             position: null
         });
         
@@ -682,54 +702,82 @@ function autoAssign() {
     positions.forEach(pos => pos.assignedRaider = null);
     raiders.forEach(raider => raider.position = null);
     
-    // Group raiders by role
-    const raidersByRole = {
-        tank: raiders.filter(r => r.role === 'tank'),
-        healer: raiders.filter(r => r.role === 'healer'),
-        melee: raiders.filter(r => r.role === 'melee'),
-        ranged: raiders.filter(r => r.role === 'ranged')
-    };
-    
-    // Assign tanks and melee to inner ring (prefer melee positions)
-    const meleePositions = positions.filter(p => p.preferredRole === 'melee');
-    const rangedPositions = positions.filter(p => p.preferredRole === 'ranged');
-    
-    let availableMelee = [...meleePositions];
-    let availableRanged = [...rangedPositions];
-    
-    // Assign melee DPS first to melee positions
-    raidersByRole.melee.forEach(raider => {
-        if (availableMelee.length > 0) {
-            const pos = availableMelee.shift();
-            assignRaiderToPosition(raider, pos);
-        } else if (availableRanged.length > 0) {
-            const pos = availableRanged.shift();
-            assignRaiderToPosition(raider, pos);
+    const hasGroupData = raiders.some(r => r.group !== null && r.group !== undefined);
+
+    if (hasGroupData) {
+        // Sector-based assignment: each raid group maps to the matching sector number
+        const groupNums = [...new Set(raiders.filter(r => r.group).map(r => r.group))].sort((a, b) => a - b);
+
+        groupNums.forEach(groupNum => {
+            const groupRaiders = raiders.filter(r => r.group === groupNum);
+            const sectorPositions = positions.filter(p => p.sector === groupNum);
+
+            const innerPos = sectorPositions.filter(p => p.preferredRole === 'melee');
+            const outerPos = sectorPositions.filter(p => p.preferredRole === 'ranged');
+
+            const meleePlayers = groupRaiders.filter(r => r.role === 'melee' || r.role === 'tank');
+            const rangePlayers = groupRaiders.filter(r => r.role === 'ranged' || r.role === 'healer');
+
+            let availInner = [...innerPos];
+            let availOuter = [...outerPos];
+
+            meleePlayers.forEach(raider => {
+                if (availInner.length > 0) assignRaiderToPosition(raider, availInner.shift());
+                else if (availOuter.length > 0) assignRaiderToPosition(raider, availOuter.shift());
+            });
+
+            rangePlayers.forEach(raider => {
+                if (availOuter.length > 0) assignRaiderToPosition(raider, availOuter.shift());
+                else if (availInner.length > 0) assignRaiderToPosition(raider, availInner.shift());
+            });
+        });
+
+        // Assign any ungrouped raiders to leftover positions using flat role logic
+        const ungrouped = raiders.filter(r => !r.group);
+        if (ungrouped.length > 0) {
+            let availMelee = positions.filter(p => p.preferredRole === 'melee' && !p.assignedRaider);
+            let availRanged = positions.filter(p => p.preferredRole === 'ranged' && !p.assignedRaider);
+
+            ungrouped.filter(r => r.role === 'melee' || r.role === 'tank').forEach(raider => {
+                if (availMelee.length > 0) assignRaiderToPosition(raider, availMelee.shift());
+                else if (availRanged.length > 0) assignRaiderToPosition(raider, availRanged.shift());
+            });
+            ungrouped.filter(r => r.role === 'ranged' || r.role === 'healer').forEach(raider => {
+                if (availRanged.length > 0) assignRaiderToPosition(raider, availRanged.shift());
+                else if (availMelee.length > 0) assignRaiderToPosition(raider, availMelee.shift());
+            });
         }
-    });
-    
-    // Assign tanks to remaining melee positions
-    raidersByRole.tank.forEach(raider => {
-        if (availableMelee.length > 0) {
-            const pos = availableMelee.shift();
-            assignRaiderToPosition(raider, pos);
-        } else if (availableRanged.length > 0) {
-            const pos = availableRanged.shift();
-            assignRaiderToPosition(raider, pos);
-        }
-    });
-    
-    // Assign ranged and healers to ranged positions
-    [...raidersByRole.ranged, ...raidersByRole.healer].forEach(raider => {
-        if (availableRanged.length > 0) {
-            const pos = availableRanged.shift();
-            assignRaiderToPosition(raider, pos);
-        } else if (availableMelee.length > 0) {
-            const pos = availableMelee.shift();
-            assignRaiderToPosition(raider, pos);
-        }
-    });
-    
+    } else {
+        // Flat role-based assignment (original behavior, no group data)
+        const raidersByRole = {
+            tank: raiders.filter(r => r.role === 'tank'),
+            healer: raiders.filter(r => r.role === 'healer'),
+            melee: raiders.filter(r => r.role === 'melee'),
+            ranged: raiders.filter(r => r.role === 'ranged')
+        };
+
+        const meleePositions = positions.filter(p => p.preferredRole === 'melee');
+        const rangedPositions = positions.filter(p => p.preferredRole === 'ranged');
+
+        let availableMelee = [...meleePositions];
+        let availableRanged = [...rangedPositions];
+
+        raidersByRole.melee.forEach(raider => {
+            if (availableMelee.length > 0) assignRaiderToPosition(raider, availableMelee.shift());
+            else if (availableRanged.length > 0) assignRaiderToPosition(raider, availableRanged.shift());
+        });
+
+        raidersByRole.tank.forEach(raider => {
+            if (availableMelee.length > 0) assignRaiderToPosition(raider, availableMelee.shift());
+            else if (availableRanged.length > 0) assignRaiderToPosition(raider, availableRanged.shift());
+        });
+
+        [...raidersByRole.ranged, ...raidersByRole.healer].forEach(raider => {
+            if (availableRanged.length > 0) assignRaiderToPosition(raider, availableRanged.shift());
+            else if (availableMelee.length > 0) assignRaiderToPosition(raider, availableMelee.shift());
+        });
+    }
+
     renderRaiderList();
     renderMap();
 }
@@ -1297,7 +1345,13 @@ function renderRaiderList() {
         const name = document.createElement('div');
         name.classList.add('raider-name');
         name.textContent = raider.name;
-        
+        if (raider.group) {
+            const badge = document.createElement('span');
+            badge.classList.add('group-badge');
+            badge.textContent = `G${raider.group}`;
+            name.appendChild(badge);
+        }
+
         const role = document.createElement('div');
         role.classList.add('raider-role');
         role.textContent = raider.role;
