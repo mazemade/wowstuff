@@ -18,18 +18,25 @@ local function Print(msg)
 end
 ns.Print = Print
 
--- BCC-era API: GetTalentTabInfo(tab, isInspect) -> name, texture, pointsSpent, background
--- (retail-classic variants shuffle returns, so find the first numeric value)
+-- 2.5.6: GetTalentTabInfo(tab, isInspect) -> id, name, description, iconTexture, pointsSpent, fileName
+-- Read pointsSpent by position, the way every other addon on this client does. An earlier
+-- version scanned for "the first numeric return" and picked up `id` instead — a few hundred,
+-- so the highest tab id always won and every player got the same confidently wrong spec.
 local function TabPoints(tab, isInspect)
-    local a, b, c, d, e = GetTalentTabInfo(tab, isInspect)
-    if type(c) == "number" then return c end
-    if type(a) == "number" then return a end
-    if type(e) == "number" then return e end
-    return 0
+    local _, _, _, _, pointsSpent = GetTalentTabInfo(tab, isInspect)
+    return tonumber(pointsSpent) or 0
 end
 
+-- 61 points at level 70; the headroom is slack, not a real cap.
+local MAX_TALENT_POINTS = 71
+
+-- Returns "?" rather than a number triple whenever the totals are impossible, so a future
+-- signature change shows up as an obviously unscanned player instead of a plausible lie.
 local function TalentString(isInspect)
-    return TabPoints(1, isInspect) .. "/" .. TabPoints(2, isInspect) .. "/" .. TabPoints(3, isInspect)
+    local t1, t2, t3 = TabPoints(1, isInspect), TabPoints(2, isInspect), TabPoints(3, isInspect)
+    local total = t1 + t2 + t3
+    if total == 0 or total > MAX_TALENT_POINTS then return "?" end
+    return t1 .. "/" .. t2 .. "/" .. t3
 end
 
 local function AddResult(unit, points)
