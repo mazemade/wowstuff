@@ -278,13 +278,38 @@ function dutyRow(d) {
     return row;
 }
 
+function markIcon(mark) {
+    const span = document.createElement('span');
+    span.className = 'rt-icon rt-' + mark;
+    return span;
+}
+
+// WoW's raid-target menu: all eight marks visible, one click to set.
+// A <select> can't show images in its options, hence buttons.
+function markPicker(current, onChange) {
+    const box = document.createElement('div');
+    box.className = 'mark-picker';
+    E.MARKS.forEach(m => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', capitalizeMark(m));
+        btn.setAttribute('aria-pressed', String(m === current));
+        btn.title = capitalizeMark(m);
+        btn.appendChild(markIcon(m));
+        btn.addEventListener('click', () => onChange(m));
+        box.appendChild(btn);
+    });
+    return box;
+}
+
+function capitalizeMark(m) { return m.charAt(0).toUpperCase() + m.slice(1); }
+
 function ccRow(c, index) {
     const row = document.createElement('div');
     row.className = 'assign-row';
     function materialize() { if (!state.cc) state.cc = sheet.cc.map(x => Object.assign({}, x)); return state.cc; }
 
-    const markOpts = E.MARKS.map(m => ({ value: m, label: E.MARK_EMOJI[m] + ' ' + m }));
-    row.appendChild(makeSelect(markOpts, c.mark, false, val => { materialize()[index].mark = val; renderAll(); }));
+    row.appendChild(markPicker(c.mark, val => { materialize()[index].mark = val; renderAll(); }));
 
     const abilityOpts = E.CC_ABILITIES.map(a => ({ value: a.id, label: a.name }));
     row.appendChild(makeSelect(abilityOpts, c.ability, false, val => {

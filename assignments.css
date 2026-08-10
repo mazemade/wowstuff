@@ -33,3 +33,25 @@
     font-size: 0.9em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; min-height: 80px; }
 #linkPanel { margin-top: 10px; }
 .link-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+
+/* WoW raid target icons — 4x2 sprite sheet, 64px cells */
+.rt-icon { display: inline-block; width: 22px; height: 22px; flex: none; vertical-align: middle;
+    background-image: url('UI-RaidTargetingIcons.webp'); background-size: 400% 200%; background-repeat: no-repeat; }
+.rt-star     { background-position:   0%   0%; }
+.rt-circle   { background-position: 33.333% 0%; }
+.rt-diamond  { background-position: 66.667% 0%; }
+.rt-triangle { background-position: 100%   0%; }
+.rt-moon     { background-position:   0% 100%; }
+.rt-square   { background-position: 33.333% 100%; }
+.rt-cross    { background-position: 66.667% 100%; }
+.rt-skull    { background-position: 100% 100%; }
+
+/* Mark picker — a row of icon buttons, WoW's raid-target menu */
+.mark-picker { display: flex; gap: 2px; flex-wrap: wrap; }
+.mark-picker button { background: none; border: 2px solid transparent; border-radius: 6px;
+    padding: 2px; cursor: pointer; line-height: 0; }
+.mark-picker button:hover { border-color: rgba(255, 215, 0, 0.45); }
+.mark-picker button:focus-visible { outline: 2px solid #ffd700; outline-offset: 1px; }
+.mark-picker button[aria-pressed="true"] { border-color: #ffd700; background: rgba(255, 215, 0, 0.15); }
+.mark-picker button:not([aria-pressed="true"]) .rt-icon { opacity: 0.45; }
+.mark-picker button:hover .rt-icon { opacity: 1; }

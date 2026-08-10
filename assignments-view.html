@@ -31,6 +31,19 @@
             parent.appendChild(div);
         }
         function target(t) { return t === 'HEALER_RESERVE' ? 'healer in need' : t; }
+        // Mark comes from the shared payload, so only ever build a class from a known mark.
+        function ccRow(parent, mark, text) {
+            const div = document.createElement('div');
+            div.className = 'assign-row';
+            if (E.MARKS.indexOf(mark) !== -1) {
+                const icon = document.createElement('span');
+                icon.className = 'rt-icon rt-' + mark;
+                div.appendChild(icon);
+                div.appendChild(document.createTextNode(' '));
+            }
+            div.appendChild(document.createTextNode(text));
+            parent.appendChild(div);
+        }
         function isValidPayload(payload) {
             return !!payload && typeof payload === 'object' &&
                 !!payload.sheet && typeof payload.sheet === 'object' &&
@@ -53,7 +66,7 @@
                 .forEach(d => row(cds, d.name + ' — ' + d.player + (d.target ? ' → ' + target(d.target) : '')));
             const cc = document.getElementById('ccRows');
             (sheet.cc || []).filter(c => c.player).forEach(c =>
-                row(cc, E.MARK_EMOJI[c.mark] + ' ' + c.mark + ' ' +
+                ccRow(cc, c.mark, String(c.mark).charAt(0).toUpperCase() + String(c.mark).slice(1) + ' ' +
                     (E.CC_ABILITIES.find(a => a.id === c.ability) || { name: c.ability }).name + ' — ' + c.player));
             if (sheet.uncovered && sheet.uncovered.length) {
                 const u = document.getElementById('uncoveredBox');

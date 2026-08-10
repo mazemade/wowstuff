@@ -278,16 +278,18 @@ test('autoAssign: explicitly-unassigned innervate keeps its row with a null play
     assert.deepStrictEqual(duty(r, 'innervate:0'), { id: 'innervate:0', name: 'Innervate', category: 'cooldowns', player: null });
     assert.ok(duty(r, 'innervate:1')); // other druid's row is unaffected
 });
-test('defaultCC: mages sheep moon/triangle, rogue saps square', () => {
+test('defaultCC: mages sheep moon/triangle', () => {
     assert.deepStrictEqual(E.defaultCC(fullRoster()), [
         { mark: 'moon', ability: 'polymorph', player: 'Frostina' },
         { mark: 'triangle', ability: 'polymorph', player: 'Sheepmaster' },
-        { mark: 'square', ability: 'sap', player: 'Stabby' },
     ]);
 });
 test('defaultCC: rows only for available classes', () => {
-    const r = E.defaultCC(fullRoster().filter(p => p.class !== 'MAGE' && p.class !== 'ROGUE'));
+    const r = E.defaultCC(fullRoster().filter(p => p.class !== 'MAGE'));
     assert.deepStrictEqual(r, []);
+});
+test('CC_ABILITIES: sap is not offered', () => {
+    assert.ok(!E.CC_ABILITIES.some(a => a.id === 'sap'));
 });
 
 // --- Task 7: output builders ---

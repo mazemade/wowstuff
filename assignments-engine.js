@@ -154,7 +154,6 @@
 
     const CC_ABILITIES = [
         { id: 'polymorph', name: 'Polymorph', class: 'MAGE' },
-        { id: 'sap', name: 'Sap', class: 'ROGUE' },
         { id: 'trap', name: 'Freezing Trap', class: 'HUNTER' },
         { id: 'banish', name: 'Banish', class: 'WARLOCK' },
         { id: 'shackle', name: 'Shackle Undead', class: 'PRIEST' },
@@ -165,11 +164,9 @@
 
     function defaultCC(roster) {
         const mages = roster.filter(p => p.class === 'MAGE');
-        const rogues = roster.filter(p => p.class === 'ROGUE');
         const cc = [];
         if (mages[0]) cc.push({ mark: 'moon', ability: 'polymorph', player: mages[0].name });
         if (mages[1]) cc.push({ mark: 'triangle', ability: 'polymorph', player: mages[1].name });
-        if (rogues[0]) cc.push({ mark: 'square', ability: 'sap', player: rogues[0].name });
         return cc;
     }
 
