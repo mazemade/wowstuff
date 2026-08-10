@@ -106,5 +106,39 @@ test('parseRaidHelper: empty event reports error', () => {
     assert.strictEqual(r.errors.length, 1);
 });
 
+// --- Task 4: mergeRosters ---
+function P(name, cls, spec, extra) {
+    return Object.assign({ name, class: cls, spec, flags: [] }, extra || {});
+}
+test('mergeRosters: exact case-insensitive match attaches discordId', () => {
+    const r = E.mergeRosters([P('Bob', 'WARLOCK', 'Affliction')], [P('bob', 'WARLOCK', 'Affliction', { discordId: '1' })], {});
+    assert.strictEqual(r.roster[0].discordId, '1');
+    assert.strictEqual(r.unmatched.raidhelper.length, 0);
+});
+test('mergeRosters: linkMap match beats name mismatch', () => {
+    const r = E.mergeRosters([P('Grimshade', 'WARLOCK', 'Destruction')], [P('Dave', 'WARLOCK', 'Destruction', { discordId: '9' })], { 9: 'Grimshade' });
+    assert.strictEqual(r.roster[0].discordId, '9');
+});
+test('mergeRosters: unique fuzzy containment matches', () => {
+    const r = E.mergeRosters([P('Frostina', 'MAGE', 'Fire')], [P('frosti', 'MAGE', 'Fire', { discordId: '2' })], {});
+    assert.strictEqual(r.roster[0].discordId, '2');
+});
+test('mergeRosters: spec disagreement flags and reports, addon wins', () => {
+    const r = E.mergeRosters([P('Moonpie', 'DRUID', 'Balance')], [P('Moonpie', 'DRUID', 'Restoration', { discordId: '3' })], {});
+    assert.strictEqual(r.roster[0].spec, 'Balance');
+    assert.ok(r.roster[0].flags.includes('signed-as:Restoration'));
+    assert.deepStrictEqual(r.mismatches, [{ name: 'Moonpie', signed: 'Restoration', actual: 'Balance' }]);
+});
+test('mergeRosters: unmatched on both sides reported', () => {
+    const r = E.mergeRosters([P('Xx', 'ROGUE', 'Combat')], [P('TotallyDifferent', 'ROGUE', 'Combat', { discordId: '4' })], {});
+    assert.strictEqual(r.unmatched.raidhelper.length, 1);
+    assert.strictEqual(r.unmatched.addon.length, 1);
+});
+test('mergeRosters: no addon players means raid-helper is the roster', () => {
+    const r = E.mergeRosters([], [P('Dave', 'WARLOCK', 'Affliction', { discordId: '1' })], {});
+    assert.strictEqual(r.roster.length, 1);
+    assert.strictEqual(r.roster[0].name, 'Dave');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

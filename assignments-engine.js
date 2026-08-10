@@ -93,8 +93,46 @@
         return { players, excluded, errors, title: (eventJson && eventJson.title) || '' };
     }
 
+    function normName(s) { return (s || '').toLowerCase().replace(/[^a-zà-ÿ0-9]/gi, ''); }
+
+    function mergeRosters(addonPlayers, rhPlayers, linkMap) {
+        linkMap = linkMap || {};
+        const unmatched = { addon: [], raidhelper: [] };
+        const mismatches = [];
+        if (!addonPlayers || !addonPlayers.length) {
+            return { roster: (rhPlayers || []).map(p => Object.assign({}, p)), unmatched, mismatches };
+        }
+        const roster = addonPlayers.map(p => Object.assign({}, p, { flags: (p.flags || []).slice() }));
+        (rhPlayers || []).forEach(rh => {
+            let m = null;
+            if (rh.discordId && linkMap[rh.discordId]) {
+                m = roster.find(p => p.name === linkMap[rh.discordId]) || null;
+            }
+            if (!m) m = roster.find(p => normName(p.name) === normName(rh.name)) || null;
+            if (!m) {
+                const a = normName(rh.name);
+                const cands = roster.filter(p => {
+                    const b = normName(p.name);
+                    return a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a));
+                });
+                if (cands.length === 1) m = cands[0];
+            }
+            if (m) {
+                m.discordId = rh.discordId;
+                if (rh.spec && m.spec && rh.spec !== m.spec) {
+                    m.flags.push('signed-as:' + rh.spec);
+                    mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
+                }
+            } else {
+                unmatched.raidhelper.push(rh);
+            }
+        });
+        roster.forEach(p => { if (!p.discordId) unmatched.addon.push(p); });
+        return { roster, unmatched, mismatches };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
-        inferSpec, parseAddonExport, parseRaidHelper,
+        inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
     };
 }));
