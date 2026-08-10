@@ -152,5 +152,85 @@ test('mergeRosters: empty addon path does not mutate caller inputs', () => {
     assert.strictEqual(rhPlayers[1].flags, originalFlags1);
 });
 
+// --- Task 5: autoAssign debuffs ---
+function fullRoster() {
+    return [
+        P('Thunderfist', 'WARRIOR', 'Protection'), P('Smashy', 'WARRIOR', 'Arms'),
+        P('Bob', 'WARLOCK', 'Affliction'), P('Grimshade', 'WARLOCK', 'Destruction'), P('Doomlord', 'WARLOCK', 'Demonology'),
+        P('Retdin', 'PALADIN', 'Retribution'), P('Lightbringer', 'PALADIN', 'Holy'), P('Bubbles', 'PALADIN', 'Protection'),
+        P('Frostina', 'MAGE', 'Fire'), P('Sheepmaster', 'MAGE', 'Frost'),
+        P('Moonpie', 'DRUID', 'Balance'), P('Treebeard', 'DRUID', 'Restoration'),
+        P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy'),
+        P('Legolass', 'HUNTER', 'Marksmanship'), P('Stabby', 'ROGUE', 'Combat'),
+    ];
+}
+function duty(r, id) { return r.duties.find(d => d.id === id); }
+
+test('autoAssign: full comp covers all core debuffs with right players', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist'); // prot preferred
+    assert.strictEqual(duty(r, 'coe').player, 'Bob');            // affliction preferred
+    assert.ok(['Grimshade', 'Doomlord'].includes(duty(r, 'cor').player));
+    assert.strictEqual(duty(r, 'jow').player, 'Retdin');
+    assert.strictEqual(duty(r, 'jol').player, 'Lightbringer');
+    assert.ok(duty(r, 'joc'));                                   // 3 paladins present
+    assert.strictEqual(duty(r, 'scorch').player, 'Frostina');    // fire required
+    assert.strictEqual(duty(r, 'ff').player, 'Moonpie');
+    assert.strictEqual(duty(r, 'hm').player, 'Legolass');
+    assert.strictEqual(duty(r, 'demo').player, 'Smashy');        // arms/fury preferred over tank
+    assert.strictEqual(r.uncovered.length, 0);
+});
+test('autoAssign: one curse per warlock, spare lock gets personal curse', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    const lockDuties = r.duties.filter(d => ['Bob', 'Grimshade', 'Doomlord'].includes(d.player));
+    const curseHolders = new Set(r.duties.filter(d => ['coe', 'cor'].includes(d.id)).map(d => d.player));
+    assert.strictEqual(curseHolders.size, 2);
+    const spare = ['Bob', 'Grimshade', 'Doomlord'].find(n => !curseHolders.has(n));
+    assert.ok(duty(r, 'curse:' + spare));
+});
+test('autoAssign: no paladins puts judgements in uncovered, joc omitted', () => {
+    const roster = fullRoster().filter(p => p.class !== 'PALADIN');
+    const r = E.autoAssign(roster, {});
+    assert.ok(r.uncovered.some(u => u.id === 'jow'));
+    assert.ok(r.uncovered.some(u => u.id === 'jol'));
+    assert.ok(!r.uncovered.some(u => u.id === 'joc'));
+    assert.ok(!duty(r, 'joc'));
+});
+test('autoAssign: only 2 paladins means no joc row at all', () => {
+    const roster = fullRoster().filter(p => p.name !== 'Bubbles');
+    const r = E.autoAssign(roster, {});
+    assert.ok(!duty(r, 'joc'));
+    assert.ok(!r.uncovered.some(u => u.id === 'joc'));
+});
+test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () => {
+    const roster = fullRoster().filter(p => p.class !== 'WARRIOR');
+    const r = E.autoAssign(roster, {});
+    const demo = duty(r, 'demo');
+    assert.strictEqual(demo.name, 'Curse of Weakness');
+    assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
+    assert.ok(r.uncovered.some(u => u.id === 'sunder'));
+});
+test('autoAssign: manual override wins and displaced lock still gets a curse duty', () => {
+    const r = E.autoAssign(fullRoster(), { coe: { player: 'Grimshade' } });
+    assert.strictEqual(duty(r, 'coe').player, 'Grimshade');
+    assert.ok(r.duties.some(d => d.player === 'Bob' && (d.id === 'cor' || d.id === 'curse:Bob')));
+});
+test('autoAssign: spec-unknown players are never auto-picked', () => {
+    const roster = [P('Mystery', 'MAGE', null, { flags: ['spec-unknown'] })];
+    const r = E.autoAssign(roster, {});
+    assert.ok(r.uncovered.some(u => u.id === 'scorch'));
+});
+test('autoAssign: passives detected from comp', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    assert.ok(r.passives.some(p => p.name === 'Misery' && p.player === 'Shadowmel'));
+    assert.ok(r.passives.some(p => p.name === 'Blood Frenzy' && p.player === 'Smashy'));
+    assert.ok(r.passives.some(p => p.name === "Winter's Chill" && p.player === 'Sheepmaster'));
+});
+test('autoAssign: empty roster gives all core debuffs uncovered', () => {
+    const r = E.autoAssign([], {});
+    assert.strictEqual(r.duties.length, 0);
+    assert.ok(r.uncovered.length >= 8);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

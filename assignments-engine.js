@@ -131,8 +131,101 @@
         return { roster, unmatched, mismatches };
     }
 
+    const DEBUFF_CATALOG = [
+        { id: 'sunder', name: 'Sunder Armor', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Protection'] },
+        { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse' },
+        { id: 'cor', name: 'Curse of Recklessness', category: 'debuffs', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
+        { id: 'jow', name: 'Judgement of Wisdom', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Retribution'], group: 'judgement' },
+        { id: 'jol', name: 'Judgement of Light', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Holy', 'Protection'], group: 'judgement' },
+        { id: 'joc', name: 'Judgement of the Crusader', category: 'debuffs', class: 'PALADIN', preferSpecs: [], group: 'judgement', minClassCount: 3 },
+        { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire' },
+        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance'] },
+        { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'] },
+        { id: 'demo', name: 'Demoralizing Shout', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'],
+          fallback: { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' } },
+    ];
+
+    const PASSIVES = [
+        { name: 'Misery', class: 'PRIEST', spec: 'Shadow' },
+        { name: 'Shadow Weaving', class: 'PRIEST', spec: 'Shadow' },
+        { name: 'Improved Shadow Bolt', class: 'WARLOCK', spec: 'Destruction' },
+        { name: 'Blood Frenzy', class: 'WARRIOR', spec: 'Arms' },
+        { name: 'Mangle', class: 'DRUID', spec: 'Feral' },
+        { name: 'Expose Weakness', class: 'HUNTER', spec: 'Survival' },
+        { name: "Winter's Chill", class: 'MAGE', spec: 'Frost' },
+    ];
+
+    function specRank(p, entry) {
+        const i = (entry.preferSpecs || []).indexOf(p.spec);
+        return i === -1 ? 99 : i;
+    }
+
+    function rankPool(pool, entry, dutyCount) {
+        return pool.slice().sort((a, b) => {
+            const sa = specRank(a, entry), sb = specRank(b, entry);
+            if (sa !== sb) return sa - sb;
+            const ca = dutyCount[a.name] || 0, cb = dutyCount[b.name] || 0;
+            if (ca !== cb) return ca - cb;
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    function autoAssign(roster, overrides) {
+        overrides = overrides || {};
+        const duties = [];
+        const uncovered = [];
+        const dutyCount = {};
+        const groupUsed = {}; // '<group>:<player>' -> true
+        const byName = {};
+        roster.forEach(p => { byName[p.name] = p; });
+
+        function eligible(p, entry) {
+            if (p.class !== entry.class) return false;
+            if ((p.flags || []).includes('spec-unknown')) return false;
+            if (entry.requireSpec && p.spec !== entry.requireSpec) return false;
+            if (entry.group && groupUsed[entry.group + ':' + p.name]) return false;
+            return true;
+        }
+
+        function record(entry, displayName, player, target) {
+            const d = { id: entry.id, name: displayName, category: entry.category, player: player ? player.name : null };
+            if (target) d.target = target;
+            duties.push(d);
+            if (player) {
+                dutyCount[player.name] = (dutyCount[player.name] || 0) + 1;
+                if (entry.group) groupUsed[entry.group + ':' + player.name] = true;
+            }
+        }
+
+        DEBUFF_CATALOG.forEach(entry => {
+            if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) return;
+            const o = overrides[entry.id] || {};
+            if (o.player && byName[o.player]) { record(entry, entry.name, byName[o.player]); return; }
+            let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
+            if (pool.length) { record(entry, entry.name, pool[0]); return; }
+            if (entry.fallback) {
+                const fb = Object.assign({}, entry.fallback, { id: entry.id, category: entry.category });
+                pool = rankPool(roster.filter(p => eligible(p, fb)), fb, dutyCount);
+                if (pool.length) { record(fb, fb.name, pool[0]); return; }
+            }
+            uncovered.push({ id: entry.id, name: entry.name });
+        });
+
+        // Spare warlocks keep a personal DPS curse
+        roster.filter(p => p.class === 'WARLOCK' && !groupUsed['curse:' + p.name])
+            .forEach(p => duties.push({ id: 'curse:' + p.name, name: 'Curse of Doom/Agony (personal)', category: 'debuffs', player: p.name }));
+
+        const passives = PASSIVES.map(ps => {
+            const p = roster.find(x => x.class === ps.class && (!ps.spec || x.spec === ps.spec));
+            return p ? { name: ps.name, player: p.name } : null;
+        }).filter(Boolean);
+
+        return { duties, uncovered, passives };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
+        DEBUFF_CATALOG, PASSIVES, autoAssign,
     };
 }));
