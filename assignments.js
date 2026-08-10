@@ -18,6 +18,7 @@ let roster = [];
 let mergeInfo = { unmatched: { addon: [], raidhelper: [] }, mismatches: [] };
 let sheet = null;
 let activeTab = 'discord';
+let editingOriginalName = null; // name the manual form was opened for, so a rename can exclude the old entry
 
 function loadState() {
     try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}); } catch (e) { /* fresh start */ }
@@ -69,6 +70,13 @@ async function importRaidHelper() {
             throw new Error(body.error || ('HTTP ' + res.status));
         }
         const parsed = E.parseRaidHelper(await res.json());
+        if (!parsed.players.length) {
+            let msg = 'No usable signups found in that event.';
+            if (parsed.excluded.length) msg += ' Excluded: ' + parsed.excluded.map(x => x.name + ' (' + x.reason + ')').join(', ');
+            if (parsed.errors.length) msg += ' · ' + parsed.errors.join('; ');
+            setStatus(msg, true);
+            return;
+        }
         state.sources.rh = parsed.players;
         if (parsed.title) state.title = parsed.title;
         let msg = 'Imported ' + parsed.players.length + ' signups';
@@ -94,6 +102,7 @@ function importAddon() {
 // --- Manual add/edit ---
 function openManualForm(player) {
     document.getElementById('manualForm').classList.remove('hidden');
+    editingOriginalName = player ? player.name : null;
     const clsSel = document.getElementById('manualClass');
     clsSel.innerHTML = Object.keys(E.SPEC_TREES).map(c => '<option value="' + c + '">' + c + '</option>').join('');
     if (player) {
@@ -119,6 +128,10 @@ function saveManualPlayer() {
         flags: [], source: 'manual',
     });
     state.excluded = state.excluded.filter(n => n !== name);
+    if (editingOriginalName && editingOriginalName !== name && !state.excluded.includes(editingOriginalName)) {
+        state.excluded.push(editingOriginalName);
+    }
+    editingOriginalName = null;
     document.getElementById('manualForm').classList.add('hidden');
     document.getElementById('manualName').value = '';
     renderAll();
@@ -141,13 +154,28 @@ function renderRoster() {
         const pill = document.createElement('span');
         pill.className = 'pill';
         pill.style.background = E.CLASS_COLORS[p.class] || '#999';
-        const flags = (p.flags || [])
+        pill.appendChild(document.createTextNode(p.name + ' · ' + (p.spec || '?')));
+        (p.flags || [])
             .map(f => f === 'spec-unknown' ? '?spec' : f === 'spec-ambiguous' ? '~spec' : f)
-            .map(f => '<span class="flag">' + f + '</span>').join('');
-        pill.innerHTML = p.name + ' · ' + (p.spec || '?') + flags +
-            ' <button title="Edit" data-act="edit">✎</button><button title="Remove" data-act="del">✕</button>';
-        pill.querySelector('[data-act=edit]').addEventListener('click', () => openManualForm(p));
-        pill.querySelector('[data-act=del]').addEventListener('click', () => removePlayer(p.name));
+            .forEach(f => {
+                const flagEl = document.createElement('span');
+                flagEl.className = 'flag';
+                flagEl.textContent = f;
+                pill.appendChild(flagEl);
+            });
+        pill.appendChild(document.createTextNode(' '));
+        const editBtn = document.createElement('button');
+        editBtn.title = 'Edit';
+        editBtn.dataset.act = 'edit';
+        editBtn.textContent = '✎';
+        editBtn.addEventListener('click', () => openManualForm(p));
+        const delBtn = document.createElement('button');
+        delBtn.title = 'Remove';
+        delBtn.dataset.act = 'del';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', () => removePlayer(p.name));
+        pill.appendChild(editBtn);
+        pill.appendChild(delBtn);
         box.appendChild(pill);
     });
 }
@@ -159,17 +187,30 @@ function renderLinkPanel() {
     const candidates = mergeInfo.unmatched.addon;
     if (!needsLink.length || !candidates.length) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
     panel.classList.remove('hidden');
-    panel.innerHTML = '<div class="warn">Unlinked Raid-Helper signups — link them to characters to enable @pings:</div>';
+    panel.innerHTML = '';
+    const warnDiv = document.createElement('div');
+    warnDiv.className = 'warn';
+    warnDiv.textContent = 'Unlinked Raid-Helper signups — link them to characters to enable @pings:';
+    panel.appendChild(warnDiv);
     needsLink.forEach(rh => {
         const row = document.createElement('div');
         row.className = 'link-row';
-        const opts = candidates.map(p => '<option value="' + p.name + '">' + p.name + '</option>').join('');
-        row.innerHTML = '<span>' + rh.name + ' (' + rh.class + ')</span> ▸ <select>' + opts +
-            '</select> <button class="btn">Link</button>';
-        row.querySelector('button').addEventListener('click', () => {
-            linkMap[rh.discordId] = row.querySelector('select').value;
+        const label = document.createElement('span');
+        label.textContent = rh.name + ' (' + rh.class + ')';
+        row.appendChild(label);
+        row.appendChild(document.createTextNode(' ▸ '));
+        const select = document.createElement('select');
+        candidates.forEach(p => select.appendChild(new Option(p.name, p.name)));
+        row.appendChild(select);
+        row.appendChild(document.createTextNode(' '));
+        const linkBtn = document.createElement('button');
+        linkBtn.className = 'btn';
+        linkBtn.textContent = 'Link';
+        linkBtn.addEventListener('click', () => {
+            linkMap[rh.discordId] = select.value;
             renderAll();
         });
+        row.appendChild(linkBtn);
         panel.appendChild(row);
     });
 }
