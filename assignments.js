@@ -379,6 +379,8 @@ function renderOutput() {
         box.textContent = E.buildRaidLines(roster, sheet).join('\n');
     } else if (activeTab === 'whispers') {
         box.textContent = E.buildWhispers(roster, sheet).join('\n');
+    } else if (activeTab === 'addon') {
+        box.textContent = E.buildAddonWhispers(roster, sheet);
     } else if (activeTab === 'share') {
         box.textContent = buildShareLink();
     }
