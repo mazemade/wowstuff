@@ -61,8 +61,40 @@
         return { players, errors };
     }
 
+    const RH_STATUS_CLASSES = ['Bench', 'Late', 'Tentative', 'Absence'];
+    const RH_CLASS_NAMES = {
+        Warrior: 'WARRIOR', Paladin: 'PALADIN', Hunter: 'HUNTER', Rogue: 'ROGUE',
+        Priest: 'PRIEST', Shaman: 'SHAMAN', Mage: 'MAGE', Warlock: 'WARLOCK', Druid: 'DRUID',
+    };
+    const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery', Guardian: 'Feral' };
+
+    function parseRaidHelper(eventJson) {
+        const players = [];
+        const excluded = [];
+        const errors = [];
+        const signUps = (eventJson && eventJson.signUps) || [];
+        if (!Array.isArray(signUps) || !signUps.length) errors.push('No signups found in event');
+        signUps.forEach(su => {
+            const rawClass = su.className || '';
+            if (RH_STATUS_CLASSES.includes(rawClass)) { excluded.push({ name: su.name, reason: rawClass }); return; }
+            if (su.status && su.status !== 'primary') { excluded.push({ name: su.name, reason: su.status }); return; }
+            const cls = RH_CLASS_NAMES[rawClass];
+            if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
+            let spec = (su.specName || '').replace(/\d+$/, '');
+            spec = RH_SPEC_ALIASES[spec] || spec;
+            const flags = [];
+            if (!SPEC_TREES[cls].includes(spec)) { spec = null; flags.push('spec-unknown'); }
+            players.push({
+                name: su.name, class: cls, spec,
+                discordId: su.userId !== undefined && su.userId !== null ? String(su.userId) : null,
+                flags, source: 'raidhelper',
+            });
+        });
+        return { players, excluded, errors, title: (eventJson && eventJson.title) || '' };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
-        inferSpec, parseAddonExport,
+        inferSpec, parseAddonExport, parseRaidHelper,
     };
 }));

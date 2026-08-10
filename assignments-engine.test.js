@@ -61,5 +61,50 @@ test('parseAddonExport: empty input gives empty result', () => {
     assert.deepStrictEqual(E.parseAddonExport(''), { players: [], errors: [] });
 });
 
+// --- Task 3: parseRaidHelper ---
+function rhFixture() {
+    return {
+        title: 'SSC Tuesday',
+        signUps: [
+            { name: 'Dave', className: 'Warlock', specName: 'Affliction', userId: 111, status: 'primary' },
+            { name: 'Pyro', className: 'Mage', specName: 'Fire', userId: '222', status: 'primary' },
+            { name: 'Benchy', className: 'Bench', specName: 'Bench', userId: 333, status: 'primary' },
+            { name: 'Maybe', className: 'Rogue', specName: 'Combat', userId: 444, status: 'queued' },
+            { name: 'Tanky', className: 'Paladin', specName: 'Protection1', userId: 555, status: 'primary' },
+            { name: 'Petguy', className: 'Hunter', specName: 'Beastmastery', userId: 666, status: 'primary' },
+            { name: 'Wat', className: 'Boomkin', specName: 'Balance', userId: 777, status: 'primary' },
+            { name: 'NoSpec', className: 'Priest', specName: 'Flex', userId: 888, status: 'primary' },
+        ],
+    };
+}
+test('parseRaidHelper: primary signups become players with discordId', () => {
+    const r = E.parseRaidHelper(rhFixture());
+    const dave = r.players.find(p => p.name === 'Dave');
+    assert.deepStrictEqual(dave, { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper' });
+    assert.strictEqual(r.title, 'SSC Tuesday');
+});
+test('parseRaidHelper: bench and non-primary are excluded with reasons', () => {
+    const r = E.parseRaidHelper(rhFixture());
+    assert.deepStrictEqual(r.excluded, [{ name: 'Benchy', reason: 'Bench' }, { name: 'Maybe', reason: 'queued' }]);
+});
+test('parseRaidHelper: spec names normalized', () => {
+    const r = E.parseRaidHelper(rhFixture());
+    assert.strictEqual(r.players.find(p => p.name === 'Tanky').spec, 'Protection');
+    assert.strictEqual(r.players.find(p => p.name === 'Petguy').spec, 'Beast Mastery');
+});
+test('parseRaidHelper: unknown class is an error, unknown spec is flagged', () => {
+    const r = E.parseRaidHelper(rhFixture());
+    assert.strictEqual(r.errors.length, 1);
+    assert.ok(r.errors[0].includes('Boomkin'));
+    const ns = r.players.find(p => p.name === 'NoSpec');
+    assert.strictEqual(ns.spec, null);
+    assert.deepStrictEqual(ns.flags, ['spec-unknown']);
+});
+test('parseRaidHelper: empty event reports error', () => {
+    const r = E.parseRaidHelper({});
+    assert.deepStrictEqual(r.players, []);
+    assert.strictEqual(r.errors.length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
