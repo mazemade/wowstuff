@@ -20,6 +20,23 @@ app.get('/magtheridon.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'magtheridon.html'));
 });
 
+// Proxy for Raid-Helper event API (their CORS policy blocks direct browser calls)
+app.get('/api/raidhelper/:eventId', async (req, res) => {
+  const id = req.params.eventId;
+  if (!/^\d{5,25}$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid event id' });
+  }
+  try {
+    const upstream = await fetch(`https://raid-helper.dev/api/v2/events/${id}`);
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: `Raid-Helper returned ${upstream.status}` });
+    }
+    res.json(await upstream.json());
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to reach Raid-Helper' });
+  }
+});
+
 // Serve index.html for other routes (fallback)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
