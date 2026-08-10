@@ -38,6 +38,17 @@ function recompute() {
         return Object.assign({}, m, { discordId: src ? src.discordId : m.discordId });
     });
     roster = base.concat(manual);
+
+    // Reconcile stale references left behind by renames, removals or re-imports:
+    // any CC/override entry pointing at a name no longer on the roster is cleared here,
+    // in the one place every mutation path (edit, remove, re-import) always passes through.
+    const names = new Set(roster.map(p => p.name));
+    if (state.cc) state.cc.forEach(c => { if (c.player && !names.has(c.player)) c.player = null; });
+    Object.values(state.overrides).forEach(o => {
+        if (o.player && !names.has(o.player)) delete o.player;
+        if (o.target && !names.has(o.target) && o.target !== 'HEALER_RESERVE') delete o.target;
+    });
+
     const result = E.autoAssign(roster, state.overrides);
     sheet = Object.assign({}, result, { cc: state.cc || E.defaultCC(roster) });
 }
@@ -105,10 +116,8 @@ function openManualForm(player) {
     editingOriginalName = player ? player.name : null;
     const clsSel = document.getElementById('manualClass');
     clsSel.innerHTML = Object.keys(E.SPEC_TREES).map(c => '<option value="' + c + '">' + c + '</option>').join('');
-    if (player) {
-        document.getElementById('manualName').value = player.name;
-        clsSel.value = player.class;
-    }
+    document.getElementById('manualName').value = player ? player.name : '';
+    if (player) clsSel.value = player.class;
     fillManualSpecs(player ? player.spec : null);
 }
 function fillManualSpecs(selected) {
@@ -137,14 +146,9 @@ function saveManualPlayer() {
     renderAll();
 }
 function removePlayer(name) {
+    // Stale cc/override references to `name` are cleaned up by recompute()'s
+    // roster-membership sweep (called from renderAll() below), so no cleanup needed here.
     state.excluded.push(name);
-    Object.keys(state.overrides).forEach(id => {
-        if (state.overrides[id] && state.overrides[id].player === name) delete state.overrides[id].player;
-        if (state.overrides[id] && state.overrides[id].target === name) delete state.overrides[id].target;
-    });
-    if (state.cc) {
-        state.cc.forEach(c => { if (c.player === name) c.player = null; });
-    }
     renderAll();
 }
 
@@ -337,7 +341,7 @@ function renderAssignments() {
 function buildShareLink() {
     const payload = { title: state.title, sheet };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-    return location.origin + location.pathname.replace('assignments.html', 'assignments-view.html') + '?data=' + encoded;
+    return location.origin + location.pathname.replace('assignments.html', 'assignments-view.html') + '?data=' + encodeURIComponent(encoded);
 }
 
 function renderOutput() {
@@ -363,8 +367,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('addPlayerBtn').addEventListener('click', () => openManualForm(null));
     document.getElementById('manualClass').addEventListener('change', () => fillManualSpecs(null));
     document.getElementById('manualSaveBtn').addEventListener('click', saveManualPlayer);
-    document.getElementById('manualCancelBtn').addEventListener('click', () =>
-        document.getElementById('manualForm').classList.add('hidden'));
+    document.getElementById('manualCancelBtn').addEventListener('click', () => {
+        document.getElementById('manualForm').classList.add('hidden');
+        document.getElementById('manualName').value = '';
+    });
     document.getElementById('clearRosterBtn').addEventListener('click', () => {
         if (!confirm('Clear the whole roster and assignments? (Name links are kept.)')) return;
         state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, cc: null, pings: state.pings, title: '' };

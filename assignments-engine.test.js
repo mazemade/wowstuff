@@ -182,7 +182,6 @@ test('autoAssign: full comp covers all core debuffs with right players', () => {
 });
 test('autoAssign: one curse per warlock, spare lock gets personal curse', () => {
     const r = E.autoAssign(fullRoster(), {});
-    const lockDuties = r.duties.filter(d => ['Bob', 'Grimshade', 'Doomlord'].includes(d.player));
     const curseHolders = new Set(r.duties.filter(d => ['coe', 'cor'].includes(d.id)).map(d => d.player));
     assert.strictEqual(curseHolders.size, 2);
     const spare = ['Bob', 'Grimshade', 'Doomlord'].find(n => !curseHolders.has(n));
@@ -349,6 +348,58 @@ test('buildRaidLines: a single over-long item is truncated to fit the chat limit
     const lines = E.buildRaidLines([], sheet);
     assert.ok(lines.length >= 1);
     lines.forEach(l => { assert.ok(l.startsWith('/raid ')); assert.ok(l.length <= 255); });
+});
+
+// --- Task 8: whole-branch review fixes — explicit-target overrides honored ---
+test('autoAssign: explicitly-null target on innervate:0 drops the target key, player unchanged', () => {
+    const r = E.autoAssign(fullRoster(), { 'innervate:0': { target: null } });
+    const d = duty(r, 'innervate:0');
+    assert.strictEqual(d.player, 'Moonpie'); // unchanged default druid
+    assert.ok(!Object.prototype.hasOwnProperty.call(d, 'target'));
+});
+test('autoAssign: explicitly-null target on soulstone:0 drops the target key, player unchanged', () => {
+    const r = E.autoAssign(fullRoster(), { 'soulstone:0': { target: null } });
+    const d = duty(r, 'soulstone:0');
+    assert.strictEqual(d.player, 'Bob'); // unchanged default lock
+    assert.ok(!Object.prototype.hasOwnProperty.call(d, 'target'));
+});
+test('autoAssign: override with only a player key still gets its default target', () => {
+    const r = E.autoAssign(fullRoster(), { 'innervate:0': { player: 'Treebeard' } });
+    const d = duty(r, 'innervate:0');
+    assert.strictEqual(d.player, 'Treebeard');
+    assert.strictEqual(d.target, 'Frostina'); // default target expression still applies
+});
+
+// --- Task 9: whole-branch review fixes — demo override to a warlock respects curse exclusivity ---
+test('autoAssign: overriding demo to a warlock records Curse of Weakness and skips the personal curse', () => {
+    const r = E.autoAssign(fullRoster(), { demo: { player: 'Grimshade' } });
+    const demo = duty(r, 'demo');
+    assert.strictEqual(demo.name, 'Curse of Weakness');
+    assert.strictEqual(demo.player, 'Grimshade');
+    assert.ok(!r.duties.some(d => d.id === 'curse:Grimshade'));
+    assert.strictEqual(r.duties.filter(d => d.player === 'Grimshade' && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
+});
+test('autoAssign: overriding demo to a warrior is untouched, still Demoralizing Shout', () => {
+    const r = E.autoAssign(fullRoster(), { demo: { player: 'Thunderfist' } });
+    const demo = duty(r, 'demo');
+    assert.strictEqual(demo.name, 'Demoralizing Shout');
+    assert.strictEqual(demo.player, 'Thunderfist');
+});
+
+// --- Task 10: whole-branch review fixes — duplicate addon names rejected ---
+test('parseAddonExport: duplicate name is flagged as an error and the duplicate is skipped', () => {
+    const r = E.parseAddonExport('Bob:WARLOCK:41/7/13;Bob:MAGE:60/0/0');
+    assert.strictEqual(r.players.length, 1);
+    assert.strictEqual(r.players[0].class, 'WARLOCK');
+    assert.ok(r.errors.includes('Duplicate name: Bob'));
+});
+
+// --- Task 11: whole-branch review fixes — parseRaidHelper truthy non-array signUps ---
+test('parseRaidHelper: truthy non-array signUps reports the error instead of throwing', () => {
+    const r = E.parseRaidHelper({ title: 'X', signUps: { not: 'an array' } });
+    assert.deepStrictEqual(r.players, []);
+    assert.strictEqual(r.errors.length, 1);
+    assert.ok(r.errors[0].includes('No signups found'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -39,13 +39,16 @@
     function parseAddonExport(text) {
         const players = [];
         const errors = [];
+        const seen = new Set();
         const tokens = (text || '').trim().split(/[\n;]+/).map(t => t.trim()).filter(Boolean);
         tokens.forEach(tok => {
             if (/^RSS\d+$/i.test(tok)) return; // format header
             const m = tok.match(/^([^:]+):([A-Za-z]+):(?:(\d+)\/(\d+)\/(\d+)|\?)$/);
             if (!m) { errors.push('Unrecognized line: ' + tok); return; }
+            const name = m[1];
             const cls = m[2].toUpperCase();
             if (!SPEC_TREES[cls]) { errors.push('Unknown class in: ' + tok); return; }
+            if (seen.has(name)) { errors.push('Duplicate name: ' + name); return; }
             const flags = [];
             let spec = null;
             if (m[3] === undefined) {
@@ -56,7 +59,8 @@
                 if (!spec) flags.push('spec-unknown');
                 else if (r.ambiguous) flags.push('spec-ambiguous');
             }
-            players.push({ name: m[1], class: cls, spec, flags, source: 'addon' });
+            seen.add(name);
+            players.push({ name, class: cls, spec, flags, source: 'addon' });
         });
         return { players, errors };
     }
@@ -73,7 +77,10 @@
         const excluded = [];
         const errors = [];
         const signUps = (eventJson && eventJson.signUps) || [];
-        if (!Array.isArray(signUps) || !signUps.length) errors.push('No signups found in event');
+        if (!Array.isArray(signUps) || !signUps.length) {
+            errors.push('No signups found in event');
+            return { players, excluded, errors, title: (eventJson && eventJson.title) || '' };
+        }
         signUps.forEach(su => {
             const rawClass = su.className || '';
             if (RH_STATUS_CLASSES.includes(rawClass)) { excluded.push({ name: su.name, reason: rawClass }); return; }
@@ -227,7 +234,13 @@
         DEBUFF_CATALOG.forEach(entry => {
             if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) return;
             const o = overrides[entry.id] || {};
-            if (o.player && byName[o.player]) { record(entry, entry.name, byName[o.player]); return; }
+            if (o.player && byName[o.player]) {
+                const chosen = byName[o.player];
+                const useFb = entry.fallback && chosen.class === entry.fallback.class;
+                const eff = useFb ? Object.assign({}, entry.fallback, { id: entry.id, category: entry.category }) : entry;
+                record(eff, eff.name, chosen);
+                return;
+            }
             if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.push({ id: entry.id, name: entry.name }); return; }
             let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
             if (pool.length) { record(entry, entry.name, pool[0]); return; }
@@ -251,7 +264,8 @@
             const o = overrides[id] || {};
             if (isExplicitlyUnassigned(o)) { record({ id, category: 'cooldowns' }, 'Innervate', null); return; }
             const player = (o.player && byName[o.player]) ? byName[o.player] : d;
-            const target = o.target || ((i < druids.length - 1 && i < mages.length) ? mages[i].name : 'HEALER_RESERVE');
+            const hasTarget = Object.prototype.hasOwnProperty.call(o, 'target');
+            const target = hasTarget ? o.target : ((i < druids.length - 1 && i < mages.length) ? mages[i].name : 'HEALER_RESERVE');
             record({ id, category: 'cooldowns' }, 'Innervate', player, target);
         });
 
@@ -268,7 +282,8 @@
                 const altHealers = roster.filter(p =>
                     (p.class === 'PALADIN' && p.spec === 'Holy') ||
                     ((p.class === 'DRUID' || p.class === 'SHAMAN') && p.spec === 'Restoration'));
-                const target = o.target || (priests[0] && priests[0].name) || (altHealers[0] && altHealers[0].name) || null;
+                const hasTarget = Object.prototype.hasOwnProperty.call(o, 'target');
+                const target = hasTarget ? o.target : ((priests[0] && priests[0].name) || (altHealers[0] && altHealers[0].name) || null);
                 record({ id, category: 'cooldowns' }, 'Soulstone', player, target || undefined);
             }
         }
