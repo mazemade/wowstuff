@@ -116,11 +116,24 @@ local function NextUnit()
     NotifyInspect(current)
 end
 
-frame:RegisterEvent("INSPECT_TALENT_READY")
-frame:SetScript("OnEvent", function(_, event)
-    if event == "INSPECT_TALENT_READY" and scanning and current then
-        FinishUnit(TalentString(true))
-    end
+-- 2.5.6 fires INSPECT_READY(guid); older TBC builds used INSPECT_TALENT_READY. Registering an
+-- event the client doesn't know throws, and that would abort this file before /specscan is
+-- registered at the bottom — so try both names and keep whichever the client accepts.
+local inspectEvents = {}
+for _, e in ipairs({ "INSPECT_READY", "INSPECT_TALENT_READY" }) do
+    if pcall(frame.RegisterEvent, frame, e) then inspectEvents[e] = true end
+end
+if not next(inspectEvents) then
+    Print("|cFFFF6B6BNo inspect event available on this client — /specscan will report everyone as ?|r")
+end
+
+frame:SetScript("OnEvent", function(_, event, guid)
+    if not (inspectEvents[event] and scanning and current) then return end
+    -- INSPECT_READY names the unit it answers for. A reply that lands after we gave up on
+    -- someone would otherwise be recorded against whoever is being inspected now — a confident
+    -- but wrong spec. Ignoring it lets the timeout mark that player "?" instead.
+    if guid and UnitGUID(current) ~= guid then return end
+    FinishUnit(TalentString(true))
 end)
 
 local function OnUpdate(_, dt)
