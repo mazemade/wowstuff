@@ -72,28 +72,49 @@
     };
     const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery', Guardian: 'Feral' };
 
+    // Raid-Helper's endpoints disagree on how they case these names and fields,
+    // so match on lowercase throughout and take the first field name that's present.
+    function lowerKeyed(obj) {
+        const out = {};
+        Object.keys(obj).forEach(k => { out[k.toLowerCase()] = obj[k]; });
+        return out;
+    }
+    const RH_STATUS_CLASSES_LC = RH_STATUS_CLASSES.map(s => s.toLowerCase());
+    const RH_CLASS_NAMES_LC = lowerKeyed(RH_CLASS_NAMES);
+    const RH_SPEC_ALIASES_LC = lowerKeyed(RH_SPEC_ALIASES);
+
+    function rhPick(su, names) {
+        for (let i = 0; i < names.length; i++) {
+            const v = su[names[i]];
+            if (v !== undefined && v !== null && v !== '') return v;
+        }
+        return undefined;
+    }
+
     function parseRaidHelper(eventJson) {
         const players = [];
         const excluded = [];
         const errors = [];
-        const signUps = (eventJson && eventJson.signUps) || [];
+        const signUps = (eventJson && (eventJson.signUps || eventJson.signups)) || [];
         if (!Array.isArray(signUps) || !signUps.length) {
             errors.push('No signups found in event');
             return { players, excluded, errors, title: (eventJson && eventJson.title) || '' };
         }
         signUps.forEach(su => {
-            const rawClass = su.className || '';
-            if (RH_STATUS_CLASSES.includes(rawClass)) { excluded.push({ name: su.name, reason: rawClass }); return; }
+            const rawClass = String(rhPick(su, ['className', 'class']) || '');
+            if (RH_STATUS_CLASSES_LC.includes(rawClass.toLowerCase())) { excluded.push({ name: su.name, reason: rawClass }); return; }
             if (su.status && su.status !== 'primary') { excluded.push({ name: su.name, reason: su.status }); return; }
-            const cls = RH_CLASS_NAMES[rawClass];
+            const cls = RH_CLASS_NAMES_LC[rawClass.toLowerCase()];
             if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
-            let spec = (su.specName || '').replace(/\d+$/, '');
-            spec = RH_SPEC_ALIASES[spec] || spec;
+            let spec = String(rhPick(su, ['specName', 'spec']) || '').replace(/\d+$/, '');
+            spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
             const flags = [];
-            if (!SPEC_TREES[cls].includes(spec)) { spec = null; flags.push('spec-unknown'); }
+            const canonical = SPEC_TREES[cls].find(s => s.toLowerCase() === spec.toLowerCase());
+            if (canonical) { spec = canonical; } else { spec = null; flags.push('spec-unknown'); }
+            const userId = rhPick(su, ['userId', 'userid']);
             players.push({
                 name: su.name, class: cls, spec,
-                discordId: su.userId !== undefined && su.userId !== null ? String(su.userId) : null,
+                discordId: userId !== undefined ? String(userId) : null,
                 flags, source: 'raidhelper',
             });
         });

@@ -404,5 +404,28 @@ test('parseRaidHelper: truthy non-array signUps reports the error instead of thr
     assert.ok(r.errors[0].includes('No signups found'));
 });
 
+// --- Raid-Helper endpoint fix: tolerate the other field casing ---
+test('parseRaidHelper: lowercase signups/class/spec/userid are read', () => {
+    const r = E.parseRaidHelper({
+        title: 'Kara',
+        signups: [{ name: 'Dave', class: 'Warlock', spec: 'Affliction', userid: 111 }],
+    });
+    assert.deepStrictEqual(r.players, [
+        { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper' },
+    ]);
+    assert.strictEqual(r.title, 'Kara');
+});
+test('parseRaidHelper: class and spec names match regardless of case', () => {
+    const r = E.parseRaidHelper({ signUps: [{ name: 'Petguy', className: 'hunter', specName: 'BEASTMASTERY' }] });
+    assert.strictEqual(r.errors.length, 0);
+    assert.strictEqual(r.players[0].class, 'HUNTER');
+    assert.strictEqual(r.players[0].spec, 'Beast Mastery');
+});
+test('parseRaidHelper: lowercase bench is still excluded, keeping the raw reason', () => {
+    const r = E.parseRaidHelper({ signUps: [{ name: 'Benchy', className: 'bench' }] });
+    assert.deepStrictEqual(r.excluded, [{ name: 'Benchy', reason: 'bench' }]);
+    assert.deepStrictEqual(r.players, []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

@@ -27,11 +27,20 @@ app.get('/api/raidhelper/:eventId', async (req, res) => {
     return res.status(400).json({ error: 'Invalid event id' });
   }
   try {
-    const upstream = await fetch(`https://raid-helper.dev/api/v2/events/${id}`, { signal: AbortSignal.timeout(10000) });
+    const upstream = await fetch(`https://raid-helper.dev/api/event/${id}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
     if (!upstream.ok) {
       return res.status(upstream.status).json({ error: `Raid-Helper returned ${upstream.status}` });
     }
-    res.json(await upstream.json());
+    const data = await upstream.json();
+    // This endpoint reports a missing or private event as HTTP 200 with a failure envelope,
+    // so an ok status alone doesn't mean we got an event.
+    if (data && data.status === 'failed') {
+      return res.status(404).json({ error: `Raid-Helper: ${data.reason || 'event not found'}` });
+    }
+    res.json(data);
   } catch (err) {
     console.error('Raid-Helper proxy failed:', err);
     if (err.name === 'AbortError' || err.name === 'TimeoutError') {
