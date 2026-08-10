@@ -335,7 +335,7 @@ function renderAssignments() {
 
 // --- Output tabs / share link ---
 function buildShareLink() {
-    const payload = { title: state.title, roster, sheet };
+    const payload = { title: state.title, sheet };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     return location.origin + location.pathname.replace('assignments.html', 'assignments-view.html') + '?data=' + encoded;
 }
@@ -393,8 +393,13 @@ document.addEventListener('DOMContentLoaded', () => {
     pingCheckbox.addEventListener('change', () => { state.pings = pingCheckbox.checked; renderAll(); });
     document.getElementById('copyBtn').addEventListener('click', async () => {
         const btn = document.getElementById('copyBtn');
-        await navigator.clipboard.writeText(document.getElementById('outputBox').textContent);
-        btn.textContent = '✅ Copied';
+        try {
+            if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
+            await navigator.clipboard.writeText(document.getElementById('outputBox').textContent);
+            btn.textContent = '✅ Copied';
+        } catch (e) {
+            btn.textContent = '⚠ Copy failed — select the text and copy manually';
+        }
         setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
     });
     renderAll();
