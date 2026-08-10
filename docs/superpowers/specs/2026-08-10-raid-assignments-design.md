@@ -210,3 +210,6 @@ colors.
 - Blessings/buff matrix.
 - Per-boss assignment variants.
 - Interrupt/dispel rotations.
+- **Assignment accountability tracking**: in-game (addon/WeakAura) monitoring
+  of actual debuffs present on the boss during combat, compared against the
+  assignment sheet, reporting which assigned player's debuff is missing.
