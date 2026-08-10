@@ -318,6 +318,16 @@ test('buildWhispers: one line per assigned player, duties combined', () => {
     assert.ok(bob.includes('Soulstone'));
     assert.strictEqual(lines.filter(l => l.startsWith('/w Bob ')).length, 1);
 });
+test('buildRaidLines: a single over-long item is truncated to fit the chat limit', () => {
+    const longName = 'X'.repeat(300);
+    const sheet = {
+        duties: [{ id: 'long', name: 'Very Long Duty Name That Goes On And On', category: 'debuffs', player: longName }],
+        uncovered: [], passives: [], cc: [],
+    };
+    const lines = E.buildRaidLines([], sheet);
+    assert.ok(lines.length >= 1);
+    lines.forEach(l => { assert.ok(l.startsWith('/raid ')); assert.ok(l.length <= 255); });
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

@@ -314,8 +314,13 @@
         let cur = '';
         items.forEach(it => {
             const next = cur ? cur + sep + it : prefix + it;
-            if (next.length > max && cur) { lines.push(cur); cur = prefix + it; }
-            else cur = next;
+            if (next.length > max) {
+                if (cur) lines.push(cur);
+                const solo = prefix + it;
+                cur = solo.length > max ? solo.slice(0, max) : solo;
+            } else {
+                cur = next;
+            }
         });
         if (cur) lines.push(cur);
         return lines;
