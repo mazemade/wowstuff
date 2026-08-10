@@ -231,15 +231,22 @@ test('autoAssign: empty roster gives all core debuffs uncovered', () => {
     assert.strictEqual(r.duties.length, 0);
     assert.ok(r.uncovered.length >= 8);
 });
-test('autoAssign: explicitly-unassigned debuff duty emits no row and appears in uncovered', () => {
+test('autoAssign: explicitly-unassigned debuff keeps its row with a null player and appears in uncovered', () => {
     const r = E.autoAssign(fullRoster(), { sunder: { player: null } });
-    assert.ok(!duty(r, 'sunder'));
+    assert.strictEqual(duty(r, 'sunder').player, null);
     assert.ok(r.uncovered.some(u => u.id === 'sunder'));
 });
 test('autoAssign: no override at all still auto-assigns the debuff normally', () => {
     const r = E.autoAssign(fullRoster(), {});
     assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist');
     assert.ok(!r.uncovered.some(u => u.id === 'sunder'));
+});
+test('autoAssign: re-assigning after an explicit unassignment escapes the dead end', () => {
+    const cleared = E.autoAssign(fullRoster(), { sunder: { player: null } });
+    assert.strictEqual(duty(cleared, 'sunder').player, null);
+    const reassigned = E.autoAssign(fullRoster(), { sunder: { player: 'Thunderfist' } });
+    assert.strictEqual(duty(reassigned, 'sunder').player, 'Thunderfist');
+    assert.ok(!reassigned.uncovered.some(u => u.id === 'sunder'));
 });
 
 // --- Task 6: cooldowns + CC ---
@@ -267,9 +274,9 @@ test('autoAssign: innervate target override honored', () => {
     const r = E.autoAssign(fullRoster(), { 'innervate:0': { target: 'Sheepmaster' } });
     assert.strictEqual(duty(r, 'innervate:0').target, 'Sheepmaster');
 });
-test('autoAssign: explicitly-unassigned innervate emits no row', () => {
+test('autoAssign: explicitly-unassigned innervate keeps its row with a null player and no target', () => {
     const r = E.autoAssign(fullRoster(), { 'innervate:0': { player: null } });
-    assert.ok(!duty(r, 'innervate:0'));
+    assert.deepStrictEqual(duty(r, 'innervate:0'), { id: 'innervate:0', name: 'Innervate', category: 'cooldowns', player: null });
     assert.ok(duty(r, 'innervate:1')); // other druid's row is unaffected
 });
 test('defaultCC: mages sheep moon/triangle, rogue saps square', () => {

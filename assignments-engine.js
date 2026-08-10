@@ -228,7 +228,7 @@
             if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) return;
             const o = overrides[entry.id] || {};
             if (o.player && byName[o.player]) { record(entry, entry.name, byName[o.player]); return; }
-            if (isExplicitlyUnassigned(o)) { uncovered.push({ id: entry.id, name: entry.name }); return; }
+            if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.push({ id: entry.id, name: entry.name }); return; }
             let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
             if (pool.length) { record(entry, entry.name, pool[0]); return; }
             if (entry.fallback) {
@@ -249,7 +249,7 @@
         druids.forEach((d, i) => {
             const id = 'innervate:' + i;
             const o = overrides[id] || {};
-            if (isExplicitlyUnassigned(o)) return;
+            if (isExplicitlyUnassigned(o)) { record({ id, category: 'cooldowns' }, 'Innervate', null); return; }
             const player = (o.player && byName[o.player]) ? byName[o.player] : d;
             const target = o.target || ((i < druids.length - 1 && i < mages.length) ? mages[i].name : 'HEALER_RESERVE');
             record({ id, category: 'cooldowns' }, 'Innervate', player, target);
@@ -260,7 +260,9 @@
         if (locks.length) {
             const id = 'soulstone:0';
             const o = overrides[id] || {};
-            if (!isExplicitlyUnassigned(o)) {
+            if (isExplicitlyUnassigned(o)) {
+                record({ id, category: 'cooldowns' }, 'Soulstone', null);
+            } else {
                 const player = (o.player && byName[o.player]) ? byName[o.player] : locks[0];
                 const priests = roster.filter(p => p.class === 'PRIEST' && (p.spec === 'Holy' || p.spec === 'Discipline'));
                 const altHealers = roster.filter(p =>
