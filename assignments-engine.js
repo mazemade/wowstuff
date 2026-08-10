@@ -100,7 +100,7 @@
         const unmatched = { addon: [], raidhelper: [] };
         const mismatches = [];
         if (!addonPlayers || !addonPlayers.length) {
-            return { roster: (rhPlayers || []).map(p => Object.assign({}, p)), unmatched, mismatches };
+            return { roster: (rhPlayers || []).map(p => Object.assign({}, p, { flags: (p.flags || []).slice() })), unmatched, mismatches };
         }
         const roster = addonPlayers.map(p => Object.assign({}, p, { flags: (p.flags || []).slice() }));
         (rhPlayers || []).forEach(rh => {
@@ -124,7 +124,7 @@
                     mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
                 }
             } else {
-                unmatched.raidhelper.push(rh);
+                unmatched.raidhelper.push(Object.assign({}, rh, { flags: (rh.flags || []).slice() }));
             }
         });
         roster.forEach(p => { if (!p.discordId) unmatched.addon.push(p); });

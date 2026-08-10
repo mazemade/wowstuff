@@ -139,6 +139,18 @@ test('mergeRosters: no addon players means raid-helper is the roster', () => {
     assert.strictEqual(r.roster.length, 1);
     assert.strictEqual(r.roster[0].name, 'Dave');
 });
+test('mergeRosters: empty addon path does not mutate caller inputs', () => {
+    const rhPlayers = [P('Dave', 'WARLOCK', 'Affliction', { discordId: '1' }), P('Bob', 'MAGE', 'Fire', { discordId: '2' })];
+    const originalFlags0 = rhPlayers[0].flags;
+    const originalFlags1 = rhPlayers[1].flags;
+    const r = E.mergeRosters([], rhPlayers, {});
+    r.roster[0].flags.push('mutated');
+    r.roster[1].flags.push('mutated2');
+    assert.deepStrictEqual(rhPlayers[0].flags, []);
+    assert.deepStrictEqual(rhPlayers[1].flags, []);
+    assert.strictEqual(rhPlayers[0].flags, originalFlags0);
+    assert.strictEqual(rhPlayers[1].flags, originalFlags1);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
