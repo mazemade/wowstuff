@@ -232,5 +232,42 @@ test('autoAssign: empty roster gives all core debuffs uncovered', () => {
     assert.ok(r.uncovered.length >= 8);
 });
 
+// --- Task 6: cooldowns + CC ---
+test('autoAssign: two druids innervate first mage and reserve last', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    assert.deepStrictEqual(duty(r, 'innervate:0'), { id: 'innervate:0', name: 'Innervate', category: 'cooldowns', player: 'Moonpie', target: 'Frostina' });
+    assert.strictEqual(duty(r, 'innervate:1').target, 'HEALER_RESERVE');
+});
+test('autoAssign: lone druid reserves innervate for healers', () => {
+    const roster = fullRoster().filter(p => p.name !== 'Treebeard');
+    const r = E.autoAssign(roster, {});
+    assert.strictEqual(duty(r, 'innervate:0').target, 'HEALER_RESERVE');
+});
+test('autoAssign: soulstone goes to first lock on holy priest', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    assert.strictEqual(duty(r, 'soulstone:0').player, 'Bob');
+    assert.strictEqual(duty(r, 'soulstone:0').target, 'Holymel');
+});
+test('autoAssign: soulstone target falls back to non-priest healer', () => {
+    const roster = fullRoster().filter(p => p.name !== 'Holymel');
+    const r = E.autoAssign(roster, {});
+    assert.strictEqual(duty(r, 'soulstone:0').target, 'Lightbringer'); // holy paladin
+});
+test('autoAssign: innervate target override honored', () => {
+    const r = E.autoAssign(fullRoster(), { 'innervate:0': { target: 'Sheepmaster' } });
+    assert.strictEqual(duty(r, 'innervate:0').target, 'Sheepmaster');
+});
+test('defaultCC: mages sheep moon/triangle, rogue saps square', () => {
+    assert.deepStrictEqual(E.defaultCC(fullRoster()), [
+        { mark: 'moon', ability: 'polymorph', player: 'Frostina' },
+        { mark: 'triangle', ability: 'polymorph', player: 'Sheepmaster' },
+        { mark: 'square', ability: 'sap', player: 'Stabby' },
+    ]);
+});
+test('defaultCC: rows only for available classes', () => {
+    const r = E.defaultCC(fullRoster().filter(p => p.class !== 'MAGE' && p.class !== 'ROGUE'));
+    assert.deepStrictEqual(r, []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

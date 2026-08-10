@@ -145,6 +145,27 @@
           fallback: { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' } },
     ];
 
+    const CC_ABILITIES = [
+        { id: 'polymorph', name: 'Polymorph', class: 'MAGE' },
+        { id: 'sap', name: 'Sap', class: 'ROGUE' },
+        { id: 'trap', name: 'Freezing Trap', class: 'HUNTER' },
+        { id: 'banish', name: 'Banish', class: 'WARLOCK' },
+        { id: 'shackle', name: 'Shackle Undead', class: 'PRIEST' },
+        { id: 'hibernate', name: 'Hibernate', class: 'DRUID' },
+    ];
+    const MARKS = ['skull', 'cross', 'square', 'moon', 'triangle', 'diamond', 'circle', 'star'];
+    const MARK_EMOJI = { skull: '💀', cross: '❌', square: '🟦', moon: '🌙', triangle: '🔺', diamond: '💎', circle: '🟠', star: '⭐' };
+
+    function defaultCC(roster) {
+        const mages = roster.filter(p => p.class === 'MAGE');
+        const rogues = roster.filter(p => p.class === 'ROGUE');
+        const cc = [];
+        if (mages[0]) cc.push({ mark: 'moon', ability: 'polymorph', player: mages[0].name });
+        if (mages[1]) cc.push({ mark: 'triangle', ability: 'polymorph', player: mages[1].name });
+        if (rogues[0]) cc.push({ mark: 'square', ability: 'sap', player: rogues[0].name });
+        return cc;
+    }
+
     const PASSIVES = [
         { name: 'Misery', class: 'PRIEST', spec: 'Shadow' },
         { name: 'Shadow Weaving', class: 'PRIEST', spec: 'Shadow' },
@@ -215,6 +236,31 @@
         roster.filter(p => p.class === 'WARLOCK' && !groupUsed['curse:' + p.name])
             .forEach(p => duties.push({ id: 'curse:' + p.name, name: 'Curse of Doom/Agony (personal)', category: 'debuffs', player: p.name }));
 
+        // Innervates: one row per druid; last druid (or a lone druid) reserves for healers
+        const druids = roster.filter(p => p.class === 'DRUID');
+        const mages = roster.filter(p => p.class === 'MAGE');
+        druids.forEach((d, i) => {
+            const id = 'innervate:' + i;
+            const o = overrides[id] || {};
+            const player = (o.player && byName[o.player]) ? byName[o.player] : d;
+            const target = o.target || ((i < druids.length - 1 && i < mages.length) ? mages[i].name : 'HEALER_RESERVE');
+            record({ id, category: 'cooldowns' }, 'Innervate', player, target);
+        });
+
+        // Soulstone: one row, first warlock, priest healer preferred
+        const locks = roster.filter(p => p.class === 'WARLOCK');
+        if (locks.length) {
+            const id = 'soulstone:0';
+            const o = overrides[id] || {};
+            const player = (o.player && byName[o.player]) ? byName[o.player] : locks[0];
+            const priests = roster.filter(p => p.class === 'PRIEST' && (p.spec === 'Holy' || p.spec === 'Discipline'));
+            const altHealers = roster.filter(p =>
+                (p.class === 'PALADIN' && p.spec === 'Holy') ||
+                ((p.class === 'DRUID' || p.class === 'SHAMAN') && p.spec === 'Restoration'));
+            const target = o.target || (priests[0] && priests[0].name) || (altHealers[0] && altHealers[0].name) || null;
+            record({ id, category: 'cooldowns' }, 'Soulstone', player, target || undefined);
+        }
+
         const passives = PASSIVES.map(ps => {
             const p = roster.find(x => x.class === ps.class && (!ps.spec || x.spec === ps.spec));
             return p ? { name: ps.name, player: p.name } : null;
@@ -227,5 +273,6 @@
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign,
+        CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
     };
 }));
