@@ -160,6 +160,7 @@ local function ShowPaste()
     frame.editBox:SetFocus()
     frame.status:SetText("")
     frame.loadBtn:Show()
+    frame.changedBtn:Hide()
     frame.sendBtn:Hide()
     frame.backBtn:Hide()
 end
@@ -180,6 +181,7 @@ local function ShowPreview()
         frame.changedBtn:Disable()
     end
     frame.loadBtn:Hide()
+    frame.changedBtn:Show()
     frame.sendBtn:Show()
     frame.backBtn:Show()
 end
