@@ -127,14 +127,22 @@ local function SendTick(_, dt)
         return
     end
     SendChatMessage(item.body, "WHISPER", nil, item.target)
+    local last = History()
+    last[item.name] = last[item.name] and (last[item.name] .. "\n" .. item.body) or item.body
     Print(qIndex .. "/" .. #queue .. " to " .. item.name)
 end
 
 local function StartSending(list)
     queue, qIndex, sending = list, 0, true
     qElapsed = SEND_INTERVAL
-    local last, sig = History(), Signatures(list)
-    for name, s in pairs(sig) do last[name] = s end
+    -- Do not write signatures up front: if the send is interrupted (disconnect,
+    -- /reload, logout) partway through, anyone not yet whispered must NOT be
+    -- recorded as sent, or they would read UNCHANGED next time and be skipped
+    -- forever. Instead, clear their prior signature now — SendTick rebuilds it
+    -- line-by-line as each whisper actually goes out, so an interrupted send
+    -- leaves the un-whispered tail looking CHANGED (or NEW) and gets re-sent.
+    local last = History()
+    for name in pairs(Signatures(list)) do last[name] = nil end
     Print("Sending " .. #list .. " whispers, one per second…")
     sendFrame:SetScript("OnUpdate", SendTick)
 end
@@ -150,6 +158,10 @@ local function PreviewText()
     if #malformed > 0 then
         table.insert(rows, "")
         table.insert(rows, "Skipped " .. #malformed .. " unreadable line(s).")
+        for _, line in ipairs(malformed) do
+            if #line > 80 then line = line:sub(1, 80) end
+            table.insert(rows, line)
+        end
     end
     return table.concat(rows, "\n"), changed
 end
@@ -225,7 +237,7 @@ local function BuildFrame()
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    f:SetScript("OnHide", function() frame.editBox:ClearFocus() end)
+    f:SetScript("OnHide", function() f.editBox:ClearFocus() end)
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("TOP", 0, -18)
@@ -282,6 +294,7 @@ SlashCmdList["RAIDSPECSEND"] = function(msg)
         RaidSpecScanDB = RaidSpecScanDB or {}
         RaidSpecScanDB.lastSent = {}
         Print("Send history cleared — everyone counts as NEW again.")
+        if frame and frame:IsShown() and sheet then ShowPreview() end
         return
     end
     if sending then Print("Already sending — wait for it to finish.") return end

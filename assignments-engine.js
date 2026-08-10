@@ -405,6 +405,11 @@
     // Paste payload for the RaidSpecScan addon: one "Name=body" line per whisper.
     // packChat keeps each body inside WoW's 255-character chat limit, so a player with
     // many duties simply gets more than one line — the addon sends each as its own whisper.
+    // Note: the 255 count above is in JS UTF-16 code units, while WoW enforces its chat
+    // limit in UTF-8 bytes. Duty names (and thus body text) are ASCII-only today, where
+    // one UTF-16 unit is always one UTF-8 byte, so the counts agree and this cannot bite.
+    // If non-ASCII text is ever introduced here, this length check would need to switch
+    // to counting UTF-8 bytes to stay accurate.
     function buildAddonWhispers(roster, sheet) {
         const per = whisperMap(sheet);
         const lines = ['RSW1'];

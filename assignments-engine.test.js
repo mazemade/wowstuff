@@ -482,5 +482,21 @@ test('buildAddonWhispers: a heavily loaded player splits across lines, all withi
     });
 });
 
+// --- Final review: = inside a duty body must not break the name split ---
+test('buildAddonWhispers: a duty name containing = still splits on the FIRST = only', () => {
+    const sheet = {
+        duties: [{ id: 'eq', name: 'DPS = 100%', category: 'debuffs', player: 'Bob' }],
+        uncovered: [], passives: [], cc: [],
+    };
+    const lines = E.buildAddonWhispers([], sheet).split('\n').slice(1);
+    assert.strictEqual(lines.length, 1);
+    const line = lines[0];
+    const eq = line.indexOf('=');
+    const name = line.slice(0, eq);
+    const body = line.slice(eq + 1);
+    assert.strictEqual(name, 'Bob');
+    assert.ok(body.includes('DPS = 100%'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
