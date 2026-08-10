@@ -36,8 +36,33 @@
         return { spec: trees[max], ambiguous };
     }
 
+    function parseAddonExport(text) {
+        const players = [];
+        const errors = [];
+        const tokens = (text || '').trim().split(/[\n;]+/).map(t => t.trim()).filter(Boolean);
+        tokens.forEach(tok => {
+            if (/^RSS\d+$/i.test(tok)) return; // format header
+            const m = tok.match(/^([^:]+):([A-Za-z]+):(?:(\d+)\/(\d+)\/(\d+)|\?)$/);
+            if (!m) { errors.push('Unrecognized line: ' + tok); return; }
+            const cls = m[2].toUpperCase();
+            if (!SPEC_TREES[cls]) { errors.push('Unknown class in: ' + tok); return; }
+            const flags = [];
+            let spec = null;
+            if (m[3] === undefined) {
+                flags.push('spec-unknown');
+            } else {
+                const r = inferSpec(cls, [Number(m[3]), Number(m[4]), Number(m[5])]);
+                spec = r.spec;
+                if (!spec) flags.push('spec-unknown');
+                else if (r.ambiguous) flags.push('spec-ambiguous');
+            }
+            players.push({ name: m[1], class: cls, spec, flags, source: 'addon' });
+        });
+        return { players, errors };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
-        inferSpec,
+        inferSpec, parseAddonExport,
     };
 }));
