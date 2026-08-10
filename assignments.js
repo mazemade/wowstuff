@@ -215,8 +215,122 @@ function renderLinkPanel() {
     });
 }
 
+// --- Assignments rendering ---
+function eligibleForDuty(dutyId) {
+    if (dutyId.startsWith('innervate:')) return roster.filter(p => p.class === 'DRUID');
+    if (dutyId.startsWith('soulstone:')) return roster.filter(p => p.class === 'WARLOCK');
+    const entry = E.DEBUFF_CATALOG.find(e => e.id === dutyId);
+    if (!entry) return roster;
+    return roster.filter(p => p.class === entry.class || (entry.fallback && p.class === entry.fallback.class));
+}
+
+function makeSelect(options, current, allowEmpty, onChange) {
+    const sel = document.createElement('select');
+    if (allowEmpty) sel.appendChild(new Option('— unassigned —', ''));
+    options.forEach(o => sel.appendChild(new Option(o.label, o.value)));
+    sel.value = current || '';
+    sel.addEventListener('change', () => onChange(sel.value || null));
+    return sel;
+}
+
+function playerOptions(players) {
+    return players.map(p => ({ value: p.name, label: p.name + ' (' + (p.spec || '?') + ')' }));
+}
+
+function dutyRow(d) {
+    const row = document.createElement('div');
+    row.className = 'assign-row';
+    const label = document.createElement('span');
+    label.className = 'duty-name';
+    label.textContent = d.name;
+    row.appendChild(label);
+
+    if (d.id.startsWith('curse:')) { // personal curse: fixed player, no dropdown
+        const who = document.createElement('span');
+        who.textContent = d.player;
+        row.appendChild(who);
+        return row;
+    }
+
+    row.appendChild(makeSelect(playerOptions(eligibleForDuty(d.id)), d.player, true, val => {
+        state.overrides[d.id] = Object.assign({}, state.overrides[d.id], { player: val });
+        renderAll();
+    }));
+
+    if (d.id.startsWith('innervate:') || d.id.startsWith('soulstone:')) {
+        const on = document.createElement('span');
+        on.textContent = 'on';
+        row.appendChild(on);
+        const targetOpts = playerOptions(roster);
+        if (d.id.startsWith('innervate:')) targetOpts.push({ value: 'HEALER_RESERVE', label: '💚 healer in need' });
+        row.appendChild(makeSelect(targetOpts, d.target, true, val => {
+            state.overrides[d.id] = Object.assign({}, state.overrides[d.id], { target: val });
+            renderAll();
+        }));
+    }
+    return row;
+}
+
+function ccRow(c, index) {
+    const row = document.createElement('div');
+    row.className = 'assign-row';
+    function materialize() { if (!state.cc) state.cc = sheet.cc.map(x => Object.assign({}, x)); return state.cc; }
+
+    const markOpts = E.MARKS.map(m => ({ value: m, label: E.MARK_EMOJI[m] + ' ' + m }));
+    row.appendChild(makeSelect(markOpts, c.mark, false, val => { materialize()[index].mark = val; renderAll(); }));
+
+    const abilityOpts = E.CC_ABILITIES.map(a => ({ value: a.id, label: a.name }));
+    row.appendChild(makeSelect(abilityOpts, c.ability, false, val => {
+        const cc = materialize();
+        cc[index].ability = val;
+        cc[index].player = null; // class changed, old player likely invalid
+        renderAll();
+    }));
+
+    const ability = E.CC_ABILITIES.find(a => a.id === c.ability);
+    const pool = ability ? roster.filter(p => p.class === ability.class) : roster;
+    row.appendChild(makeSelect(playerOptions(pool), c.player, true, val => { materialize()[index].player = val; renderAll(); }));
+
+    const del = document.createElement('button');
+    del.className = 'btn';
+    del.textContent = '✕';
+    del.addEventListener('click', () => { materialize().splice(index, 1); renderAll(); });
+    row.appendChild(del);
+    return row;
+}
+
+function renderAssignments() {
+    const uncoveredBox = document.getElementById('uncoveredBox');
+    if (sheet.uncovered.length && roster.length) {
+        uncoveredBox.classList.remove('hidden');
+        uncoveredBox.textContent = '⚠ Uncovered: ' + sheet.uncovered.map(u => u.name).join(', ');
+    } else {
+        uncoveredBox.classList.add('hidden');
+    }
+
+    const debuffBox = document.getElementById('debuffRows');
+    debuffBox.innerHTML = '';
+    sheet.duties.filter(d => d.category === 'debuffs').forEach(d => debuffBox.appendChild(dutyRow(d)));
+
+    const passiveBox = document.getElementById('passiveRows');
+    passiveBox.innerHTML = '';
+    sheet.passives.forEach(ps => {
+        const row = document.createElement('div');
+        row.className = 'assign-row passive';
+        row.textContent = ps.name + ' — auto-covered by ' + ps.player;
+        passiveBox.appendChild(row);
+    });
+
+    const cdBox = document.getElementById('cooldownRows');
+    cdBox.innerHTML = '';
+    sheet.duties.filter(d => d.category === 'cooldowns').forEach(d => cdBox.appendChild(dutyRow(d)));
+
+    const ccBox = document.getElementById('ccRows');
+    ccBox.innerHTML = '';
+    sheet.cc.forEach((c, i) => ccBox.appendChild(ccRow(c, i)));
+}
+
 // --- Stubs completed in later tasks ---
-function renderAssignments() { /* Task 10 */ }
 function renderOutput() { /* Task 11 */ }
 
 // --- Wiring ---
@@ -237,6 +351,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('autoAssignBtn').addEventListener('click', () => {
         state.overrides = {};
         state.cc = null;
+        renderAll();
+    });
+    document.getElementById('addCcBtn').addEventListener('click', () => {
+        if (!state.cc) state.cc = sheet.cc.map(x => Object.assign({}, x));
+        state.cc.push({ mark: 'star', ability: 'polymorph', player: null });
         renderAll();
     });
     renderAll();
