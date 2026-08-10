@@ -67,6 +67,47 @@ local function Resolve(entries)
     return sendable, skipped
 end
 
+-- Account-wide, not per-character: the leader may swap toons between nights, but
+-- the raid's assignments are the same either way.
+local function History()
+    RaidSpecScanDB = RaidSpecScanDB or {}
+    RaidSpecScanDB.lastSent = RaidSpecScanDB.lastSent or {}
+    return RaidSpecScanDB.lastSent
+end
+
+-- A player's signature is all their lines joined, so a player who gains a second
+-- duty counts as changed even though their first line is untouched.
+local function Signatures(entries)
+    local sig = {}
+    for _, e in ipairs(entries) do
+        sig[e.name] = sig[e.name] and (sig[e.name] .. "\n" .. e.body) or e.body
+    end
+    return sig
+end
+
+local function Classify(entries)
+    local last, sig, status = History(), Signatures(entries), {}
+    for name, s in pairs(sig) do
+        if last[name] == nil then
+            status[name] = "NEW"
+        elseif last[name] ~= s then
+            status[name] = "CHANGED"
+        else
+            status[name] = "UNCHANGED"
+        end
+    end
+    return status, sig
+end
+
+local function ChangedOnly(entries)
+    local status = Classify(entries)
+    local out = {}
+    for _, e in ipairs(entries) do
+        if status[e.name] ~= "UNCHANGED" then table.insert(out, e) end
+    end
+    return out
+end
+
 local SEND_INTERVAL = 1.0 -- seconds; faster bursts get eaten by the spam filter
 
 local sendFrame = CreateFrame("Frame")
@@ -91,22 +132,26 @@ end
 
 local function StartSending(list)
     queue, qIndex, sending = list, 0, true
-    qElapsed = SEND_INTERVAL -- fire the first one immediately
+    qElapsed = SEND_INTERVAL
+    local last, sig = History(), Signatures(list)
+    for name, s in pairs(sig) do last[name] = s end
     Print("Sending " .. #list .. " whispers, one per second…")
     sendFrame:SetScript("OnUpdate", SendTick)
 end
 
--- Preview text: one row per whisper, plus a trailing note for anything unusable.
 local function PreviewText()
-    local rows = {}
+    local status = Classify(sheet)
+    local rows, changed = {}, 0
     for _, e in ipairs(sheet) do
-        table.insert(rows, e.name .. "  —  " .. e.body)
+        local tag = status[e.name]
+        if tag ~= "UNCHANGED" then changed = changed + 1 end
+        table.insert(rows, string.format("%-10s %s  —  %s", tag, e.name, e.body))
     end
     if #malformed > 0 then
         table.insert(rows, "")
         table.insert(rows, "Skipped " .. #malformed .. " unreadable line(s).")
     end
-    return table.concat(rows, "\n")
+    return table.concat(rows, "\n"), changed
 end
 
 local function ShowPaste()
@@ -121,7 +166,10 @@ end
 
 local function ShowPreview()
     frame.title:SetText(#sheet .. " whispers ready — nothing is sent until you press Send")
-    frame.editBox:SetText(PreviewText())
+    local text, changed = PreviewText()
+    frame.editBox:SetText(text)
+    frame.changedBtn:SetText("Send " .. changed .. " changed")
+    if changed > 0 then frame.changedBtn:Enable() else frame.changedBtn:Disable() end
     frame.editBox:ClearFocus()
     if IsInRaid() then
         frame.status:SetText("")
@@ -129,6 +177,7 @@ local function ShowPreview()
     else
         frame.status:SetText("Not in a raid — you can review, but not send.")
         frame.sendBtn:Disable()
+        frame.changedBtn:Disable()
     end
     frame.loadBtn:Hide()
     frame.sendBtn:Show()
@@ -143,6 +192,22 @@ local function OnLoadClicked()
     end
     sheet, malformed = entries, bad or {}
     ShowPreview()
+end
+
+local function SendFiltered(entries)
+    if sending then frame.status:SetText("Already sending.") return end
+    if not IsInRaid() then frame.status:SetText("|cFFFF6B6BYou are not in a raid.|r") return end
+    if #entries == 0 then frame.status:SetText("Nothing to send.") return end
+    local sendable, skipped = Resolve(entries)
+    if #sendable == 0 then
+        frame.status:SetText("|cFFFF6B6BNobody in this payload is in your raid.|r")
+        return
+    end
+    if #skipped > 0 then
+        Print("Skipping " .. #skipped .. " not in raid: " .. table.concat(skipped, ", "))
+    end
+    StartSending(sendable)
+    frame:Hide()
 end
 
 local function BuildFrame()
@@ -193,33 +258,30 @@ local function BuildFrame()
     f.loadBtn = Button("Load", 100, 24)
     f.loadBtn:SetScript("OnClick", OnLoadClicked)
 
-    f.sendBtn = Button("Send all", 130, 24)
-    f.sendBtn:SetScript("OnClick", function()
-        if sending then f.status:SetText("Already sending.") return end
-        if not IsInRaid() then f.status:SetText("|cFFFF6B6BYou are not in a raid.|r") return end
-        local sendable, skipped = Resolve(sheet)
-        if #sendable == 0 then
-            f.status:SetText("|cFFFF6B6BNobody in this payload is in your raid.|r")
-            return
-        end
-        if #skipped > 0 then
-            Print("Skipping " .. #skipped .. " not in raid: " .. table.concat(skipped, ", "))
-        end
-        StartSending(sendable)
-        f:Hide()
-    end)
+    f.changedBtn = Button("Send 0 changed", 140, 24)
+    f.changedBtn:SetScript("OnClick", function() SendFiltered(ChangedOnly(sheet)) end)
 
-    f.backBtn = Button("Back", 100, 160)
+    f.sendBtn = Button("Send all", 100, 172)
+    f.sendBtn:SetScript("OnClick", function() SendFiltered(sheet) end)
+
+    f.backBtn = Button("Back", 90, 280)
     f.backBtn:SetScript("OnClick", ShowPaste)
 
-    f.closeBtn = Button("Close", 100, 430)
+    f.closeBtn = Button("Close", 90, 430)
     f.closeBtn:SetScript("OnClick", function() f:Hide() end)
 
     return f
 end
 
 SLASH_RAIDSPECSEND1 = "/specsend"
-SlashCmdList["RAIDSPECSEND"] = function()
+SlashCmdList["RAIDSPECSEND"] = function(msg)
+    local arg = (msg or ""):match("^%s*(%S*)"):lower()
+    if arg == "reset" then
+        RaidSpecScanDB = RaidSpecScanDB or {}
+        RaidSpecScanDB.lastSent = {}
+        Print("Send history cleared — everyone counts as NEW again.")
+        return
+    end
     if sending then Print("Already sending — wait for it to finish.") return end
     if not frame then frame = BuildFrame() end
     if sheet then ShowPreview() else ShowPaste() end

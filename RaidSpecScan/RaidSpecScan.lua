@@ -150,34 +150,3 @@ SlashCmdList["RAIDSPECSCAN"] = function()
     frame:SetScript("OnUpdate", OnUpdate)
 end
 
--- TEMPORARY probe for the whisper feature — see
--- docs/superpowers/specs/2026-08-10-addon-whispers-design.md.
--- Answers two questions this client can't be asked from outside: may an addon call
--- SendChatMessage for a whisper without a hardware event, and does 1s spacing get
--- past the spam filter? Delete this block once /specsend replaces it.
-local testFrame = CreateFrame("Frame")
-local testTarget, testLeft, testElapsed = nil, 0, 0
-
-local function TestTick(_, dt)
-    testElapsed = testElapsed + dt
-    if testElapsed < 1.0 then return end
-    testElapsed = 0
-    local n = 4 - testLeft
-    SendChatMessage("RaidSpecScan test " .. n .. " of 3 — if you can read this, addon whispers work.",
-        "WHISPER", nil, testTarget)
-    Print("sent " .. n .. "/3 to " .. testTarget)
-    testLeft = testLeft - 1
-    if testLeft <= 0 then
-        testFrame:SetScript("OnUpdate", nil)
-        Print("Done. You should see 3 whispers about a second apart. If you see none, SendChatMessage is blocked.")
-    end
-end
-
-SLASH_RAIDSPECWHISPERTEST1 = "/specwhispertest"
-SlashCmdList["RAIDSPECWHISPERTEST"] = function(msg)
-    local name = (msg or ""):match("^%s*(.-)%s*$")
-    if name == "" then name = UnitName("player") end -- whispering yourself needs no second person
-    testTarget, testLeft, testElapsed = name, 3, 1.0 -- 1.0 so the first one fires immediately
-    Print("Whispering " .. name .. " 3 times, 1s apart…")
-    testFrame:SetScript("OnUpdate", TestTick)
-end

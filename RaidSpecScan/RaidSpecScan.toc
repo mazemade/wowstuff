@@ -3,6 +3,7 @@
 ## Notes: Scans raid talents and exports them for the Raid Assignments web tool
 ## Author: mazemade
 ## Version: 1.0
+## SavedVariables: RaidSpecScanDB
 
 RaidSpecScan.lua
 RaidSpecSend.lua
