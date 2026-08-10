@@ -427,5 +427,60 @@ test('parseRaidHelper: lowercase bench is still excluded, keeping the raw reason
     assert.deepStrictEqual(r.players, []);
 });
 
+// --- Addon whispers: RSW1 paste payload ---
+test('buildAddonWhispers: RSW1 header, then one Name=body line per player', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildAddonWhispers(roster, sheet).split('\n');
+    assert.strictEqual(lines[0], 'RSW1');
+    const bob = lines.filter(l => l.startsWith('Bob='));
+    assert.strictEqual(bob.length, 1);
+    assert.ok(bob[0].includes('Curse of Elements'));
+    assert.ok(bob[0].includes('Soulstone'));
+});
+test('buildAddonWhispers: same recipients as the Whispers tab', () => {
+    const { roster, sheet } = sampleSheet();
+    const fromAddon = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
+        .map(l => l.slice(0, l.indexOf('=')));
+    const fromWhispers = E.buildWhispers(roster, sheet).map(l => l.split(' ')[1]);
+    assert.deepStrictEqual(
+        Array.from(new Set(fromAddon)).sort(),
+        Array.from(new Set(fromWhispers)).sort());
+});
+test('buildAddonWhispers: players with no duties get no line', () => {
+    const { roster, sheet } = sampleSheet();
+    const names = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
+        .map(l => l.slice(0, l.indexOf('=')));
+    assert.ok(!names.includes('Stabby'));
+});
+test('buildAddonWhispers: mark tokens survive verbatim', () => {
+    const { roster, sheet } = sampleSheet();
+    assert.ok(E.buildAddonWhispers(roster, sheet).includes('Polymorph on {moon}'));
+});
+test('buildAddonWhispers: duty text containing ; / and parentheses survives intact', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildAddonWhispers(roster, sheet).split('\n').slice(1);
+    const personal = lines.find(l => l.includes('Curse of Doom/Agony (personal)'));
+    assert.ok(personal, 'expected a spare warlock to carry the personal curse');
+    // The name/body split is on the FIRST '=', so a body may contain anything else.
+    const name = personal.slice(0, personal.indexOf('='));
+    assert.ok(name.length > 0 && name.indexOf(' ') === -1);
+});
+test('buildAddonWhispers: a heavily loaded player splits across lines, all within 255', () => {
+    const sheet = {
+        duties: Array.from({ length: 30 }, (_, i) => ({
+            id: 'd' + i, name: 'Very Long Duty Name Number ' + i, category: 'debuffs', player: 'Bob',
+        })),
+        uncovered: [], passives: [], cc: [],
+    };
+    const lines = E.buildAddonWhispers([], sheet).split('\n').slice(1);
+    assert.ok(lines.length > 1, 'expected the payload to wrap onto several lines');
+    lines.forEach(l => {
+        assert.ok(l.startsWith('Bob='));
+        const body = l.slice('Bob='.length);
+        assert.ok(body.length <= 255, 'body was ' + body.length + ' chars');
+        assert.ok(body.startsWith('Your assignments: '));
+    });
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

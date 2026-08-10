@@ -384,7 +384,8 @@
         return packChat('/raid ', items, ' | ', 255);
     }
 
-    function buildWhispers(roster, sheet) {
+    // Per-player duty text, shared by every whisper-shaped output so the two can't drift.
+    function whisperMap(sheet) {
         const per = {};
         const add = (name, txt) => { (per[name] = per[name] || []).push(txt); };
         sheet.duties.filter(d => d.player).forEach(d => {
@@ -393,7 +394,26 @@
         (sheet.cc || []).filter(c => c.player).forEach(c => {
             add(c.player, ccAbilityName(c.ability) + ' on {' + c.mark + '}');
         });
+        return per;
+    }
+
+    function buildWhispers(roster, sheet) {
+        const per = whisperMap(sheet);
         return Object.keys(per).map(n => '/w ' + n + ' Your assignments: ' + per[n].join('; '));
+    }
+
+    // Paste payload for the RaidSpecScan addon: one "Name=body" line per whisper.
+    // packChat keeps each body inside WoW's 255-character chat limit, so a player with
+    // many duties simply gets more than one line — the addon sends each as its own whisper.
+    function buildAddonWhispers(roster, sheet) {
+        const per = whisperMap(sheet);
+        const lines = ['RSW1'];
+        Object.keys(per).forEach(n => {
+            packChat('Your assignments: ', per[n], '; ', 255).forEach(body => {
+                lines.push(n + '=' + body);
+            });
+        });
+        return lines.join('\n');
     }
 
     return {
@@ -401,6 +421,6 @@
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
-        buildDiscord, buildRaidLines, buildWhispers,
+        buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
     };
 }));
