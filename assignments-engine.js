@@ -208,6 +208,12 @@
             return true;
         }
 
+        // An override with an explicit falsy `player` (e.g. { player: null }) means the user
+        // deliberately cleared the row, as opposed to no override being present at all.
+        function isExplicitlyUnassigned(o) {
+            return Object.prototype.hasOwnProperty.call(o, 'player') && !o.player;
+        }
+
         function record(entry, displayName, player, target) {
             const d = { id: entry.id, name: displayName, category: entry.category, player: player ? player.name : null };
             if (target) d.target = target;
@@ -222,6 +228,7 @@
             if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) return;
             const o = overrides[entry.id] || {};
             if (o.player && byName[o.player]) { record(entry, entry.name, byName[o.player]); return; }
+            if (isExplicitlyUnassigned(o)) { uncovered.push({ id: entry.id, name: entry.name }); return; }
             let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
             if (pool.length) { record(entry, entry.name, pool[0]); return; }
             if (entry.fallback) {
@@ -242,6 +249,7 @@
         druids.forEach((d, i) => {
             const id = 'innervate:' + i;
             const o = overrides[id] || {};
+            if (isExplicitlyUnassigned(o)) return;
             const player = (o.player && byName[o.player]) ? byName[o.player] : d;
             const target = o.target || ((i < druids.length - 1 && i < mages.length) ? mages[i].name : 'HEALER_RESERVE');
             record({ id, category: 'cooldowns' }, 'Innervate', player, target);
@@ -252,13 +260,15 @@
         if (locks.length) {
             const id = 'soulstone:0';
             const o = overrides[id] || {};
-            const player = (o.player && byName[o.player]) ? byName[o.player] : locks[0];
-            const priests = roster.filter(p => p.class === 'PRIEST' && (p.spec === 'Holy' || p.spec === 'Discipline'));
-            const altHealers = roster.filter(p =>
-                (p.class === 'PALADIN' && p.spec === 'Holy') ||
-                ((p.class === 'DRUID' || p.class === 'SHAMAN') && p.spec === 'Restoration'));
-            const target = o.target || (priests[0] && priests[0].name) || (altHealers[0] && altHealers[0].name) || null;
-            record({ id, category: 'cooldowns' }, 'Soulstone', player, target || undefined);
+            if (!isExplicitlyUnassigned(o)) {
+                const player = (o.player && byName[o.player]) ? byName[o.player] : locks[0];
+                const priests = roster.filter(p => p.class === 'PRIEST' && (p.spec === 'Holy' || p.spec === 'Discipline'));
+                const altHealers = roster.filter(p =>
+                    (p.class === 'PALADIN' && p.spec === 'Holy') ||
+                    ((p.class === 'DRUID' || p.class === 'SHAMAN') && p.spec === 'Restoration'));
+                const target = o.target || (priests[0] && priests[0].name) || (altHealers[0] && altHealers[0].name) || null;
+                record({ id, category: 'cooldowns' }, 'Soulstone', player, target || undefined);
+            }
         }
 
         const passives = PASSIVES.map(ps => {

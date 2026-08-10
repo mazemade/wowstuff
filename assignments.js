@@ -142,6 +142,9 @@ function removePlayer(name) {
         if (state.overrides[id] && state.overrides[id].player === name) delete state.overrides[id].player;
         if (state.overrides[id] && state.overrides[id].target === name) delete state.overrides[id].target;
     });
+    if (state.cc) {
+        state.cc.forEach(c => { if (c.player === name) c.player = null; });
+    }
     renderAll();
 }
 
