@@ -269,5 +269,55 @@ test('defaultCC: rows only for available classes', () => {
     assert.deepStrictEqual(r, []);
 });
 
+// --- Task 7: output builders ---
+function sampleSheet() {
+    const roster = fullRoster();
+    roster.find(p => p.name === 'Bob').discordId = '42';
+    const r = E.autoAssign(roster, {});
+    return { roster, sheet: Object.assign({}, r, { cc: E.defaultCC(roster) }) };
+}
+test('buildDiscord: has title, sections, and plain names without pings', () => {
+    const { roster, sheet } = sampleSheet();
+    const out = E.buildDiscord(roster, sheet, { pings: false, title: 'SSC Tuesday' });
+    assert.ok(out.includes('SSC Tuesday'));
+    assert.ok(out.includes('**Debuffs**'));
+    assert.ok(out.includes('**Cooldowns**'));
+    assert.ok(out.includes('**Crowd Control**'));
+    assert.ok(out.includes('Curse of Elements — Bob'));
+    assert.ok(!out.includes('<@'));
+});
+test('buildDiscord: pings replace linked names only', () => {
+    const { roster, sheet } = sampleSheet();
+    const out = E.buildDiscord(roster, sheet, { pings: true, title: '' });
+    assert.ok(out.includes('<@42>'));
+    assert.ok(out.includes('Thunderfist')); // no discordId -> plain
+});
+test('buildDiscord: healer reserve rendered readably', () => {
+    const { roster, sheet } = sampleSheet();
+    assert.ok(E.buildDiscord(roster, sheet, { pings: false, title: '' }).includes('healer in need'));
+});
+test('buildDiscord: uncovered warning included', () => {
+    const roster = fullRoster().filter(p => p.class !== 'HUNTER');
+    const r = E.autoAssign(roster, {});
+    const out = E.buildDiscord(roster, Object.assign({}, r, { cc: [] }), { pings: false, title: '' });
+    assert.ok(out.includes('Uncovered'));
+    assert.ok(out.includes("Hunter's Mark"));
+});
+test('buildRaidLines: all lines fit chat limit and carry prefix', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildRaidLines(roster, sheet);
+    assert.ok(lines.length >= 1);
+    lines.forEach(l => { assert.ok(l.startsWith('/raid ')); assert.ok(l.length <= 255); });
+    assert.ok(lines.join(' ').includes('{moon}'));
+});
+test('buildWhispers: one line per assigned player, duties combined', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildWhispers(roster, sheet);
+    const bob = lines.find(l => l.startsWith('/w Bob '));
+    assert.ok(bob.includes('Curse of Elements'));
+    assert.ok(bob.includes('Soulstone'));
+    assert.strictEqual(lines.filter(l => l.startsWith('/w Bob ')).length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

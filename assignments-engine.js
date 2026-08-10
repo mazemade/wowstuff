@@ -269,10 +269,88 @@
         return { duties, uncovered, passives };
     }
 
+    function displayTarget(t) { return t === 'HEALER_RESERVE' ? 'healer in need' : t; }
+    function ccAbilityName(id) {
+        const a = CC_ABILITIES.find(x => x.id === id);
+        return a ? a.name : id;
+    }
+    function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+    function buildDiscord(roster, sheet, opts) {
+        opts = opts || {};
+        const byName = {};
+        roster.forEach(p => { byName[p.name] = p; });
+        const nm = n => {
+            const p = byName[n];
+            return (opts.pings && p && p.discordId) ? '<@' + p.discordId + '>' : n;
+        };
+        const lines = ['**__RAID ASSIGNMENTS' + (opts.title ? ' — ' + opts.title : '') + '__**', ''];
+        [['debuffs', 'Debuffs'], ['cooldowns', 'Cooldowns']].forEach(pair => {
+            const rows = sheet.duties.filter(d => d.category === pair[0] && d.player);
+            if (!rows.length) return;
+            lines.push('**' + pair[1] + '**');
+            rows.forEach(d => {
+                let s = d.name + ' — ' + nm(d.player);
+                if (d.target) s += ' → ' + (byName[d.target] ? nm(d.target) : displayTarget(d.target));
+                lines.push(s);
+            });
+            lines.push('');
+        });
+        if (sheet.cc && sheet.cc.length) {
+            lines.push('**Crowd Control**');
+            sheet.cc.filter(c => c.player).forEach(c => {
+                lines.push(MARK_EMOJI[c.mark] + ' ' + capitalize(c.mark) + ' ' + ccAbilityName(c.ability) + ' — ' + nm(c.player));
+            });
+            lines.push('');
+        }
+        if (sheet.uncovered && sheet.uncovered.length) {
+            lines.push('⚠ **Uncovered:** ' + sheet.uncovered.map(u => u.name).join(', '));
+        }
+        return lines.join('\n').trim();
+    }
+
+    function packChat(prefix, items, sep, max) {
+        const lines = [];
+        let cur = '';
+        items.forEach(it => {
+            const next = cur ? cur + sep + it : prefix + it;
+            if (next.length > max && cur) { lines.push(cur); cur = prefix + it; }
+            else cur = next;
+        });
+        if (cur) lines.push(cur);
+        return lines;
+    }
+
+    function buildRaidLines(roster, sheet) {
+        const items = [];
+        sheet.duties.filter(d => d.player).forEach(d => {
+            let s = d.name + ': ' + d.player;
+            if (d.target) s += ' -> ' + displayTarget(d.target);
+            items.push(s);
+        });
+        (sheet.cc || []).filter(c => c.player).forEach(c => {
+            items.push('{' + c.mark + '} ' + ccAbilityName(c.ability) + ': ' + c.player);
+        });
+        return packChat('/raid ', items, ' | ', 255);
+    }
+
+    function buildWhispers(roster, sheet) {
+        const per = {};
+        const add = (name, txt) => { (per[name] = per[name] || []).push(txt); };
+        sheet.duties.filter(d => d.player).forEach(d => {
+            add(d.player, d.name + (d.target ? ' on ' + displayTarget(d.target) : ''));
+        });
+        (sheet.cc || []).filter(c => c.player).forEach(c => {
+            add(c.player, ccAbilityName(c.ability) + ' on {' + c.mark + '}');
+        });
+        return Object.keys(per).map(n => '/w ' + n + ' Your assignments: ' + per[n].join('; '));
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
+        buildDiscord, buildRaidLines, buildWhispers,
     };
 }));
