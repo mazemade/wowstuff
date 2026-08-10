@@ -35,6 +35,67 @@ local function ParsePayload(text)
     return entries, nil, bad
 end
 
+-- Raid roster keyed by lowercased name without the realm suffix, mapping to the
+-- full name to whisper. Cross-realm players appear as "Name-Realm" and must be
+-- whispered with the suffix intact, but the payload only carries the short name.
+local function RaidTargets()
+    local map = {}
+    if not IsInRaid() then return map end
+    for i = 1, GetNumGroupMembers() do
+        local full = GetRaidRosterInfo(i)
+        if full then
+            local short = full:match("^([^-]+)") or full
+            map[short:lower()] = full
+        end
+    end
+    return map
+end
+
+-- Splits the payload into what can actually be sent and who is not in the raid.
+local function Resolve(entries)
+    local targets, sendable, skipped, seen = RaidTargets(), {}, {}, {}
+    for _, e in ipairs(entries) do
+        local short = (e.name:match("^([^-]+)") or e.name):lower()
+        local target = targets[short]
+        if target then
+            table.insert(sendable, { name = e.name, target = target, body = e.body })
+        elseif not seen[e.name] then
+            seen[e.name] = true
+            table.insert(skipped, e.name)
+        end
+    end
+    return sendable, skipped
+end
+
+local SEND_INTERVAL = 1.0 -- seconds; faster bursts get eaten by the spam filter
+
+local sendFrame = CreateFrame("Frame")
+local queue, qIndex, qElapsed, sending = {}, 0, 0, false
+
+local function SendTick(_, dt)
+    qElapsed = qElapsed + dt
+    if qElapsed < SEND_INTERVAL then return end
+    qElapsed = 0
+    qIndex = qIndex + 1
+    local item = queue[qIndex]
+    if not item then
+        sending = false
+        sendFrame:SetScript("OnUpdate", nil)
+        Print("Done — " .. #queue .. " whispers sent.")
+        if frame and frame:IsShown() then frame.status:SetText("Sent " .. #queue .. " whispers.") end
+        return
+    end
+    SendChatMessage(item.body, "WHISPER", nil, item.target)
+    Print(qIndex .. "/" .. #queue .. " to " .. item.name)
+end
+
+local function StartSending(list)
+    queue, qIndex, sending = list, 0, true
+    qElapsed = SEND_INTERVAL -- fire the first one immediately
+    Print("Sending " .. #list .. " whispers, one per second…")
+    sendFrame:SetScript("OnUpdate", SendTick)
+end
+
 -- Preview text: one row per whisper, plus a trailing note for anything unusable.
 local function PreviewText()
     local rows = {}
@@ -62,7 +123,13 @@ local function ShowPreview()
     frame.title:SetText(#sheet .. " whispers ready — nothing is sent until you press Send")
     frame.editBox:SetText(PreviewText())
     frame.editBox:ClearFocus()
-    frame.status:SetText("")
+    if IsInRaid() then
+        frame.status:SetText("")
+        frame.sendBtn:Enable()
+    else
+        frame.status:SetText("Not in a raid — you can review, but not send.")
+        frame.sendBtn:Disable()
+    end
     frame.loadBtn:Hide()
     frame.sendBtn:Show()
     frame.backBtn:Show()
@@ -128,7 +195,18 @@ local function BuildFrame()
 
     f.sendBtn = Button("Send all", 130, 24)
     f.sendBtn:SetScript("OnClick", function()
-        f.status:SetText("Sending is not wired up yet.")
+        if sending then f.status:SetText("Already sending.") return end
+        if not IsInRaid() then f.status:SetText("|cFFFF6B6BYou are not in a raid.|r") return end
+        local sendable, skipped = Resolve(sheet)
+        if #sendable == 0 then
+            f.status:SetText("|cFFFF6B6BNobody in this payload is in your raid.|r")
+            return
+        end
+        if #skipped > 0 then
+            Print("Skipping " .. #skipped .. " not in raid: " .. table.concat(skipped, ", "))
+        end
+        StartSending(sendable)
+        f:Hide()
     end)
 
     f.backBtn = Button("Back", 100, 160)
@@ -142,6 +220,7 @@ end
 
 SLASH_RAIDSPECSEND1 = "/specsend"
 SlashCmdList["RAIDSPECSEND"] = function()
+    if sending then Print("Already sending — wait for it to finish.") return end
     if not frame then frame = BuildFrame() end
     if sheet then ShowPreview() else ShowPaste() end
     frame:Show()
