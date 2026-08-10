@@ -333,8 +333,27 @@ function renderAssignments() {
     sheet.cc.forEach((c, i) => ccBox.appendChild(ccRow(c, i)));
 }
 
-// --- Stubs completed in later tasks ---
-function renderOutput() { /* Task 11 */ }
+// --- Output tabs / share link ---
+function buildShareLink() {
+    const payload = { title: state.title, roster, sheet };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    return location.origin + location.pathname.replace('assignments.html', 'assignments-view.html') + '?data=' + encoded;
+}
+
+function renderOutput() {
+    const box = document.getElementById('outputBox');
+    document.getElementById('pingToggle').style.display = activeTab === 'discord' ? '' : 'none';
+    if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
+    if (activeTab === 'discord') {
+        box.textContent = E.buildDiscord(roster, sheet, { pings: state.pings, title: state.title });
+    } else if (activeTab === 'raid') {
+        box.textContent = E.buildRaidLines(roster, sheet).join('\n');
+    } else if (activeTab === 'whispers') {
+        box.textContent = E.buildWhispers(roster, sheet).join('\n');
+    } else if (activeTab === 'share') {
+        box.textContent = buildShareLink();
+    }
+}
 
 // --- Wiring ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -360,6 +379,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.cc) state.cc = sheet.cc.map(x => Object.assign({}, x));
         state.cc.push({ mark: 'star', ability: 'polymorph', player: null });
         renderAll();
+    });
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            activeTab = tab.dataset.tab;
+            renderOutput();
+        });
+    });
+    const pingCheckbox = document.getElementById('pingCheckbox');
+    pingCheckbox.checked = state.pings;
+    pingCheckbox.addEventListener('change', () => { state.pings = pingCheckbox.checked; renderAll(); });
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('copyBtn');
+        await navigator.clipboard.writeText(document.getElementById('outputBox').textContent);
+        btn.textContent = '✅ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
     });
     renderAll();
 });
