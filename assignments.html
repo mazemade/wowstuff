@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raid Assignments</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="assignments.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Raid Assignments</h1>
+            <p>Debuffs, cooldowns &amp; crowd control — import, auto-assign, share</p>
+            <a href="index.html" class="btn">← All tools</a>
+        </header>
+
+        <section class="panel">
+            <h2>1 · Import</h2>
+            <div class="import-row">
+                <input id="rhInput" placeholder="Raid-Helper event link or ID…">
+                <button id="rhImportBtn" class="btn btn-primary">Import from Raid-Helper</button>
+            </div>
+            <div class="import-row">
+                <textarea id="addonInput" placeholder="Paste the /specscan export from the RaidSpecScan addon…"></textarea>
+                <button id="addonImportBtn" class="btn btn-primary">Import addon scan</button>
+            </div>
+            <div class="import-row">
+                <button id="addPlayerBtn" class="btn">+ Add player</button>
+                <button id="clearRosterBtn" class="btn">Clear roster</button>
+            </div>
+            <div class="import-row hidden" id="manualForm">
+                <input id="manualName" placeholder="Character name" style="min-width:140px; flex:0 1 160px;">
+                <select id="manualClass"></select>
+                <select id="manualSpec"></select>
+                <button id="manualSaveBtn" class="btn btn-primary">Save</button>
+                <button id="manualCancelBtn" class="btn">Cancel</button>
+            </div>
+            <p id="importStatus" class="status"></p>
+        </section>
+
+        <section class="panel">
+            <h2>2 · Roster (<span id="rosterCount">0</span>)</h2>
+            <div id="rosterPills"></div>
+            <div id="linkPanel" class="hidden"></div>
+        </section>
+
+        <section class="panel">
+            <h2>3 · Assignments</h2>
+            <button id="autoAssignBtn" class="btn btn-primary">⚡ Auto-assign all</button>
+            <div id="uncoveredBox" class="warn hidden"></div>
+            <div class="cards">
+                <div class="card"><h3>Boss Debuffs</h3><div id="debuffRows"></div><div id="passiveRows"></div></div>
+                <div class="card"><h3>Cooldowns</h3><div id="cooldownRows"></div></div>
+                <div class="card"><h3>Crowd Control</h3><div id="ccRows"></div><button id="addCcBtn" class="btn">+ Add CC</button></div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>4 · Output</h2>
+            <div class="tabbar">
+                <button class="tab active" data-tab="discord">Discord</button>
+                <button class="tab" data-tab="share">Share link</button>
+                <button class="tab" data-tab="raid">/raid macro</button>
+                <button class="tab" data-tab="whispers">Whispers</button>
+                <span class="spacer"></span>
+                <label id="pingToggle"><input type="checkbox" id="pingCheckbox" checked> @mentions</label>
+                <button id="copyBtn" class="btn">📋 Copy</button>
+            </div>
+            <pre id="outputBox"></pre>
+        </section>
+    </div>
+    <script src="assignments-engine.js"></script>
+    <script src="assignments.js"></script>
+</body>
+</html>
