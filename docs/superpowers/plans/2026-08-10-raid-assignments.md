@@ -33,7 +33,7 @@
 - Consumes: nothing (first task)
 - Produces: UMD module `AssignmentsEngine` exposing `SPEC_TREES` (object: CLASS→[3 tree names]), `CLASS_COLORS` (CLASS→hex), `inferSpec(cls, points)` → `{spec: string|null, ambiguous: boolean}` where `points` is a 3-element number array. Also the test harness pattern (`test(name, fn)`) that every later engine task extends.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `assignments-engine.test.js`:
 
@@ -74,12 +74,12 @@ console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `node assignments-engine.test.js`
 Expected: crash with `Cannot find module './assignments-engine.js'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `assignments-engine.js`:
 
@@ -129,12 +129,12 @@ Create `assignments-engine.js`:
 }));
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `node assignments-engine.test.js`
 Expected: `6 passed, 0 failed`, exit code 0
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -153,7 +153,7 @@ git commit -m "Add assignments engine scaffold with spec inference"
 - Consumes: `inferSpec`, `SPEC_TREES` from Task 1.
 - Produces: `parseAddonExport(text)` → `{players: Player[], errors: string[]}`. Accepted format: tokens separated by `;` or newlines; optional `RSS1` header token; each player token `Name:CLASS:t1/t2/t3` or `Name:CLASS:?` (unscanned). Unscanned → flag `'spec-unknown'`; ambiguous triple → flag `'spec-ambiguous'` (spec still set to best guess). `source: 'addon'` on every player.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js` (above the final summary lines — all later tasks append in the same place):
 
@@ -190,12 +190,12 @@ test('parseAddonExport: empty input gives empty result', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 6 new FAIL lines (`E.parseAddonExport is not a function`), exit code 1
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `assignments-engine.js` (below `inferSpec`), and add `parseAddonExport` to the returned object:
 
@@ -226,12 +226,12 @@ Add to `assignments-engine.js` (below `inferSpec`), and add `parseAddonExport` t
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `12 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -250,7 +250,7 @@ git commit -m "Add addon export parser with spec inference flags"
 - Consumes: `SPEC_TREES`.
 - Produces: `parseRaidHelper(eventJson)` → `{players: Player[], excluded: [{name, reason}], errors: string[], title: string}`. Reads `eventJson.signUps` (Raid-Helper v2 event shape). Signups whose `className` is a status pseudo-class (`Bench`, `Late`, `Tentative`, `Absence`) or whose `status` isn't `'primary'` go to `excluded`. `userId` becomes `discordId` (string). Spec names are normalized (trailing digits stripped, `Beastmastery`→`Beast Mastery`, `Guardian`→`Feral`); unknown specs → `spec: null` + flag `'spec-unknown'`. `source: 'raidhelper'`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js`:
 
@@ -301,12 +301,12 @@ test('parseRaidHelper: empty event reports error', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 5 new FAIL lines, exit code 1
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `assignments-engine.js`, and add `parseRaidHelper` to the returned object:
 
@@ -344,12 +344,12 @@ Add to `assignments-engine.js`, and add `parseRaidHelper` to the returned object
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `17 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -368,7 +368,7 @@ git commit -m "Add Raid-Helper event parser with status filtering"
 - Consumes: Player shape from Tasks 2–3.
 - Produces: `mergeRosters(addonPlayers, rhPlayers, linkMap)` → `{roster: Player[], unmatched: {addon: Player[], raidhelper: Player[]}, mismatches: [{name, signed, actual}]}`. `linkMap` maps `discordId` → character name (persisted by the UI). Addon data wins for class/spec; matched Raid-Helper signups contribute `discordId`; spec disagreement adds flag `'signed-as:<spec>'` and a `mismatches` entry. If `addonPlayers` is empty the Raid-Helper players ARE the roster. `unmatched.addon` = roster entries with no `discordId` after merging; `unmatched.raidhelper` = signups matched to nobody.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js`:
 
@@ -408,12 +408,12 @@ test('mergeRosters: no addon players means raid-helper is the roster', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 6 new FAIL lines
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `assignments-engine.js`, and add `mergeRosters` to the returned object:
 
@@ -457,12 +457,12 @@ Add to `assignments-engine.js`, and add `mergeRosters` to the returned object:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `23 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -481,7 +481,7 @@ git commit -m "Add roster merge with fuzzy matching and persistent link map"
 - Consumes: Player shape; `P()` test helper from Task 4.
 - Produces: `DEBUFF_CATALOG` (exported array), `PASSIVES` (exported array), and `autoAssign(roster, overrides)` → `{duties: Duty[], uncovered: [{id, name}], passives: [{name, player}]}`. `overrides` maps duty id → `{player?: string, target?: string}`; an override wins even if the player is "ineligible" by preference (user's choice). Exclusivity: one `curse`-group duty per warlock, one `judgement`-group duty per paladin. Players flagged `'spec-unknown'` are never auto-picked. Warlocks without a curse get personal duty `curse:<Name>`. Duty ids produced here: `sunder`, `coe`, `cor`, `jow`, `jol`, `joc`, `scorch`, `ff`, `hm`, `demo`, `curse:<Name>`. (Task 6 adds `innervate:<i>`, `soulstone:0`.)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js`:
 
@@ -567,12 +567,12 @@ test('autoAssign: empty roster gives all core debuffs uncovered', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 9 new FAIL lines
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `assignments-engine.js`, and add `DEBUFF_CATALOG`, `PASSIVES`, `autoAssign` to the returned object:
 
@@ -670,12 +670,12 @@ Add to `assignments-engine.js`, and add `DEBUFF_CATALOG`, `PASSIVES`, `autoAssig
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `32 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -694,7 +694,7 @@ git commit -m "Add debuff catalog and priority-based auto-assignment"
 - Consumes: `autoAssign` internals from Task 5 (`record`, `byName`, `overrides` handling — extend inside the same function, before the `passives` computation and final return).
 - Produces: `autoAssign` additionally emits cooldown duties: `innervate:<i>` (one per druid, `player` = druid, `target` = mage name or `'HEALER_RESERVE'`; the LAST druid always reserves, so a lone druid reserves) and `soulstone:0` (first warlock, `target` = Holy/Disc priest, else Holy paladin / Resto druid / Resto shaman, else no target). Also new exports: `CC_ABILITIES` `[{id, name, class}]`, `MARKS` (8 mark ids), `MARK_EMOJI` (mark id → emoji), and `defaultCC(roster)` → `[{mark, ability, player}]` (moon/triangle Polymorph for first two mages, square Sap for first rogue).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js`:
 
@@ -737,12 +737,12 @@ test('defaultCC: rows only for available classes', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 7 new FAIL lines
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Inside `autoAssign`, insert between the personal-curses block and the `passives` computation:
 
@@ -798,12 +798,12 @@ Add at module level (near the other constants), and export `CC_ABILITIES`, `MARK
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `39 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -822,7 +822,7 @@ git commit -m "Add innervate, soulstone and crowd-control assignment"
 - Consumes: `sheet` = `{duties, uncovered, passives, cc}` (the UI composes it from `autoAssign(...)` + a cc array); roster for discordId lookup.
 - Produces: `buildDiscord(roster, sheet, opts)` → single string (`opts = {pings: bool, title: string}`); `buildRaidLines(roster, sheet)` → array of `/raid ` strings each ≤ 255 chars; `buildWhispers(roster, sheet)` → array of `/w Name …` strings, one per assigned player. `'HEALER_RESERVE'` renders as `healer in need`. CC lines in chat outputs use WoW's `{mark}` icon syntax.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `assignments-engine.test.js`:
 
@@ -878,12 +878,12 @@ test('buildWhispers: one line per assigned player, duties combined', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `node assignments-engine.test.js`
 Expected: 6 new FAIL lines
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `assignments-engine.js`, and add `buildDiscord`, `buildRaidLines`, `buildWhispers` to the returned object:
 
@@ -966,12 +966,12 @@ Add to `assignments-engine.js`, and add `buildDiscord`, `buildRaidLines`, `build
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 Expected: `45 passed, 0 failed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
@@ -989,7 +989,7 @@ git commit -m "Add Discord, raid-chat and whisper output builders"
 - Consumes: nothing from other tasks.
 - Produces: `GET /api/raidhelper/:eventId` → passes through Raid-Helper's JSON (`https://raid-helper.dev/api/v2/events/{id}`). 400 `{error}` on malformed id, upstream status + `{error}` on upstream failure, 502 `{error}` on network failure. The UI (Task 9) calls exactly this path.
 
-- [ ] **Step 1: Add the route**
+- [x] **Step 1: Add the route**
 
 In `server.js`, directly above the comment `// Serve index.html for other routes (fallback)`, insert:
 
@@ -1012,7 +1012,7 @@ app.get('/api/raidhelper/:eventId', async (req, res) => {
 });
 ```
 
-- [ ] **Step 2: Verify manually**
+- [x] **Step 2: Verify manually**
 
 ```bash
 node server.js &
@@ -1024,7 +1024,7 @@ kill %1
 
 Expected: the two JSON error bodies shown above (the second proves the upstream call works end-to-end).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server.js
@@ -1045,7 +1045,7 @@ git commit -m "Add Raid-Helper API proxy route"
 - Consumes: `AssignmentsEngine` global (all Tasks 1–7 functions); proxy route from Task 8.
 - Produces: the page shell and this state model, which Tasks 10–11 build on. `assignments.js` module-level names other tasks rely on: `state` (`{sources: {addon, rh}, manual: [], excluded: [], overrides: {}, cc: null, pings: true, title: ''}`), `linkMap` (discordId→charName), computed `roster`, `mergeInfo`, `sheet`, `activeTab`; functions `loadState()`, `saveState()`, `recompute()`, `renderAll()`, `setStatus(msg, isError)`; stub functions `renderAssignments()` and `renderOutput()` (filled in Tasks 10–11).
 
-- [ ] **Step 1: Create `assignments.css`**
+- [x] **Step 1: Create `assignments.css`**
 
 ```css
 /* Raid Assignments page — extends style.css */
@@ -1085,7 +1085,7 @@ git commit -m "Add Raid-Helper API proxy route"
 .link-row { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
 ```
 
-- [ ] **Step 2: Create `assignments.html`**
+- [x] **Step 2: Create `assignments.html`**
 
 ```html
 <!DOCTYPE html>
@@ -1166,7 +1166,7 @@ git commit -m "Add Raid-Helper API proxy route"
 </html>
 ```
 
-- [ ] **Step 3: Create `assignments.js` (part 1: state, persistence, import, roster)**
+- [x] **Step 3: Create `assignments.js` (part 1: state, persistence, import, roster)**
 
 ```js
 /* global AssignmentsEngine */
@@ -1373,7 +1373,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 ```
 
-- [ ] **Step 4: Add the card to `index.html`**
+- [x] **Step 4: Add the card to `index.html`**
 
 Directly after the Serpentshrine Cavern `fight-card` div (which ends with `</div>` before the closing `</div>` of `fight-selection`), insert:
 
@@ -1385,7 +1385,7 @@ Directly after the Serpentshrine Cavern `fight-card` div (which ends with `</div
             </div>
 ```
 
-- [ ] **Step 5: Verify manually**
+- [x] **Step 5: Verify manually**
 
 ```bash
 node server.js
@@ -1398,7 +1398,7 @@ Open `http://localhost:3000/` — the new card appears and opens `assignments.ht
 3. Add a manual player, edit a pill (✎), remove one (✕).
 4. Refresh the page — everything persists. "Clear roster" empties it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add assignments.html assignments.css assignments.js index.html
@@ -1416,7 +1416,7 @@ git commit -m "Add assignments page skeleton with dual import and roster managem
 - Consumes: `state`, `roster`, `sheet`, `renderAll()` from Task 9; `E.DEBUFF_CATALOG`, `E.CC_ABILITIES`, `E.MARKS`, `E.MARK_EMOJI`, `E.SPEC_TREES` from the engine.
 - Produces: interactive assignment section. Changing any dropdown writes `state.overrides[dutyId] = {player?, target?}` (or mutates `state.cc`) and calls `renderAll()`. "Auto-assign all" (already wired in Task 9) resets overrides and cc to defaults.
 
-- [ ] **Step 1: Replace the `renderAssignments` stub in `assignments.js`**
+- [x] **Step 1: Replace the `renderAssignments` stub in `assignments.js`**
 
 ```js
 function eligibleForDuty(dutyId) {
@@ -1545,12 +1545,12 @@ Also add the "+ Add CC" wiring inside the `DOMContentLoaded` handler (next to th
     });
 ```
 
-- [ ] **Step 2: Run the engine tests (regression guard)**
+- [x] **Step 2: Run the engine tests (regression guard)**
 
 Run: `node assignments-engine.test.js`
 Expected: `45 passed, 0 failed` (UI changes must not touch the engine)
 
-- [ ] **Step 3: Verify manually**
+- [x] **Step 3: Verify manually**
 
 With `node server.js` running and the Task 9 sample roster imported:
 1. Debuffs card shows Sunder→Thunderfist, CoE→Bob, JoW→Retdin, Improved Scorch→Frostina, etc.; personal curse row for the spare lock.
@@ -1559,7 +1559,7 @@ With `node server.js` running and the Task 9 sample roster imported:
 4. Reassign CoE to Grimshade via dropdown — Bob picks up a curse duty elsewhere. Click "⚡ Auto-assign all" — everything resets to defaults.
 5. Remove Legolass and Afkguy (both hunters) — the red "Uncovered: Hunter's Mark" box appears.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add assignments.js
@@ -1578,7 +1578,7 @@ git commit -m "Add interactive assignment cards with overrides and CC editor"
 - Consumes: `E.buildDiscord`, `E.buildRaidLines`, `E.buildWhispers`; `state`, `roster`, `sheet`, `activeTab` from Task 9.
 - Produces: working output section; share links of the form `assignments-view.html?data=<base64 JSON {title, roster, sheet}>` using the same encoding as the existing gruul/ssc share links (`btoa(unescape(encodeURIComponent(json)))`).
 
-- [ ] **Step 1: Replace the `renderOutput` stub in `assignments.js`**
+- [x] **Step 1: Replace the `renderOutput` stub in `assignments.js`**
 
 ```js
 function buildShareLink() {
@@ -1625,7 +1625,7 @@ Add inside the `DOMContentLoaded` handler:
     });
 ```
 
-- [ ] **Step 2: Create `assignments-view.html`**
+- [x] **Step 2: Create `assignments-view.html`**
 
 ```html
 <!DOCTYPE html>
@@ -1692,12 +1692,12 @@ Add inside the `DOMContentLoaded` handler:
 </html>
 ```
 
-- [ ] **Step 3: Run the engine tests (regression guard)**
+- [x] **Step 3: Run the engine tests (regression guard)**
 
 Run: `node assignments-engine.test.js`
 Expected: `45 passed, 0 failed`
 
-- [ ] **Step 4: Verify manually**
+- [x] **Step 4: Verify manually**
 
 With `node server.js` running and the sample roster loaded:
 1. Discord tab shows the grouped block; toggling "@mentions" changes nothing yet (no discordIds without a Raid-Helper import) — import a real Raid-Helper event or temporarily link one to see `<@id>`.
@@ -1705,7 +1705,7 @@ With `node server.js` running and the sample roster loaded:
 3. Copy button puts the visible text on the clipboard.
 4. Share link tab: open the generated URL in a new tab — the read-only view renders the same assignments; mangle the `data=` param — the error banner shows.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add assignments.js assignments-view.html
@@ -1724,7 +1724,7 @@ git commit -m "Add output tabs with share link and read-only view page"
 - Consumes: nothing from the web code.
 - Produces: `/specscan` slash command that scans the raid and shows a copyable export string in the exact format `parseAddonExport` (Task 2) accepts: `RSS1;Name:CLASS:t1/t2/t3;…` with `?` for unscannable players.
 
-- [ ] **Step 1: Create `RaidSpecScan/RaidSpecScan.toc`**
+- [x] **Step 1: Create `RaidSpecScan/RaidSpecScan.toc`**
 
 ```
 ## Interface: 20505
@@ -1738,7 +1738,7 @@ RaidSpecScan.lua
 
 Note: if the addon shows as out-of-date in game, get the correct interface number with `/run print((select(4, GetBuildInfo())))` and update this line.
 
-- [ ] **Step 2: Create `RaidSpecScan/RaidSpecScan.lua`**
+- [x] **Step 2: Create `RaidSpecScan/RaidSpecScan.lua`**
 
 ```lua
 -- RaidSpecScan: exports raid class + talent point totals for the assignments web tool.
@@ -1891,7 +1891,7 @@ SlashCmdList["RAIDSPECSCAN"] = function()
 end
 ```
 
-- [ ] **Step 3: Syntax-check if a Lua binary is available**
+- [x] **Step 3: Syntax-check if a Lua binary is available**
 
 ```bash
 command -v luac >/dev/null && luac -p RaidSpecScan/RaidSpecScan.lua && echo "syntax OK" || echo "no luac — skip"
@@ -1899,7 +1899,7 @@ command -v luac >/dev/null && luac -p RaidSpecScan/RaidSpecScan.lua && echo "syn
 
 Expected: `syntax OK`, or skip if luac isn't installed.
 
-- [ ] **Step 4: Verify the export format round-trips through the parser**
+- [x] **Step 4: Verify the export format round-trips through the parser**
 
 ```bash
 node -e "
@@ -1912,11 +1912,11 @@ console.log('round-trip OK');
 
 Expected: `round-trip OK`
 
-- [ ] **Step 5: Document in-game verification (manual, next raid)**
+- [x] **Step 5: Document in-game verification (manual, next raid)**
 
 Add to the commit message body — cannot be automated: install the folder into `Interface/AddOns/`, `/specscan` in a raid, confirm progress message, export window opens, paste into the web tool imports everyone, out-of-range players show `?spec` flags.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add RaidSpecScan/
@@ -1931,6 +1931,6 @@ players flagged for manual spec entry."
 
 ## Final verification (after all tasks)
 
-- [ ] `node assignments-engine.test.js` → all pass, exit 0
-- [ ] `node server.js` → index card opens the page; full manual flow: addon paste → auto-assign → all four output tabs → share link renders in a second browser tab
-- [ ] Import a real Raid-Helper event (your guild's next signup) and confirm: signups appear, bench excluded, link panel appears for name mismatches, linking enables `<@id>` pings in the Discord tab
+- [x] `node assignments-engine.test.js` → all pass, exit 0 — **58 passed, 0 failed** (the plan's 45 plus 13 added by review rounds)
+- [ ] `node server.js` → index card opens the page; full manual flow: addon paste → auto-assign → all four output tabs → share link renders in a second browser tab — *server-side verified (all six routes HTTP 200, index card present, proxy returns 400 on a bad id); the in-browser interaction flow still needs a human*
+- [ ] Import a real Raid-Helper event (your guild's next signup) and confirm: signups appear, bench excluded, link panel appears for name mismatches, linking enables `<@id>` pings in the Discord tab — *needs a live event; not automatable*
