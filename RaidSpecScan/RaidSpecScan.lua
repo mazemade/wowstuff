@@ -2,6 +2,8 @@
 -- Usage: /specscan while in a raid. Players out of inspect range (28yd), offline,
 -- or timing out export as "?" and get fixed manually in the web tool.
 
+local ADDON, ns = ...
+
 local INSPECT_TIMEOUT = 3 -- seconds per player before giving up
 
 local frame = CreateFrame("Frame")
@@ -14,6 +16,7 @@ local scanning = false
 local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF33FF99[RaidSpecScan]|r " .. msg)
 end
+ns.Print = Print
 
 -- BCC-era API: GetTalentTabInfo(tab, isInspect) -> name, texture, pointsSpent, background
 -- (retail-classic variants shuffle returns, so find the first numeric value)
