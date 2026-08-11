@@ -36,16 +36,41 @@ local function TalentString(isInspect)
     return t1 .. "/" .. t2 .. "/" .. t3
 end
 
+-- The unit token is the reliable source: UnitInRaid's return base changed across expansions,
+-- so parse the index out of "raidN" and fall back to a name scan for anything else (the
+-- player's own "player" token, mainly).
+local function SubgroupOf(unit, name)
+    local idx = tonumber(string.match(unit or "", "^raid(%d+)$"))
+    if idx then
+        local _, _, subgroup = GetRaidRosterInfo(idx)
+        if subgroup then return subgroup end
+    end
+    for i = 1, GetNumGroupMembers and GetNumGroupMembers() or 40 do
+        local rname, _, rsub = GetRaidRosterInfo(i)
+        if rname and rname == name then return rsub end
+    end
+    return nil
+end
+
 local function AddResult(unit, points)
     local name = UnitName(unit)
     local _, classToken = UnitClass(unit)
     if name and classToken then
-        table.insert(results, name .. ":" .. classToken .. ":" .. points)
+        local line = name .. ":" .. classToken .. ":" .. points
+        local subgroup = SubgroupOf(unit, name)
+        if subgroup then
+            line = line .. ":" .. subgroup
+            -- Second return is the locale-independent token ("Draenei"); the first is
+            -- localized and would break the web tool on a non-English client.
+            local _, raceToken = UnitRace(unit)
+            if raceToken then line = line .. ":" .. raceToken end
+        end
+        table.insert(results, line)
     end
 end
 
 local function ShowExport()
-    local text = "RSS1;" .. table.concat(results, ";")
+    local text = "RSS2;" .. table.concat(results, ";")
     local f = RaidSpecScanExportFrame
     if not f then
         f = CreateFrame("Frame", "RaidSpecScanExportFrame", UIParent, "BackdropTemplate")
