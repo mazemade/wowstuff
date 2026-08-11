@@ -1,0 +1,42 @@
+{
+    // Opens the repo showing only the raid-assignments feature: the two addons, the web
+    // page, the engine and its tests. Everything else in the repo (gruul, magtheridon,
+    // ssc, weakauras, the older scripts) is hidden, not deleted — clear an entry below
+    // to bring a file back.
+    "folders": [
+        {
+            "name": "Raid Assignments",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "files.exclude": {
+            "GruulLairMap.png": true,
+            "GruulPositions.lua": true,
+            "GruulPositions.toc": true,
+            "HideBlizzardLoot": true,
+            "README.md": true,
+            "RepeatSplit": true,
+            "Weakaura": true,
+            "chain-heal-sim.html": true,
+            "gruul.html": true,
+            "index.html": true,
+            "magtheridon.html": true,
+            "magtheridon.js": true,
+            "node_modules": true,
+            "package-lock.json": true,
+            "railway.json": true,
+            "script.js": true,
+            "ssc.html": true,
+            "ssc.js": true,
+            "view.html": true,
+            "view.js": true,
+            ".superpowers": true
+        },
+        // Keep searches inside the feature too, so a rename never turns up hits in gruul.
+        "search.exclude": {
+            "node_modules": true,
+            "docs/superpowers/specs/2026-08-05-repeat-split-design.md": true
+        }
+    }
+}
