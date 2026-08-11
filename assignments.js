@@ -276,6 +276,13 @@ function dutyRow(d) {
             renderAll();
         }));
     }
+    if (d.caution) {
+        const note = document.createElement('span');
+        note.className = 'duty-caution';
+        note.title = d.caution;
+        note.textContent = 'ⓘ';
+        row.appendChild(note);
+    }
     return row;
 }
 

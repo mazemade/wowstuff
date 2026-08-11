@@ -626,5 +626,10 @@ test('autoAssign: attack power falls through to a feral druid, then a hunter', (
     assert.strictEqual(duty(hunterOnly, 'ap').player, 'Legolass');
 });
 
+test('autoAssign: curse of recklessness carries its tank caution onto the duty', () => {
+    const r = E.autoAssign(fullRoster(), {});
+    assert.ok(/\+136 melee AP/.test(duty(r, 'cor').caution));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

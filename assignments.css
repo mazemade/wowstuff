@@ -55,3 +55,5 @@
 .mark-picker button[aria-pressed="true"] { border-color: #ffd700; background: rgba(255, 215, 0, 0.15); }
 .mark-picker button:not([aria-pressed="true"]) .rt-icon { opacity: 0.45; }
 .mark-picker button:hover .rt-icon { opacity: 1; }
+
+.duty-caution { cursor: help; opacity: 0.7; font-size: 0.9em; }

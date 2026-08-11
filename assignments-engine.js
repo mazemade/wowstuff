@@ -168,7 +168,8 @@
             { name: 'Sunder Armor', class: 'WARRIOR', preferSpecs: ['Protection'] },
         ] },
         { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse' },
-        { id: 'cor', name: 'Curse of Recklessness', category: 'debuffs', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
+        { id: 'cor', name: 'Curse of Recklessness', category: 'debuffs', class: 'WARLOCK', preferSpecs: [], group: 'curse',
+          caution: '−800 armor but +136 melee AP on the boss. Clear this row on enrage or AP-scaling fights.' },
         // The value here is Improved Seal of the Crusader (Ret tier 2): +3% crit to all
         // attacks on the target. Untalented it is worth nothing, so one Ret beats three bodies.
         // Ordered before jow/jol: judgements are one-per-paladin, so the Ret must be claimed
@@ -282,6 +283,7 @@
         function record(entry, displayName, player, target) {
             const d = { id: entry.id, name: displayName, category: entry.category, player: player ? player.name : null };
             if (target) d.target = target;
+            if (entry.caution) d.caution = entry.caution;
             duties.push(d);
             if (player) {
                 dutyCount[player.name] = (dutyCount[player.name] || 0) + 1;
