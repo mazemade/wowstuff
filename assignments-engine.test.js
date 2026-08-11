@@ -736,6 +736,9 @@ test('bucketOf: specs map to the right role bucket', () => {
     assert.strictEqual(E.bucketOf(P('j', 'SHAMAN', 'Elemental')), 'casters');
     assert.strictEqual(E.bucketOf(P('k', 'ROGUE', 'Combat')), 'melee');
     assert.strictEqual(E.bucketOf(P('l', 'MAGE', 'Fire')), 'casters');
+    assert.strictEqual(E.bucketOf(P('q', 'PALADIN', 'Protection')), 'tanks');
+    assert.strictEqual(E.bucketOf(P('r', 'DRUID', 'Feral')), 'melee');
+    assert.strictEqual(E.bucketOf(P('s', 'SHAMAN', 'Restoration')), 'healers');
 });
 test('bucketOf: hunters are their own bucket, never melee', () => {
     assert.strictEqual(E.bucketOf(P('m', 'HUNTER', 'Beast Mastery')), 'ranged');
