@@ -848,6 +848,20 @@ test('proposeGroups: a roster with no race data is unaffected', () => {
     assert.deepStrictEqual(withRace.groups.map(g => g.players.map(p => p.name)),
                            without.groups.map(g => g.players.map(p => p.name)));
 });
+test('proposeGroups: a real draenei swap conserves every group size and every player', () => {
+    const roster = raid25().map(p => Object.assign({}, p, { race: 'Human' }));
+    roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
+    const before = E.proposeGroups(roster.map(p => Object.assign({}, p, { race: 'Human' })));
+    const after = E.proposeGroups(roster);
+    // The swap must actually have fired, or this test proves nothing.
+    const perGroup = after.groups.map(g => g.players.filter(p => p.race === 'Draenei').length);
+    assert.ok(Math.max.apply(null, perGroup) <= 1, 'no swap fired: ' + perGroup.join(','));
+    assert.deepStrictEqual(after.groups.map(g => g.players.length),
+                           before.groups.map(g => g.players.length));
+    const names = after.groups.flatMap(g => g.players.map(p => p.name)).concat(after.unplaced.map(p => p.name));
+    assert.strictEqual(names.length, 25);
+    assert.strictEqual(new Set(names).size, 25);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
