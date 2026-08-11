@@ -554,7 +554,9 @@ test('buildDiscord warns about missing only, and tolerates a legacy flat uncover
 
     const legacy = E.autoAssign(roster, {});
     legacy.uncovered = [{ id: 'coe', name: 'Curse of Elements' }];
-    assert.ok(E.buildDiscord(roster, legacy, {}).includes('Curse of Elements'));
+    const legacyOut = E.buildDiscord(roster, legacy, {});
+    const legacyWarningLine = legacyOut.split('\n').find(l => l.indexOf('Uncovered') !== -1) || '';
+    assert.ok(legacyWarningLine.includes('Curse of Elements'));
 });
 
 test('autoAssign: judgement of the crusader requires a ret paladin, not three paladins', () => {
@@ -587,6 +589,15 @@ test("autoAssign: winter's chill needs a frost mage specifically", () => {
     const r = E.autoAssign([P('Frostina', 'MAGE', 'Fire')], {});
     assert.ok(!duty(r, 'wc'));
     assert.ok(r.uncovered.missing.some(u => u.id === 'wc'));
+});
+
+test('autoAssign: an explicit override beats an applicableWhen gate', () => {
+    // The addon reports talent tab totals only, so a paladin who never scanned has spec null
+    // and joc's predicate reads false. The raid lead knows better; the override must survive.
+    const pals = [P('Ambiguous', 'PALADIN', null), P('Lightbringer', 'PALADIN', 'Holy')];
+    const r = E.autoAssign(pals, { joc: { player: 'Ambiguous' } });
+    assert.strictEqual(duty(r, 'joc').player, 'Ambiguous');
+    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'joc'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

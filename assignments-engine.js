@@ -266,20 +266,23 @@
         }
 
         DEBUFF_CATALOG.forEach(entry => {
-            if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) {
-                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
-                return;
-            }
-            if (entry.applicableWhen && !entry.applicableWhen(roster)) {
-                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
-                return;
-            }
             const o = overrides[entry.id] || {};
             if (o.player && byName[o.player]) {
                 const chosen = byName[o.player];
                 const useFb = entry.fallback && chosen.class === entry.fallback.class;
                 const eff = useFb ? Object.assign({}, entry.fallback, { id: entry.id, category: entry.category }) : entry;
                 record(eff, eff.name, chosen);
+                return;
+            }
+            // An explicit override is the raid lead telling the tool it is wrong about
+            // applicability, so it must win over these gates; everything downstream of
+            // this point still respects them.
+            if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) {
+                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
+                return;
+            }
+            if (entry.applicableWhen && !entry.applicableWhen(roster)) {
+                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
                 return;
             }
             if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.missing.push({ id: entry.id, name: entry.name }); return; }
