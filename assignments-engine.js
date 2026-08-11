@@ -508,11 +508,29 @@
         return lines.join('\n');
     }
 
+    // Hunters are deliberately NOT melee. Windfury is a main-hand weapon enchant and ranged
+    // attacks do not proc it, so a hunter in the Windfury group wastes the slot. They want
+    // Grace of Air, Trueshot, Ferocious Inspiration and Battle Shout instead.
+    function bucketOf(p) {
+        const s = p.spec;
+        switch (p.class) {
+            case 'WARRIOR': return s === 'Protection' ? 'tanks' : 'melee';
+            case 'PALADIN': return s === 'Holy' ? 'healers' : (s === 'Protection' ? 'tanks' : 'melee');
+            case 'DRUID':   return s === 'Restoration' ? 'healers' : (s === 'Balance' ? 'casters' : 'melee');
+            case 'PRIEST':  return s === 'Shadow' ? 'casters' : 'healers';
+            case 'SHAMAN':  return s === 'Restoration' ? 'healers' : (s === 'Elemental' ? 'casters' : 'melee');
+            case 'ROGUE':   return 'melee';
+            case 'HUNTER':  return 'ranged';
+            default:        return 'casters';
+        }
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
+        bucketOf,
     };
 }));

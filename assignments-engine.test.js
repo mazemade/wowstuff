@@ -723,5 +723,28 @@ test('parseAddonExport: the header does not gate per-line shape, in either direc
     assert.strictEqual(rss1HeaderRss2Line.players[0].race, 'Human');
 });
 
+test('bucketOf: specs map to the right role bucket', () => {
+    assert.strictEqual(E.bucketOf(P('a', 'WARRIOR', 'Protection')), 'tanks');
+    assert.strictEqual(E.bucketOf(P('b', 'WARRIOR', 'Fury')), 'melee');
+    assert.strictEqual(E.bucketOf(P('c', 'PALADIN', 'Holy')), 'healers');
+    assert.strictEqual(E.bucketOf(P('d', 'PALADIN', 'Retribution')), 'melee');
+    assert.strictEqual(E.bucketOf(P('e', 'DRUID', 'Balance')), 'casters');
+    assert.strictEqual(E.bucketOf(P('f', 'DRUID', 'Restoration')), 'healers');
+    assert.strictEqual(E.bucketOf(P('g', 'PRIEST', 'Shadow')), 'casters');
+    assert.strictEqual(E.bucketOf(P('h', 'PRIEST', 'Holy')), 'healers');
+    assert.strictEqual(E.bucketOf(P('i', 'SHAMAN', 'Enhancement')), 'melee');
+    assert.strictEqual(E.bucketOf(P('j', 'SHAMAN', 'Elemental')), 'casters');
+    assert.strictEqual(E.bucketOf(P('k', 'ROGUE', 'Combat')), 'melee');
+    assert.strictEqual(E.bucketOf(P('l', 'MAGE', 'Fire')), 'casters');
+});
+test('bucketOf: hunters are their own bucket, never melee', () => {
+    assert.strictEqual(E.bucketOf(P('m', 'HUNTER', 'Beast Mastery')), 'ranged');
+    assert.strictEqual(E.bucketOf(P('n', 'HUNTER', 'Survival')), 'ranged');
+});
+test('bucketOf: a null spec still returns a bucket', () => {
+    assert.strictEqual(E.bucketOf(P('o', 'WARLOCK', null)), 'casters');
+    assert.strictEqual(E.bucketOf(P('p', 'WARRIOR', null)), 'melee');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
