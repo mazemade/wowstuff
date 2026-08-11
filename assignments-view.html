@@ -68,10 +68,11 @@
             (sheet.cc || []).filter(c => c.player).forEach(c =>
                 ccRow(cc, c.mark, String(c.mark).charAt(0).toUpperCase() + String(c.mark).slice(1) + ' ' +
                     (E.CC_ABILITIES.find(a => a.id === c.ability) || { name: c.ability }).name + ' — ' + c.player));
-            if (sheet.uncovered && sheet.uncovered.length) {
+            const missing = E.missingList(sheet.uncovered);
+            if (missing.length) {
                 const u = document.getElementById('uncoveredBox');
                 u.classList.remove('hidden');
-                u.textContent = '⚠ Uncovered: ' + sheet.uncovered.map(x => x.name).join(', ');
+                u.textContent = '⚠ Uncovered: ' + missing.map(x => x.name).join(', ');
             }
         } catch (e) {
             document.getElementById('viewError').classList.remove('hidden');

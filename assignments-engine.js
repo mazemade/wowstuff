@@ -330,6 +330,13 @@
     }
     function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+    // Sheets serialized before the missing/notApplicable split carry a flat array. Share
+    // links outlive deploys, so both shapes have to render.
+    function missingList(uncovered) {
+        if (!uncovered) return [];
+        return Array.isArray(uncovered) ? uncovered : (uncovered.missing || []);
+    }
+
     function buildDiscord(roster, sheet, opts) {
         opts = opts || {};
         const byName = {};
@@ -357,8 +364,9 @@
             });
             lines.push('');
         }
-        if (sheet.uncovered && sheet.uncovered.length) {
-            lines.push('⚠ **Uncovered:** ' + sheet.uncovered.map(u => u.name).join(', '));
+        const missing = missingList(sheet.uncovered);
+        if (missing.length) {
+            lines.push('⚠ **Uncovered:** ' + missing.map(u => u.name).join(', '));
         }
         return lines.join('\n').trim();
     }
@@ -433,7 +441,7 @@
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
-        DEBUFF_CATALOG, PASSIVES, autoAssign,
+        DEBUFF_CATALOG, PASSIVES, autoAssign, missingList,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
     };

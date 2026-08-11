@@ -333,9 +333,10 @@ function ccRow(c, index) {
 
 function renderAssignments() {
     const uncoveredBox = document.getElementById('uncoveredBox');
-    if (sheet.uncovered.length && roster.length) {
+    const missing = E.missingList(sheet.uncovered);
+    if (missing.length && roster.length) {
         uncoveredBox.classList.remove('hidden');
-        uncoveredBox.textContent = '⚠ Uncovered: ' + sheet.uncovered.map(u => u.name).join(', ');
+        uncoveredBox.textContent = '⚠ Uncovered: ' + missing.map(u => u.name).join(', ');
     } else {
         uncoveredBox.classList.add('hidden');
     }

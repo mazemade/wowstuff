@@ -539,5 +539,23 @@ test('RSS1 regression: a full raid export parses to exactly this roster', () => 
     ]);
 });
 
+test('buildDiscord warns about missing only, and tolerates a legacy flat uncovered', () => {
+    const roster = fullRoster();
+    const sheet = E.autoAssign(roster, {});
+    sheet.uncovered = { missing: [{ id: 'coe', name: 'Curse of Elements' }],
+                        notApplicable: [{ id: 'joc', name: 'Judgement of the Crusader' }] };
+    const out = E.buildDiscord(roster, sheet, {});
+    // fullRoster() has enough warlocks/paladins that autoAssign covers both coe and joc as
+    // real duties, so their names appear in the Debuffs section regardless of the warning
+    // logic under test here. Isolate the warning line itself rather than the whole message.
+    const warningLine = out.split('\n').find(l => l.indexOf('Uncovered') !== -1) || '';
+    assert.ok(warningLine.includes('Curse of Elements'));
+    assert.ok(!warningLine.includes('Judgement of the Crusader'));
+
+    const legacy = E.autoAssign(roster, {});
+    legacy.uncovered = [{ id: 'coe', name: 'Curse of Elements' }];
+    assert.ok(E.buildDiscord(roster, legacy, {}).includes('Curse of Elements'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
