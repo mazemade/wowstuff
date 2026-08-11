@@ -190,9 +190,14 @@
         // A maintained 5-stack debuff, not passive coverage. +2% frost crit per stack.
         // Does not conflict with Improved Scorch — different schools entirely.
         { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost' },
-        { id: 'demo', name: 'Demoralizing Shout', category: 'debuffs', providers: [
+        // Strongest applies, they do not stack. Talented, Demo Shout and CoW tie at -420;
+        // untalented, CoW (-350) actually beats Demo Shout (-300). Talent picks are invisible
+        // to the addon, so this order is a spec-level guess the override exists to correct.
+        { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'] },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
+            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'] },
+            { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
         ] },
     ];
 

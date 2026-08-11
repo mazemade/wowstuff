@@ -177,7 +177,7 @@ test('autoAssign: full comp covers all core debuffs with right players', () => {
     assert.strictEqual(duty(r, 'scorch').player, 'Frostina');    // fire required
     assert.strictEqual(duty(r, 'ff').player, 'Moonpie');
     assert.strictEqual(duty(r, 'hm').player, 'Legolass');
-    assert.strictEqual(duty(r, 'demo').player, 'Smashy');        // arms/fury preferred over tank
+    assert.strictEqual(duty(r, 'ap').player, 'Smashy');        // arms/fury preferred over tank
     assert.strictEqual(r.uncovered.missing.length, 0);
 });
 test('autoAssign: one curse per warlock, spare lock gets personal curse', () => {
@@ -207,9 +207,9 @@ test('autoAssign: with two paladins including a ret, joc is covered and jol goes
 test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () => {
     const roster = fullRoster().filter(p => p.class !== 'WARRIOR');
     const r = E.autoAssign(roster, {});
-    const demo = duty(r, 'demo');
+    const demo = duty(r, 'ap');
     assert.strictEqual(demo.name, 'Curse of Weakness');
-    assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
+    assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'ap'].includes(d.id)).length, 1);
     assert.strictEqual(duty(r, 'armor').player, 'Stabby'); // rogue still covers armor with no warriors
 });
 test('autoAssign: manual override wins and displaced lock still gets a curse duty', () => {
@@ -396,16 +396,16 @@ test('autoAssign: override with only a player key still gets its default target'
 
 // --- Task 9: whole-branch review fixes — demo override to a warlock respects curse exclusivity ---
 test('autoAssign: overriding demo to a warlock records Curse of Weakness and skips the personal curse', () => {
-    const r = E.autoAssign(fullRoster(), { demo: { player: 'Grimshade' } });
-    const demo = duty(r, 'demo');
+    const r = E.autoAssign(fullRoster(), { ap: { player: 'Grimshade' } });
+    const demo = duty(r, 'ap');
     assert.strictEqual(demo.name, 'Curse of Weakness');
     assert.strictEqual(demo.player, 'Grimshade');
     assert.ok(!r.duties.some(d => d.id === 'curse:Grimshade'));
-    assert.strictEqual(r.duties.filter(d => d.player === 'Grimshade' && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
+    assert.strictEqual(r.duties.filter(d => d.player === 'Grimshade' && ['coe', 'cor', 'ap'].includes(d.id)).length, 1);
 });
 test('autoAssign: overriding demo to a warrior is untouched, still Demoralizing Shout', () => {
-    const r = E.autoAssign(fullRoster(), { demo: { player: 'Thunderfist' } });
-    const demo = duty(r, 'demo');
+    const r = E.autoAssign(fullRoster(), { ap: { player: 'Thunderfist' } });
+    const demo = duty(r, 'ap');
     assert.strictEqual(demo.name, 'Demoralizing Shout');
     assert.strictEqual(demo.player, 'Thunderfist');
 });
@@ -613,6 +613,17 @@ test('autoAssign: armor row is missing only when neither rogue nor warrior is pr
     const r = E.autoAssign(roster, {});
     assert.ok(!duty(r, 'armor'));
     assert.ok(r.uncovered.missing.some(u => u.id === 'armor'));
+});
+
+test('autoAssign: attack power falls through to a feral druid, then a hunter', () => {
+    const noWarNoLock = [P('Clawz', 'DRUID', 'Feral'), P('Legolass', 'HUNTER', 'Marksmanship')];
+    const r = E.autoAssign(noWarNoLock, {});
+    assert.strictEqual(duty(r, 'ap').name, 'Demoralizing Roar');
+    assert.strictEqual(duty(r, 'ap').player, 'Clawz');
+
+    const hunterOnly = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship')], {});
+    assert.strictEqual(duty(hunterOnly, 'ap').name, 'Screech (pet)');
+    assert.strictEqual(duty(hunterOnly, 'ap').player, 'Legolass');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
