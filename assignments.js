@@ -35,7 +35,14 @@ function recompute() {
         !state.excluded.includes(p.name) && !state.manual.some(m => m.name === p.name));
     const manual = state.manual.filter(m => !state.excluded.includes(m.name)).map(m => {
         const src = mergeInfo.roster.find(p => p.name === m.name);
-        return Object.assign({}, m, { discordId: src ? src.discordId : m.discordId });
+        // A manual edit rebuilds the player from the form, so anything the form does not
+        // collect has to be re-attached from the scanned player behind it — discordId, and
+        // now the subgroup and race the addon supplies.
+        return Object.assign({}, m, {
+            discordId: src ? src.discordId : m.discordId,
+            group: src && src.group != null ? src.group : m.group,
+            race: src && src.race != null ? src.race : m.race,
+        });
     });
     roster = base.concat(manual);
 
@@ -134,7 +141,7 @@ function saveManualPlayer() {
         name,
         class: document.getElementById('manualClass').value,
         spec: document.getElementById('manualSpec').value,
-        flags: [], source: 'manual',
+        flags: [], source: 'manual', group: null, race: null,
     });
     state.excluded = state.excluded.filter(n => n !== name);
     if (editingOriginalName && editingOriginalName !== name && !state.excluded.includes(editingOriginalName)) {

@@ -80,8 +80,18 @@ function rhFixture() {
 test('parseRaidHelper: primary signups become players with discordId', () => {
     const r = E.parseRaidHelper(rhFixture());
     const dave = r.players.find(p => p.name === 'Dave');
-    assert.deepStrictEqual(dave, { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper' });
+    assert.deepStrictEqual(dave, { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper', group: null, race: null });
     assert.strictEqual(r.title, 'SSC Tuesday');
+});
+test('parseRaidHelper: a player gets null group and race like every other source', () => {
+    // Whole-plan review finding 1: parseAddonExport sets group/race to a value or null on every
+    // player, but parseRaidHelper omitted both keys, so a Raid-Helper player read `undefined`
+    // there instead — a different value under ===, deepStrictEqual, and JSON.stringify. The
+    // plan's stated interface is group: Number|null, race: String|null for every source.
+    const r = E.parseRaidHelper(rhFixture());
+    const dave = r.players.find(p => p.name === 'Dave');
+    assert.strictEqual(dave.group, null);
+    assert.strictEqual(dave.race, null);
 });
 test('parseRaidHelper: bench and non-primary are excluded with reasons', () => {
     const r = E.parseRaidHelper(rhFixture());
@@ -433,7 +443,7 @@ test('parseRaidHelper: lowercase signups/class/spec/userid are read', () => {
         signups: [{ name: 'Dave', class: 'Warlock', spec: 'Affliction', userid: 111 }],
     });
     assert.deepStrictEqual(r.players, [
-        { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper' },
+        { name: 'Dave', class: 'WARLOCK', spec: 'Affliction', discordId: '111', flags: [], source: 'raidhelper', group: null, race: null },
     ]);
     assert.strictEqual(r.title, 'Kara');
 });
@@ -673,6 +683,7 @@ test('parseAddonExport: RSS1 still parses, with group and race null', () => {
 });
 test('parseAddonExport: RSS2 unscanned player keeps group and race', () => {
     const r = E.parseAddonExport('RSS2;Mystery:HUNTER:?:4:Orc');
+    assert.deepStrictEqual(r.errors, []);
     assert.ok(r.players[0].flags.includes('spec-unknown'));
     assert.strictEqual(r.players[0].group, 4);
     assert.strictEqual(r.players[0].race, 'Orc');
@@ -684,9 +695,33 @@ test('parseAddonExport: RSS2 tolerates a missing trailing race', () => {
     assert.strictEqual(r.players[0].race, null);
 });
 test('parseAddonExport: an out-of-range subgroup is an error, not a silent bad group', () => {
-    const r = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:9:Human');
-    assert.strictEqual(r.players.length, 0);
-    assert.ok(r.errors.length === 1);
+    const tooHigh = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:9:Human');
+    assert.strictEqual(tooHigh.players.length, 0);
+    assert.strictEqual(tooHigh.errors.length, 1);
+
+    const tooLow = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:0:Human');
+    assert.strictEqual(tooLow.players.length, 0);
+    assert.strictEqual(tooLow.errors.length, 1);
+
+    const boundary = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:8:Human');
+    assert.deepStrictEqual(boundary.errors, []);
+    assert.strictEqual(boundary.players[0].group, 8);
+});
+
+// --- Whole-plan review finding 3: the parser's own "partially-upgraded raid" claim ---
+test('parseAddonExport: the header does not gate per-line shape, in either direction', () => {
+    // The parser's comment says an RSS2 header can carry RSS1-shaped lines (no subgroup/race)
+    // and vice versa, because a partially-upgraded raid still needs to parse. That's the stated
+    // reason the parser shipped ahead of the addon update, so it earns its own test.
+    const rss2HeaderRss1Line = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50');
+    assert.deepStrictEqual(rss2HeaderRss1Line.errors, []);
+    assert.strictEqual(rss2HeaderRss1Line.players[0].group, null);
+    assert.strictEqual(rss2HeaderRss1Line.players[0].race, null);
+
+    const rss1HeaderRss2Line = E.parseAddonExport('RSS1;Thunderfist:WARRIOR:5/6/50:1:Human');
+    assert.deepStrictEqual(rss1HeaderRss2Line.errors, []);
+    assert.strictEqual(rss1HeaderRss2Line.players[0].group, 1);
+    assert.strictEqual(rss1HeaderRss2Line.players[0].race, 'Human');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -123,7 +123,7 @@
             players.push({
                 name: su.name, class: cls, spec,
                 discordId: userId !== undefined ? String(userId) : null,
-                flags, source: 'raidhelper',
+                flags, source: 'raidhelper', group: null, race: null,
             });
         });
         return { players, excluded, errors, title: (eventJson && eventJson.title) || '' };
