@@ -610,6 +610,24 @@
             });
         });
 
+        // Say what the grouping actually buys, so the raid lead can sanity-check it rather
+        // than trust it. Only claim a buff when the provider is genuinely in the group.
+        const NOTE_RULES = [
+            { text: 'Windfury Totem + Strength of Earth', has: g => g.role === 'melee' && g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
+            { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
+            { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
+            { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
+            { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
+            { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
+            { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Feral') },
+            { text: 'Moonkin Aura (+5% spell crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance') },
+            { text: 'Ferocious Inspiration (+3% damage, stacks per BM hunter)', has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery') },
+            { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },
+            { text: 'A paladin aura', has: g => g.players.some(p => p.class === 'PALADIN') },
+            { text: '+1% hit from Draenei presence', has: g => g.players.some(p => p.race === 'Draenei') },
+        ];
+        groups.forEach(g => { g.notes = NOTE_RULES.filter(r => r.has(g)).map(r => r.text); });
+
         return { groups, unplaced };
     }
 

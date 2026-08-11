@@ -862,6 +862,14 @@ test('proposeGroups: a real draenei swap conserves every group size and every pl
     assert.strictEqual(names.length, 25);
     assert.strictEqual(new Set(names).size, 25);
 });
+test('proposeGroups: each group explains what its composition buys', () => {
+    const res = E.proposeGroups(raid25());
+    const melee = res.groups.find(g => g.role === 'melee');
+    assert.ok(melee.notes.some(t => /Windfury/.test(t)));
+    const casters = res.groups.find(g => g.role === 'casters');
+    assert.ok(casters.notes.some(t => /Totem of Wrath/.test(t)));
+    res.groups.forEach(g => assert.ok(Array.isArray(g.notes)));
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

@@ -66,6 +66,7 @@ function renderAll() {
     renderRoster();
     renderLinkPanel();
     renderAssignments();
+    renderGroups();
     renderOutput();
 }
 
@@ -344,6 +345,48 @@ function ccRow(c, index) {
     del.addEventListener('click', () => { materialize().splice(index, 1); renderAll(); });
     row.appendChild(del);
     return row;
+}
+
+const ROLE_LABELS = { melee: 'Melee', casters: 'Casters', healers: 'Healers', ranged: 'Hunters', tanks: 'Tanks' };
+
+function renderGroups() {
+    const box = document.getElementById('groupsBox');
+    box.innerHTML = '';
+    if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
+    const res = E.proposeGroups(roster);
+    if (roster.some(p => p.group == null)) {
+        const note = document.createElement('p');
+        note.className = 'status';
+        note.textContent = 'Some players have no in-game group (imported from an older addon version), so this is a proposal only.';
+        box.appendChild(note);
+    }
+    res.groups.forEach((g, i) => {
+        const card = document.createElement('div');
+        card.className = 'group-card';
+        const h = document.createElement('h4');
+        h.textContent = 'Group ' + (i + 1) + ' — ' + (ROLE_LABELS[g.role] || g.role);
+        card.appendChild(h);
+        g.players.forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'group-player';
+            row.textContent = p.name + (p.spec ? ' (' + p.spec + ')' : '');
+            row.style.color = E.CLASS_COLORS[p.class];
+            card.appendChild(row);
+        });
+        g.notes.forEach(t => {
+            const n = document.createElement('div');
+            n.className = 'group-note';
+            n.textContent = '✓ ' + t;
+            card.appendChild(n);
+        });
+        box.appendChild(card);
+    });
+    if (res.unplaced.length) {
+        const warn = document.createElement('div');
+        warn.className = 'warn';
+        warn.textContent = '⚠ No room for: ' + res.unplaced.map(p => p.name).join(', ');
+        box.appendChild(warn);
+    }
 }
 
 function renderAssignments() {
