@@ -226,7 +226,6 @@ test('autoAssign: passives detected from comp', () => {
     const r = E.autoAssign(fullRoster(), {});
     assert.ok(r.passives.some(p => p.name === 'Misery' && p.player === 'Shadowmel'));
     assert.ok(r.passives.some(p => p.name === 'Blood Frenzy' && p.player === 'Smashy'));
-    assert.ok(r.passives.some(p => p.name === "Winter's Chill" && p.player === 'Sheepmaster'));
 });
 test('autoAssign: empty roster puts all core debuffs in missing', () => {
     const r = E.autoAssign([], {});
@@ -569,6 +568,25 @@ test('autoAssign: a lone ret paladin is enough for judgement of the crusader', (
     const roster = [P('Retdin', 'PALADIN', 'Retribution')];
     const r = E.autoAssign(roster, {});
     assert.strictEqual(duty(r, 'joc').player, 'Retdin');
+});
+
+test('autoAssign: faerie fire prefers balance, then feral, then resto', () => {
+    const balance = E.autoAssign([P('Moonpie', 'DRUID', 'Balance'), P('Clawz', 'DRUID', 'Feral'), P('Treebeard', 'DRUID', 'Restoration')], {});
+    assert.strictEqual(duty(balance, 'ff').player, 'Moonpie');
+    const noBalance = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Clawz', 'DRUID', 'Feral')], {});
+    assert.strictEqual(duty(noBalance, 'ff').player, 'Clawz');
+    const restoOnly = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration')], {});
+    assert.strictEqual(duty(restoOnly, 'ff').player, 'Treebeard');
+});
+test("autoAssign: winter's chill is an assigned duty for a frost mage, not a passive", () => {
+    const r = E.autoAssign([P('Sheepmaster', 'MAGE', 'Frost')], {});
+    assert.strictEqual(duty(r, 'wc').player, 'Sheepmaster');
+    assert.ok(!r.passives.some(p => p.name === "Winter's Chill"));
+});
+test("autoAssign: winter's chill needs a frost mage specifically", () => {
+    const r = E.autoAssign([P('Frostina', 'MAGE', 'Fire')], {});
+    assert.ok(!duty(r, 'wc'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'wc'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

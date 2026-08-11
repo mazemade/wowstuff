@@ -173,9 +173,17 @@
         // pull, and any Ret's Crusader Strike then refreshes every paladin's judgement.
         { id: 'jow', name: 'Judgement of Wisdom', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Holy', 'Protection'], group: 'judgement' },
         { id: 'jol', name: 'Judgement of Light', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Holy', 'Protection'], group: 'judgement' },
-        { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire' },
-        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance'] },
+        // Improved Faerie Fire (+3% melee/ranged hit) is Balance-only, but the 610 armor
+        // applies regardless — so keep the duty and rank Feral above Resto, who would
+        // otherwise spend a GCD and mana they would rather heal with.
+        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Feral'] },
         { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'] },
+        // Fire Vulnerability is +3% fire damage taken per stack, not spell crit (that is
+        // WotLK), and the fire mage maintains it through their own rotation. Low priority.
+        { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire' },
+        // A maintained 5-stack debuff, not passive coverage. +2% frost crit per stack.
+        // Does not conflict with Improved Scorch — different schools entirely.
+        { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost' },
         { id: 'demo', name: 'Demoralizing Shout', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'],
           fallback: { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' } },
     ];
@@ -205,7 +213,6 @@
         { name: 'Blood Frenzy', class: 'WARRIOR', spec: 'Arms' },
         { name: 'Mangle', class: 'DRUID', spec: 'Feral' },
         { name: 'Expose Weakness', class: 'HUNTER', spec: 'Survival' },
-        { name: "Winter's Chill", class: 'MAGE', spec: 'Frost' },
     ];
 
     function specRank(p, entry) {
