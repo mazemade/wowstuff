@@ -219,7 +219,9 @@
     function autoAssign(roster, overrides) {
         overrides = overrides || {};
         const duties = [];
-        const uncovered = [];
+        // missing = the raid wants this and nobody can provide it. notApplicable = this
+        // comp cannot have it at all, so warning about it would be noise.
+        const uncovered = { missing: [], notApplicable: [] };
         const dutyCount = {};
         const groupUsed = {}; // '<group>:<player>' -> true
         const byName = {};
@@ -250,7 +252,14 @@
         }
 
         DEBUFF_CATALOG.forEach(entry => {
-            if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) return;
+            if (entry.minClassCount && roster.filter(p => p.class === entry.class).length < entry.minClassCount) {
+                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
+                return;
+            }
+            if (entry.applicableWhen && !entry.applicableWhen(roster)) {
+                uncovered.notApplicable.push({ id: entry.id, name: entry.name });
+                return;
+            }
             const o = overrides[entry.id] || {};
             if (o.player && byName[o.player]) {
                 const chosen = byName[o.player];
@@ -259,7 +268,7 @@
                 record(eff, eff.name, chosen);
                 return;
             }
-            if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.push({ id: entry.id, name: entry.name }); return; }
+            if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.missing.push({ id: entry.id, name: entry.name }); return; }
             let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
             if (pool.length) { record(entry, entry.name, pool[0]); return; }
             if (entry.fallback) {
@@ -267,7 +276,7 @@
                 pool = rankPool(roster.filter(p => eligible(p, fb)), fb, dutyCount);
                 if (pool.length) { record(fb, fb.name, pool[0]); return; }
             }
-            uncovered.push({ id: entry.id, name: entry.name });
+            uncovered.missing.push({ id: entry.id, name: entry.name });
         });
 
         // Spare warlocks keep a personal DPS curse

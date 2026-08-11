@@ -178,7 +178,7 @@ test('autoAssign: full comp covers all core debuffs with right players', () => {
     assert.strictEqual(duty(r, 'ff').player, 'Moonpie');
     assert.strictEqual(duty(r, 'hm').player, 'Legolass');
     assert.strictEqual(duty(r, 'demo').player, 'Smashy');        // arms/fury preferred over tank
-    assert.strictEqual(r.uncovered.length, 0);
+    assert.strictEqual(r.uncovered.missing.length, 0);
 });
 test('autoAssign: one curse per warlock, spare lock gets personal curse', () => {
     const r = E.autoAssign(fullRoster(), {});
@@ -187,19 +187,21 @@ test('autoAssign: one curse per warlock, spare lock gets personal curse', () => 
     const spare = ['Bob', 'Grimshade', 'Doomlord'].find(n => !curseHolders.has(n));
     assert.ok(duty(r, 'curse:' + spare));
 });
-test('autoAssign: no paladins puts judgements in uncovered, joc omitted', () => {
+test('autoAssign: no paladins puts judgements in missing, joc is not applicable', () => {
     const roster = fullRoster().filter(p => p.class !== 'PALADIN');
     const r = E.autoAssign(roster, {});
-    assert.ok(r.uncovered.some(u => u.id === 'jow'));
-    assert.ok(r.uncovered.some(u => u.id === 'jol'));
-    assert.ok(!r.uncovered.some(u => u.id === 'joc'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'jow'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'jol'));
+    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'joc'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'joc'));
     assert.ok(!duty(r, 'joc'));
 });
-test('autoAssign: only 2 paladins means no joc row at all', () => {
+test('autoAssign: only 2 paladins puts joc in notApplicable, not missing', () => {
     const roster = fullRoster().filter(p => p.name !== 'Bubbles');
     const r = E.autoAssign(roster, {});
     assert.ok(!duty(r, 'joc'));
-    assert.ok(!r.uncovered.some(u => u.id === 'joc'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'joc'));
+    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'joc'));
 });
 test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () => {
     const roster = fullRoster().filter(p => p.class !== 'WARRIOR');
@@ -207,7 +209,7 @@ test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () =>
     const demo = duty(r, 'demo');
     assert.strictEqual(demo.name, 'Curse of Weakness');
     assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
-    assert.ok(r.uncovered.some(u => u.id === 'sunder'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
 });
 test('autoAssign: manual override wins and displaced lock still gets a curse duty', () => {
     const r = E.autoAssign(fullRoster(), { coe: { player: 'Grimshade' } });
@@ -217,7 +219,7 @@ test('autoAssign: manual override wins and displaced lock still gets a curse dut
 test('autoAssign: spec-unknown players are never auto-picked', () => {
     const roster = [P('Mystery', 'MAGE', null, { flags: ['spec-unknown'] })];
     const r = E.autoAssign(roster, {});
-    assert.ok(r.uncovered.some(u => u.id === 'scorch'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'scorch'));
 });
 test('autoAssign: passives detected from comp', () => {
     const r = E.autoAssign(fullRoster(), {});
@@ -225,27 +227,46 @@ test('autoAssign: passives detected from comp', () => {
     assert.ok(r.passives.some(p => p.name === 'Blood Frenzy' && p.player === 'Smashy'));
     assert.ok(r.passives.some(p => p.name === "Winter's Chill" && p.player === 'Sheepmaster'));
 });
-test('autoAssign: empty roster gives all core debuffs uncovered', () => {
+test('autoAssign: empty roster puts all core debuffs in missing', () => {
     const r = E.autoAssign([], {});
     assert.strictEqual(r.duties.length, 0);
-    assert.ok(r.uncovered.length >= 8);
+    assert.ok(r.uncovered.missing.length >= 8);
 });
 test('autoAssign: explicitly-unassigned debuff keeps its row with a null player and appears in uncovered', () => {
     const r = E.autoAssign(fullRoster(), { sunder: { player: null } });
     assert.strictEqual(duty(r, 'sunder').player, null);
-    assert.ok(r.uncovered.some(u => u.id === 'sunder'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
 });
 test('autoAssign: no override at all still auto-assigns the debuff normally', () => {
     const r = E.autoAssign(fullRoster(), {});
     assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist');
-    assert.ok(!r.uncovered.some(u => u.id === 'sunder'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'sunder'));
 });
 test('autoAssign: re-assigning after an explicit unassignment escapes the dead end', () => {
     const cleared = E.autoAssign(fullRoster(), { sunder: { player: null } });
     assert.strictEqual(duty(cleared, 'sunder').player, null);
     const reassigned = E.autoAssign(fullRoster(), { sunder: { player: 'Thunderfist' } });
     assert.strictEqual(duty(reassigned, 'sunder').player, 'Thunderfist');
-    assert.ok(!reassigned.uncovered.some(u => u.id === 'sunder'));
+    assert.ok(!reassigned.uncovered.missing.some(u => u.id === 'sunder'));
+});
+test('autoAssign: an explicitly cleared row counts as missing, not notApplicable', () => {
+    const r = E.autoAssign(fullRoster(), { sunder: { player: null } });
+    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
+    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'sunder'));
+});
+test('autoAssign: applicableWhen false skips the entry as notApplicable', () => {
+    // No shipped entry uses applicableWhen until Task 4, so exercise the mechanism with a
+    // temporary catalog entry. DEBUFF_CATALOG is exported by reference, so push/pop works.
+    E.DEBUFF_CATALOG.push({ id: 'testonly', name: 'Test Only', category: 'debuffs',
+        class: 'MAGE', preferSpecs: [], applicableWhen: () => false });
+    try {
+        const r = E.autoAssign(fullRoster(), {});
+        assert.ok(!duty(r, 'testonly'));
+        assert.ok(r.uncovered.notApplicable.some(u => u.id === 'testonly'));
+        assert.ok(!r.uncovered.missing.some(u => u.id === 'testonly'));
+    } finally {
+        E.DEBUFF_CATALOG.pop();
+    }
 });
 
 // --- Task 6: cooldowns + CC ---
