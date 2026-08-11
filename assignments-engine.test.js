@@ -870,6 +870,42 @@ test('proposeGroups: each group explains what its composition buys', () => {
     assert.ok(casters.notes.some(t => /Totem of Wrath/.test(t)));
     res.groups.forEach(g => assert.ok(Array.isArray(g.notes)));
 });
+test('proposeGroups: every note rule fires for the group that actually has its provider', () => {
+    const res = E.proposeGroups(raid25());
+    const notes = {};
+    res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
+    assert.ok(/Unleashed Rage/.test(notes.melee), 'melee: ' + notes.melee);
+    assert.ok(/Battle Shout/.test(notes.melee), 'melee: ' + notes.melee);
+    assert.ok(/Leader of the Pack/.test(notes.melee), 'melee: ' + notes.melee);
+    assert.ok(/A paladin aura/.test(notes.melee), 'melee: ' + notes.melee);
+    assert.ok(/Wrath of Air/.test(notes.casters), 'casters: ' + notes.casters);
+    assert.ok(/Moonkin Aura/.test(notes.casters), 'casters: ' + notes.casters);
+    assert.ok(/Vampiric Touch/.test(notes.casters), 'casters: ' + notes.casters);
+    assert.ok(/Mana Tide Totem/.test(notes.healers), 'healers: ' + notes.healers);
+    assert.ok(/A paladin aura/.test(notes.healers), 'healers: ' + notes.healers);
+    assert.ok(/Ferocious Inspiration/.test(notes.ranged), 'ranged: ' + notes.ranged);
+});
+test('proposeGroups: a group never claims a buff whose provider is not in it', () => {
+    const res = E.proposeGroups(raid25());
+    const notes = {};
+    res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
+    // No shaman, no paladin, no warrior-with-Battle-Shout, no BM hunter in the tanks group.
+    assert.ok(!/Totem|Wrath of Air|Unleashed Rage/.test(notes.tanks), 'tanks: ' + notes.tanks);
+    assert.ok(!/A paladin aura/.test(notes.tanks), 'tanks: ' + notes.tanks);
+    assert.ok(!/Ferocious Inspiration/.test(notes.tanks), 'tanks: ' + notes.tanks);
+    // Nobody has a race in raid25(), so no group may claim the Draenei presence.
+    res.groups.forEach(g => assert.ok(!/Draenei/.test(g.notes.join(' | ')), g.role + ': ' + g.notes.join(' | ')));
+});
+test('proposeGroups: the draenei note follows the post-swap layout', () => {
+    const roster = raid25().map(p => Object.assign({}, p, { race: 'Human' }));
+    roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
+    const res = E.proposeGroups(roster);
+    res.groups.forEach(g => {
+        const claims = /Draenei/.test(g.notes.join(' | '));
+        const has = g.players.some(p => p.race === 'Draenei');
+        assert.strictEqual(claims, has, g.role + ' claims=' + claims + ' has=' + has);
+    });
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
