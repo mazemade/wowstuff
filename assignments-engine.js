@@ -586,6 +586,30 @@
             if (!place(p, g)) unplaced.push(p);
         });
 
+        // Heroic/Inspiring Presence is party-scoped and does not stack for non-draenei, so a
+        // second draenei in a group is wasted. Swap-only: sizes never change, and only filler
+        // players trade places. Anchors are off-limits on BOTH sides of the swap — a draenei
+        // rogue must never displace the Windfury shaman — so the seeding and anchor placement
+        // from steps 1-2 cannot be undone here. anchorScore treats shamans as fillers (they
+        // are placed by seeding, before anchor sorting ever runs), hence the explicit class
+        // check alongside it. A surplus draenei who IS an anchor (a draenei BM hunter next to
+        // another draenei) simply stays put: wasting a racial beats breaking a buff group.
+        function swappable(p) { return p.class !== 'SHAMAN' && anchorScore(p) === 2; }
+        groups.forEach(g => {
+            const dr = g.players.filter(p => p.race === 'Draenei')
+                .sort((a, b) => anchorScore(a) - anchorScore(b)); // keep the most anchor-like one in place
+            dr.slice(1).forEach(extra => {
+                if (!swappable(extra)) return;
+                const target = groups.find(o => o !== g
+                    && !o.players.some(p => p.race === 'Draenei')
+                    && o.players.some(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra)));
+                if (!target) return;
+                const swap = target.players.find(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra));
+                g.players[g.players.indexOf(extra)] = swap;
+                target.players[target.players.indexOf(swap)] = extra;
+            });
+        });
+
         return { groups, unplaced };
     }
 

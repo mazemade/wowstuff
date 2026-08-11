@@ -829,6 +829,25 @@ test('proposeGroups: two players sharing a name are both placed, not silently dr
     const accounted = res.groups.reduce((n, g) => n + g.players.length, 0) + res.unplaced.length;
     assert.strictEqual(accounted, 3);
 });
+test('proposeGroups: spreads draenei across groups rather than doubling up', () => {
+    const roster = raid25().map(p => Object.assign({}, p, { race: 'Human' }));
+    roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
+    const res = E.proposeGroups(roster);
+    const perGroup = res.groups.map(g => g.players.filter(p => p.race === 'Draenei').length);
+    assert.ok(Math.max.apply(null, perGroup) <= 1, 'a group has two draenei: ' + perGroup.join(','));
+});
+test('proposeGroups: the draenei pass never changes group sizes', () => {
+    const roster = raid25().map(p => Object.assign({}, p, { race: 'Draenei' }));
+    const res = E.proposeGroups(roster);
+    assert.strictEqual(res.groups.reduce((n, g) => n + g.players.length, 0), 25);
+    res.groups.forEach(g => assert.ok(g.players.length <= 5));
+});
+test('proposeGroups: a roster with no race data is unaffected', () => {
+    const withRace = E.proposeGroups(raid25().map(p => Object.assign({}, p, { race: null })));
+    const without = E.proposeGroups(raid25());
+    assert.deepStrictEqual(withRace.groups.map(g => g.players.map(p => p.name)),
+                           without.groups.map(g => g.players.map(p => p.name)));
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
