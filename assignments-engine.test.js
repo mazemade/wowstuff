@@ -571,12 +571,12 @@ test('autoAssign: a lone ret paladin is enough for judgement of the crusader', (
 });
 
 test('autoAssign: faerie fire prefers balance, then feral, then resto', () => {
-    const balance = E.autoAssign([P('Moonpie', 'DRUID', 'Balance'), P('Clawz', 'DRUID', 'Feral'), P('Treebeard', 'DRUID', 'Restoration')], {});
+    const balance = E.autoAssign([P('Moonpie', 'DRUID', 'Balance'), P('Clawz', 'DRUID', 'Feral'), P('Aardvark', 'DRUID', 'Restoration')], {});
     assert.strictEqual(duty(balance, 'ff').player, 'Moonpie');
-    const noBalance = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Clawz', 'DRUID', 'Feral')], {});
+    const noBalance = E.autoAssign([P('Aardvark', 'DRUID', 'Restoration'), P('Clawz', 'DRUID', 'Feral')], {});
     assert.strictEqual(duty(noBalance, 'ff').player, 'Clawz');
-    const restoOnly = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration')], {});
-    assert.strictEqual(duty(restoOnly, 'ff').player, 'Treebeard');
+    const restoOnly = E.autoAssign([P('Aardvark', 'DRUID', 'Restoration')], {});
+    assert.strictEqual(duty(restoOnly, 'ff').player, 'Aardvark');
 });
 test("autoAssign: winter's chill is an assigned duty for a frost mage, not a passive", () => {
     const r = E.autoAssign([P('Sheepmaster', 'MAGE', 'Frost')], {});
