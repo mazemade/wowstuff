@@ -4,12 +4,15 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Serve static files from the current directory
-app.use(express.static(path.join(__dirname)));
+// Serve static files from the current directory. index:false is load-bearing — with the
+// default, express.static answers "/" with index.html before the route below ever runs.
+app.use(express.static(path.join(__dirname), { index: false }));
 
-// Serve specific pages
+// The site is the raid assignments tool. The older fight pages still exist and still work
+// at their own URLs (/gruul.html, /magtheridon.html, /ssc.html, /index.html); they are just
+// no longer what you land on.
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'assignments.html'));
 });
 
 app.get('/gruul.html', (req, res) => {
@@ -53,9 +56,9 @@ app.get('/api/raidhelper/:eventId', async (req, res) => {
   }
 });
 
-// Serve index.html for other routes (fallback)
+// Unknown routes land on the tool rather than the old hub
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'assignments.html'));
 });
 
 app.listen(PORT, () => {

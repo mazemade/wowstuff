@@ -1,7 +1,7 @@
 {
-  "name": "gruul-lair-positioning",
+  "name": "raid-assignments",
   "version": "1.0.0",
-  "description": "Gruul's Lair raid positioning tool with custom boundary drawing",
+  "description": "TBC raid assignments tool: Raid-Helper and in-game addon import, auto-assigned debuffs, cooldowns and crowd control, with Discord, share-link and in-game whisper output",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,9 +9,9 @@
   "keywords": [
     "wow",
     "world-of-warcraft",
+    "tbc",
     "raid",
-    "positioning",
-    "gruul"
+    "assignments"
   ],
   "author": "mazemade",
   "license": "MIT",

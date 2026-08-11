@@ -366,7 +366,11 @@ function renderAssignments() {
 function buildShareLink() {
     const payload = { title: state.title, sheet };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-    return location.origin + location.pathname.replace('assignments.html', 'assignments-view.html') + '?data=' + encodeURIComponent(encoded);
+    // Resolve against the directory we are served from rather than swapping a filename:
+    // this page is the site root now, so a pathname of "/" contains nothing to replace and
+    // the old approach silently produced a link back to the tool itself.
+    const dir = location.pathname.replace(/[^/]*$/, '');
+    return location.origin + dir + 'assignments-view.html?data=' + encodeURIComponent(encoded);
 }
 
 function renderOutput() {
