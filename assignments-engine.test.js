@@ -34,7 +34,7 @@ test('inferSpec: unknown class gives null', () => {
 test('parseAddonExport: happy path with header', () => {
     const r = E.parseAddonExport('RSS1;Thunderfist:WARRIOR:5/5/51;Bob:WARLOCK:41/7/13');
     assert.strictEqual(r.errors.length, 0);
-    assert.deepStrictEqual(r.players[0], { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon' });
+    assert.deepStrictEqual(r.players[0], { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null });
     assert.strictEqual(r.players[1].spec, 'Affliction');
 });
 test('parseAddonExport: newline separated works', () => {
@@ -528,15 +528,15 @@ test('RSS1 regression: a full raid export parses to exactly this roster', () => 
     const r = E.parseAddonExport(text);
     assert.deepStrictEqual(r.errors, []);
     assert.deepStrictEqual(r.players, [
-        { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon' },
-        { name: 'Smashy', class: 'WARRIOR', spec: 'Arms', flags: [], source: 'addon' },
-        { name: 'Bob', class: 'WARLOCK', spec: 'Affliction', flags: [], source: 'addon' },
-        { name: 'Grimshade', class: 'WARLOCK', spec: 'Destruction', flags: [], source: 'addon' },
-        { name: 'Retdin', class: 'PALADIN', spec: 'Retribution', flags: [], source: 'addon' },
-        { name: 'Lightbringer', class: 'PALADIN', spec: 'Holy', flags: [], source: 'addon' },
-        { name: 'Frostina', class: 'MAGE', spec: 'Fire', flags: [], source: 'addon' },
-        { name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon' },
-        { name: 'Mystery', class: 'HUNTER', spec: null, flags: ['spec-unknown'], source: 'addon' },
+        { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Smashy', class: 'WARRIOR', spec: 'Arms', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Bob', class: 'WARLOCK', spec: 'Affliction', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Grimshade', class: 'WARLOCK', spec: 'Destruction', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Retdin', class: 'PALADIN', spec: 'Retribution', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Lightbringer', class: 'PALADIN', spec: 'Holy', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Frostina', class: 'MAGE', spec: 'Fire', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon', group: null, race: null },
+        { name: 'Mystery', class: 'HUNTER', spec: null, flags: ['spec-unknown'], source: 'addon', group: null, race: null },
     ]);
 });
 
@@ -654,6 +654,39 @@ test('autoAssign: an override cannot give one warlock two curses', () => {
         .map(id => duty(r, id))
         .filter(d => d && d.player === 'Grimshade');
     assert.strictEqual(curseHolders.length, 1);
+});
+
+test('parseAddonExport: RSS2 carries subgroup and race', () => {
+    const r = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:1:Human;Zapp:SHAMAN:0/41/20:2:Draenei');
+    assert.deepStrictEqual(r.errors, []);
+    assert.strictEqual(r.players[0].group, 1);
+    assert.strictEqual(r.players[0].race, 'Human');
+    assert.strictEqual(r.players[1].group, 2);
+    assert.strictEqual(r.players[1].race, 'Draenei');
+});
+test('parseAddonExport: RSS1 still parses, with group and race null', () => {
+    const r = E.parseAddonExport('RSS1;Thunderfist:WARRIOR:5/6/50');
+    assert.deepStrictEqual(r.errors, []);
+    assert.strictEqual(r.players[0].group, null);
+    assert.strictEqual(r.players[0].race, null);
+    assert.strictEqual(r.players[0].spec, 'Protection');
+});
+test('parseAddonExport: RSS2 unscanned player keeps group and race', () => {
+    const r = E.parseAddonExport('RSS2;Mystery:HUNTER:?:4:Orc');
+    assert.ok(r.players[0].flags.includes('spec-unknown'));
+    assert.strictEqual(r.players[0].group, 4);
+    assert.strictEqual(r.players[0].race, 'Orc');
+});
+test('parseAddonExport: RSS2 tolerates a missing trailing race', () => {
+    const r = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:3');
+    assert.deepStrictEqual(r.errors, []);
+    assert.strictEqual(r.players[0].group, 3);
+    assert.strictEqual(r.players[0].race, null);
+});
+test('parseAddonExport: an out-of-range subgroup is an error, not a silent bad group', () => {
+    const r = E.parseAddonExport('RSS2;Thunderfist:WARRIOR:5/6/50:9:Human');
+    assert.strictEqual(r.players.length, 0);
+    assert.ok(r.errors.length === 1);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

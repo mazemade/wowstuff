@@ -43,8 +43,16 @@
         const tokens = (text || '').trim().split(/[\n;]+/).map(t => t.trim()).filter(Boolean);
         tokens.forEach(tok => {
             if (/^RSS\d+$/i.test(tok)) return; // format header
-            const m = tok.match(/^([^:]+):([A-Za-z]+):(?:(\d+)\/(\d+)\/(\d+)|\?)$/);
+            // RSS1: name:CLASS:41/20/0        RSS2 adds :subgroup:Race, both optional so a
+            // partially-upgraded raid still parses. Group and race read null when absent.
+            const m = tok.match(/^([^:]+):([A-Za-z]+):(?:(\d+)\/(\d+)\/(\d+)|\?)(?::(\d+)(?::([A-Za-z]+))?)?$/);
             if (!m) { errors.push('Unrecognized line: ' + tok); return; }
+            let group = null;
+            if (m[6] !== undefined) {
+                group = Number(m[6]);
+                if (group < 1 || group > 8) { errors.push('Subgroup out of range in: ' + tok); return; }
+            }
+            const race = m[7] === undefined ? null : m[7];
             const name = m[1];
             const cls = m[2].toUpperCase();
             if (!SPEC_TREES[cls]) { errors.push('Unknown class in: ' + tok); return; }
@@ -60,7 +68,7 @@
                 else if (r.ambiguous) flags.push('spec-ambiguous');
             }
             seen.add(name);
-            players.push({ name, class: cls, spec, flags, source: 'addon' });
+            players.push({ name, class: cls, spec, flags, source: 'addon', group, race });
         });
         return { players, errors };
     }
