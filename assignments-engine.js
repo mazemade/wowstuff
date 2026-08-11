@@ -160,7 +160,13 @@
     }
 
     const DEBUFF_CATALOG = [
-        { id: 'sunder', name: 'Sunder Armor', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Protection'] },
+        // Expose blocks Sunder outright ("A more powerful spell is already active"), so this
+        // is one row with two providers, not two rows that cancel. Improved Expose Armor is
+        // 3075 armor against a maxed Sunder stack's 2600 — worth roughly 3.5% raid physical.
+        { id: 'armor', name: 'Major armor reduction', category: 'debuffs', providers: [
+            { name: 'Improved Expose Armor', class: 'ROGUE', preferSpecs: ['Subtlety', 'Combat'] },
+            { name: 'Sunder Armor', class: 'WARRIOR', preferSpecs: ['Protection'] },
+        ] },
         { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse' },
         { id: 'cor', name: 'Curse of Recklessness', category: 'debuffs', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
         // The value here is Improved Seal of the Crusader (Ret tier 2): +3% crit to all

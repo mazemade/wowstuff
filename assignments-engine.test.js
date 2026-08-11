@@ -168,7 +168,7 @@ function duty(r, id) { return r.duties.find(d => d.id === id); }
 
 test('autoAssign: full comp covers all core debuffs with right players', () => {
     const r = E.autoAssign(fullRoster(), {});
-    assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist'); // prot preferred
+    assert.strictEqual(duty(r, 'armor').player, 'Stabby');   // rogue expose outranks warrior sunder
     assert.strictEqual(duty(r, 'coe').player, 'Bob');            // affliction preferred
     assert.ok(['Grimshade', 'Doomlord'].includes(duty(r, 'cor').player));
     assert.strictEqual(duty(r, 'jow').player, 'Lightbringer'); // holy/prot judge, ret keeps its damage seal
@@ -210,7 +210,7 @@ test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () =>
     const demo = duty(r, 'demo');
     assert.strictEqual(demo.name, 'Curse of Weakness');
     assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'demo'].includes(d.id)).length, 1);
-    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
+    assert.strictEqual(duty(r, 'armor').player, 'Stabby'); // rogue still covers armor with no warriors
 });
 test('autoAssign: manual override wins and displaced lock still gets a curse duty', () => {
     const r = E.autoAssign(fullRoster(), { coe: { player: 'Grimshade' } });
@@ -233,26 +233,27 @@ test('autoAssign: empty roster puts all core debuffs in missing', () => {
     assert.ok(r.uncovered.missing.length >= 8);
 });
 test('autoAssign: explicitly-unassigned debuff keeps its row with a null player and appears in uncovered', () => {
-    const r = E.autoAssign(fullRoster(), { sunder: { player: null } });
-    assert.strictEqual(duty(r, 'sunder').player, null);
-    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
+    const r = E.autoAssign(fullRoster(), { armor: { player: null } });
+    assert.strictEqual(duty(r, 'armor').player, null);
+    assert.ok(r.uncovered.missing.some(u => u.id === 'armor'));
 });
 test('autoAssign: no override at all still auto-assigns the debuff normally', () => {
     const r = E.autoAssign(fullRoster(), {});
-    assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist');
-    assert.ok(!r.uncovered.missing.some(u => u.id === 'sunder'));
+    assert.strictEqual(duty(r, 'armor').player, 'Stabby');
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'armor'));
 });
 test('autoAssign: re-assigning after an explicit unassignment escapes the dead end', () => {
-    const cleared = E.autoAssign(fullRoster(), { sunder: { player: null } });
-    assert.strictEqual(duty(cleared, 'sunder').player, null);
-    const reassigned = E.autoAssign(fullRoster(), { sunder: { player: 'Thunderfist' } });
-    assert.strictEqual(duty(reassigned, 'sunder').player, 'Thunderfist');
-    assert.ok(!reassigned.uncovered.missing.some(u => u.id === 'sunder'));
+    const cleared = E.autoAssign(fullRoster(), { armor: { player: null } });
+    assert.strictEqual(duty(cleared, 'armor').player, null);
+    const reassigned = E.autoAssign(fullRoster(), { armor: { player: 'Thunderfist' } });
+    assert.strictEqual(duty(reassigned, 'armor').player, 'Thunderfist');
+    assert.strictEqual(duty(reassigned, 'armor').name, 'Sunder Armor'); // warrior override picks the warrior provider's label
+    assert.ok(!reassigned.uncovered.missing.some(u => u.id === 'armor'));
 });
 test('autoAssign: an explicitly cleared row counts as missing, not notApplicable', () => {
-    const r = E.autoAssign(fullRoster(), { sunder: { player: null } });
-    assert.ok(r.uncovered.missing.some(u => u.id === 'sunder'));
-    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'sunder'));
+    const r = E.autoAssign(fullRoster(), { armor: { player: null } });
+    assert.ok(r.uncovered.missing.some(u => u.id === 'armor'));
+    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'armor'));
 });
 test('autoAssign: applicableWhen false skips the entry as notApplicable', () => {
     // No shipped entry uses applicableWhen until Task 4, so exercise the mechanism with a
@@ -334,7 +335,7 @@ test('buildDiscord: pings replace linked names only', () => {
     const { roster, sheet } = sampleSheet();
     const out = E.buildDiscord(roster, sheet, { pings: true, title: '' });
     assert.ok(out.includes('<@42>'));
-    assert.ok(out.includes('Thunderfist')); // no discordId -> plain
+    assert.ok(out.includes('Retdin')); // no discordId -> plain
 });
 test('buildDiscord: healer reserve rendered readably', () => {
     const { roster, sheet } = sampleSheet();
@@ -471,7 +472,7 @@ test('buildAddonWhispers: players with no duties get no line', () => {
     const { roster, sheet } = sampleSheet();
     const names = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
         .map(l => l.slice(0, l.indexOf('=')));
-    assert.ok(!names.includes('Stabby'));
+    assert.ok(!names.includes('Thunderfist')); // rogue expose now covers armor, leaving the prot warrior duty-free
 });
 test('buildAddonWhispers: mark tokens survive verbatim', () => {
     const { roster, sheet } = sampleSheet();
@@ -598,6 +599,20 @@ test('autoAssign: an explicit override beats an applicableWhen gate', () => {
     const r = E.autoAssign(pals, { joc: { player: 'Ambiguous' } });
     assert.strictEqual(duty(r, 'joc').player, 'Ambiguous');
     assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'joc'));
+});
+
+test('autoAssign: armor falls back to a warrior when there is no rogue', () => {
+    const roster = fullRoster().filter(p => p.class !== 'ROGUE');
+    const r = E.autoAssign(roster, {});
+    const armor = duty(r, 'armor');
+    assert.strictEqual(armor.name, 'Sunder Armor');
+    assert.strictEqual(armor.player, 'Thunderfist'); // prot preferred
+});
+test('autoAssign: armor row is missing only when neither rogue nor warrior is present', () => {
+    const roster = fullRoster().filter(p => p.class !== 'ROGUE' && p.class !== 'WARRIOR');
+    const r = E.autoAssign(roster, {});
+    assert.ok(!duty(r, 'armor'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'armor'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
