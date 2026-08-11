@@ -184,9 +184,22 @@
         // A maintained 5-stack debuff, not passive coverage. +2% frost crit per stack.
         // Does not conflict with Improved Scorch — different schools entirely.
         { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost' },
-        { id: 'demo', name: 'Demoralizing Shout', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'],
-          fallback: { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' } },
+        { id: 'demo', name: 'Demoralizing Shout', category: 'debuffs', providers: [
+            { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'] },
+            { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
+        ] },
     ];
+
+    // One effect can have several possible providers, best first. Entries that name a single
+    // class are just a one-element list, so the assignment loop has one code path rather
+    // than a special case for fallbacks. `caution` must ride along here: the assignment loop
+    // only ever hands provider-derived objects to record(), so any entry-level field a duty
+    // needs to carry has to survive this normalization.
+    function providersOf(entry) {
+        if (entry.providers) return entry.providers;
+        return [{ name: entry.name, class: entry.class, preferSpecs: entry.preferSpecs,
+                  requireSpec: entry.requireSpec, group: entry.group, caution: entry.caution }];
+    }
 
     const CC_ABILITIES = [
         { id: 'polymorph', name: 'Polymorph', class: 'MAGE' },
@@ -267,11 +280,14 @@
 
         DEBUFF_CATALOG.forEach(entry => {
             const o = overrides[entry.id] || {};
+            const provs = providersOf(entry);
+
             if (o.player && byName[o.player]) {
                 const chosen = byName[o.player];
-                const useFb = entry.fallback && chosen.class === entry.fallback.class;
-                const eff = useFb ? Object.assign({}, entry.fallback, { id: entry.id, category: entry.category }) : entry;
-                record(eff, eff.name, chosen);
+                // Honour the override even for an off-list class: fall back to the first
+                // provider's label rather than dropping the assignment on the floor.
+                const prov = provs.find(pr => pr.class === chosen.class) || provs[0];
+                record(Object.assign({}, prov, { id: entry.id, category: entry.category }), prov.name, chosen);
                 return;
             }
             // An explicit override is the raid lead telling the tool it is wrong about
@@ -285,13 +301,15 @@
                 uncovered.notApplicable.push({ id: entry.id, name: entry.name });
                 return;
             }
-            if (isExplicitlyUnassigned(o)) { record(entry, entry.name, null); uncovered.missing.push({ id: entry.id, name: entry.name }); return; }
-            let pool = rankPool(roster.filter(p => eligible(p, entry)), entry, dutyCount);
-            if (pool.length) { record(entry, entry.name, pool[0]); return; }
-            if (entry.fallback) {
-                const fb = Object.assign({}, entry.fallback, { id: entry.id, category: entry.category });
-                pool = rankPool(roster.filter(p => eligible(p, fb)), fb, dutyCount);
-                if (pool.length) { record(fb, fb.name, pool[0]); return; }
+            if (isExplicitlyUnassigned(o)) {
+                record(entry, entry.name, null);
+                uncovered.missing.push({ id: entry.id, name: entry.name });
+                return;
+            }
+            for (let i = 0; i < provs.length; i++) {
+                const prov = Object.assign({}, provs[i], { id: entry.id, category: entry.category });
+                const pool = rankPool(roster.filter(p => eligible(p, prov)), prov, dutyCount);
+                if (pool.length) { record(prov, prov.name, pool[0]); return; }
             }
             uncovered.missing.push({ id: entry.id, name: entry.name });
         });
@@ -458,7 +476,7 @@
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
-        DEBUFF_CATALOG, PASSIVES, autoAssign, missingList,
+        DEBUFF_CATALOG, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
     };

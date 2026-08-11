@@ -228,7 +228,8 @@ function eligibleForDuty(dutyId) {
     if (dutyId.startsWith('soulstone:')) return roster.filter(p => p.class === 'WARLOCK');
     const entry = E.DEBUFF_CATALOG.find(e => e.id === dutyId);
     if (!entry) return roster;
-    return roster.filter(p => p.class === entry.class || (entry.fallback && p.class === entry.fallback.class));
+    const classes = E.providersOf(entry).map(pr => pr.class);
+    return roster.filter(p => classes.indexOf(p.class) !== -1);
 }
 
 function makeSelect(options, current, allowEmpty, onChange) {
