@@ -631,5 +631,30 @@ test('autoAssign: curse of recklessness carries its tank caution onto the duty',
     assert.ok(/\+136 melee AP/.test(duty(r, 'cor').caution));
 });
 
+// --- Whole-plan code review fix wave: finding 1 ---
+test('autoAssign: an entry-level caution reaches the duty even on a providers entry', () => {
+    E.DEBUFF_CATALOG.push({ id: 'testcaution', name: 'Test Caution', category: 'debuffs',
+        caution: 'mind the gap', providers: [{ name: 'Test Provider', class: 'MAGE', preferSpecs: [] }] });
+    try {
+        const r = E.autoAssign(fullRoster(), {});
+        assert.strictEqual(duty(r, 'testcaution').caution, 'mind the gap');
+    } finally {
+        E.DEBUFF_CATALOG.pop();
+    }
+});
+
+// --- Whole-plan code review fix wave: finding 2 ---
+test('autoAssign: an override cannot give one warlock two curses', () => {
+    const locks = [P('Bob', 'WARLOCK', 'Affliction'), P('Grimshade', 'WARLOCK', 'Destruction'),
+                   P('Doomlord', 'WARLOCK', 'Demonology')];
+    const r = E.autoAssign(locks, { cor: { player: 'Grimshade' }, ap: { player: 'Grimshade' } });
+    assert.strictEqual(duty(r, 'cor').player, 'Grimshade');   // first in catalog order, honoured
+    assert.notStrictEqual(duty(r, 'ap').player, 'Grimshade'); // second is refused, not stacked
+    const curseHolders = ['coe', 'cor', 'ap']
+        .map(id => duty(r, id))
+        .filter(d => d && d.player === 'Grimshade');
+    assert.strictEqual(curseHolders.length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

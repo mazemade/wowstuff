@@ -208,7 +208,14 @@
     // only ever hands provider-derived objects to record(), so any entry-level field a duty
     // needs to carry has to survive this normalization.
     function providersOf(entry) {
-        if (entry.providers) return entry.providers;
+        if (entry.providers) {
+            if (!entry.caution) return entry.providers;
+            // An entry-level caution applies however the row ends up covered, so it has to
+            // reach every provider — record() only ever sees provider-derived objects. A
+            // provider that states its own caution keeps it.
+            return entry.providers.map(pr =>
+                pr.caution ? pr : Object.assign({}, pr, { caution: entry.caution }));
+        }
         return [{ name: entry.name, class: entry.class, preferSpecs: entry.preferSpecs,
                   requireSpec: entry.requireSpec, group: entry.group, caution: entry.caution }];
     }
@@ -300,8 +307,16 @@
                 // Honour the override even for an off-list class: fall back to the first
                 // provider's label rather than dropping the assignment on the floor.
                 const prov = provs.find(pr => pr.class === chosen.class) || provs[0];
-                record(Object.assign({}, prov, { id: entry.id, category: entry.category }), prov.name, chosen);
-                return;
+                // Exclusivity groups encode a hard game rule (one curse per warlock), not a
+                // guess the raid lead might know better than — unlike the applicability gates
+                // below, an override cannot buy its way past this one. If the group slot is
+                // already taken, leave the row alone and fall through to the normal provider
+                // loop, so it still lands on another eligible player instead of going blank.
+                const groupConflict = prov.group && groupUsed[prov.group + ':' + chosen.name];
+                if (!groupConflict) {
+                    record(Object.assign({}, prov, { id: entry.id, category: entry.category }), prov.name, chosen);
+                    return;
+                }
             }
             // An explicit override is the raid lead telling the tool it is wrong about
             // applicability, so it must win over these gates; everything downstream of
