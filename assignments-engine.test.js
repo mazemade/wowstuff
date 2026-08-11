@@ -814,6 +814,21 @@ test('proposeGroups: an empty roster returns no groups and does not throw', () =
     assert.strictEqual(res.groups.length, 0);
     assert.strictEqual(res.unplaced.length, 0);
 });
+test('proposeGroups: group roles reflect who is actually in the roster', () => {
+    const healers = [];
+    for (let i = 1; i <= 10; i++) healers.push(P('H' + i, 'PRIEST', 'Holy'));
+    const res = E.proposeGroups(healers);
+    assert.strictEqual(res.groups.length, 2);
+    assert.ok(res.groups.some(g => g.role === 'healers'), 'no healers group: ' + res.groups.map(g => g.role).join(','));
+    assert.ok(!res.groups.some(g => g.role === 'casters'), 'labelled a priest group casters');
+    assert.strictEqual(res.unplaced.length, 0);
+});
+test('proposeGroups: two players sharing a name are both placed, not silently dropped', () => {
+    const roster = [P('Same', 'WARRIOR', 'Fury'), P('Same', 'MAGE', 'Fire'), P('Other', 'ROGUE', 'Combat')];
+    const res = E.proposeGroups(roster);
+    const accounted = res.groups.reduce((n, g) => n + g.players.length, 0) + res.unplaced.length;
+    assert.strictEqual(accounted, 3);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

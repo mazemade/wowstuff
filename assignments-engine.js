@@ -547,28 +547,32 @@
     function proposeGroups(roster) {
         const n = roster.length;
         const groupCount = n ? Math.min(5, Math.ceil(n / GROUP_CAP)) : 0;
-        const groups = GROUP_ROLES.slice(0, groupCount).map(role => ({ role, players: [] }));
+        // Scarcity order still decides priority, but only among roles this roster can actually
+        // fill — otherwise an all-healer raid gets told its healers are a melee group.
+        const present = GROUP_ROLES.filter(role => roster.some(p => bucketOf(p) === role));
+        const roleOrder = present.concat(GROUP_ROLES.filter(r => present.indexOf(r) === -1));
+        const groups = roleOrder.slice(0, groupCount).map(role => ({ role, players: [] }));
         const byRole = {};
         groups.forEach(g => { byRole[g.role] = g; });
         const placed = new Set();
 
         function place(p, g) {
-            if (!g || placed.has(p.name) || g.players.length >= GROUP_CAP) return false;
+            if (!g || placed.has(p) || g.players.length >= GROUP_CAP) return false;
             g.players.push(p);
-            placed.add(p.name);
+            placed.add(p);
             return true;
         }
 
         // 1. Shamans seed first — one per group, spec-matched, then spare shamans spread out.
         const shamans = roster.filter(p => p.class === 'SHAMAN');
         shamans.forEach(sh => place(sh, byRole[SHAMAN_ROLE[sh.spec]]));
-        shamans.filter(p => !placed.has(p.name)).forEach(sh => {
+        shamans.filter(p => !placed.has(p)).forEach(sh => {
             place(sh, groups.find(g => !g.players.some(x => x.class === 'SHAMAN') && g.players.length < GROUP_CAP));
         });
 
         // 2. Fill each group from its own bucket, anchors first.
         groups.forEach(g => {
-            roster.filter(p => !placed.has(p.name) && bucketOf(p) === g.role)
+            roster.filter(p => !placed.has(p) && bucketOf(p) === g.role)
                 .sort((a, b) => anchorScore(a) - anchorScore(b) || a.name.localeCompare(b.name))
                 .forEach(p => place(p, g));
         });
@@ -576,7 +580,7 @@
         // 3. Overflow: whoever is left goes wherever there is room, fullest-first so we do
         //    not scatter three leftovers across three otherwise-clean groups.
         const unplaced = [];
-        roster.filter(p => !placed.has(p.name)).forEach(p => {
+        roster.filter(p => !placed.has(p)).forEach(p => {
             const g = groups.filter(g => g.players.length < GROUP_CAP)
                 .sort((a, b) => b.players.length - a.players.length)[0];
             if (!place(p, g)) unplaced.push(p);
