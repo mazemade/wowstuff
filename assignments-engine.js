@@ -525,12 +525,72 @@
         }
     }
 
+    // Scarcity order: this is both the order groups are created for a short roster and the
+    // order a limited number of shamans is spent. Windfury/Strength of Earth on melee is the
+    // largest single delta; Totem of Wrath's spell hit is next; tanks gain least.
+    const GROUP_ROLES = ['melee', 'casters', 'healers', 'ranged', 'tanks'];
+    const SHAMAN_ROLE = { Enhancement: 'melee', Elemental: 'casters', Restoration: 'healers' };
+    const GROUP_CAP = 5;
+
+    // Within a role, place the players whose buffs are party-scoped first — they are the
+    // reason the group exists, so they must not be crowded out by a filler DPS.
+    function anchorScore(p) {
+        if (p.class === 'WARRIOR' && p.spec !== 'Protection') return 0; // Battle Shout
+        if (p.class === 'DRUID' && p.spec === 'Feral') return 0;        // Leader of the Pack
+        if (p.class === 'DRUID' && p.spec === 'Balance') return 0;      // Moonkin Aura
+        if (p.class === 'PRIEST' && p.spec === 'Shadow') return 0;      // Vampiric Touch
+        if (p.class === 'HUNTER' && p.spec === 'Beast Mastery') return 0; // Ferocious Inspiration
+        if (p.class === 'PALADIN') return 1;                            // an aura, any group
+        return 2;
+    }
+
+    function proposeGroups(roster) {
+        const n = roster.length;
+        const groupCount = n ? Math.min(5, Math.ceil(n / GROUP_CAP)) : 0;
+        const groups = GROUP_ROLES.slice(0, groupCount).map(role => ({ role, players: [] }));
+        const byRole = {};
+        groups.forEach(g => { byRole[g.role] = g; });
+        const placed = new Set();
+
+        function place(p, g) {
+            if (!g || placed.has(p.name) || g.players.length >= GROUP_CAP) return false;
+            g.players.push(p);
+            placed.add(p.name);
+            return true;
+        }
+
+        // 1. Shamans seed first — one per group, spec-matched, then spare shamans spread out.
+        const shamans = roster.filter(p => p.class === 'SHAMAN');
+        shamans.forEach(sh => place(sh, byRole[SHAMAN_ROLE[sh.spec]]));
+        shamans.filter(p => !placed.has(p.name)).forEach(sh => {
+            place(sh, groups.find(g => !g.players.some(x => x.class === 'SHAMAN') && g.players.length < GROUP_CAP));
+        });
+
+        // 2. Fill each group from its own bucket, anchors first.
+        groups.forEach(g => {
+            roster.filter(p => !placed.has(p.name) && bucketOf(p) === g.role)
+                .sort((a, b) => anchorScore(a) - anchorScore(b) || a.name.localeCompare(b.name))
+                .forEach(p => place(p, g));
+        });
+
+        // 3. Overflow: whoever is left goes wherever there is room, fullest-first so we do
+        //    not scatter three leftovers across three otherwise-clean groups.
+        const unplaced = [];
+        roster.filter(p => !placed.has(p.name)).forEach(p => {
+            const g = groups.filter(g => g.players.length < GROUP_CAP)
+                .sort((a, b) => b.players.length - a.players.length)[0];
+            if (!place(p, g)) unplaced.push(p);
+        });
+
+        return { groups, unplaced };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
-        bucketOf,
+        bucketOf, proposeGroups,
     };
 }));

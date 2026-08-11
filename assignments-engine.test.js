@@ -749,5 +749,71 @@ test('bucketOf: a null spec still returns a bucket', () => {
     assert.strictEqual(E.bucketOf(P('p', 'WARRIOR', null)), 'melee');
 });
 
+function raid25() {
+    const r = [];
+    ['Tank1', 'Tank2'].forEach(n => r.push(P(n, 'WARRIOR', 'Protection')));
+    ['Rog1', 'Rog2', 'Rog3'].forEach(n => r.push(P(n, 'ROGUE', 'Combat')));
+    r.push(P('Fury1', 'WARRIOR', 'Fury'));
+    r.push(P('Ret1', 'PALADIN', 'Retribution'));
+    r.push(P('Ret2', 'PALADIN', 'Retribution')); // 25th body — without it the fixture is a 24-man and every "places 25" assertion fails
+    ['Hunt1', 'Hunt2', 'Hunt3'].forEach(n => r.push(P(n, 'HUNTER', 'Beast Mastery')));
+    ['Mage1', 'Mage2', 'Lock1', 'Lock2'].forEach(n =>
+        r.push(P(n, n.indexOf('Mage') === 0 ? 'MAGE' : 'WARLOCK', n.indexOf('Mage') === 0 ? 'Fire' : 'Affliction')));
+    r.push(P('Spriest', 'PRIEST', 'Shadow'));
+    r.push(P('Boomy', 'DRUID', 'Balance'));
+    ['Heal1', 'Heal2'].forEach(n => r.push(P(n, 'PRIEST', 'Holy')));
+    r.push(P('Hpal', 'PALADIN', 'Holy'));
+    r.push(P('Tree', 'DRUID', 'Restoration'));
+    r.push(P('Enh', 'SHAMAN', 'Enhancement'));
+    r.push(P('Ele', 'SHAMAN', 'Elemental'));
+    r.push(P('Resto', 'SHAMAN', 'Restoration'));
+    r.push(P('Feral', 'DRUID', 'Feral'));
+    return r;
+}
+function groupOf(res, name) {
+    const g = res.groups.find(g => g.players.some(p => p.name === name));
+    return g ? g.role : null;
+}
+
+test('proposeGroups: makes five groups of at most five and places everyone', () => {
+    const res = E.proposeGroups(raid25());
+    assert.strictEqual(res.groups.length, 5);
+    res.groups.forEach(g => assert.ok(g.players.length <= 5, g.role + ' has ' + g.players.length));
+    assert.strictEqual(res.unplaced.length, 0);
+    const placed = res.groups.reduce((n, g) => n + g.players.length, 0);
+    assert.strictEqual(placed, 25);
+});
+test('proposeGroups: no player is placed twice', () => {
+    const res = E.proposeGroups(raid25());
+    const names = res.groups.flatMap(g => g.players.map(p => p.name));
+    assert.strictEqual(new Set(names).size, names.length);
+});
+test('proposeGroups: shamans seed their matching group, one each', () => {
+    const res = E.proposeGroups(raid25());
+    assert.strictEqual(groupOf(res, 'Enh'), 'melee');
+    assert.strictEqual(groupOf(res, 'Ele'), 'casters');
+    assert.strictEqual(groupOf(res, 'Resto'), 'healers');
+});
+test('proposeGroups: hunters group together, away from windfury', () => {
+    const res = E.proposeGroups(raid25());
+    assert.strictEqual(groupOf(res, 'Hunt1'), 'ranged');
+    assert.strictEqual(groupOf(res, 'Hunt2'), 'ranged');
+});
+test('proposeGroups: scarce shamans go to melee first, then casters', () => {
+    const roster = raid25().filter(p => p.name !== 'Ele' && p.name !== 'Resto');
+    const res = E.proposeGroups(roster);
+    assert.strictEqual(groupOf(res, 'Enh'), 'melee');
+});
+test('proposeGroups: a ten-man roster degrades to two groups without throwing', () => {
+    const res = E.proposeGroups(raid25().slice(0, 10));
+    assert.strictEqual(res.groups.length, 2);
+    assert.strictEqual(res.unplaced.length, 0);
+});
+test('proposeGroups: an empty roster returns no groups and does not throw', () => {
+    const res = E.proposeGroups([]);
+    assert.strictEqual(res.groups.length, 0);
+    assert.strictEqual(res.unplaced.length, 0);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
