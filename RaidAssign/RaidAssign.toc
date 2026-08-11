@@ -1,0 +1,8 @@
+## Interface: 20506
+## Title: RaidAssign
+## Notes: Pastes the assignment sheet from the Raid Assignments web tool and whispers each player their duties
+## Author: mazemade
+## Version: 1.0
+## SavedVariables: RaidAssignDB
+
+RaidAssign.lua

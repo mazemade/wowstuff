@@ -1,9 +1,13 @@
--- RaidSpecSend: takes the assignment payload from the web tool and whispers it to the raid.
+-- RaidAssign: takes the assignment payload from the web tool and whispers it to the raid.
 -- Payload (RSW1): a version line, then one "CharacterName=message body" line per whisper.
 -- A player with many duties owns several lines; each is sent as its own whisper.
+--
+-- Standalone: RaidSpecScan feeds the web tool and this reads the web tool's output, but the
+-- two addons share no code and neither requires the other to be installed.
 
-local ADDON, ns = ...
-local Print = ns.Print
+local function Print(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cFF33FF99[RaidAssign]|r " .. msg)
+end
 
 local sheet = nil        -- array of { name, body } from the last successful paste
 local malformed = {}     -- pasted lines that had no "=" in them
@@ -70,9 +74,9 @@ end
 -- Account-wide, not per-character: the leader may swap toons between nights, but
 -- the raid's assignments are the same either way.
 local function History()
-    RaidSpecScanDB = RaidSpecScanDB or {}
-    RaidSpecScanDB.lastSent = RaidSpecScanDB.lastSent or {}
-    return RaidSpecScanDB.lastSent
+    RaidAssignDB = RaidAssignDB or {}
+    RaidAssignDB.lastSent = RaidAssignDB.lastSent or {}
+    return RaidAssignDB.lastSent
 end
 
 -- A player's signature is all their lines joined, so a player who gains a second
@@ -225,7 +229,7 @@ local function SendFiltered(entries)
 end
 
 local function BuildFrame()
-    local f = CreateFrame("Frame", "RaidSpecSendFrame", UIParent, "BackdropTemplate")
+    local f = CreateFrame("Frame", "RaidAssignFrame", UIParent, "BackdropTemplate")
     f:SetSize(560, 400)
     f:SetPoint("CENTER")
     f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -242,7 +246,7 @@ local function BuildFrame()
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("TOP", 0, -18)
 
-    local scroll = CreateFrame("ScrollFrame", "RaidSpecSendScroll", f, "UIPanelScrollFrameTemplate")
+    local scroll = CreateFrame("ScrollFrame", "RaidAssignScroll", f, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 22, -46)
     scroll:SetPoint("BOTTOMRIGHT", -36, 66)
 
@@ -287,12 +291,12 @@ local function BuildFrame()
     return f
 end
 
-SLASH_RAIDSPECSEND1 = "/specsend"
-SlashCmdList["RAIDSPECSEND"] = function(msg)
+SLASH_RAIDASSIGN1 = "/specsend"
+SlashCmdList["RAIDASSIGN"] = function(msg)
     local arg = (msg or ""):match("^%s*(%S*)"):lower()
     if arg == "reset" then
-        RaidSpecScanDB = RaidSpecScanDB or {}
-        RaidSpecScanDB.lastSent = {}
+        RaidAssignDB = RaidAssignDB or {}
+        RaidAssignDB.lastSent = {}
         Print("Send history cleared — everyone counts as NEW again.")
         if frame and frame:IsShown() and sheet then ShowPreview() end
         return
