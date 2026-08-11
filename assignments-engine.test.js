@@ -498,5 +498,25 @@ test('buildAddonWhispers: a duty name containing = still splits on the FIRST = o
     assert.ok(body.includes('DPS = 100%'));
 });
 
+test('RSS1 regression: a full raid export parses to exactly this roster', () => {
+    const text = 'RSS1;Thunderfist:WARRIOR:5/6/50;Smashy:WARRIOR:33/28/0;' +
+        'Bob:WARLOCK:43/0/18;Grimshade:WARLOCK:0/21/40;' +
+        'Retdin:PALADIN:0/0/61;Lightbringer:PALADIN:47/14/0;' +
+        'Frostina:MAGE:0/48/13;Moonpie:DRUID:43/18/0;Mystery:HUNTER:?';
+    const r = E.parseAddonExport(text);
+    assert.deepStrictEqual(r.errors, []);
+    assert.deepStrictEqual(r.players, [
+        { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon' },
+        { name: 'Smashy', class: 'WARRIOR', spec: 'Arms', flags: [], source: 'addon' },
+        { name: 'Bob', class: 'WARLOCK', spec: 'Affliction', flags: [], source: 'addon' },
+        { name: 'Grimshade', class: 'WARLOCK', spec: 'Destruction', flags: [], source: 'addon' },
+        { name: 'Retdin', class: 'PALADIN', spec: 'Retribution', flags: [], source: 'addon' },
+        { name: 'Lightbringer', class: 'PALADIN', spec: 'Holy', flags: [], source: 'addon' },
+        { name: 'Frostina', class: 'MAGE', spec: 'Fire', flags: [], source: 'addon' },
+        { name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon' },
+        { name: 'Mystery', class: 'HUNTER', spec: null, flags: ['spec-unknown'], source: 'addon' },
+    ]);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
