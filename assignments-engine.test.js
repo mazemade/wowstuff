@@ -171,8 +171,8 @@ test('autoAssign: full comp covers all core debuffs with right players', () => {
     assert.strictEqual(duty(r, 'sunder').player, 'Thunderfist'); // prot preferred
     assert.strictEqual(duty(r, 'coe').player, 'Bob');            // affliction preferred
     assert.ok(['Grimshade', 'Doomlord'].includes(duty(r, 'cor').player));
-    assert.strictEqual(duty(r, 'jow').player, 'Retdin');
-    assert.strictEqual(duty(r, 'jol').player, 'Lightbringer');
+    assert.strictEqual(duty(r, 'jow').player, 'Lightbringer'); // holy/prot judge, ret keeps its damage seal
+    assert.strictEqual(duty(r, 'jol').player, 'Bubbles');
     assert.ok(duty(r, 'joc'));                                   // 3 paladins present
     assert.strictEqual(duty(r, 'scorch').player, 'Frostina');    // fire required
     assert.strictEqual(duty(r, 'ff').player, 'Moonpie');
@@ -196,12 +196,13 @@ test('autoAssign: no paladins puts judgements in missing, joc is not applicable'
     assert.ok(!r.uncovered.missing.some(u => u.id === 'joc'));
     assert.ok(!duty(r, 'joc'));
 });
-test('autoAssign: only 2 paladins puts joc in notApplicable, not missing', () => {
+test('autoAssign: with two paladins including a ret, joc is covered and jol goes missing', () => {
     const roster = fullRoster().filter(p => p.name !== 'Bubbles');
     const r = E.autoAssign(roster, {});
-    assert.ok(!duty(r, 'joc'));
-    assert.ok(!r.uncovered.missing.some(u => u.id === 'joc'));
-    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'joc'));
+    assert.strictEqual(duty(r, 'joc').player, 'Retdin');
+    assert.strictEqual(duty(r, 'jow').player, 'Lightbringer');
+    assert.ok(r.uncovered.missing.some(u => u.id === 'jol'));
+    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'joc'));
 });
 test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () => {
     const roster = fullRoster().filter(p => p.class !== 'WARRIOR');
@@ -555,6 +556,19 @@ test('buildDiscord warns about missing only, and tolerates a legacy flat uncover
     const legacy = E.autoAssign(roster, {});
     legacy.uncovered = [{ id: 'coe', name: 'Curse of Elements' }];
     assert.ok(E.buildDiscord(roster, legacy, {}).includes('Curse of Elements'));
+});
+
+test('autoAssign: judgement of the crusader requires a ret paladin, not three paladins', () => {
+    const noRet = fullRoster().filter(p => p.name !== 'Retdin');
+    const r = E.autoAssign(noRet, {});
+    assert.ok(!duty(r, 'joc'));
+    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'joc'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'joc'));
+});
+test('autoAssign: a lone ret paladin is enough for judgement of the crusader', () => {
+    const roster = [P('Retdin', 'PALADIN', 'Retribution')];
+    const r = E.autoAssign(roster, {});
+    assert.strictEqual(duty(r, 'joc').player, 'Retdin');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
