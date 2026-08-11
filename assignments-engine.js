@@ -180,14 +180,13 @@
           caution: '−800 armor but +136 melee AP on the boss. Clear this row on enrage or AP-scaling fights.' },
         // The value here is Improved Seal of the Crusader (Ret tier 2): +3% crit to all
         // attacks on the target. Untalented it is worth nothing, so one Ret beats three bodies.
-        // Ordered before jow/jol: judgements are one-per-paladin, so the Ret must be claimed
+        // Ordered before jow: judgements are one-per-paladin, so the Ret must be claimed
         // for JoC before the generic judgements can swallow them.
         { id: 'joc', name: 'Judgement of the Crusader', category: 'debuffs', class: 'PALADIN', requireSpec: 'Retribution', group: 'judgement',
           applicableWhen: roster => roster.some(p => p.class === 'PALADIN' && p.spec === 'Retribution') },
         // Ret keeps Seal of Blood/Command for its own damage; the support paladins judge at
         // pull, and any Ret's Crusader Strike then refreshes every paladin's judgement.
         { id: 'jow', name: 'Judgement of Wisdom', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Holy', 'Protection'], group: 'judgement' },
-        { id: 'jol', name: 'Judgement of Light', category: 'debuffs', class: 'PALADIN', preferSpecs: ['Holy', 'Protection'], group: 'judgement' },
         // Improved Faerie Fire (+3% melee/ranged hit) is Balance-only, but the 610 armor
         // applies regardless — so keep the duty and rank Feral above Resto, who would
         // otherwise spend a GCD and mana they would rather heal with.
