@@ -2,7 +2,8 @@
 
 **Read this file first.** It is the single entry point for the `debuff-coverage` branch.
 
-Last updated: 2026-08-12, after all six plans completed and their final reviews closed.
+Last updated: 2026-08-13, after the seventh plan (talent-aware assignments) completed and its
+whole-plan review and fix wave closed.
 
 ---
 
@@ -11,11 +12,11 @@ Last updated: 2026-08-12, after all six plans completed and their final reviews 
 | | |
 |---|---|
 | Branch | `debuff-coverage`, in worktree `/Users/maxvanzoelen/wowstuff/.claude/worktrees/debuff-coverage` |
-| HEAD | `ce4ab5f` |
-| Working tree | clean |
-| Suite | **148 passed, 0 failed** (`node assignments-engine.test.js`) |
+| HEAD | `bb14fff` |
+| Working tree | clean (`TalentProbe/` is an untracked throwaway diagnostic addon — leave it alone) |
+| Suite | **173 passed, 0 failed** (`node assignments-engine.test.js`) |
 | `main` | untouched at `bb838f9`, still deployable (Railway deploys from `main`) |
-| Commits on branch | 41, none squashed — one per task, plus fix waves |
+| Commits on branch | 56, none squashed — one per task, plus fix waves |
 
 | Plan | State |
 |---|---|
@@ -26,6 +27,7 @@ Last updated: 2026-08-12, after all six plans completed and their final reviews 
 | 4 — `2026-08-11-group-layout-proposer.md` | ✅ complete, 4 tasks + fix wave `a322d5a` |
 | 5 — `2026-08-11-greater-blessings-grid.md` | ✅ complete, 4 tasks + fix wave `faf10db` |
 | 6 — `2026-08-11-rotations-and-remaining-debuffs.md` | ✅ complete, 4 tasks + fix wave `ce4ab5f` |
+| 7 — `2026-08-12-talent-aware-assignments.md` | ✅ complete, 6 tasks + 2 task-review fixes + fix wave `bb14fff` |
 
 **All six plans are done and every whole-plan review is closed.** The branch is ready to merge,
 subject to section 5 (the one thing that still needs a live WoW client).
@@ -42,18 +44,28 @@ subject to section 5 (the one thing that still needs a live WoW client).
   duplicate warnings, editable per cell, in the Discord output.
 - **Rotations**: Fear Ward and Tranquilizing Shot as ordered lists rather than single assignments,
   reorderable in the UI and present in every output surface.
-- **Four remaining debuffs**: Thunder Clap, Insect Swarm, Scorpid Sting, Hemorrhage. (Scorpid Sting
-  is scheduled for removal — see section 7.)
+- **Three remaining debuffs**: Thunder Clap, Insect Swarm, Hemorrhage. (Scorpid Sting was added, then
+  removed by owner ruling in plan 7 — it is not worth a hunter's sting slot.)
+- **Talent-aware assignments**: `RaidSpecScan` 3.0 resolves four tracked talents *by English name* at
+  scan time and exports them as `key=rank` pairs in a new **RSS3** wire format with fixed,
+  independently-optional fields. The engine holds the same keys with a max rank and display name — no
+  coordinates anywhere. `rankPool` gained a leading tier, **talented → unknown → known-untalented**,
+  ahead of the existing spec preference, on the four rows where spec-guessing is measurably wrong
+  (`armor`, `ap`, `tclap`, `joc`). Each such row renders a `qualifier` explaining its pick
+  (`Improved Expose Armor 2/2`, `no Improved Expose Armor`, `talent unknown`) in the Assignments
+  panel and the Discord output only — never on the length-bound whisper or `/raid` paths.
 
 ## What is planned next, not yet started
 
-`docs/superpowers/specs/2026-08-12-talent-aware-assignments-design.md` and its plan
-`docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`: read individual talent ranks via
-`GetTalentInfo` instead of guessing them from tree totals, so the four rows where spec-guessing is
-measurably wrong pick the right player. Proven feasible in-game first with a throwaway probe addon.
-Task 1 of that plan removes Scorpid Sting. **Not blocked on anything** — the addon resolves talents
-by name at scan time, so there are no coordinates to capture. `RaidSpecScan` must be reinstalled from
-the worktree before the in-game checks at the end, because the installed copy is still v1.0.
+**Cross-provider selection is still spec-guessed.** Plan 7 scoped the talent tier to `rankPool`,
+which orders candidates *within* one provider. It does not reorder the providers themselves. So a
+rogue known to lack Improved Expose Armor still takes the `armor` row ahead of an available Sunder
+warrior — and the sheet now says `(no Improved Expose Armor)` next to a pick the design doc's own
+opening paragraph calls "worse than a maxed Sunder stack". Same shape on `ap`: an untalented
+Demoralizing Shout still outranks Curse of Weakness, which that entry's comment says is the wrong
+call at −300 vs −350. Faithful to the approved scope, and the whole-plan review recommended
+accepting it rather than blocking the merge — but it is the largest remaining product gap, and
+"the row explains itself" should not be read as "the row is now correct".
 
 ---
 
@@ -162,10 +174,17 @@ catches syntax and nothing else — behaviour still needs a live client. *(Earli
 file claimed no Lua binary existed and that addon changes could only be reviewed by reading. That
 was wrong.)*
 
-**Browser verification:** there is no browser tool in this harness. A CDP driver lives in the
-session scratchpad as `cdp.js` (usage: `node cdp.js <url> <script-file>`); adapted per-feature
-drivers sit beside it (`verify-blessings.js`, `verify-rotations.js`) and are the better starting
-point. If the scratchpad is gone, rewrite it — it launches Chrome with `--remote-debugging-port`,
+**Shell working directory:** commands run from this worktree can silently reset to the primary
+checkout at `/Users/maxvanzoelen/wowstuff`. It happened three times in one session, and one
+verification pass reported `69 passed` and addon v1.0 — `main`'s files, not the branch's. **Use
+absolute paths, or `cd` to the worktree at the start of every command.** A test count that looks
+wrong by a lot is the tell.
+
+**Browser verification:** there is no browser tool in this harness. The CDP driver lives in the
+worktree at **`.superpowers/tools/cdp.js`** (usage: `node cdp.js <url> <script-file>`); adapted
+per-feature drivers sit beside it (`verify-blessings.js`, `verify-rotations.js`) and are the better
+starting point. *(Earlier revisions of this file said these live in the session scratchpad. Stale.)*
+It launches Chrome with `--remote-debugging-port`,
 drives it over the global `WebSocket`, collects console output and page exceptions, evaluates a
 script file, and **must call `process.exit()` explicitly** or the spawned Chrome keeps the event
 loop alive forever.
@@ -199,7 +218,18 @@ Gotchas that cost real time:
 - **`proposeGroups` returns aliased roster player objects.** Its purity rests on nobody writing
   through those references, and is pinned by a test.
 - **The pinned RSS1 fixture** is the parse guard for the whole branch. When a wire format grows,
-  *add* a fixture — never migrate this one.
+  *add* a fixture — never migrate this one. **What "never migrate" protects is the RSS1 input string
+  and the roster identity it pins, not the field count of the parsed player object.** Twice now a
+  wire format has added a field to every player (`98c88ce` added `group`/`race`, plan 7 added
+  `talents`), and both times the right move was to add the new key to the expected objects while
+  leaving the input string byte-identical and `deepStrictEqual` unrelaxed.
+- **`assignments.js` cannot be `require`d by the test suite** — it touches `document` and
+  `localStorage`. The repo's workaround is to *mirror* its logic into the test file (the `I1:` tests).
+  That is fine for an algorithm and useless for a one-line field re-attach, where the mirror passes
+  whether or not the browser file contains the line. Verify those over CDP instead.
+- **The addon and the engine share talent keys across a string.** A test now reads
+  `RaidSpecScan.lua`, parses `TRACKED_TALENTS`, and asserts key/name/class parity with the engine's
+  `TALENTS`. Before it existed, an addon-side rename was invisible to every test.
 - **`buildAddonWhispers`' 255-char budget is counted in UTF-16 units while WoW enforces UTF-8 bytes.**
   They agree only because all duty text is ASCII. Never emit non-ASCII on the whisper or `/raid`
   paths.
@@ -208,13 +238,34 @@ Gotchas that cost real time:
 
 ## 5. Unverified — needs the owner, before release
 
-**Plan 3 Task 2 Step 6 requires a live WoW client.** Reported unverified, not done. Run before
-release:
-1. the export begins `RSS2;`
-2. lines carry a subgroup matching the actual raid frames
-3. race tokens are English even on a non-English client
-4. `/specscan` outside a raid still prints "You must be in a raid." and nothing else
-5. pasting the export into the web tool produces the same roster it would have before
+**`RaidSpecScan` 3.0 is now installed** in `/Applications/World of Warcraft/_anniversary_/Interface/
+AddOns/RaidSpecScan/`, verified byte-identical to the worktree copy and syntax-clean under `luajit`.
+The v1.0 it replaced is backed up in the session scratchpad. Nothing below has been run — no live
+client was available to this session.
+
+Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once, in a real raid:
+
+1. The export begins **`RSS3;`** (not `RSS2;` — if it says RSS2 the game loaded a stale copy).
+2. Lines carry a subgroup matching the actual raid frames.
+3. Race tokens are English even on a non-English client.
+4. `/specscan` outside a raid still prints "You must be in a raid." and nothing else.
+5. Pasting the export into the web tool produces the same roster it would have before, plus
+   talent-driven picks on the four wired rows.
+6. For **at least two players of different classes**, the `key=rank` digits match their actual talent
+   panes — spot-check two talents each.
+7. **A player who has NOT taken a tracked talent must read `=0`, not be missing from the field.** This
+   is the whole three-state model: "we know they lack it" must stay distinguishable from "we have no
+   data". If it is missing instead, the talent name in the addon's `TRACKED_TALENTS` does not match
+   the client's — check the spelling with `/tprobe target <partial name>` before suspecting the
+   ranking logic.
+8. A player who cannot be inspected still appears, with `?` for points and an empty talent field.
+9. On a real rogue known to lack Improved Expose Armor: the armor row says so rather than claiming it.
+10. **Scan a player whose class differs from yours** and confirm their talent field is right. The
+    addon sizes its loop with `GetNumTalentTabs()`/`GetNumTalents(tab)` without an `isInspect`
+    argument, so the bounds come from the *scanner's* trees. Analysis says this cannot bite today —
+    all four tracked talents sit at tier 2-3 (index ≲12) while the smallest TBC tree has ~17-19
+    talents, and over-iteration is absorbed harmlessly — but it becomes live the moment anyone tracks
+    a deep talent. Worth confirming once.
 
 ---
 
@@ -268,6 +319,29 @@ Every whole-plan review triaged these explicitly.
 - `renderGroups()` runs before `renderOutput()` in `renderAll`, so a future throw there would kill
   the Discord output. Structural, not currently reachable.
 
+**From plan 7 (talent-aware assignments)**
+- `talentDrift` is exported and rendered by nothing. Deliberate — it exists so addon/engine key drift
+  is diagnosable from a test or a console call. Wiring it into the UI is a follow-up.
+- `talentDrift` lacks the `typeof`/`isNaN` guard `talentRank` has, so a numeric string `"9"` would be
+  unknown to one and drift to the other. Unreachable from the wire — the parser validates against
+  `^\w+=\d+(,\w+=\d+)*$` and stores `Number()`. Left visible rather than papered over.
+- Neither talent function rejects a negative or fractional rank. `\d+` cannot produce either.
+- `rankPool`'s rank sub-sort overlaps `talentTier` in effect rather than being orthogonal, which is
+  why the plan's own prescribed mutation had a blast radius of one test. Harmless; now commented.
+- **`talentTier`'s `if (!entry.improvedBy) return 0;` short-circuit is an equivalent mutant** —
+  deleting it leaves the suite green, because `talentRank(p, undefined)` returns `null` for every
+  candidate and the tier stays uniform. It is redundancy in the code, not a hole in the tests.
+  Recorded so no future reviewer files it as a finding.
+- **The `recompute()` talents re-attach has no node-suite regression guard.** `assignments.js` is
+  browser-only and cannot be `require`d by the test file; a mirrored test would pass with the line
+  deleted, which is this branch's worst defect class. It was proven both ways over CDP instead. The
+  invariant is now named in a comment at the field list — that list has been missed twice.
+- An override to an off-class player inherits the first provider's `improvedBy`, so overriding
+  `armor` to a mage renders `Improved Expose Armor — Bob (talent unknown)`. Consistent with the
+  pre-existing label fallback; the qualifier just makes it more visible.
+- Error-message priority drifted for a line with two simultaneous violations (class and duplicate
+  name are now checked before the subgroup range). No accepted input changes.
+
 **Documentation and hygiene**
 - `SubgroupOf`'s name-scan fallback is unreachable and its comment claims otherwise.
 - Nothing tells a raider to update the addon. RSS1 works forever by design, so the rollout is silent
@@ -294,14 +368,19 @@ Every whole-plan review triaged these explicitly.
   is moot. Removal is **Task 1 of `docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`**
   and has not landed yet — the `sting` entry and its hedged `caution` are still in the catalog until
   that task runs.
-- **Improved Demo Shout vs untalented Curse of Weakness** — the −420/−350 numbers are verified, but
-  which a given player has is invisible to the addon.
+- ~~**Improved Demo Shout vs untalented Curse of Weakness**~~ — **PARTIALLY RESOLVED by plan 7.** The
+  rank is no longer invisible: `improvedBy: 'impDemoShout'` now picks the best-talented warrior for
+  the row. What remains is the choice *between* providers — an untalented warrior still outranks the
+  warlock, because the tier orders candidates within a provider, not the providers themselves.
 - **Totem of Wrath's exact effect** (+3% spell hit and crit) — worth a second check.
-- **Improved Expose Armor is a 2-point Subtlety talent** most Combat rogues skip. A Combat rogue on
-  that row may be applying unimproved Expose (2050), which is *worse* than a maxed Sunder stack.
-  Fix if seen: make the rogue provider `requireSpec: 'Subtlety'`.
-- **Improved Thunder Clap is an Arms talent.** The entry now prefers Arms for exactly this reason,
-  but a raid whose only warrior is Protection may still be applying −10% rather than −20%.
+- ~~**Improved Expose Armor is a 2-point Subtlety talent**~~ — **RESOLVED by plan 7 within the rogue
+  pool.** The row now picks the rogue who actually has it, regardless of spec, and says so. The
+  `requireSpec: 'Subtlety'` fix contemplated here is no longer needed and would be worse — it would
+  exclude a Combat rogue who *did* take the talent. What survives is the cross-provider case above:
+  if *no* rogue has it, the row still goes to a rogue rather than to the Sunder warrior.
+- ~~**Improved Thunder Clap is an Arms talent**~~ — **RESOLVED by plan 7.** `improvedBy:
+  'impThunderClap'` reads the real rank, so a Protection warrior who took it now wins the row over an
+  Arms warrior who did not, and the row states the rank it found.
 - **Screech is a pet ability** and only a BM hunter reliably has a screeching pet family up.
 - **Feral druids bucket as melee, always** — a feral tank belongs in the tank group, but bear and cat
   are indistinguishable from tab totals. The blessings grid treats Feral as a tank for the Salvation
