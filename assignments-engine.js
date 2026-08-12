@@ -16,6 +16,45 @@
         DRUID: ['Balance', 'Feral', 'Restoration'],
     };
 
+    // The talents the catalog reasons about, under the same keys RaidSpecScan exports. The
+    // addon resolved these by name at scan time, so there are no coordinates here to drift.
+    // `maxRank` is the guard for the one thing that CAN drift: these keys and the addon's
+    // TRACKED_TALENTS are maintained on opposite sides of the wire.
+    const TALENTS = {
+        impExposeArmor:  { class: 'ROGUE',   maxRank: 2, name: 'Improved Expose Armor' },
+        impThunderClap:  { class: 'WARRIOR', maxRank: 3, name: 'Improved Thunder Clap' },
+        impDemoShout:    { class: 'WARRIOR', maxRank: 5, name: 'Improved Demoralizing Shout' },
+        impSealCrusader: { class: 'PALADIN', maxRank: 3, name: 'Improved Seal of the Crusader' },
+    };
+
+    // null means "we do not know" — a Raid-Helper signup, a manually added player, or a talent
+    // the addon could not find. That must never be confused with "we know they lack it", which
+    // is rank 0.
+    function talentRank(player, key) {
+        const def = TALENTS[key];
+        if (!def || def.class !== player.class || !player.talents) return null;
+        const rank = player.talents[key];
+        if (typeof rank !== 'number' || isNaN(rank)) return null;
+        if (rank > def.maxRank) return null;
+        return rank;
+    }
+
+    // A key mismatch between the addon and this table is systemic — it hits every player of
+    // that class at once — so surface it rather than letting the whole class read as unknown.
+    function talentDrift(roster) {
+        const out = [];
+        roster.forEach(p => {
+            if (!p.talents) return;
+            Object.keys(p.talents).forEach(key => {
+                const def = TALENTS[key];
+                if (def && def.class === p.class && p.talents[key] > def.maxRank) {
+                    out.push({ name: p.name, key: key });
+                }
+            });
+        });
+        return out;
+    }
+
     const CLASS_COLORS = {
         WARRIOR: '#C69B6D', PALADIN: '#F48CBA', HUNTER: '#AAD372',
         ROGUE: '#FFF468', PRIEST: '#FFFFFF', SHAMAN: '#0070DD',
@@ -840,6 +879,7 @@
 
     return {
         SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
+        TALENTS, talentRank, talentDrift,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,

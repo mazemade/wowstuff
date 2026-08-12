@@ -1254,5 +1254,34 @@ test('parseAddonExport: a malformed talent field rejects the line', () => {
     assert.ok(res.errors.some(e => /Stabby/.test(e)));
 });
 
+function withTalents(p, t) { p.talents = t; return p; }
+test('talentRank: reads the rank the addon reported', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), 2);
+});
+test('talentRank: rank 0 is a real answer, not unknown', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 0 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), 0);
+});
+test('talentRank: no talent data is unknown, not zero', () => {
+    assert.strictEqual(E.talentRank(P('Stabby', 'ROGUE', 'Combat'), 'impExposeArmor'), null);
+    // scanned, but this key was not among the pairs — the addon could not find the talent
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), {});
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
+});
+test('talentRank: a key belonging to another class is unknown', () => {
+    const p = withTalents(P('Smashy', 'WARRIOR', 'Arms'), { impExposeArmor: 2 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
+});
+test('talentRank: a rank above maxRank is treated as unknown, not trusted', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 9 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
+    assert.deepStrictEqual(E.talentDrift([p]), [{ name: 'Stabby', key: 'impExposeArmor' }]);
+});
+test('talentDrift: a clean roster reports nothing', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
+    assert.deepStrictEqual(E.talentDrift([p, P('Smashy', 'WARRIOR', 'Arms')]), []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
