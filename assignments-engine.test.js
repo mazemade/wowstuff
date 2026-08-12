@@ -1049,15 +1049,17 @@ test('buildDiscord: warrior and warlock disambiguate in the blessings line', () 
 });
 
 test('autoAssign: fear ward rotation lists every priest, discipline first', () => {
-    const roster = [P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy'), P('Discy', 'PRIEST', 'Discipline')];
+    // Names are deliberately anti-alphabetical: rankPool falls back to a name sort, so a
+    // fixture in alphabetical order cannot tell a working preferSpecs from a missing one.
+    const roster = [P('Ashadow', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy'), P('Zdiscy', 'PRIEST', 'Discipline')];
     const r = E.autoAssign(roster, {});
     const fw = duty(r, 'fearward');
     assert.strictEqual(fw.category, 'rotations');
-    assert.deepStrictEqual(fw.players, ['Discy', 'Holymel', 'Shadowmel']);
+    assert.deepStrictEqual(fw.players, ['Zdiscy', 'Holymel', 'Ashadow']);
 });
 test('autoAssign: tranq shot rotation lists hunters', () => {
-    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship'), P('Beastly', 'HUNTER', 'Beast Mastery')], {});
-    assert.deepStrictEqual(duty(r, 'tranq').players, ['Beastly', 'Legolass']);
+    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship'), P('Zbeastly', 'HUNTER', 'Beast Mastery')], {});
+    assert.deepStrictEqual(duty(r, 'tranq').players, ['Zbeastly', 'Legolass']);
 });
 test('autoAssign: a rotation with nobody eligible produces no row and no warning', () => {
     const r = E.autoAssign([P('Stabby', 'ROGUE', 'Combat')], {});
