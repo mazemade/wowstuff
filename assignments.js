@@ -8,7 +8,7 @@ let state = {
     sources: { addon: null, rh: null }, // Player[] or null per source
     manual: [],                          // manually added/edited players
     excluded: [],                        // names removed from the roster by hand
-    overrides: {},                       // dutyId -> {player?, target?}
+    overrides: {},                       // dutyId -> {player?, players?, target?}
     cc: null,                            // [{mark, ability, player}] or null = engine defaults
     pings: true,
     title: '',
@@ -55,6 +55,13 @@ function recompute() {
     Object.values(state.overrides).forEach(o => {
         if (o.player && !names.has(o.player)) delete o.player;
         if (o.target && !names.has(o.target) && o.target !== 'HEALER_RESERVE') delete o.target;
+        if (o.players) {
+            const kept = o.players.filter(n => names.has(n));
+            // Only fall back to auto-assignment when the sweep is what emptied the list. A list
+            // the lead emptied with ✕ stays empty on purpose — that row is meant to be gone.
+            if (!kept.length && o.players.length) delete o.players;
+            else o.players = kept;
+        }
     });
     // Drop cells belonging to a paladin who is no longer on the roster, the same way
     // override players are dropped — otherwise a re-import resurrects a stale grid.

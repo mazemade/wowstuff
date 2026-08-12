@@ -448,6 +448,20 @@
     }
     function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+    // 1st, 2nd, 3rd, 4th... — English ordinal suffixes, with the 11/12/13 exception
+    // (11th not 11st). Raid rotations rarely run past a handful of names, but the rule
+    // costs nothing to get right.
+    function ordinal(n) {
+        const rem100 = n % 100;
+        if (rem100 >= 11 && rem100 <= 13) return n + 'th';
+        switch (n % 10) {
+            case 1: return n + 'st';
+            case 2: return n + 'nd';
+            case 3: return n + 'rd';
+            default: return n + 'th';
+        }
+    }
+
     // Sheets serialized before the missing/notApplicable split carry a flat array. Share
     // links outlive deploys, so both shapes have to render.
     function missingList(uncovered) {
@@ -542,6 +556,9 @@
             if (d.target) s += ' -> ' + displayTarget(d.target);
             items.push(s);
         });
+        sheet.duties.filter(d => d.players).forEach(d => {
+            items.push(d.name + ': ' + d.players.join(' > '));
+        });
         (sheet.cc || []).filter(c => c.player).forEach(c => {
             items.push('{' + c.mark + '} ' + ccAbilityName(c.ability) + ': ' + c.player);
         });
@@ -554,6 +571,11 @@
         const add = (name, txt) => { (per[name] = per[name] || []).push(txt); };
         sheet.duties.filter(d => d.player).forEach(d => {
             add(d.player, d.name + (d.target ? ' on ' + displayTarget(d.target) : ''));
+        });
+        // A rotation has no single owner, so each member is told their own slot in the order —
+        // knowing you are third is the whole point of a Fear Ward rotation.
+        sheet.duties.filter(d => d.players).forEach(d => {
+            d.players.forEach((n, i) => add(n, d.name + ' (' + ordinal(i + 1) + ' of ' + d.players.length + ')'));
         });
         (sheet.cc || []).filter(c => c.player).forEach(c => {
             add(c.player, ccAbilityName(c.ability) + ' on {' + c.mark + '}');

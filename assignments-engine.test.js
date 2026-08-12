@@ -363,6 +363,10 @@ test('buildRaidLines: all lines fit chat limit and carry prefix', () => {
     assert.ok(lines.length >= 1);
     lines.forEach(l => { assert.ok(l.startsWith('/raid ')); assert.ok(l.length <= 255); });
     assert.ok(lines.join(' ').includes('{moon}'));
+    // A duty carrying `players` instead of `player` (a rotation) rendered by a filter that
+    // doesn't know the difference prints "undefined" straight into the macro — guard the
+    // whole shape-mismatch class, not just this one instance of it.
+    assert.ok(!/undefined/.test(lines.join(' ')));
 });
 test('buildWhispers: one line per assigned player, duties combined', () => {
     const { roster, sheet } = sampleSheet();
@@ -371,6 +375,7 @@ test('buildWhispers: one line per assigned player, duties combined', () => {
     assert.ok(bob.includes('Curse of Elements'));
     assert.ok(bob.includes('Soulstone'));
     assert.strictEqual(lines.filter(l => l.startsWith('/w Bob ')).length, 1);
+    assert.ok(!/undefined/.test(lines.join(' ')));
 });
 test('buildRaidLines: a single over-long item is truncated to fit the chat limit', () => {
     const longName = 'X'.repeat(300);
@@ -485,6 +490,9 @@ test('buildAddonWhispers: players with no duties get no line', () => {
     // went stale the moment a new catalog entry gave him a duty.
     const withDuty = new Set(sheet.duties.filter(d => d.player).map(d => d.player));
     (sheet.cc || []).filter(c => c.player).forEach(c => withDuty.add(c.player));
+    // Rotation members carry `players`, not `player` — N1 makes them whisper recipients too,
+    // so they belong in this set now, the same way d.player and c.player already did.
+    sheet.duties.filter(d => d.players).forEach(d => d.players.forEach(n => withDuty.add(n)));
     assert.ok(names.length, 'expected at least one whisper line');
     names.forEach(n => assert.ok(withDuty.has(n), 'whispered a player with no duties: ' + n));
     assert.ok(!names.includes('Bubbles')); // prot paladin, still duty-free
@@ -1063,9 +1071,20 @@ test('autoAssign: fear ward rotation lists every priest, discipline first', () =
     assert.strictEqual(fw.category, 'rotations');
     assert.deepStrictEqual(fw.players, ['Zdiscy', 'Holymel', 'Ashadow']);
 });
+test('autoAssign: fear ward rotation excludes a priest the addon could not spec', () => {
+    // The ROTATIONS block hand-rolls its own spec-unknown check instead of reusing eligible()'s,
+    // so it can drift independently — a scan the addon could not read should not put a player
+    // on a rotation the raid lead never got to vet.
+    const roster = [P('Zdiscy', 'PRIEST', 'Discipline'), P('Unknown', 'PRIEST', null, { flags: ['spec-unknown'] })];
+    const r = E.autoAssign(roster, {});
+    assert.deepStrictEqual(duty(r, 'fearward').players, ['Zdiscy']);
+});
 test('autoAssign: tranq shot rotation lists hunters', () => {
-    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship'), P('Zbeastly', 'HUNTER', 'Beast Mastery')], {});
-    assert.deepStrictEqual(duty(r, 'tranq').players, ['Zbeastly', 'Legolass']);
+    // Anti-alphabetical AND three-deep on purpose: with only two hunters the duty-count tiebreak
+    // reproduces the preferSpecs order by itself, so a two-hunter fixture proves nothing.
+    const r = E.autoAssign([P('Aaa', 'HUNTER', 'Survival'), P('Mmm', 'HUNTER', 'Marksmanship'),
+                            P('Zzz', 'HUNTER', 'Beast Mastery')], {});
+    assert.deepStrictEqual(duty(r, 'tranq').players, ['Zzz', 'Mmm', 'Aaa']);
 });
 test('autoAssign: a rotation with nobody eligible produces no row and no warning', () => {
     const r = E.autoAssign([P('Stabby', 'ROGUE', 'Combat')], {});
@@ -1077,6 +1096,57 @@ test('autoAssign: a rotation override replaces the order and drops absent names'
     const roster = [P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy')];
     const r = E.autoAssign(roster, { fearward: { players: ['Shadowmel', 'Ghost', 'Holymel'] } });
     assert.deepStrictEqual(duty(r, 'fearward').players, ['Shadowmel', 'Holymel']);
+});
+
+// --- I1: assignments.js's recompute() sweep reconciles o.players against roster churn ---
+// There is no DOM harness in this repo, so this mirrors the exact block added to recompute()'s
+// `Object.values(state.overrides).forEach(...)` sweep in assignments.js, and drives autoAssign
+// with its output the way recompute() does — proving the algorithm, since the browser file
+// itself can't be required here without a `document`.
+function sweepStaleRotationNames(overrides, names) {
+    Object.values(overrides).forEach(o => {
+        if (o.players) {
+            const kept = o.players.filter(n => names.has(n));
+            // Only fall back to auto-assignment when the sweep is what emptied the list. A list
+            // the lead emptied with ✕ stays empty on purpose — that row is meant to be gone.
+            if (!kept.length && o.players.length) delete o.players;
+            else o.players = kept;
+        }
+    });
+}
+test('I1: roster churn that empties a rotation override falls back to auto-assignment, not a deleted row', () => {
+    // Measured case: override fearward = { players: ['OldPriest'] }, roster re-imported with
+    // just NewPriest. Without the sweep, autoAssign's own byName filter empties the list and
+    // `if (!players.length) return;` drops the Fear Ward row entirely, even though a priest
+    // capable of casting it is standing right there.
+    const roster = [P('NewPriest', 'PRIEST', 'Holy')];
+    const overrides = { fearward: { players: ['OldPriest'] } };
+    sweepStaleRotationNames(overrides, new Set(roster.map(p => p.name)));
+    assert.ok(!Object.prototype.hasOwnProperty.call(overrides.fearward, 'players'));
+    const r = E.autoAssign(roster, overrides);
+    assert.deepStrictEqual(duty(r, 'fearward').players, ['NewPriest']);
+});
+test('I1: roster churn that partially empties a rotation override keeps the survivors, adds nobody', () => {
+    // Measured case: override fearward = { players: ['A', 'B'] }, roster [A, C]. B departed and
+    // is swept; C is newly present but must NOT be added — that stays the raid lead's call, like
+    // every other override (owner ruling).
+    const roster = [P('A', 'PRIEST', 'Holy'), P('C', 'PRIEST', 'Holy')];
+    const overrides = { fearward: { players: ['A', 'B'] } };
+    sweepStaleRotationNames(overrides, new Set(roster.map(p => p.name)));
+    const r = E.autoAssign(roster, overrides);
+    assert.deepStrictEqual(duty(r, 'fearward').players, ['A']);
+});
+test('I1: a rotation the lead emptied with X stays empty, the sweep does not resurrect it', () => {
+    // Out-of-scope guard: { players: [] } is deliberate (every chip removed by hand), and I1's
+    // "only fall back when the sweep itself emptied the list" guard must leave it alone rather
+    // than treating an already-empty list as something roster churn caused.
+    const roster = [P('A', 'PRIEST', 'Holy')];
+    const overrides = { fearward: { players: [] } };
+    sweepStaleRotationNames(overrides, new Set(roster.map(p => p.name)));
+    assert.ok(Object.prototype.hasOwnProperty.call(overrides.fearward, 'players'));
+    assert.deepStrictEqual(overrides.fearward.players, []);
+    const r = E.autoAssign(roster, overrides);
+    assert.ok(!duty(r, 'fearward'), 'an intentionally emptied rotation must stay hidden, not resume auto-assignment');
 });
 
 test('autoAssign: thunder clap, insect swarm, scorpid sting and hemorrhage are assigned', () => {
@@ -1104,6 +1174,13 @@ test('autoAssign: a combat rogue makes hemorrhage not applicable, not missing', 
     assert.ok(r.uncovered.notApplicable.some(u => u.id === 'hemo'));
     assert.ok(!r.uncovered.missing.some(u => u.id === 'hemo'));
 });
+test('autoAssign: hemorrhage requires Subtlety specifically, not just any rogue', () => {
+    // Anti-alphabetical on purpose, matching the other requireSpec/preferSpecs fixtures in this
+    // file: applicableWhen only checks a Sub rogue is present somewhere in the raid, it does not
+    // stop the assignment loop from handing the duty to a Combat rogue standing right next to one.
+    const r = E.autoAssign([P('Astab', 'ROGUE', 'Combat'), P('Zsneak', 'ROGUE', 'Subtlety')], {});
+    assert.strictEqual(duty(r, 'hemo').player, 'Zsneak');
+});
 test('autoAssign: thunder clap prefers the arms warrior over the tank', () => {
     // Anti-alphabetical on purpose: rankPool's name tiebreak would otherwise produce the same
     // answer whether or not preferSpecs exists.
@@ -1117,12 +1194,18 @@ test('autoAssign: scorpid sting prefers a survival hunter', () => {
 
 test('buildDiscord: renders rotations as a numbered order', () => {
     // Anti-alphabetical on purpose — see F1b.
-    const roster = [P('Holymel', 'PRIEST', 'Holy'), P('Zdiscy', 'PRIEST', 'Discipline')];
-    const out = E.buildDiscord(roster, E.autoAssign(roster, {}), {});
+    const roster = [P('Holymel', 'PRIEST', 'Holy'), P('Zdiscy', 'PRIEST', 'Discipline', { discordId: '77' })];
+    const sheet = E.autoAssign(roster, {});
+    const out = E.buildDiscord(roster, sheet, {});
     const line = out.split('\n').find(l => /Fear Ward/.test(l));
     assert.ok(line, 'no Fear Ward line in the output');
     assert.ok(line.indexOf('Zdiscy') < line.indexOf('Holymel'), line);
+    assert.ok(line.includes('1. Zdiscy'), line); // the numbering itself, not just relative order
     assert.ok(out.includes('**Rotations**'), 'no Rotations heading');
+    assert.ok(out.includes('30s cooldown'), 'no rotation note'); // ROTATIONS[].note, e.g. Fear Ward's
+    const pinged = E.buildDiscord(roster, sheet, { pings: true });
+    const pingedLine = pinged.split('\n').find(l => /Fear Ward/.test(l));
+    assert.ok(pingedLine.includes('<@77>'), pingedLine); // rotation names go through nm() too
 });
 test('buildDiscord: rotations sit between cooldowns and crowd control', () => {
     const roster = [P('Locky', 'WARLOCK', 'Affliction'), P('Zdiscy', 'PRIEST', 'Discipline'),
