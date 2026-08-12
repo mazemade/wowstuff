@@ -1282,6 +1282,12 @@ test('talentDrift: a clean roster reports nothing', () => {
     const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
     assert.deepStrictEqual(E.talentDrift([p, P('Smashy', 'WARRIOR', 'Arms')]), []);
 });
+test('talentRank: a key the table does not know is unknown', () => {
+    // The catalog names talent keys by hand in `improvedBy`; a typo there must read as
+    // unknown rather than throwing on `def.class`.
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { bogusKey: 3 });
+    assert.strictEqual(E.talentRank(p, 'bogusKey'), null);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
