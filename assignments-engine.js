@@ -247,7 +247,7 @@
         // is one row with two providers, not two rows that cancel. Improved Expose Armor is
         // 3075 armor against a maxed Sunder stack's 2600 — worth roughly 3.5% raid physical.
         { id: 'armor', name: 'Major armor reduction', category: 'debuffs', providers: [
-            { name: 'Improved Expose Armor', class: 'ROGUE', preferSpecs: ['Subtlety', 'Combat'] },
+            { name: 'Improved Expose Armor', class: 'ROGUE', preferSpecs: ['Subtlety', 'Combat'], improvedBy: 'impExposeArmor' },
             { name: 'Sunder Armor', class: 'WARRIOR', preferSpecs: ['Protection'] },
         ] },
         { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse' },
@@ -257,7 +257,7 @@
         // attacks on the target. Untalented it is worth nothing, so one Ret beats three bodies.
         // Ordered before jow: judgements are one-per-paladin, so the Ret must be claimed
         // for JoC before the generic judgements can swallow them.
-        { id: 'joc', name: 'Judgement of the Crusader', category: 'debuffs', class: 'PALADIN', requireSpec: 'Retribution', group: 'judgement',
+        { id: 'joc', name: 'Judgement of the Crusader', category: 'debuffs', class: 'PALADIN', requireSpec: 'Retribution', group: 'judgement', improvedBy: 'impSealCrusader',
           applicableWhen: roster => roster.some(p => p.class === 'PALADIN' && p.spec === 'Retribution') },
         // Ret keeps Seal of Blood/Command for its own damage; the support paladins judge at
         // pull, and any Ret's Crusader Strike then refreshes every paladin's judgement.
@@ -277,7 +277,7 @@
         // untalented, CoW (-350) actually beats Demo Shout (-300). Talent picks are invisible
         // to the addon, so this order is a spec-level guess the override exists to correct.
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
-            { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'] },
+            { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
             { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'] },
             { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
@@ -286,7 +286,7 @@
         // Arms talent — a protection warrior may well have skipped it, so the Arms warrior is
         // the safer bet even though the tank is on the boss permanently. Its own effect group
         // with Chilled and Thunderfury — strongest applies, they do not stack.
-        { id: 'tclap', name: 'Thunder Clap', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Protection'] },
+        { id: 'tclap', name: 'Thunder Clap', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Protection'], improvedBy: 'impThunderClap' },
         { id: 'swarm', name: 'Insect Swarm', category: 'debuffs', class: 'DRUID', requireSpec: 'Balance' },
         // Hemorrhage needs a Subtlety rogue, and essentially no TBC raid brings one. Warning
         // about it every night would be permanent unfixable noise, so it stays quiet unless
@@ -319,7 +319,8 @@
                 pr.caution ? pr : Object.assign({}, pr, { caution: entry.caution }));
         }
         return [{ name: entry.name, class: entry.class, preferSpecs: entry.preferSpecs,
-                  requireSpec: entry.requireSpec, group: entry.group, caution: entry.caution }];
+                  requireSpec: entry.requireSpec, group: entry.group, caution: entry.caution,
+                  improvedBy: entry.improvedBy }];
     }
 
     const CC_ABILITIES = [
@@ -354,8 +355,24 @@
         return i === -1 ? 99 : i;
     }
 
+    // Talent beats spec: preferSpecs was only ever a proxy for "did they take the talent", so
+    // once the real value is known the proxy defers to it. Unknown sits between — "we do not
+    // know" must not lose to "we know they cannot".
+    function talentTier(p, entry) {
+        if (!entry.improvedBy) return 0;
+        const rank = talentRank(p, entry.improvedBy);
+        if (rank === null) return 1;
+        return rank > 0 ? 0 : 2;
+    }
+
     function rankPool(pool, entry, dutyCount) {
         return pool.slice().sort((a, b) => {
+            const ta = talentTier(a, entry), tb = talentTier(b, entry);
+            if (ta !== tb) return ta - tb;
+            if (ta === 0 && entry.improvedBy) {
+                const ra = talentRank(a, entry.improvedBy) || 0, rb = talentRank(b, entry.improvedBy) || 0;
+                if (ra !== rb) return rb - ra; // higher rank first
+            }
             const sa = specRank(a, entry), sb = specRank(b, entry);
             if (sa !== sb) return sa - sb;
             const ca = dutyCount[a.name] || 0, cb = dutyCount[b.name] || 0;

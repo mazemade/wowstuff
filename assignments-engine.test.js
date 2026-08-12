@@ -279,6 +279,45 @@ test('autoAssign: applicableWhen false skips the entry as notApplicable', () => 
     }
 });
 
+function rogue(name, spec, rank) {
+    const p = P(name, 'ROGUE', spec);
+    if (rank !== null) p.talents = { impExposeArmor: rank };
+    return p;
+}
+test('autoAssign: a talented off-spec rogue beats an untalented on-spec one', () => {
+    // Subtlety is the preferred spec, but the talent is the thing the spec was a proxy for.
+    const r = E.autoAssign([rogue('Asub', 'Subtlety', 0), rogue('Zcombat', 'Combat', 2)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Zcombat');
+});
+test('autoAssign: unknown outranks known-untalented', () => {
+    const r = E.autoAssign([rogue('Aknown', 'Combat', 0), rogue('Zunknown', 'Combat', null)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Zunknown');
+});
+test('autoAssign: a higher rank wins inside the talented tier', () => {
+    const r = E.autoAssign([rogue('Alow', 'Combat', 1), rogue('Zhigh', 'Combat', 2)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Zhigh');
+});
+test('autoAssign: a row without improvedBy is unaffected by talent data', () => {
+    // Both rogues are Subtlety, so hemo genuinely has a choice to get wrong. Zsub takes
+    // `armor` on the talent tier, which leaves Asub ahead on duty count for hemo. If the
+    // tier ever reached a row with no improvedBy, Zsub would win hemo too and this goes red.
+    const r = E.autoAssign([rogue('Asub', 'Subtlety', 0), rogue('Zsub', 'Subtlety', 2)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Zsub');
+    assert.strictEqual(duty(r, 'hemo').player, 'Asub');
+});
+function warrior(name, spec, rank) {
+    const p = P(name, 'WARRIOR', spec);
+    if (rank !== null) p.talents = { impThunderClap: rank };
+    return p;
+}
+test('autoAssign: improvedBy survives providersOf on a single-class entry', () => {
+    // tclap is single-class, so providersOf rebuilds its provider field by field from an
+    // explicit allowlist. A field left out of that list is silently dropped, and this row
+    // would ignore talents entirely while the providers-based rows worked fine.
+    const r = E.autoAssign([warrior('Aarms', 'Arms', 0), warrior('Zprot', 'Protection', 3)], {});
+    assert.strictEqual(duty(r, 'tclap').player, 'Zprot');
+});
+
 // --- Task 6: cooldowns + CC ---
 test('autoAssign: two druids innervate first mage and reserve last', () => {
     const r = E.autoAssign(fullRoster(), {});
