@@ -342,8 +342,11 @@ function rotationRow(d) {
         del.textContent = '✕';
         del.setAttribute('aria-label', 'Remove ' + name + ' from ' + d.name);
         del.addEventListener('click', () => {
+            // Remove by index, not by name: a roster merged from the addon, Raid-Helper and
+            // manual entries can hold two players with the same name, and filtering by name
+            // would delete both chips.
             state.overrides[d.id] = Object.assign({}, state.overrides[d.id],
-                { players: d.players.filter(n => n !== name) });
+                { players: d.players.filter((n, j) => j !== i) });
             renderAll();
         });
 
