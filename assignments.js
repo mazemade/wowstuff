@@ -58,8 +58,10 @@ function recompute() {
     });
     // Drop cells belonging to a paladin who is no longer on the roster, the same way
     // override players are dropped — otherwise a re-import resurrects a stale grid.
+    // Split on the LAST pipe: class tokens never contain one, but a hand-typed name might,
+    // and splitting on the first would silently delete that paladin's cells on every render.
     Object.keys(state.blessings || {}).forEach(k => {
-        if (!names.has(k.split('|')[0])) delete state.blessings[k];
+        if (!names.has(k.slice(0, k.lastIndexOf('|')))) delete state.blessings[k];
     });
 
     const result = E.autoAssign(roster, state.overrides);
