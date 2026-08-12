@@ -38,11 +38,12 @@ function recompute() {
         const src = mergeInfo.roster.find(p => p.name === m.name);
         // A manual edit rebuilds the player from the form, so anything the form does not
         // collect has to be re-attached from the scanned player behind it — discordId, and
-        // now the subgroup and race the addon supplies.
+        // now the subgroup, race and talents the addon supplies.
         return Object.assign({}, m, {
             discordId: src ? src.discordId : m.discordId,
             group: src && src.group != null ? src.group : m.group,
             race: src && src.race != null ? src.race : m.race,
+            talents: src && src.talents != null ? src.talents : m.talents,
         });
     });
     roster = base.concat(manual);
@@ -291,6 +292,13 @@ function dutyRow(d) {
         state.overrides[d.id] = Object.assign({}, state.overrides[d.id], { player: val });
         renderAll();
     }));
+
+    if (d.qualifier) {
+        const q = document.createElement('span');
+        q.className = 'duty-qualifier';
+        q.textContent = '(' + d.qualifier + ')';
+        row.appendChild(q);
+    }
 
     if (d.id.startsWith('innervate:') || d.id.startsWith('soulstone:')) {
         const on = document.createElement('span');

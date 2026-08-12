@@ -410,6 +410,18 @@
             const d = { id: entry.id, name: displayName, category: entry.category, player: player ? player.name : null };
             if (target) d.target = target;
             if (entry.caution) d.caution = entry.caution;
+            // An improvedBy row can pick an off-spec player because they hold the talent, which
+            // reads as a bug unless the row says why. ASCII only — this object feeds the addon
+            // whisper path, whose length budget assumes it.
+            if (entry.improvedBy && player) {
+                const def = TALENTS[entry.improvedBy];
+                const rank = talentRank(player, entry.improvedBy);
+                if (def) {
+                    if (rank === null) d.qualifier = 'talent unknown';
+                    else if (rank === 0) d.qualifier = 'no ' + def.name;
+                    else d.qualifier = def.name + ' ' + rank + '/' + def.maxRank;
+                }
+            }
             duties.push(d);
             if (player) {
                 dutyCount[player.name] = (dutyCount[player.name] || 0) + 1;
@@ -564,6 +576,7 @@
             rows.forEach(d => {
                 let s = d.name + ' — ' + nm(d.player);
                 if (d.target) s += ' → ' + (byName[d.target] ? nm(d.target) : displayTarget(d.target));
+                if (d.qualifier) s += ' (' + d.qualifier + ')';
                 lines.push(s);
             });
             lines.push('');

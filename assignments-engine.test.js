@@ -1334,5 +1334,37 @@ test('talentRank: a key the table does not know is unknown', () => {
     assert.strictEqual(E.talentRank(p, 'bogusKey'), null);
 });
 
+test('autoAssign: an improvedBy row states the talent it found', () => {
+    const r = E.autoAssign([rogue('Zcombat', 'Combat', 2)], {});
+    assert.strictEqual(duty(r, 'armor').qualifier, 'Improved Expose Armor 2/2');
+});
+test('autoAssign: an improvedBy row says so when the talent is missing', () => {
+    const r = E.autoAssign([rogue('Zcombat', 'Combat', 0)], {});
+    assert.strictEqual(duty(r, 'armor').qualifier, 'no Improved Expose Armor');
+});
+test('autoAssign: an improvedBy row says so when the talent is unknown', () => {
+    const r = E.autoAssign([rogue('Zcombat', 'Combat', null)], {});
+    assert.strictEqual(duty(r, 'armor').qualifier, 'talent unknown');
+});
+test('autoAssign: a row without improvedBy carries no qualifier', () => {
+    const r = E.autoAssign([rogue('Asub', 'Subtlety', 2)], {});
+    assert.strictEqual(duty(r, 'hemo').qualifier, undefined);
+});
+test('buildDiscord: the qualifier rides along on the duty line', () => {
+    const roster = [rogue('Zcombat', 'Combat', 0)];
+    const out = E.buildDiscord(roster, E.autoAssign(roster, {}), {});
+    const line = out.split('\n').find(l => /Improved Expose Armor —/.test(l));
+    assert.ok(line, 'no armor line in the output');
+    assert.ok(/\(no Improved Expose Armor\)$/.test(line), line);
+});
+test('buildDiscord: the qualifier stays ASCII', () => {
+    const roster = [rogue('Zcombat', 'Combat', 0)];
+    const sheet = E.autoAssign(roster, {});
+    sheet.duties.filter(d => d.qualifier).forEach(d => {
+        assert.ok(!/[^\x00-\x7F]/.test(d.qualifier), d.qualifier);
+    });
+    assert.ok(sheet.duties.some(d => d.qualifier), 'expected at least one qualifier to check');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
