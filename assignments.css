@@ -71,3 +71,11 @@
 .blessing-grid th { padding: 4px 6px; text-align: left; font-weight: 600; }
 .blessing-grid td { padding: 2px; }
 .blessing-grid select { font-size: 0.9em; }
+
+.rotation { flex-wrap: wrap; }
+.rotation-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.rotation-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 0.82em;
+                 border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 1px 6px; }
+.chip-btn { background: none; border: none; color: inherit; cursor: pointer; padding: 0 2px; opacity: 0.6; }
+.chip-btn:hover:not(:disabled) { opacity: 1; }
+.chip-btn:disabled { opacity: 0.2; cursor: default; }

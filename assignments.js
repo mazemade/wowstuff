@@ -306,6 +306,55 @@ function dutyRow(d) {
     return row;
 }
 
+function rotationRow(d) {
+    const wrap = document.createElement('div');
+    wrap.className = 'assign-row rotation';
+
+    const label = document.createElement('span');
+    label.className = 'duty-name';
+    label.textContent = d.name;
+    if (d.note) label.title = d.note;
+    wrap.appendChild(label);
+
+    const list = document.createElement('div');
+    list.className = 'rotation-list';
+    d.players.forEach((name, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'rotation-chip';
+        chip.textContent = (i + 1) + '. ' + name;
+
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'chip-btn';
+        up.textContent = '↑';
+        up.disabled = i === 0;
+        up.setAttribute('aria-label', 'Move ' + name + ' earlier');
+        up.addEventListener('click', () => {
+            const order = d.players.slice();
+            order.splice(i - 1, 0, order.splice(i, 1)[0]);
+            state.overrides[d.id] = Object.assign({}, state.overrides[d.id], { players: order });
+            renderAll();
+        });
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'chip-btn';
+        del.textContent = '✕';
+        del.setAttribute('aria-label', 'Remove ' + name + ' from ' + d.name);
+        del.addEventListener('click', () => {
+            state.overrides[d.id] = Object.assign({}, state.overrides[d.id],
+                { players: d.players.filter(n => n !== name) });
+            renderAll();
+        });
+
+        chip.appendChild(up);
+        chip.appendChild(del);
+        list.appendChild(chip);
+    });
+    wrap.appendChild(list);
+    return wrap;
+}
+
 function markIcon(mark) {
     const span = document.createElement('span');
     span.className = 'rt-icon rt-' + mark;
@@ -473,6 +522,10 @@ function renderAssignments() {
     const ccBox = document.getElementById('ccRows');
     ccBox.innerHTML = '';
     sheet.cc.forEach((c, i) => ccBox.appendChild(ccRow(c, i)));
+
+    const rotBox = document.getElementById('rotationRows');
+    rotBox.innerHTML = '';
+    sheet.duties.filter(d => d.category === 'rotations').forEach(d => rotBox.appendChild(rotationRow(d)));
 }
 
 // --- Output tabs / share link ---
