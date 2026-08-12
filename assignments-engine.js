@@ -221,11 +221,6 @@
         // with Chilled and Thunderfury — strongest applies, they do not stack.
         { id: 'tclap', name: 'Thunder Clap', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Protection'] },
         { id: 'swarm', name: 'Insect Swarm', category: 'debuffs', class: 'DRUID', requireSpec: 'Balance' },
-        // Scorpid Sting (-5% hit) and Insect Swarm (-2%) stacked in 2.4.3; the exclusivity is
-        // a 3.0.2 change. One report suggests TBC Classic may have shipped the later
-        // behaviour, so this is worth an in-game check before trusting both at once.
-        { id: 'sting', name: 'Scorpid Sting', category: 'debuffs', class: 'HUNTER', preferSpecs: ['Survival', 'Marksmanship'],
-          caution: 'Stacked with Insect Swarm in 2.4.3, but TBC Classic 2.5.x may not — verify in-game.' },
         // Hemorrhage needs a Subtlety rogue, and essentially no TBC raid brings one. Warning
         // about it every night would be permanent unfixable noise, so it stays quiet unless
         // someone who can actually cast it is present.

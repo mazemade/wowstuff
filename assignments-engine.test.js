@@ -1149,13 +1149,12 @@ test('I1: a rotation the lead emptied with X stays empty, the sweep does not res
     assert.ok(!duty(r, 'fearward'), 'an intentionally emptied rotation must stay hidden, not resume auto-assignment');
 });
 
-test('autoAssign: thunder clap, insect swarm, scorpid sting and hemorrhage are assigned', () => {
+test('autoAssign: thunder clap, insect swarm and hemorrhage are assigned', () => {
     const roster = [P('Smashy', 'WARRIOR', 'Arms'), P('Moonpie', 'DRUID', 'Balance'),
                     P('Legolass', 'HUNTER', 'Marksmanship'), P('Sneaky', 'ROGUE', 'Subtlety')];
     const r = E.autoAssign(roster, {});
     assert.strictEqual(duty(r, 'tclap').player, 'Smashy');
     assert.strictEqual(duty(r, 'swarm').player, 'Moonpie');
-    assert.strictEqual(duty(r, 'sting').player, 'Legolass');
     assert.strictEqual(duty(r, 'hemo').player, 'Sneaky');
 });
 test('autoAssign: insect swarm needs a balance druid, hemorrhage a sub rogue', () => {
@@ -1163,10 +1162,6 @@ test('autoAssign: insect swarm needs a balance druid, hemorrhage a sub rogue', (
     assert.ok(!duty(r, 'swarm'));
     assert.ok(!duty(r, 'hemo'));
     assert.ok(r.uncovered.missing.some(u => u.id === 'swarm'));
-});
-test('autoAssign: scorpid sting carries a stacking caution', () => {
-    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship')], {});
-    assert.ok(/Insect Swarm/.test(duty(r, 'sting').caution));
 });
 test('autoAssign: a combat rogue makes hemorrhage not applicable, not missing', () => {
     const r = E.autoAssign([P('Stabby', 'ROGUE', 'Combat')], {});
@@ -1186,10 +1181,6 @@ test('autoAssign: thunder clap prefers the arms warrior over the tank', () => {
     // answer whether or not preferSpecs exists.
     const r = E.autoAssign([P('Aegis', 'WARRIOR', 'Protection'), P('Zarms', 'WARRIOR', 'Arms')], {});
     assert.strictEqual(duty(r, 'tclap').player, 'Zarms');
-});
-test('autoAssign: scorpid sting prefers a survival hunter', () => {
-    const r = E.autoAssign([P('Aimer', 'HUNTER', 'Marksmanship'), P('Zsurv', 'HUNTER', 'Survival')], {});
-    assert.strictEqual(duty(r, 'sting').player, 'Zsurv');
 });
 
 test('buildDiscord: renders rotations as a numbered order', () => {
