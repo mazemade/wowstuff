@@ -51,32 +51,60 @@
         const tokens = (text || '').trim().split(/[\n;]+/).map(t => t.trim()).filter(Boolean);
         tokens.forEach(tok => {
             if (/^RSS\d+$/i.test(tok)) return; // format header
-            // RSS1: name:CLASS:41/20/0        RSS2 adds :subgroup:Race, both optional so a
-            // partially-upgraded raid still parses. Group and race read null when absent.
-            const m = tok.match(/^([^:]+):([A-Za-z]+):(?:(\d+)\/(\d+)\/(\d+)|\?)(?::(\d+)(?::([A-Za-z]+))?)?$/);
-            if (!m) { errors.push('Unrecognized line: ' + tok); return; }
+            // RSS1, RSS2 and RSS3 all parse positionally:
+            //   name:CLASS:points[:subgroup[:race[:talents]]]
+            // Every field after points may be empty and is independent, so a missing subgroup
+            // no longer takes the race and talents with it the way RSS2's nesting did. Names
+            // cannot contain ':' in WoW, and no other field uses it, so the split is
+            // unambiguous.
+            const f = tok.split(':');
+            if (f.length < 3 || f.length > 6) { errors.push('Unrecognized line: ' + tok); return; }
+            const name = f[0];
+            const cls = (f[1] || '').toUpperCase();
+            const points = f[2];
+            const rawGroup = f[3] === undefined ? '' : f[3];
+            const rawRace = f[4] === undefined ? '' : f[4];
+            const rawTalents = f[5] === undefined ? '' : f[5];
+
+            if (!name) { errors.push('Unrecognized line: ' + tok); return; }
+            if (!/^[A-Za-z]+$/.test(f[1] || '')) { errors.push('Unrecognized line: ' + tok); return; }
+            if (!SPEC_TREES[cls]) { errors.push('Unknown class in: ' + tok); return; }
+            if (!/^(\d+\/\d+\/\d+|\?)$/.test(points)) { errors.push('Unrecognized line: ' + tok); return; }
+            if (seen.has(name)) { errors.push('Duplicate name: ' + name); return; }
+
             let group = null;
-            if (m[6] !== undefined) {
-                group = Number(m[6]);
+            if (rawGroup !== '') {
+                if (!/^\d+$/.test(rawGroup)) { errors.push('Unrecognized line: ' + tok); return; }
+                group = Number(rawGroup);
                 if (group < 1 || group > 8) { errors.push('Subgroup out of range in: ' + tok); return; }
             }
-            const race = m[7] === undefined ? null : m[7];
-            const name = m[1];
-            const cls = m[2].toUpperCase();
-            if (!SPEC_TREES[cls]) { errors.push('Unknown class in: ' + tok); return; }
-            if (seen.has(name)) { errors.push('Duplicate name: ' + name); return; }
+            if (rawRace !== '' && !/^[A-Za-z]+$/.test(rawRace)) { errors.push('Unrecognized line: ' + tok); return; }
+            const race = rawRace === '' ? null : rawRace;
+
+            // null means the scan told us nothing. An explicit "key=0" means the scan told us
+            // they have not taken it — a different, useful fact.
+            let talents = null;
+            if (rawTalents !== '') {
+                if (!/^\w+=\d+(,\w+=\d+)*$/.test(rawTalents)) { errors.push('Unrecognized line: ' + tok); return; }
+                talents = {};
+                rawTalents.split(',').forEach(pair => {
+                    const kv = pair.split('=');
+                    talents[kv[0]] = Number(kv[1]);
+                });
+            }
+
             const flags = [];
             let spec = null;
-            if (m[3] === undefined) {
+            if (points === '?') {
                 flags.push('spec-unknown');
             } else {
-                const r = inferSpec(cls, [Number(m[3]), Number(m[4]), Number(m[5])]);
+                const r = inferSpec(cls, points.split('/').map(Number));
                 spec = r.spec;
                 if (!spec) flags.push('spec-unknown');
                 else if (r.ambiguous) flags.push('spec-ambiguous');
             }
             seen.add(name);
-            players.push({ name, class: cls, spec, flags, source: 'addon', group, race });
+            players.push({ name, class: cls, spec, flags, source: 'addon', group, race, talents });
         });
         return { players, errors };
     }

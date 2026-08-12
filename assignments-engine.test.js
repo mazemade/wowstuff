@@ -34,7 +34,7 @@ test('inferSpec: unknown class gives null', () => {
 test('parseAddonExport: happy path with header', () => {
     const r = E.parseAddonExport('RSS1;Thunderfist:WARRIOR:5/5/51;Bob:WARLOCK:41/7/13');
     assert.strictEqual(r.errors.length, 0);
-    assert.deepStrictEqual(r.players[0], { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null });
+    assert.deepStrictEqual(r.players[0], { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null, talents: null });
     assert.strictEqual(r.players[1].spec, 'Affliction');
 });
 test('parseAddonExport: newline separated works', () => {
@@ -551,15 +551,15 @@ test('RSS1 regression: a full raid export parses to exactly this roster', () => 
     const r = E.parseAddonExport(text);
     assert.deepStrictEqual(r.errors, []);
     assert.deepStrictEqual(r.players, [
-        { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Smashy', class: 'WARRIOR', spec: 'Arms', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Bob', class: 'WARLOCK', spec: 'Affliction', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Grimshade', class: 'WARLOCK', spec: 'Destruction', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Retdin', class: 'PALADIN', spec: 'Retribution', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Lightbringer', class: 'PALADIN', spec: 'Holy', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Frostina', class: 'MAGE', spec: 'Fire', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon', group: null, race: null },
-        { name: 'Mystery', class: 'HUNTER', spec: null, flags: ['spec-unknown'], source: 'addon', group: null, race: null },
+        { name: 'Thunderfist', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Smashy', class: 'WARRIOR', spec: 'Arms', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Bob', class: 'WARLOCK', spec: 'Affliction', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Grimshade', class: 'WARLOCK', spec: 'Destruction', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Retdin', class: 'PALADIN', spec: 'Retribution', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Lightbringer', class: 'PALADIN', spec: 'Holy', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Frostina', class: 'MAGE', spec: 'Fire', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon', group: null, race: null, talents: null },
+        { name: 'Mystery', class: 'HUNTER', spec: null, flags: ['spec-unknown'], source: 'addon', group: null, race: null, talents: null },
     ]);
 });
 
@@ -1209,6 +1209,49 @@ test('buildDiscord: rotations sit between cooldowns and crowd control', () => {
         'expected all three sections:\n' + out);
     assert.ok(at('**Cooldowns**') < at('**Rotations**'), out);
     assert.ok(at('**Rotations**') < at('**Crowd Control**'), out);
+});
+
+test('parseAddonExport: RSS3 carries tracked talent ranks', () => {
+    const r = E.parseAddonExport('RSS3;Smashy:WARRIOR:33/28/0:4:Orc:impThunderClap=3,impDemoShout=0').players;
+    assert.strictEqual(r.length, 1);
+    assert.strictEqual(r[0].group, 4);
+    assert.strictEqual(r[0].race, 'Orc');
+    assert.deepStrictEqual(r[0].talents, { impThunderClap: 3, impDemoShout: 0 });
+});
+test('parseAddonExport: rank 0 is data, not absence', () => {
+    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:1:Human:impExposeArmor=0').players;
+    assert.strictEqual(r[0].talents.impExposeArmor, 0);
+});
+test('parseAddonExport: an empty field does not take the later ones with it', () => {
+    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5::Human:impExposeArmor=2').players;
+    assert.strictEqual(r[0].group, null);
+    assert.strictEqual(r[0].race, 'Human');            // RSS2 dropped this
+    assert.strictEqual(r[0].talents.impExposeArmor, 2);
+    const r2 = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4::impExposeArmor=2').players;
+    assert.strictEqual(r2[0].group, 4);
+    assert.strictEqual(r2[0].race, null);
+    assert.strictEqual(r2[0].talents.impExposeArmor, 2);
+});
+test('parseAddonExport: no talent field means unknown, not empty', () => {
+    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:').players;
+    assert.strictEqual(r[0].talents, null);
+    const r2 = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human').players;
+    assert.strictEqual(r2[0].talents, null);
+});
+test('parseAddonExport: RSS2 and RSS1 lines still parse, with no talent data', () => {
+    const two = E.parseAddonExport('RSS2;Stabby:ROGUE:15/41/5:4:Human').players;
+    assert.strictEqual(two[0].group, 4);
+    assert.strictEqual(two[0].race, 'Human');
+    assert.strictEqual(two[0].talents, null);
+    const one = E.parseAddonExport('RSS1;Stabby:ROGUE:15/41/5').players;
+    assert.strictEqual(one[0].group, null);
+    assert.strictEqual(one[0].race, null);
+    assert.strictEqual(one[0].talents, null);
+});
+test('parseAddonExport: a malformed talent field rejects the line', () => {
+    const res = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:impExposeArmor');
+    assert.strictEqual(res.players.length, 0);
+    assert.ok(res.errors.some(e => /Stabby/.test(e)));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
