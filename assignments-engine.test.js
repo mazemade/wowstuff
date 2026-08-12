@@ -943,9 +943,15 @@ function palRoster() {
     ];
 }
 
+test('GREATER_BLESSINGS: the four blessings, in the order the UI dropdowns show them', () => {
+    assert.deepStrictEqual(E.GREATER_BLESSINGS, ['Greater Kings', 'Greater Might', 'Greater Wisdom', 'Greater Salvation']);
+});
 test('proposeBlessings: only classes present get a column', () => {
     const g = E.proposeBlessings(palRoster(), {});
-    assert.deepStrictEqual(g.classes.slice().sort(), ['MAGE', 'PALADIN', 'PRIEST', 'ROGUE', 'WARRIOR']);
+    // Column order drives both the grid and the Discord line, so pin the engine's own sorted
+    // order here rather than sorting both sides — sorting both sides can't tell a sorted
+    // column list from an unsorted one.
+    assert.deepStrictEqual(g.classes, ['MAGE', 'PALADIN', 'PRIEST', 'ROGUE', 'WARRIOR']);
 });
 test('proposeBlessings: one row per paladin, ret first', () => {
     const g = E.proposeBlessings(palRoster(), {});
@@ -963,6 +969,7 @@ test('proposeBlessings: holy splits might to physical, wisdom to casters', () =>
     assert.strictEqual(holy.cells.ROGUE, 'Greater Might');
     assert.strictEqual(holy.cells.MAGE, 'Greater Wisdom');
     assert.strictEqual(holy.cells.PRIEST, 'Greater Wisdom');
+    assert.strictEqual(holy.cells.PALADIN, 'Greater Might');
 });
 test('proposeBlessings: an override replaces exactly one cell', () => {
     const g = E.proposeBlessings(palRoster(), { 'Retdin|MAGE': 'Greater Salvation' });
@@ -985,6 +992,18 @@ test('proposeBlessings: warns when two paladins give a class the same blessing',
 test('proposeBlessings: a clean default grid has no gap or duplicate warnings', () => {
     const g = E.proposeBlessings(palRoster(), {});
     assert.deepStrictEqual(g.warnings, []);
+});
+test('proposeBlessings: the third paladin withholds salvation from classes holding a tank', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    assert.strictEqual(g.rows[2].paladin, 'Bubbles');
+    assert.strictEqual(g.rows[2].cells.WARRIOR, null);   // Thunderfist is Protection
+    assert.strictEqual(g.rows[2].cells.PALADIN, null);   // Bubbles himself is Protection
+    assert.strictEqual(g.rows[2].cells.ROGUE, 'Greater Salvation');
+    assert.strictEqual(g.rows[2].cells.MAGE, 'Greater Salvation');
+});
+test('proposeBlessings: a feral druid counts as a tank for the salvation rule', () => {
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Bear', 'DRUID', 'Feral')]), {}).rows[2].cells.DRUID, null);
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
 });
 
 test('buildDiscord: renders the blessings grid when present', () => {
@@ -1012,6 +1031,21 @@ test('buildDiscord: a paladin with an all-null row (4th+) is skipped, not printe
     assert.ok(out.includes('Retdin'));
     assert.ok(out.includes('Lightbringer'));
     assert.ok(out.includes('Bubbles'));
+});
+test('buildDiscord: warrior and warlock disambiguate in the blessings line', () => {
+    const roster = [
+        P('Retdin', 'PALADIN', 'Retribution'), P('Lightbringer', 'PALADIN', 'Holy'),
+        P('Warry', 'WARRIOR', 'Fury'), P('Locky', 'WARLOCK', 'Affliction'),
+    ];
+    const sheet = E.autoAssign(roster, {});
+    sheet.blessings = E.proposeBlessings(roster, {});
+    const out = E.buildDiscord(roster, sheet, {});
+    // Ret's row gives everyone Greater Kings, so WARRIOR and WARLOCK land in the same
+    // "→ classes" list — with the old `slice(0, 3)` abbreviation both read "WAR" and a
+    // raid lead cannot tell them apart.
+    const retLine = out.split('\n').find(l => l.includes('Retdin:'));
+    assert.ok(retLine.includes('LOCK'));
+    assert.ok(!retLine.includes('WAR/WAR'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

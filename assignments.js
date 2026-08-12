@@ -409,7 +409,7 @@ function renderBlessings() {
     head.appendChild(document.createElement('th'));
     g.classes.forEach(c => {
         const th = document.createElement('th');
-        th.textContent = c.slice(0, 3);
+        th.textContent = E.CLASS_ABBREV[c] || c;
         th.title = c;
         th.style.color = E.CLASS_COLORS[c];
         head.appendChild(th);
@@ -523,6 +523,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('autoAssignBtn').addEventListener('click', () => {
         state.overrides = {};
         state.cc = null;
+        state.blessings = {};
         renderAll();
     });
     document.getElementById('addCcBtn').addEventListener('click', () => {

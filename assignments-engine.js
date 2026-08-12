@@ -22,6 +22,14 @@
         MAGE: '#3FC7EB', WARLOCK: '#8788EE', DRUID: '#FF7C0A',
     };
 
+    // Discord lines have no tooltip, and WARRIOR/WARLOCK both truncate to "WAR" — which of the
+    // two is getting Might is exactly what the raid lead needs to read at a glance. These are
+    // the short forms raiders actually say out loud.
+    const CLASS_ABBREV = {
+        WARRIOR: 'WAR', PALADIN: 'PAL', HUNTER: 'HUNT', ROGUE: 'ROG', PRIEST: 'PRI',
+        SHAMAN: 'SHAM', MAGE: 'MAGE', WARLOCK: 'LOCK', DRUID: 'DRU',
+    };
+
     // points: [tree1, tree2, tree3] spent talent points.
     // Ambiguous when no tree reaches 31 (no defining talent) or the top two tie.
     function inferSpec(cls, points) {
@@ -443,7 +451,7 @@
                 sheet.blessings.classes.forEach(cls => {
                     const b = row.cells[cls];
                     if (!b) return;
-                    (byBlessing[b] = byBlessing[b] || []).push(cls.slice(0, 3));
+                    (byBlessing[b] = byBlessing[b] || []).push(CLASS_ABBREV[cls] || cls);
                 });
                 const parts = Object.keys(byBlessing).map(b => b + ' → ' + byBlessing[b].join('/'));
                 // A fourth paladin's row is empty by default — with four blessings there is
@@ -721,6 +729,10 @@
         const warnings = [];
         if (!paladins.length && roster.length) warnings.push('No paladin in the raid — no blessings at all.');
         classes.forEach(cls => {
+            // A null cell here is the salvation rule deliberately withholding a blessing from a
+            // class that holds a tank, not a paladin forgetting to fill the row in — so
+            // filter(Boolean) drops it from `given` rather than counting it toward the
+            // no-blessing-assigned warning below.
             const given = rows.map(r => r.cells[cls]).filter(Boolean);
             if (rows.length && !given.length) warnings.push(cls + ': no blessing assigned.');
             const seen = {};
@@ -733,7 +745,7 @@
     }
 
     return {
-        SPEC_TREES, CLASS_COLORS,
+        SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
