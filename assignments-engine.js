@@ -475,6 +475,15 @@
             });
             lines.push('');
         });
+        const rotations = sheet.duties.filter(d => d.category === 'rotations');
+        if (rotations.length) {
+            lines.push('**Rotations**');
+            rotations.forEach(d => {
+                lines.push('• **' + d.name + ':** ' + d.players.map((n, i) => (i + 1) + '. ' + nm(n)).join('  '));
+                if (d.note) lines.push('  _' + d.note + '_');
+            });
+            lines.push('');
+        }
         if (sheet.cc && sheet.cc.length) {
             lines.push('**Crowd Control**');
             sheet.cc.filter(c => c.player).forEach(c => {

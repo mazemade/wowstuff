@@ -1115,5 +1115,14 @@ test('autoAssign: scorpid sting prefers a survival hunter', () => {
     assert.strictEqual(duty(r, 'sting').player, 'Zsurv');
 });
 
+test('buildDiscord: renders rotations as a numbered order', () => {
+    // Anti-alphabetical on purpose — see F1b.
+    const roster = [P('Holymel', 'PRIEST', 'Holy'), P('Zdiscy', 'PRIEST', 'Discipline')];
+    const out = E.buildDiscord(roster, E.autoAssign(roster, {}), {});
+    const line = out.split('\n').find(l => /Fear Ward/.test(l));
+    assert.ok(line, 'no Fear Ward line in the output');
+    assert.ok(line.indexOf('Zdiscy') < line.indexOf('Holymel'), line);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
