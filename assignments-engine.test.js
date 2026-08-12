@@ -907,5 +907,32 @@ test('proposeGroups: the draenei note follows the post-swap layout', () => {
     });
 });
 
+// --- Fix wave: whole-plan review of proposeGroups (items 1, 2, 4) ---
+test('proposeGroups: a group is labelled by who actually landed in it', () => {
+    const priests = [];
+    for (let i = 1; i <= 10; i++) priests.push(P('Holy' + i, 'PRIEST', 'Holy'));
+    const res = E.proposeGroups(priests);
+    res.groups.forEach(g => assert.strictEqual(g.role, 'healers', g.role + ' = ' + g.players.map(p => p.name).join(',')));
+});
+test('proposeGroups: windfury is only claimed when real melee are there to use it', () => {
+    const mix = [P('Enh', 'SHAMAN', 'Enhancement')];
+    for (let i = 1; i <= 9; i++) mix.push(P('Holy' + i, 'PRIEST', 'Holy'));
+    const res = E.proposeGroups(mix);
+    res.groups.forEach(g => assert.ok(!/Windfury/.test(g.notes.join(' | ')),
+        g.role + ' wrongly claims windfury: ' + g.players.map(p => p.name).join(',')));
+    // and it must still fire where it should
+    const melee = E.proposeGroups(raid25()).groups.find(g => g.players.some(p => p.name === 'Enh'));
+    assert.ok(/Windfury/.test(melee.notes.join(' | ')), 'lost the real windfury note');
+});
+test('proposeGroups: does not mutate the caller roster or its players', () => {
+    const roster = raid25().map(p => Object.assign({}, p, { race: 'Human' }));
+    roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
+    const namesBefore = roster.map(p => p.name);
+    const snapshot = JSON.stringify(roster);
+    E.proposeGroups(roster);
+    assert.deepStrictEqual(roster.map(p => p.name), namesBefore); // not reordered
+    assert.strictEqual(JSON.stringify(roster), snapshot);          // no field written
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

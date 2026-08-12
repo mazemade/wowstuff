@@ -354,12 +354,6 @@ function renderGroups() {
     box.innerHTML = '';
     if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
     const res = E.proposeGroups(roster);
-    if (roster.some(p => p.group == null)) {
-        const note = document.createElement('p');
-        note.className = 'status';
-        note.textContent = 'Some players have no in-game group (imported from an older addon version), so this is a proposal only.';
-        box.appendChild(note);
-    }
     res.groups.forEach((g, i) => {
         const card = document.createElement('div');
         card.className = 'group-card';

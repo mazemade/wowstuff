@@ -64,3 +64,5 @@
 .group-player { font-size: 0.9em; }
 .group-note { font-size: 0.78em; opacity: 0.65; margin-top: 3px; }
 .hint { font-weight: normal; font-size: 0.7em; opacity: 0.6; }
+
+#groupsBox > .warn { flex: 1 0 100%; }

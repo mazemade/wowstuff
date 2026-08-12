@@ -525,9 +525,9 @@
         }
     }
 
-    // Scarcity order: this is both the order groups are created for a short roster and the
-    // order a limited number of shamans is spent. Windfury/Strength of Earth on melee is the
-    // largest single delta; Totem of Wrath's spell hit is next; tanks gain least.
+    // Scarcity order: this is the order a limited number of shamans is spent. Windfury/Strength
+    // of Earth on melee is the largest single delta; Totem of Wrath's spell hit is next; tanks
+    // gain least.
     const GROUP_ROLES = ['melee', 'casters', 'healers', 'ranged', 'tanks'];
     const SHAMAN_ROLE = { Enhancement: 'melee', Elemental: 'casters', Restoration: 'healers' };
     const GROUP_CAP = 5;
@@ -586,13 +586,29 @@
             if (!place(p, g)) unplaced.push(p);
         });
 
+        // The role list is chosen up front from which buckets exist, but group COUNT comes from
+        // headcount, so a short or lopsided roster can leave a group labelled with a role nobody
+        // in it has. Relabel from who actually landed here — the label is what the panel prints.
+        // A tie keeps the role the group was created for: the tank group holding two tanks and
+        // two mages is still the tank group. Only a strict majority renames it.
+        groups.forEach(g => {
+            if (!g.players.length) return;
+            const tally = {};
+            g.players.forEach(p => { const b = bucketOf(p); tally[b] = (tally[b] || 0) + 1; });
+            const best = Math.max.apply(null, Object.keys(tally).map(k => tally[k]));
+            if ((tally[g.role] || 0) === best) return;
+            g.role = Object.keys(tally).sort((a, b) => tally[b] - tally[a] || a.localeCompare(b))[0];
+        });
+
         // Heroic/Inspiring Presence is party-scoped and does not stack for non-draenei, so a
         // second draenei in a group is wasted. Swap-only: sizes never change, and only filler
         // players trade places. Anchors are off-limits on BOTH sides of the swap — a draenei
         // rogue must never displace the Windfury shaman — so the seeding and anchor placement
-        // from steps 1-2 cannot be undone here. anchorScore treats shamans as fillers (they
-        // are placed by seeding, before anchor sorting ever runs), hence the explicit class
-        // check alongside it. A surplus draenei who IS an anchor (a draenei BM hunter next to
+        // from steps 1-2 cannot be undone here. anchorScore treats shamans as fillers (score 2,
+        // same as any other non-anchor DPS), but a shaman is the reason the group's totem notes
+        // are true regardless of whether it landed there by seeding or by overflow, so the
+        // explicit class check keeps every shaman off-limits alongside the real anchors. A
+        // surplus draenei who IS an anchor (a draenei BM hunter next to
         // another draenei) simply stays put: wasting a racial beats breaking a buff group.
         function swappable(p) { return p.class !== 'SHAMAN' && anchorScore(p) === 2; }
         groups.forEach(g => {
@@ -613,7 +629,9 @@
         // Say what the grouping actually buys, so the raid lead can sanity-check it rather
         // than trust it. Only claim a buff when the provider is genuinely in the group.
         const NOTE_RULES = [
-            { text: 'Windfury Totem + Strength of Earth', has: g => g.role === 'melee' && g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
+            { text: 'Windfury Totem + Strength of Earth',
+              has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                     && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
