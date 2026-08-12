@@ -42,7 +42,17 @@ subject to section 5 (the one thing that still needs a live WoW client).
   duplicate warnings, editable per cell, in the Discord output.
 - **Rotations**: Fear Ward and Tranquilizing Shot as ordered lists rather than single assignments,
   reorderable in the UI and present in every output surface.
-- **Four remaining debuffs**: Thunder Clap, Insect Swarm, Scorpid Sting, Hemorrhage.
+- **Four remaining debuffs**: Thunder Clap, Insect Swarm, Scorpid Sting, Hemorrhage. (Scorpid Sting
+  is scheduled for removal — see section 7.)
+
+## What is planned next, not yet started
+
+`docs/superpowers/specs/2026-08-12-talent-aware-assignments-design.md` and its plan
+`docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`: read individual talent ranks via
+`GetTalentInfo` instead of guessing them from tree totals, so the four rows where spec-guessing is
+measurably wrong pick the right player. Proven feasible in-game first with a throwaway probe addon.
+Task 1 of that plan removes Scorpid Sting. **Blocked on capturing three talent coordinates in-game**
+— the plan's Prerequisites section has the exact `/tprobe` commands.
 
 ---
 
@@ -274,12 +284,15 @@ Every whole-plan review triaged these explicitly.
 
 ## 7. Open questions — real TBC mechanics uncertainties, deliberately unresolved
 
-- **Faerie Fire (Feral) as a TBC Feral talent** — the sole reason Feral outranks Resto on `ff`. If a
-  Feral cannot cast it in form in 2.5.x, collapse `preferSpecs` back to `['Balance']`.
-- **Scorpid Sting / Insect Swarm stacking in 2.5.x** — stacked in 2.4.3 per the 3.0.2 patch note
-  wording, but a Blizzard EU report suggests TBC Classic may have shipped the WotLK exclusivity.
-  The `caution` on `sting` is deliberately hedged. **Test in-game before relying on both at once**;
-  if they do not stack, the two entries should become one row with two providers.
+- ~~**Faerie Fire (Feral) as a TBC Feral talent**~~ — **RESOLVED 2026-08-12, no code change.** The
+  owner confirmed a Feral can cast it in form, and that the wanted order is Balance > Feral > Resto.
+  `preferSpecs: ['Balance', 'Feral']` already produces exactly that: Balance rank 0, Feral rank 1,
+  everyone else 99.
+- ~~**Scorpid Sting / Insect Swarm stacking in 2.5.x**~~ — **RESOLVED 2026-08-12 by removing the
+  entry.** The owner ruled Scorpid Sting not worth a hunter's sting slot, so the stacking question
+  is moot. Removal is **Task 1 of `docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`**
+  and has not landed yet — the `sting` entry and its hedged `caution` are still in the catalog until
+  that task runs.
 - **Improved Demo Shout vs untalented Curse of Weakness** — the −420/−350 numbers are verified, but
   which a given player has is invisible to the addon.
 - **Totem of Wrath's exact effect** (+3% spell hit and crit) — worth a second check.
