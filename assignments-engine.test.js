@@ -1048,5 +1048,28 @@ test('buildDiscord: warrior and warlock disambiguate in the blessings line', () 
     assert.ok(!retLine.includes('WAR/WAR'));
 });
 
+test('autoAssign: fear ward rotation lists every priest, discipline first', () => {
+    const roster = [P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy'), P('Discy', 'PRIEST', 'Discipline')];
+    const r = E.autoAssign(roster, {});
+    const fw = duty(r, 'fearward');
+    assert.strictEqual(fw.category, 'rotations');
+    assert.deepStrictEqual(fw.players, ['Discy', 'Holymel', 'Shadowmel']);
+});
+test('autoAssign: tranq shot rotation lists hunters', () => {
+    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship'), P('Beastly', 'HUNTER', 'Beast Mastery')], {});
+    assert.deepStrictEqual(duty(r, 'tranq').players, ['Beastly', 'Legolass']);
+});
+test('autoAssign: a rotation with nobody eligible produces no row and no warning', () => {
+    const r = E.autoAssign([P('Stabby', 'ROGUE', 'Combat')], {});
+    assert.ok(!duty(r, 'fearward'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'fearward'));
+    assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'fearward'));
+});
+test('autoAssign: a rotation override replaces the order and drops absent names', () => {
+    const roster = [P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy')];
+    const r = E.autoAssign(roster, { fearward: { players: ['Shadowmel', 'Ghost', 'Holymel'] } });
+    assert.deepStrictEqual(duty(r, 'fearward').players, ['Shadowmel', 'Holymel']);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

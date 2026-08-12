@@ -217,6 +217,15 @@
         ] },
     ];
 
+    // Duties that need an ordered list rather than one player. Fear Ward is TBC-only and
+    // mandatory on Magtheridon, Gurtogg Bloodboil and Azgalor; Tranq Shot on Gruul and Mag.
+    const ROTATIONS = [
+        { id: 'fearward', name: 'Fear Ward', class: 'PRIEST', preferSpecs: ['Discipline', 'Holy'],
+          note: '30s cooldown, 3min duration — rotate so one is always banked.' },
+        { id: 'tranq', name: 'Tranquilizing Shot', class: 'HUNTER', preferSpecs: ['Beast Mastery', 'Marksmanship'],
+          note: '20s cooldown — call the order, do not let two fire at once.' },
+    ];
+
     // One effect can have several possible providers, best first. Entries that name a single
     // class are just a one-element list, so the assignment loop has one code path rather
     // than a special case for fallbacks. `caution` must ride along here: the assignment loop
@@ -392,6 +401,21 @@
                 record({ id, category: 'cooldowns' }, 'Soulstone', player, target || undefined);
             }
         }
+
+        // A rotation is fight-specific: no eligible class means the row simply does not
+        // apply, so it is neither rendered nor warned about.
+        ROTATIONS.forEach(rot => {
+            const o = overrides[rot.id] || {};
+            let players;
+            if (o.players) {
+                players = o.players.filter(n => byName[n]);
+            } else {
+                players = rankPool(roster.filter(p => p.class === rot.class && !(p.flags || []).includes('spec-unknown')),
+                                   rot, dutyCount).map(p => p.name);
+            }
+            if (!players.length) return;
+            duties.push({ id: rot.id, name: rot.name, category: 'rotations', players, note: rot.note });
+        });
 
         const passives = PASSIVES.map(ps => {
             const p = roster.find(x => x.class === ps.class && (!ps.spec || x.spec === ps.spec));
@@ -747,7 +771,7 @@
     return {
         SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
-        DEBUFF_CATALOG, PASSIVES, autoAssign, missingList, providersOf,
+        DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
         bucketOf, proposeGroups,
