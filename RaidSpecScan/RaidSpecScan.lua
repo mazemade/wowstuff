@@ -52,25 +52,69 @@ local function SubgroupOf(unit, name)
     return nil
 end
 
-local function AddResult(unit, points)
+-- The talents the web tool reasons about, under a stable key it also knows. Matching on the
+-- English name is safe here because /specscan inspects the whole raid from ONE client — the
+-- scanner's — so only that client's locale is ever involved.
+local TRACKED_TALENTS = {
+    ROGUE   = { impExposeArmor  = "Improved Expose Armor" },
+    WARRIOR = { impThunderClap  = "Improved Thunder Clap",
+                impDemoShout    = "Improved Demoralizing Shout" },
+    PALADIN = { impSealCrusader = "Improved Seal of the Crusader" },
+}
+
+-- Emits "key=rank" for every tracked talent of this class, INCLUDING rank 0. An untaken talent
+-- must read as "=0" rather than being left out, or the web tool cannot tell "they did not take
+-- it" from "we have no data at all". A name we cannot find is omitted instead, which reads as
+-- unknown — the honest answer if a talent is ever renamed out from under us.
+local function TalentPairs(classToken, isInspect)
+    local wanted = TRACKED_TALENTS[classToken]
+    if not wanted then return "" end
+    local found = {}
+    local tabs = (GetNumTalentTabs and GetNumTalentTabs()) or 3
+    for tab = 1, tabs do
+        local count = (GetNumTalents and GetNumTalents(tab)) or 0
+        for i = 1, count do
+            local name, _, _, _, rank = GetTalentInfo(tab, i, isInspect)
+            if name then
+                for key, wantedName in pairs(wanted) do
+                    if name == wantedName then found[key] = tonumber(rank) or 0 end
+                end
+            end
+        end
+    end
+    local out = {}
+    for key in pairs(wanted) do
+        -- `~= nil` on purpose: rank 0 is a real answer, and 0 is truthy in Lua but this reads
+        -- wrong to anyone arriving from JS.
+        if found[key] ~= nil then out[#out + 1] = key .. "=" .. found[key] end
+    end
+    table.sort(out) -- stable order, so two exports diff cleanly
+    return table.concat(out, ",")
+end
+
+-- RSS3 is positional with fixed slots: name:CLASS:points:subgroup:race:talents. Every field
+-- after points may be empty and is independent of the others. RSS2 nested race inside the
+-- subgroup check, so one missing subgroup silently took the race with it.
+local function AddResult(unit, points, isInspect)
     local name = UnitName(unit)
     local _, classToken = UnitClass(unit)
-    if name and classToken then
-        local line = name .. ":" .. classToken .. ":" .. points
-        local subgroup = SubgroupOf(unit, name)
-        if subgroup then
-            line = line .. ":" .. subgroup
-            -- Second return is the locale-independent token ("Draenei"); the first is
-            -- localized and would break the web tool on a non-English client.
-            local _, raceToken = UnitRace(unit)
-            if raceToken then line = line .. ":" .. raceToken end
-        end
-        table.insert(results, line)
-    end
+    if not (name and classToken) then return end
+    local subgroup = SubgroupOf(unit, name)
+    -- Second return is the locale-independent token ("Draenei"); the first is localized and
+    -- would break the web tool on a non-English client.
+    local _, raceToken = UnitRace(unit)
+    -- A player we could not scan has no talent data either; "?" points and an empty talent
+    -- field must travel together.
+    local talents = (points ~= "?") and TalentPairs(classToken, isInspect) or ""
+    local line = name .. ":" .. classToken .. ":" .. points
+        .. ":" .. (subgroup and tostring(subgroup) or "")
+        .. ":" .. (raceToken or "")
+        .. ":" .. talents
+    table.insert(results, line)
 end
 
 local function ShowExport()
-    local text = "RSS2;" .. table.concat(results, ";")
+    local text = "RSS3;" .. table.concat(results, ";")
     local f = RaidSpecScanExportFrame
     if not f then
         f = CreateFrame("Frame", "RaidSpecScanExportFrame", UIParent, "BackdropTemplate")
@@ -115,8 +159,8 @@ local function ShowExport()
     f:Show()
 end
 
-local function FinishUnit(points)
-    AddResult(current, points)
+local function FinishUnit(points, isInspect)
+    AddResult(current, points, isInspect)
     ClearInspectPlayer()
     current = nil
     elapsed = 0
@@ -133,12 +177,12 @@ local function NextUnit()
     current = table.remove(queue, 1)
     elapsed = 0
     if UnitIsUnit(current, "player") then
-        AddResult(current, TalentString(false)) -- own talents readable directly
+        AddResult(current, TalentString(false), false) -- own talents readable directly
         current = nil
         return -- OnUpdate picks the next unit next frame
     end
     if not UnitIsConnected(current) or not CanInspect(current) then
-        AddResult(current, "?")
+        AddResult(current, "?", false)
         current = nil
         return
     end
@@ -162,7 +206,7 @@ frame:SetScript("OnEvent", function(_, event, guid)
     -- someone would otherwise be recorded against whoever is being inspected now — a confident
     -- but wrong spec. Ignoring it lets the timeout mark that player "?" instead.
     if guid and UnitGUID(current) ~= guid then return end
-    FinishUnit(TalentString(true))
+    FinishUnit(TalentString(true), true)
 end)
 
 local function OnUpdate(_, dt)
@@ -170,7 +214,7 @@ local function OnUpdate(_, dt)
     if current then
         elapsed = elapsed + dt
         if elapsed > INSPECT_TIMEOUT then
-            FinishUnit("?") -- timed out, mark unscanned
+            FinishUnit("?", true) -- timed out, mark unscanned
         end
     else
         NextUnit()
