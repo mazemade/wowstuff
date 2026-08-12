@@ -700,6 +700,15 @@
 
         const warnings = [];
         if (!paladins.length && roster.length) warnings.push('No paladin in the raid — no blessings at all.');
+        classes.forEach(cls => {
+            const given = rows.map(r => r.cells[cls]).filter(Boolean);
+            if (rows.length && !given.length) warnings.push(cls + ': no blessing assigned.');
+            const seen = {};
+            given.forEach(b => {
+                seen[b] = (seen[b] || 0) + 1;
+                if (seen[b] === 2) warnings.push(cls + ': two paladins are both casting ' + b + ' — one is wasted.');
+            });
+        });
         return { classes, rows, warnings };
     }
 

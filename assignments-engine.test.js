@@ -974,6 +974,18 @@ test('proposeBlessings: no paladins gives empty rows and a warning', () => {
     assert.strictEqual(g.rows.length, 0);
     assert.ok(g.warnings.some(w => /no paladin/i.test(w)));
 });
+test('proposeBlessings: warns when a class has no blessing at all', () => {
+    const g = E.proposeBlessings(palRoster(), { 'Retdin|MAGE': null, 'Lightbringer|MAGE': null, 'Bubbles|MAGE': null });
+    assert.ok(g.warnings.some(w => /MAGE/.test(w) && /no blessing/i.test(w)));
+});
+test('proposeBlessings: warns when two paladins give a class the same blessing', () => {
+    const g = E.proposeBlessings(palRoster(), { 'Lightbringer|WARRIOR': 'Greater Kings' });
+    assert.ok(g.warnings.some(w => /WARRIOR/.test(w) && /Greater Kings/.test(w)));
+});
+test('proposeBlessings: a clean default grid has no gap or duplicate warnings', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    assert.deepStrictEqual(g.warnings, []);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
