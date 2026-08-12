@@ -434,6 +434,26 @@
             });
             lines.push('');
         }
+        if (sheet.blessings && sheet.blessings.rows && sheet.blessings.rows.length) {
+            lines.push('**Blessings**');
+            sheet.blessings.rows.forEach(row => {
+                // Collapse the row to "blessing → classes" so it reads as instructions rather
+                // than a table Discord would mangle.
+                const byBlessing = {};
+                sheet.blessings.classes.forEach(cls => {
+                    const b = row.cells[cls];
+                    if (!b) return;
+                    (byBlessing[b] = byBlessing[b] || []).push(cls.slice(0, 3));
+                });
+                const parts = Object.keys(byBlessing).map(b => b + ' → ' + byBlessing[b].join('/'));
+                // A fourth paladin's row is empty by default — with four blessings there is
+                // nothing new left to give — so skip rows the lead has not filled in rather
+                // than printing a name with nothing after it.
+                if (!parts.length) return;
+                lines.push('• ' + nm(row.paladin) + ': ' + parts.join(', '));
+            });
+            lines.push('');
+        }
         const missing = missingList(sheet.uncovered);
         if (missing.length) {
             lines.push('⚠ **Uncovered:** ' + missing.map(u => u.name).join(', '));

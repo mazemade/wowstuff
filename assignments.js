@@ -65,7 +65,10 @@ function recompute() {
     });
 
     const result = E.autoAssign(roster, state.overrides);
-    sheet = Object.assign({}, result, { cc: state.cc || E.defaultCC(roster) });
+    sheet = Object.assign({}, result, {
+        cc: state.cc || E.defaultCC(roster),
+        blessings: E.proposeBlessings(roster, state.blessings),
+    });
 }
 
 function renderAll() {

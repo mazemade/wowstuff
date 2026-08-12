@@ -987,5 +987,32 @@ test('proposeBlessings: a clean default grid has no gap or duplicate warnings', 
     assert.deepStrictEqual(g.warnings, []);
 });
 
+test('buildDiscord: renders the blessings grid when present', () => {
+    const roster = palRoster();
+    const sheet = E.autoAssign(roster, {});
+    sheet.blessings = E.proposeBlessings(roster, {});
+    const out = E.buildDiscord(roster, sheet, {});
+    assert.ok(/Blessings/i.test(out));
+    assert.ok(out.includes('Retdin'));
+    assert.ok(out.includes('Greater Kings'));
+});
+test('buildDiscord: omits the blessings section when absent', () => {
+    const roster = palRoster();
+    const out = E.buildDiscord(roster, E.autoAssign(roster, {}), {});
+    assert.ok(!/Blessings/i.test(out));
+});
+test('buildDiscord: a paladin with an all-null row (4th+) is skipped, not printed with nothing after the colon', () => {
+    const roster = palRoster().concat([P('Justice', 'PALADIN', 'Protection')]);
+    // BLESSING_PLANS has only 4 entries and the 4th+ plan always returns null, so
+    // Justice's row is empty by default — nothing to give with only four blessings.
+    const sheet = E.autoAssign(roster, {});
+    sheet.blessings = E.proposeBlessings(roster, {});
+    const out = E.buildDiscord(roster, sheet, {});
+    assert.ok(!out.includes('Justice'));
+    assert.ok(out.includes('Retdin'));
+    assert.ok(out.includes('Lightbringer'));
+    assert.ok(out.includes('Bubbles'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
