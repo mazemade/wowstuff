@@ -51,8 +51,9 @@ subject to section 5 (the one thing that still needs a live WoW client).
 `docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`: read individual talent ranks via
 `GetTalentInfo` instead of guessing them from tree totals, so the four rows where spec-guessing is
 measurably wrong pick the right player. Proven feasible in-game first with a throwaway probe addon.
-Task 1 of that plan removes Scorpid Sting. **Blocked on capturing three talent coordinates in-game**
-— the plan's Prerequisites section has the exact `/tprobe` commands.
+Task 1 of that plan removes Scorpid Sting. **Not blocked on anything** — the addon resolves talents
+by name at scan time, so there are no coordinates to capture. `RaidSpecScan` must be reinstalled from
+the worktree before the in-game checks at the end, because the installed copy is still v1.0.
 
 ---
 

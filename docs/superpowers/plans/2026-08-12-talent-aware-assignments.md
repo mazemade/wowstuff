@@ -4,7 +4,7 @@
 
 **Goal:** Read individual talent ranks from the game instead of guessing them from talent-tree totals, so the four rows where spec-guessing is measurably wrong pick the right player.
 
-**Architecture:** `RaidSpecScan` walks `GetTalentInfo` and exports one digit per talent in a new `RSS3` line format with fixed, independently-optional fields. The web tool owns the table of which coordinates mean which talent, so future talent-aware rules never require reinstalling the addon. `rankPool` gains a leading tier — talented → unknown → known-untalented — ahead of the existing spec preference.
+**Architecture:** `RaidSpecScan` walks `GetTalentInfo`, matches the handful of talents the catalog cares about **by name**, and exports them as `key=rank` pairs in a new `RSS3` line format with fixed, independently-optional fields. The engine holds the same keys with their max rank and display name — no coordinates anywhere. `rankPool` gains a leading tier — talented → unknown → known-untalented — ahead of the existing spec preference.
 
 **Tech Stack:** Plain ES5-compatible JavaScript in a UMD wrapper, no build step. Lua 5.1 for the addon. Tests via `node assignments-engine.test.js`.
 
@@ -16,9 +16,10 @@
 
 - **No build step.** ES5-compatible JS only, inside the existing UMD wrapper. No dependencies.
 - **RSS1 and RSS2 must keep parsing unchanged.** The pinned `RSS1 regression: a full raid export parses to exactly this roster` fixture at `assignments-engine.test.js:546` is the branch's parse guard — **add** RSS3 fixtures beside it, never migrate it.
-- **The web tool owns the talent table.** The addon must not know what any talent means.
+- **The addon matches talents by name.** It holds the tracked-talent list; the engine holds only the
+  same keys with their max rank and display name. The keys are the one coupling across the wire.
 - **`null` means unknown, and unknown is not the same as untalented.** A Raid-Helper signup or a manually added player has no talent data; they must never be ranked as though they lack the talent.
-- **Talent names are localized.** They may appear in the engine table as documentation but must never be used as a lookup key.
+- **Talent names are localized**, and the addon matches on the English name. This is safe *only* because `/specscan` inspects the whole raid from one client, so only the scanner's locale is ever involved. Do not move name matching anywhere else.
 - **All emitted text stays ASCII.** `record()` output feeds `buildAddonWhispers`, whose 255-character budget is counted in UTF-16 units against WoW's UTF-8 limit; they agree only for ASCII.
 - **Every new test must be proven falsifiable by mutation** — delete the rule, run the suite, paste the failure, restore. This branch's dominant defect across six plans is tests that pass whether or not the behaviour exists.
 - **Test command:** `node assignments-engine.test.js`
@@ -26,34 +27,17 @@
 
 ---
 
-## Prerequisites — do these before Task 3
+## Prerequisite
 
-These are human actions in the game client. **Task 3 is blocked until the coordinates are recorded here.**
+- [ ] **P1: Install `RaidSpecScan` 3.0 before any in-game verification.**
 
-- [ ] **P1: Capture the three unknown talent coordinates.**
+The copy in `/Applications/World of Warcraft/_anniversary_/Interface/AddOns/RaidSpecScan/` is **v1.0
+and still exports `RSS1`** — it predates subgroups and races entirely. Task 2 raises the worktree
+copy to 3.0; copy it over the installed one when Task 2 is ready to verify. Nothing in Tasks 1–6 is
+blocked by this, only the in-game checks at the end.
 
-`TalentProbe` is already installed at `/Applications/World of Warcraft/_anniversary_/Interface/AddOns/TalentProbe/`. In game, target any rogue and any warrior (the talent need not be taken — the name search does not filter on rank) and run:
-
-```
-/tprobe target improved expose
-/tprobe target improved thunder
-/tprobe target improved demo
-```
-
-Each prints `[name] tab.index  Talent Name  rank/max`. Record the `tab` and `index` here:
-
-| class | key | talent | tab | index | maxRank |
-|---|---|---|---|---|---|
-| ROGUE | `impExposeArmor` | Improved Expose Armor | ? | ? | 2 |
-| WARRIOR | `impThunderClap` | Improved Thunder Clap | ? | ? | 3 |
-| WARRIOR | `impDemoShout` | Improved Demoralizing Shout | ? | ? | 5 |
-| PALADIN | `impSealCrusader` | Improved Seal of the Crusader | 3 | 10 | 3 |
-
-The paladin row is already confirmed — it was read directly off a probe run (`3.10 Improved Seal of the Crusader 3/3`). If any `/tprobe` output disagrees with a `maxRank` above, trust the game and correct the table.
-
-- [ ] **P2: Install `RaidSpecScan` 2.0 before in-game verification.**
-
-The copy in the AddOns folder is **v1.0 and still exports `RSS1`** — it predates subgroups and races. Task 2 raises it to 3.0, but any in-game check before then would exercise the wrong addon. Copy the worktree's `RaidSpecScan/` over the installed one when Task 2 is ready to verify.
+There is **no coordinate capture step** — the addon resolves talents by name at scan time, so no
+`(tab, index)` values are hardcoded anywhere.
 
 ---
 
@@ -122,50 +106,71 @@ git commit -m "feat: drop scorpid sting, it is not worth a hunter's sting slot"
 
 ---
 
-### Task 2: Addon exports talent ranks as RSS3
+### Task 2: Addon resolves talents by name and exports RSS3
 
 **Files:**
 - Modify: `RaidSpecScan/RaidSpecScan.lua`
 - Modify: `RaidSpecScan/RaidSpecScan.toc`
 
 **Interfaces:**
-- Produces: export lines shaped `Name:CLASS:points:subgroup:race:talents`, header `RSS3;`. `talents` is one digit per talent, tabs joined by `/`. Every field after `points` may be empty. Task 3 parses exactly this.
+- Produces: export lines shaped `Name:CLASS:points:subgroup:race:talents`, header `RSS3;`. `talents` is a comma-separated list of `key=rank` pairs for the tracked talents of that player's class, or empty. Every field after `points` may be empty. Task 3 parses exactly this.
 
-- [ ] **Step 1: Add the rank reader**
+- [ ] **Step 1: Add the tracked-talent table and the resolver**
 
 Add below `TalentString`:
 
 ```lua
--- One digit per talent, tabs joined by "/". TBC ranks are 0-5, so a digit is always enough.
--- A rank outside 0-9 means the API shape changed under us; emit nothing rather than a
--- plausible lie, the same way TalentString returns "?" on impossible totals.
-local function TalentRanks(isInspect)
+-- The talents the web tool reasons about, under a stable key it also knows. Matching on the
+-- English name is safe here because /specscan inspects the whole raid from ONE client — the
+-- scanner's — so only that client's locale is ever involved.
+local TRACKED_TALENTS = {
+    ROGUE   = { impExposeArmor  = "Improved Expose Armor" },
+    WARRIOR = { impThunderClap  = "Improved Thunder Clap",
+                impDemoShout    = "Improved Demoralizing Shout" },
+    PALADIN = { impSealCrusader = "Improved Seal of the Crusader" },
+}
+
+-- Emits "key=rank" for every tracked talent of this class, INCLUDING rank 0. An untaken talent
+-- must read as "=0" rather than being left out, or the web tool cannot tell "they did not take
+-- it" from "we have no data at all". A name we cannot find is omitted instead, which reads as
+-- unknown — the honest answer if a talent is ever renamed out from under us.
+local function TalentPairs(classToken, isInspect)
+    local wanted = TRACKED_TALENTS[classToken]
+    if not wanted then return "" end
+    local found = {}
     local tabs = (GetNumTalentTabs and GetNumTalentTabs()) or 3
-    local out = {}
     for tab = 1, tabs do
         local count = (GetNumTalents and GetNumTalents(tab)) or 0
-        local digits = {}
         for i = 1, count do
-            local _, _, _, _, rank = GetTalentInfo(tab, i, isInspect)
-            rank = tonumber(rank) or 0
-            if rank < 0 or rank > 9 then return "" end
-            digits[#digits + 1] = tostring(rank)
+            local name, _, _, _, rank = GetTalentInfo(tab, i, isInspect)
+            if name then
+                for key, wantedName in pairs(wanted) do
+                    if name == wantedName then found[key] = tonumber(rank) or 0 end
+                end
+            end
         end
-        out[#out + 1] = table.concat(digits)
     end
-    return table.concat(out, "/")
+    local out = {}
+    for key in pairs(wanted) do
+        -- `~= nil` on purpose: rank 0 is a real answer, and 0 is truthy in Lua but this reads
+        -- wrong to anyone arriving from JS.
+        if found[key] ~= nil then out[#out + 1] = key .. "=" .. found[key] end
+    end
+    table.sort(out) -- stable order, so two exports diff cleanly
+    return table.concat(out, ",")
 end
 ```
 
 - [ ] **Step 2: Rewrite `AddResult` to emit fixed positions**
 
-Replace the whole existing `AddResult` with:
+`AddResult` already resolves the class token, so it computes the talent field itself; it only needs
+to be told whether this unit is being inspected. Replace the whole existing `AddResult` with:
 
 ```lua
 -- RSS3 is positional with fixed slots: name:CLASS:points:subgroup:race:talents. Every field
 -- after points may be empty and is independent of the others. RSS2 nested race inside the
 -- subgroup check, so one missing subgroup silently took the race with it.
-local function AddResult(unit, points, talents)
+local function AddResult(unit, points, isInspect)
     local name = UnitName(unit)
     local _, classToken = UnitClass(unit)
     if not (name and classToken) then return end
@@ -173,21 +178,24 @@ local function AddResult(unit, points, talents)
     -- Second return is the locale-independent token ("Draenei"); the first is localized and
     -- would break the web tool on a non-English client.
     local _, raceToken = UnitRace(unit)
+    -- A player we could not scan has no talent data either; "?" points and an empty talent
+    -- field must travel together.
+    local talents = (points ~= "?") and TalentPairs(classToken, isInspect) or ""
     local line = name .. ":" .. classToken .. ":" .. points
         .. ":" .. (subgroup and tostring(subgroup) or "")
         .. ":" .. (raceToken or "")
-        .. ":" .. (talents or "")
+        .. ":" .. talents
     table.insert(results, line)
 end
 ```
 
-- [ ] **Step 3: Pass talents from all four call sites**
+- [ ] **Step 3: Thread `isInspect` through the four call sites**
 
-`FinishUnit` takes the talent string too:
+`FinishUnit` gains the same argument:
 
 ```lua
-local function FinishUnit(points, talents)
-    AddResult(current, points, talents)
+local function FinishUnit(points, isInspect)
+    AddResult(current, points, isInspect)
     ClearInspectPlayer()
     current = nil
     elapsed = 0
@@ -198,10 +206,10 @@ Update the four callers:
 
 | where | was | becomes |
 |---|---|---|
-| inspect success, in the `OnEvent` handler | `FinishUnit(TalentString(true))` | `FinishUnit(TalentString(true), TalentRanks(true))` |
-| inspect timeout, in `OnUpdate` | `FinishUnit("?")` | `FinishUnit("?", "")` |
-| own talents, in `NextUnit` | `AddResult(current, TalentString(false))` | `AddResult(current, TalentString(false), TalentRanks(false))` |
-| cannot inspect, in `NextUnit` | `AddResult(current, "?")` | `AddResult(current, "?", "")` |
+| inspect success, in the `OnEvent` handler | `FinishUnit(TalentString(true))` | `FinishUnit(TalentString(true), true)` |
+| inspect timeout, in `OnUpdate` | `FinishUnit("?")` | `FinishUnit("?", true)` |
+| own talents, in `NextUnit` | `AddResult(current, TalentString(false))` | `AddResult(current, TalentString(false), false)` |
+| cannot inspect, in `NextUnit` | `AddResult(current, "?")` | `AddResult(current, "?", false)` |
 
 - [ ] **Step 4: Bump the header and version**
 
@@ -217,14 +225,12 @@ Expected: no output, exit 0. This catches syntax only — it does not resolve Wo
 
 ```bash
 git add RaidSpecScan/RaidSpecScan.lua RaidSpecScan/RaidSpecScan.toc
-git commit -m "feat: export per-talent ranks as RSS3"
+git commit -m "feat: resolve tracked talents by name and export them as RSS3"
 ```
 
 ---
 
 ### Task 3: Parse RSS3
-
-**Blocked on prerequisite P1** — do not start until the coordinate table is filled in.
 
 **Files:**
 - Modify: `assignments-engine.js` (`parseAddonExport`)
@@ -232,48 +238,52 @@ git commit -m "feat: export per-talent ranks as RSS3"
 
 **Interfaces:**
 - Consumes: Task 2's line format.
-- Produces: `player.talentRanks` — `[[Number]]` (outer array is tabs, inner is ranks by index) or `null` when absent. Tasks 4 and 5 read it.
+- Produces: `player.talents` — `{ key: Number }` or `null` when absent. Tasks 4 and 5 read it.
 
 - [ ] **Step 1: Write the failing tests**
 
 Append above the final `console.log`:
 
 ```js
-test('parseAddonExport: RSS3 carries per-talent ranks', () => {
-    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:0102/00030/000').players;
+test('parseAddonExport: RSS3 carries tracked talent ranks', () => {
+    const r = E.parseAddonExport('RSS3;Smashy:WARRIOR:33/28/0:4:Orc:impThunderClap=3,impDemoShout=0').players;
     assert.strictEqual(r.length, 1);
     assert.strictEqual(r[0].group, 4);
-    assert.strictEqual(r[0].race, 'Human');
-    assert.deepStrictEqual(r[0].talentRanks, [[0, 1, 0, 2], [0, 0, 0, 3, 0], [0, 0, 0]]);
+    assert.strictEqual(r[0].race, 'Orc');
+    assert.deepStrictEqual(r[0].talents, { impThunderClap: 3, impDemoShout: 0 });
+});
+test('parseAddonExport: rank 0 is data, not absence', () => {
+    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:1:Human:impExposeArmor=0').players;
+    assert.strictEqual(r[0].talents.impExposeArmor, 0);
 });
 test('parseAddonExport: an empty field does not take the later ones with it', () => {
-    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5::Human:0102/00030/000').players;
+    const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5::Human:impExposeArmor=2').players;
     assert.strictEqual(r[0].group, null);
     assert.strictEqual(r[0].race, 'Human');            // RSS2 dropped this
-    assert.deepStrictEqual(r[0].talentRanks[0], [0, 1, 0, 2]);
-    const r2 = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4::0102/00030/000').players;
+    assert.strictEqual(r[0].talents.impExposeArmor, 2);
+    const r2 = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4::impExposeArmor=2').players;
     assert.strictEqual(r2[0].group, 4);
     assert.strictEqual(r2[0].race, null);
-    assert.deepStrictEqual(r2[0].talentRanks[0], [0, 1, 0, 2]);
+    assert.strictEqual(r2[0].talents.impExposeArmor, 2);
 });
-test('parseAddonExport: no talent segment means unknown, not empty', () => {
+test('parseAddonExport: no talent field means unknown, not empty', () => {
     const r = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:').players;
-    assert.strictEqual(r[0].talentRanks, null);
+    assert.strictEqual(r[0].talents, null);
     const r2 = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human').players;
-    assert.strictEqual(r2[0].talentRanks, null);
+    assert.strictEqual(r2[0].talents, null);
 });
 test('parseAddonExport: RSS2 and RSS1 lines still parse, with no talent data', () => {
     const two = E.parseAddonExport('RSS2;Stabby:ROGUE:15/41/5:4:Human').players;
     assert.strictEqual(two[0].group, 4);
     assert.strictEqual(two[0].race, 'Human');
-    assert.strictEqual(two[0].talentRanks, null);
+    assert.strictEqual(two[0].talents, null);
     const one = E.parseAddonExport('RSS1;Stabby:ROGUE:15/41/5').players;
     assert.strictEqual(one[0].group, null);
     assert.strictEqual(one[0].race, null);
-    assert.strictEqual(one[0].talentRanks, null);
+    assert.strictEqual(one[0].talents, null);
 });
-test('parseAddonExport: a malformed talent segment rejects the line', () => {
-    const res = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:01x2/000/000');
+test('parseAddonExport: a malformed talent field rejects the line', () => {
+    const res = E.parseAddonExport('RSS3;Stabby:ROGUE:15/41/5:4:Human:impExposeArmor');
     assert.strictEqual(res.players.length, 0);
     assert.ok(res.errors.some(e => /Stabby/.test(e)));
 });
@@ -283,7 +293,7 @@ test('parseAddonExport: a malformed talent segment rejects the line', () => {
 
 Run: `node assignments-engine.test.js`
 
-Expected: FAIL — the current regex rejects a six-field line outright, so the RSS3 tests report `Unrecognized line`. The RSS1/RSS2 test should already pass except for its `talentRanks` assertions.
+Expected: FAIL — the current regex rejects a six-field line outright, so the RSS3 tests report `Unrecognized line`. The RSS1/RSS2 test should already pass except for its `talents` assertions.
 
 - [ ] **Step 3: Replace the regex parse with a positional split**
 
@@ -294,7 +304,7 @@ In `parseAddonExport`, replace the `const m = tok.match(...)` block and everythi
             //   name:CLASS:points[:subgroup[:race[:talents]]]
             // Every field after points may be empty and is independent, so a missing subgroup
             // no longer takes the race and talents with it the way RSS2's nesting did. Names
-            // cannot contain ':' in WoW, and neither points nor ranks use it, so the split is
+            // cannot contain ':' in WoW, and no other field uses it, so the split is
             // unambiguous.
             const f = tok.split(':');
             if (f.length < 3 || f.length > 6) { errors.push('Unrecognized line: ' + tok); return; }
@@ -320,10 +330,16 @@ In `parseAddonExport`, replace the `const m = tok.match(...)` block and everythi
             if (rawRace !== '' && !/^[A-Za-z]+$/.test(rawRace)) { errors.push('Unrecognized line: ' + tok); return; }
             const race = rawRace === '' ? null : rawRace;
 
-            let talentRanks = null;
+            // null means the scan told us nothing. An explicit "key=0" means the scan told us
+            // they have not taken it — a different, useful fact.
+            let talents = null;
             if (rawTalents !== '') {
-                if (!/^[0-9]*(\/[0-9]*)*$/.test(rawTalents)) { errors.push('Unrecognized line: ' + tok); return; }
-                talentRanks = rawTalents.split('/').map(seg => seg.split('').map(Number));
+                if (!/^\w+=\d+(,\w+=\d+)*$/.test(rawTalents)) { errors.push('Unrecognized line: ' + tok); return; }
+                talents = {};
+                rawTalents.split(',').forEach(pair => {
+                    const kv = pair.split('=');
+                    talents[kv[0]] = Number(kv[1]);
+                });
             }
 
             const flags = [];
@@ -331,27 +347,26 @@ In `parseAddonExport`, replace the `const m = tok.match(...)` block and everythi
             if (points === '?') {
                 flags.push('spec-unknown');
             } else {
-                const parts = points.split('/').map(Number);
-                const r = inferSpec(cls, parts);
+                const r = inferSpec(cls, points.split('/').map(Number));
                 spec = r.spec;
                 if (!spec) flags.push('spec-unknown');
                 else if (r.ambiguous) flags.push('spec-ambiguous');
             }
             seen.add(name);
-            players.push({ name, class: cls, spec, flags, source: 'addon', group, race, talentRanks });
+            players.push({ name, class: cls, spec, flags, source: 'addon', group, race, talents });
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `node assignments-engine.test.js`
 
-Expected: **150 passed, 0 failed** (145 + 5 new). The pinned RSS1 regression fixture at `:546` must still pass untouched — if it does not, the positional parser has changed RSS1 behaviour and that is a defect, not a fixture to update.
+Expected: **151 passed, 0 failed** (145 + 6 new). The pinned RSS1 regression fixture at `:546` must still pass untouched — if it does not, the positional parser has changed RSS1 behaviour and that is a defect, not a fixture to update.
 
 - [ ] **Step 5: Prove the tests can fail**
 
 Two mutations, each applied to a scratch copy, run, then discarded:
 
-1. Make the talent parse ignore empties: change `if (rawTalents !== '')` to `if (true)`. Expected: `no talent segment means unknown, not empty` fails.
+1. Treat an empty talent field as an empty object: change `if (rawTalents !== '')` to `if (true)`. Expected: `no talent field means unknown, not empty` fails.
 2. Restore RSS2's nesting: change `const rawRace = f[4] === undefined ? '' : f[4];` to `const rawRace = rawGroup === '' ? '' : (f[4] === undefined ? '' : f[4]);`. Expected: `an empty field does not take the later ones with it` fails.
 
 Paste both failures.
@@ -360,7 +375,7 @@ Paste both failures.
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
-git commit -m "feat: parse RSS3 talent ranks with independent positional fields"
+git commit -m "feat: parse RSS3 talent pairs with independent positional fields"
 ```
 
 ---
@@ -372,39 +387,41 @@ git commit -m "feat: parse RSS3 talent ranks with independent positional fields"
 - Modify: `assignments-engine.test.js`
 
 **Interfaces:**
-- Consumes: `player.talentRanks` from Task 3.
+- Consumes: `player.talents` from Task 3.
 - Produces: `TALENTS`, `talentRank(player, key) -> Number|null`, and `talentDrift(roster) -> [{ name, key }]`. Task 5 consumes `talentRank`. All three are exported.
 
 - [ ] **Step 1: Write the failing tests**
 
-`P()` does not set `talentRanks`, so build players inline where the test needs them.
+`P()` does not set `talents`, so attach it inline where a test needs it.
 
 ```js
-function rogueWith(ranks) {
-    return Object.assign(P('Stabby', 'ROGUE', 'Combat'), { talentRanks: ranks });
-}
-test('talentRank: reads the rank at the recorded coordinates', () => {
-    const ranks = [[], [], []];
-    ranks[E.TALENTS.ROGUE.impExposeArmor.tab - 1] = [];
-    ranks[E.TALENTS.ROGUE.impExposeArmor.tab - 1][E.TALENTS.ROGUE.impExposeArmor.index - 1] = 2;
-    assert.strictEqual(E.talentRank(rogueWith(ranks), 'impExposeArmor'), 2);
+function withTalents(p, t) { p.talents = t; return p; }
+test('talentRank: reads the rank the addon reported', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), 2);
+});
+test('talentRank: rank 0 is a real answer, not unknown', () => {
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 0 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), 0);
 });
 test('talentRank: no talent data is unknown, not zero', () => {
     assert.strictEqual(E.talentRank(P('Stabby', 'ROGUE', 'Combat'), 'impExposeArmor'), null);
+    // scanned, but this key was not among the pairs — the addon could not find the talent
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), {});
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
+});
+test('talentRank: a key belonging to another class is unknown', () => {
+    const p = withTalents(P('Smashy', 'WARRIOR', 'Arms'), { impExposeArmor: 2 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
 });
 test('talentRank: a rank above maxRank is treated as unknown, not trusted', () => {
-    const def = E.TALENTS.ROGUE.impExposeArmor;
-    const ranks = [[], [], []];
-    ranks[def.tab - 1] = [];
-    ranks[def.tab - 1][def.index - 1] = def.maxRank + 1;
-    assert.strictEqual(E.talentRank(rogueWith(ranks), 'impExposeArmor'), null);
-    assert.deepStrictEqual(E.talentDrift([rogueWith(ranks)]), [{ name: 'Stabby', key: 'impExposeArmor' }]);
-});
-test('talentRank: a class with no entry for that key is unknown', () => {
-    assert.strictEqual(E.talentRank(P('Smashy', 'WARRIOR', 'Arms'), 'impExposeArmor'), null);
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 9 });
+    assert.strictEqual(E.talentRank(p, 'impExposeArmor'), null);
+    assert.deepStrictEqual(E.talentDrift([p]), [{ name: 'Stabby', key: 'impExposeArmor' }]);
 });
 test('talentDrift: a clean roster reports nothing', () => {
-    assert.deepStrictEqual(E.talentDrift([P('Stabby', 'ROGUE', 'Combat')]), []);
+    const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
+    assert.deepStrictEqual(E.talentDrift([p, P('Smashy', 'WARRIOR', 'Arms')]), []);
 });
 ```
 
@@ -412,53 +429,47 @@ test('talentDrift: a clean roster reports nothing', () => {
 
 Run: `node assignments-engine.test.js`
 
-Expected: FAIL — `E.TALENTS is undefined`.
+Expected: FAIL — `E.talentRank is not a function`.
 
 - [ ] **Step 3: Implement**
 
-Add near `SPEC_TREES`, **using the coordinates recorded in prerequisite P1**:
+Add near `SPEC_TREES`:
 
 ```js
-    // Talents the catalog consumes, keyed by (tab, index) because GetTalentInfo returns
-    // LOCALIZED names — coordinates are the only locale-proof key. `name` is documentation and
-    // must never be used as a lookup key. `maxRank` is the drift guard: a rank above it means
-    // this table no longer matches the client's talent trees.
+    // The talents the catalog reasons about, under the same keys RaidSpecScan exports. The
+    // addon resolved these by name at scan time, so there are no coordinates here to drift.
+    // `maxRank` is the guard for the one thing that CAN drift: these keys and the addon's
+    // TRACKED_TALENTS are maintained on opposite sides of the wire.
     const TALENTS = {
-        ROGUE:   { impExposeArmor:  { tab: 0, index: 0, maxRank: 2, name: 'Improved Expose Armor' } },
-        WARRIOR: { impThunderClap:  { tab: 0, index: 0, maxRank: 3, name: 'Improved Thunder Clap' },
-                   impDemoShout:    { tab: 0, index: 0, maxRank: 5, name: 'Improved Demoralizing Shout' } },
-        PALADIN: { impSealCrusader: { tab: 3, index: 10, maxRank: 3, name: 'Improved Seal of the Crusader' } },
+        impExposeArmor:  { class: 'ROGUE',   maxRank: 2, name: 'Improved Expose Armor' },
+        impThunderClap:  { class: 'WARRIOR', maxRank: 3, name: 'Improved Thunder Clap' },
+        impDemoShout:    { class: 'WARRIOR', maxRank: 5, name: 'Improved Demoralizing Shout' },
+        impSealCrusader: { class: 'PALADIN', maxRank: 3, name: 'Improved Seal of the Crusader' },
     };
-```
 
-**The three `tab: 0, index: 0` values are placeholders and will fail every test until replaced with the captured coordinates.** That is deliberate — a wrong coordinate must fail loudly, not silently rank people by garbage.
-
-```js
-    // null means "we do not know" — a Raid-Helper signup or a manually added player has no
-    // talent data at all, and that must never be confused with "we know they lack it".
+    // null means "we do not know" — a Raid-Helper signup, a manually added player, or a talent
+    // the addon could not find. That must never be confused with "we know they lack it", which
+    // is rank 0.
     function talentRank(player, key) {
-        const def = (TALENTS[player.class] || {})[key];
-        if (!def || !player.talentRanks) return null;
-        const tab = player.talentRanks[def.tab - 1];
-        if (!tab) return null;
-        const rank = tab[def.index - 1];
+        const def = TALENTS[key];
+        if (!def || def.class !== player.class || !player.talents) return null;
+        const rank = player.talents[key];
         if (typeof rank !== 'number' || isNaN(rank)) return null;
         if (rank > def.maxRank) return null;
         return rank;
     }
 
-    // A shifted coordinate is systemic — it hits every player of that class at once — so
-    // surface it rather than letting the whole class quietly read as unknown.
+    // A key mismatch between the addon and this table is systemic — it hits every player of
+    // that class at once — so surface it rather than letting the whole class read as unknown.
     function talentDrift(roster) {
         const out = [];
         roster.forEach(p => {
-            const defs = TALENTS[p.class] || {};
-            if (!p.talentRanks) return;
-            Object.keys(defs).forEach(key => {
-                const def = defs[key];
-                const tab = p.talentRanks[def.tab - 1];
-                const rank = tab && tab[def.index - 1];
-                if (typeof rank === 'number' && rank > def.maxRank) out.push({ name: p.name, key: key });
+            if (!p.talents) return;
+            Object.keys(p.talents).forEach(key => {
+                const def = TALENTS[key];
+                if (def && def.class === p.class && p.talents[key] > def.maxRank) {
+                    out.push({ name: p.name, key: key });
+                }
             });
         });
         return out;
@@ -471,17 +482,22 @@ Export `TALENTS`, `talentRank` and `talentDrift`.
 
 Run: `node assignments-engine.test.js`
 
-Expected: **155 passed, 0 failed** (150 + 5 new).
+Expected: **157 passed, 0 failed** (151 + 6 new).
 
-- [ ] **Step 5: Prove the drift guard is load-bearing**
+- [ ] **Step 5: Prove the guards are load-bearing**
 
-On a scratch copy, delete `if (rank > def.maxRank) return null;` from `talentRank`. Expected: `a rank above maxRank is treated as unknown, not trusted` fails. Restore and re-run.
+Two mutations on a scratch copy, each run then restored:
+
+1. Delete `if (rank > def.maxRank) return null;` from `talentRank`. Expected: `a rank above maxRank is treated as unknown, not trusted` fails.
+2. Delete `def.class !== player.class ||` from the same guard. Expected: `a key belonging to another class is unknown` fails.
+
+Paste both.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add assignments-engine.js assignments-engine.test.js
-git commit -m "feat: talent coordinate table with a drift guard"
+git commit -m "feat: talent table keyed to the addon's exported names"
 ```
 
 ---
@@ -501,12 +517,7 @@ git commit -m "feat: talent coordinate table with a drift guard"
 ```js
 function rogue(name, spec, rank) {
     const p = P(name, 'ROGUE', spec);
-    if (rank !== null) {
-        const def = E.TALENTS.ROGUE.impExposeArmor;
-        p.talentRanks = [[], [], []];
-        p.talentRanks[def.tab - 1] = [];
-        p.talentRanks[def.tab - 1][def.index - 1] = rank;
-    }
+    if (rank !== null) p.talents = { impExposeArmor: rank };
     return p;
 }
 test('autoAssign: a talented off-spec rogue beats an untalented on-spec one', () => {
@@ -529,12 +540,7 @@ test('autoAssign: a row without improvedBy is unaffected by talent data', () => 
 });
 function warrior(name, spec, rank) {
     const p = P(name, 'WARRIOR', spec);
-    if (rank !== null) {
-        const def = E.TALENTS.WARRIOR.impThunderClap;
-        p.talentRanks = [[], [], []];
-        p.talentRanks[def.tab - 1] = [];
-        p.talentRanks[def.tab - 1][def.index - 1] = rank;
-    }
+    if (rank !== null) p.talents = { impThunderClap: rank };
     return p;
 }
 test('autoAssign: improvedBy survives providersOf on a single-class entry', () => {
@@ -626,7 +632,7 @@ For `joc`, add `improvedBy: 'impSealCrusader'` to the existing entry, leaving `r
 
 Run: `node assignments-engine.test.js`
 
-Expected: **160 passed, 0 failed** (155 + 5 new). If a pre-existing test fails, STOP and report which assignment moved and why — do not adjust the test.
+Expected: **162 passed, 0 failed** (157 + 5 new). If a pre-existing test fails, STOP and report which assignment moved and why — do not adjust the test.
 
 - [ ] **Step 7: Prove the tier and the allowlist fix are both load-bearing**
 
@@ -711,7 +717,7 @@ Expected: FAIL — `qualifier` is `undefined` everywhere.
             // reads as a bug unless the row says why. ASCII only — this object feeds the addon
             // whisper path, whose length budget assumes it.
             if (entry.improvedBy && player) {
-                const def = (TALENTS[player.class] || {})[entry.improvedBy];
+                const def = TALENTS[entry.improvedBy];
                 const rank = talentRank(player, entry.improvedBy);
                 if (def) {
                     if (rank === null) d.qualifier = 'talent unknown';
@@ -763,7 +769,7 @@ Append to `assignments.css`:
 
 Run: `node assignments-engine.test.js`
 
-Expected: **166 passed, 0 failed** (160 + 6 new).
+Expected: **168 passed, 0 failed** (162 + 6 new).
 
 - [ ] **Step 7: Prove the qualifier tests can fail**
 
@@ -775,26 +781,17 @@ There is no browser tool in this harness. Use the headless-Chrome CDP driver in 
 
 Start the server with `npm start` from the worktree root (serves `http://localhost:3000`) if it is not already running.
 
-Build the import string with this snippet rather than by hand, so the talent digits land on the
-coordinates actually recorded in P1:
+Import this roster. The talent field is now human-writable, so no helper is needed — `Zcombat` has
+the talent, `Asub` demonstrably does not:
 
-```bash
-node -e "
-const E = require('./assignments-engine.js');
-const d = E.TALENTS.ROGUE.impExposeArmor;
-// three tabs of zeroes, long enough to contain the index, with the talent set on one rogue
-const ranks = r => [0,1,2].map(t => Array.from({length: d.index + 2},
-    (_, i) => (t === d.tab - 1 && i === d.index - 1) ? r : 0).join('')).join('/');
-console.log('RSS3;Zcombat:ROGUE:15/41/5:1:Human:' + ranks(2)
-          + ';Asub:ROGUE:20/0/41:1:Human:' + ranks(0));
-"
+```
+RSS3;Zcombat:ROGUE:15/41/5:1:Human:impExposeArmor=2;Asub:ROGUE:20/0/41:1:Human:impExposeArmor=0
 ```
 
-Paste its output into `1 · Import`. Confirm: the Assignments panel shows `Zcombat` on the
-`Major armor reduction` row with `(Improved Expose Armor 2/2)` beside it — note `Asub` is both the
-preferred spec and alphabetically first, so `Zcombat` winning is the whole point; the Discord tab
-shows the same qualifier in parentheses; and there are zero console errors. Never click
-`Share link` — it hangs on the clipboard API.
+Confirm: the Assignments panel shows `Zcombat` on the `Major armor reduction` row with
+`(Improved Expose Armor 2/2)` beside it — note `Asub` is both the preferred spec and alphabetically
+first, so `Zcombat` winning is the whole point; the Discord tab shows the same qualifier in
+parentheses; and there are zero console errors. Never click `Share link` — it hangs on the clipboard API.
 
 Paste the actual observed output.
 
@@ -819,6 +816,6 @@ In-game verification, once `RaidSpecScan` 3.0 is installed (prerequisite P2):
 
 ## Open questions for the implementer
 
-- **The Improved Seal of the Crusader coordinate came from a single probe run on one paladin.** It is the only coordinate not captured as part of P1. If the `joc` row behaves oddly, re-verify it before suspecting the ranking logic.
+- **The four talent names in the addon's `TRACKED_TALENTS` are English strings typed from memory.** `Improved Seal of the Crusader` was confirmed verbatim from a probe run; the other three were not. If a row never sees talent data, check the spelling against `/tprobe target <partial name>` before suspecting the ranking logic — a name that does not match is silently omitted, which reads as unknown.
 - **`talentDrift` is exported but nothing renders it.** That is deliberate — it exists so a shifted table is diagnosable from a test or a console call. Wiring it into the UI is a follow-up, not part of this plan.
 - **Scorpid Sting's removal changes hunter duty counts.** Task 1 Step 5 re-proves the Tranq Shot fixture, but if any other hunter-related assertion starts behaving oddly later in the plan, that removal is the first place to look.

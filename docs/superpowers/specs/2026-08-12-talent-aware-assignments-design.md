@@ -23,10 +23,8 @@ A throwaway probe addon (`TalentProbe`, `/tprobe`) was written and run in-game o
 - Returns are `[1] name, [2] iconFileID, [3] tier, [4] column, [5] rank, [6] maxRank, …`.
 - **An untaken talent returns rank 0 cleanly**, not an error (`Nature's Grasp 0/1`).
 - `GetNumTalentTabs()` = 3 and `GetNumTalents(tab)` (21 for druid tab 1) allow deterministic walking.
-- Talent **names are localized**. Identification must be coordinate-based, not name-based.
-
-The localization risk is mitigated by the scan being inspection-based: one person runs `/specscan`
-and inspects the raid, so only the scanner's client locale matters. Recorded as an assumption.
+- Talent **names are localized**. Because the scan is inspection-based, only the scanner's client
+  locale matters, so name matching is safe here — see Assumptions.
 
 ## Decisions
 
@@ -37,9 +35,14 @@ and inspects the raid, so only the scanner's client locale matters. Recorded as 
    preference, not a gate. **Only the second kind is wired up in this project** — `requireSpec` is
    already reliable for the first kind, so converting it would change behaviour that has never been
    observed to fail.
-2. **The web tool owns the talent table.** The addon exports every rank positionally and knows
-   nothing about what any of them mean. Adding a talent-aware rule later is a web-tool-only change;
-   the addon never needs reinstalling for it.
+2. **The addon matches talents by name.** It carries the short list of talents the catalog cares
+   about, finds each by name while scanning, and exports `key=rank` pairs. *(This reverses an
+   earlier decision that had the web tool hold hardcoded `(tab, index)` coordinates. Coordinates
+   would have needed a one-off in-game capture before the code could be trusted, and would break
+   silently if Blizzard ever repatched a tree. Name matching needs neither. The objection to it was
+   that the addon must be reinstalled whenever the catalog wants a new talent — but scanning is
+   inspection-based, so that is only ever the one person who runs `/specscan`, and they are
+   reinstalling for the format bump regardless.)*
 3. **Fixed-position wire fields, empty allowed.** RSS2 nests race inside the subgroup check, so a
    player with no subgroup silently loses their race. RSS3 gives every field its own slot, any of
    which may be empty. This fixes that bug rather than compounding it.
@@ -52,20 +55,24 @@ Four components, each independently testable.
 
 ### 1. Addon — `RaidSpecScan` 3.0
 
-A `TalentRanks(isInspect)` function beside the existing `TabPoints`, walking
-`GetNumTalentTabs()` × `GetNumTalents(tab)` and emitting one digit per talent, tabs joined by `/`:
+A `TRACKED_TALENTS` table mapping a stable key to the English talent name, per class, and a
+`TalentPairs(class, isInspect)` beside the existing `TabPoints` that walks
+`GetNumTalentTabs()` × `GetNumTalents(tab)`, matches names, and emits `key=rank` pairs joined by `,`:
 
 ```
-0000320000000000000/00000000000000000/000000000000000000
+impExposeArmor=2
+impThunderClap=3,impDemoShout=5
 ```
 
-TBC ranks are 0–5, so one digit each; roughly 70 characters per player, ~2 KB for a 25-man. That is
-irrelevant for a copy-paste export frame.
+Only the tracked talents for that player's class are emitted, so the field is a few dozen characters
+at most.
 
-- A rank outside 0–9 (impossible today, but a signature change would produce it) makes the whole
-  talent string empty rather than emitting a plausible lie — the same defensive shape `TalentString`
-  already uses when it returns `"?"`.
-- A player who cannot be inspected keeps today's `"?"` for points and gets no talent segment.
+- **Every tracked key for the class is emitted, including at rank 0.** An untaken talent must read
+  as `impExposeArmor=0`, never as an omission — otherwise "we know they lack it" is indistinguishable
+  from "we have no data", and the whole three-state model collapses.
+- **A talent whose name is not found is omitted entirely**, which the web tool reads as unknown.
+  That is the honest degradation if a name is ever localized or renamed out from under us.
+- A player who cannot be inspected keeps today's `"?"` for points and gets an empty talent field.
 - Export header becomes `RSS3;`. Version bumps to 3.0.
 
 ### 2. Wire format — RSS3
@@ -73,13 +80,13 @@ irrelevant for a copy-paste export frame.
 Six colon-separated fields; any trailing field may be absent and any field may be empty:
 
 ```
-Name:CLASS:41/20/0:4:Human:0000320.../.../...
-Name:CLASS:41/20/0::Human:0000320.../.../...    no subgroup — race and talents survive
-Name:CLASS:41/20/0:4::0000320.../.../...        no race
-Name:CLASS:?:4:Human                            un-inspectable — no talent data
+Name:CLASS:41/20/0:4:Human:impExposeArmor=2
+Name:CLASS:41/20/0::Human:impThunderClap=3,impDemoShout=5   no subgroup — race and talents survive
+Name:CLASS:41/20/0:4::impExposeArmor=0                      no race; talent known-absent
+Name:CLASS:?:4:Human                                        un-inspectable — no talent data
 ```
 
-WoW character names cannot contain `:`, and neither talent points nor talent ranks use `:`, so a
+WoW character names cannot contain `:`, and neither talent points nor the talent field use `:`, so a
 plain `split(':')` yields at most six fields unambiguously.
 
 The parser moves from one nested-optional regex to a split plus per-field validation. Parsing is
@@ -88,34 +95,33 @@ so **RSS1 and RSS2 keep parsing with no special-casing**. The pinned RSS1 regres
 migrated; RSS3 fixtures are added alongside it.
 
 Field validation: `group` is 1–8 or empty; `race` is `[A-Za-z]+` or empty; `talents` matches
-`^[0-9]*(\/[0-9]*)*$` or is empty. A malformed field rejects that line with an error, consistent
+`^\w+=\d+(,\w+=\d+)*$` or is empty. A malformed field rejects that line with an error, consistent
 with existing behaviour.
 
 ### 3. Engine — talent table and ranking tier
 
-**`TALENTS`** — a table keyed by class, holding only the talents the catalog consumes. Each entry
-records the coordinates, the max rank, and the talent's English name as documentation:
+**`TALENTS`** — a flat table keyed by the same short key the addon exports, recording which class
+owns it, its max rank, and its display name. **No coordinates** — the addon resolved those by name at
+scan time:
 
 ```js
 const TALENTS = {
-    ROGUE:   { impExposeArmor: { tab: 3, index: 7,  maxRank: 2, name: 'Improved Expose Armor' } },
-    WARRIOR: { impThunderClap: { tab: 1, index: 9,  maxRank: 3, name: 'Improved Thunder Clap' },
-               impDemoShout:   { tab: 1, index: 12, maxRank: 5, name: 'Improved Demoralizing Shout' } },
-    PALADIN: { impSealCrusader:{ tab: 3, index: 10, maxRank: 3, name: 'Improved Seal of the Crusader' } },
+    impExposeArmor:  { class: 'ROGUE',   maxRank: 2, name: 'Improved Expose Armor' },
+    impThunderClap:  { class: 'WARRIOR', maxRank: 3, name: 'Improved Thunder Clap' },
+    impDemoShout:    { class: 'WARRIOR', maxRank: 5, name: 'Improved Demoralizing Shout' },
+    impSealCrusader: { class: 'PALADIN', maxRank: 3, name: 'Improved Seal of the Crusader' },
 };
 ```
 
-**The `index` values above are placeholders except `PALADIN.impSealCrusader`, which was read directly
-off the probe output (`3.10 Improved Seal of the Crusader 3/3`).** The remaining three must be
-captured in-game with `/tprobe target <talent name>` and written in before the code is trusted. This
-is the one input that cannot be derived on the development machine, and the implementation plan must
-treat capturing it as an explicit step rather than an assumption.
+The keys must match the addon's `TRACKED_TALENTS` exactly. That is the one coupling between the two
+sides, and it is a plain string rather than a positional guess — a mismatch reads as unknown rather
+than as a wrong rank.
 
 **`talentRank(player, key)` → `Number | null`.** The class comes from the player, so it is not a
-separate argument. Returns `null` (unknown) when the player has no talent data, when the coordinates
-fall outside the parsed ranks, **or when the parsed rank exceeds the recorded `maxRank`** — that last
-case is the guard against index drift, and it also pushes a warning so a silently-shifted table is
-diagnosable rather than invisible.
+separate argument. Returns `null` (unknown) when the player has no talent data, when the key is
+absent from their data, when the key belongs to a different class, **or when the rank exceeds the
+recorded `maxRank`** — that last case guards against the two sides drifting apart, and
+`talentDrift(roster)` reports it so a mismatch is diagnosable rather than invisible.
 
 **`improvedBy`** — an optional key on whatever catalog object carries `class`. For a single-class
 entry that is the entry; for a providers entry it is the individual provider, which is where
@@ -171,7 +177,7 @@ stay ASCII regardless, since `record()` output feeds those paths even when they 
 ```
 /specscan → inspect each raid member → GetTalentInfo ranks
   → "RSS3;Name:CLASS:pts:group:race:ranks;…"
-  → parseAddonExport → player.talentRanks : [[Number]] | null
+  → parseAddonExport → player.talents : { key: Number } | null
   → autoAssign → rankPool tier → duty.player + duty.qualifier
   → Assignments panel, Discord output
 ```
@@ -190,10 +196,10 @@ stay ASCII regardless, since `record()` output feeds those paths even when they 
   test is written.
 - **Addon** — `luajit -b RaidSpecScan/RaidSpecScan.lua /dev/null` syntax-checks it. This catches
   syntax only; behaviour still needs a live client.
-- **In-game** — capture the three unknown talent coordinates; confirm a real `/specscan` produces an
-  `RSS3;` export whose talent digits match the raid's actual talent panes for at least two players of
-  different classes; confirm the web tool's assignment changes as expected for a rogue known to lack
-  Improved Expose Armor.
+- **In-game** — confirm a real `/specscan` produces an `RSS3;` export whose `key=rank` pairs match
+  the raid's actual talent panes for at least two players of different classes, including one who has
+  *not* taken a tracked talent (must read `=0`, not be missing); confirm the web tool's assignment
+  changes as expected for a rogue known to lack Improved Expose Armor.
 
 ## Out of scope
 
@@ -208,5 +214,9 @@ stay ASCII regardless, since `record()` output feeds those paths even when they 
   localized but are used only as documentation in the engine table, never for matching.
 - The raid is scanned live with everyone present and in range, so talent data is near-universally
   available and the unknown tier is an edge case rather than a common path.
-- Talent `(tab, index)` coordinates are stable for the 2.5.x client this tool targets. The `maxRank`
-  guard exists because that assumption could break on a future patch.
+- The scanner's client is English, so the addon's English talent names match. This is the assumption
+  name matching rests on; it holds because only one person runs `/specscan`. If a non-English client
+  ever scans, tracked talents are simply omitted and every affected row reads as unknown — degraded,
+  not wrong.
+- The `maxRank` guard exists because the addon's `TRACKED_TALENTS` keys and the engine's `TALENTS`
+  keys are maintained on opposite sides of the wire and could drift apart.
