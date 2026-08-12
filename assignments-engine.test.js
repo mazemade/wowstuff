@@ -934,5 +934,46 @@ test('proposeGroups: does not mutate the caller roster or its players', () => {
     assert.strictEqual(JSON.stringify(roster), snapshot);          // no field written
 });
 
+function palRoster() {
+    return [
+        P('Retdin', 'PALADIN', 'Retribution'), P('Lightbringer', 'PALADIN', 'Holy'),
+        P('Bubbles', 'PALADIN', 'Protection'),
+        P('Thunderfist', 'WARRIOR', 'Protection'), P('Stabby', 'ROGUE', 'Combat'),
+        P('Mage1', 'MAGE', 'Fire'), P('Holymel', 'PRIEST', 'Holy'),
+    ];
+}
+
+test('proposeBlessings: only classes present get a column', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    assert.deepStrictEqual(g.classes.slice().sort(), ['MAGE', 'PALADIN', 'PRIEST', 'ROGUE', 'WARRIOR']);
+});
+test('proposeBlessings: one row per paladin, ret first', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    assert.strictEqual(g.rows.length, 3);
+    assert.strictEqual(g.rows[0].paladin, 'Retdin');
+});
+test('proposeBlessings: ret covers everything with kings', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    g.classes.forEach(c => assert.strictEqual(g.rows[0].cells[c], 'Greater Kings'));
+});
+test('proposeBlessings: holy splits might to physical, wisdom to casters', () => {
+    const g = E.proposeBlessings(palRoster(), {});
+    const holy = g.rows.find(r => r.paladin === 'Lightbringer');
+    assert.strictEqual(holy.cells.WARRIOR, 'Greater Might');
+    assert.strictEqual(holy.cells.ROGUE, 'Greater Might');
+    assert.strictEqual(holy.cells.MAGE, 'Greater Wisdom');
+    assert.strictEqual(holy.cells.PRIEST, 'Greater Wisdom');
+});
+test('proposeBlessings: an override replaces exactly one cell', () => {
+    const g = E.proposeBlessings(palRoster(), { 'Retdin|MAGE': 'Greater Salvation' });
+    assert.strictEqual(g.rows[0].cells.MAGE, 'Greater Salvation');
+    assert.strictEqual(g.rows[0].cells.WARRIOR, 'Greater Kings');
+});
+test('proposeBlessings: no paladins gives empty rows and a warning', () => {
+    const g = E.proposeBlessings(palRoster().filter(p => p.class !== 'PALADIN'), {});
+    assert.strictEqual(g.rows.length, 0);
+    assert.ok(g.warnings.some(w => /no paladin/i.test(w)));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

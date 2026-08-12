@@ -649,6 +649,60 @@
         return { groups, unplaced };
     }
 
+    const GREATER_BLESSINGS = ['Greater Kings', 'Greater Might', 'Greater Wisdom', 'Greater Salvation'];
+
+    // Classes whose raid role is predominantly physical. Druid, Shaman and Paladin are
+    // genuinely mixed — they land here because Might is the safer default for them, and the
+    // grid is editable precisely because that call depends on the comp.
+    const PHYSICAL_CLASSES = ['WARRIOR', 'ROGUE', 'HUNTER', 'DRUID', 'SHAMAN', 'PALADIN'];
+
+    // A Greater Blessing is cast on a whole class, so Salvation on WARRIOR lands on the tank too
+    // and cannot be withheld from him. Any class holding a tank therefore skips Salvation and the
+    // raid lead covers that tank with a single-target blessing instead. Feral counts as a tank:
+    // a cat losing Salvation costs little, a bear silently receiving it does not, and talent
+    // totals cannot tell the two apart.
+    function classHoldsTank(roster, cls) {
+        return roster.some(p => p.class === cls
+            && (p.spec === 'Protection' || (p.class === 'DRUID' && p.spec === 'Feral')));
+    }
+
+    // Paladin n gets plan n. Ret takes Kings raid-wide because it is the single best blessing
+    // and Ret is the least likely to be doing anything else at pull. With only four blessings a
+    // fourth paladin has nothing new to give, so their row starts empty for the lead to fill.
+    const BLESSING_PLANS = [
+        (cls, roster) => 'Greater Kings',
+        (cls, roster) => (PHYSICAL_CLASSES.indexOf(cls) !== -1 ? 'Greater Might' : 'Greater Wisdom'),
+        (cls, roster) => (classHoldsTank(roster, cls) ? null : 'Greater Salvation'),
+        (cls, roster) => null,
+    ];
+    const PALADIN_ORDER = { Retribution: 0, Holy: 1, Protection: 2 };
+
+    function proposeBlessings(roster, overrides) {
+        overrides = overrides || {};
+        const classes = [];
+        roster.forEach(p => { if (classes.indexOf(p.class) === -1) classes.push(p.class); });
+        classes.sort();
+
+        const paladins = roster.filter(p => p.class === 'PALADIN').slice().sort((a, b) => {
+            const oa = PALADIN_ORDER[a.spec], ob = PALADIN_ORDER[b.spec];
+            return (oa === undefined ? 9 : oa) - (ob === undefined ? 9 : ob) || a.name.localeCompare(b.name);
+        });
+
+        const rows = paladins.map((pal, i) => {
+            const plan = BLESSING_PLANS[i] || BLESSING_PLANS[BLESSING_PLANS.length - 1];
+            const cells = {};
+            classes.forEach(cls => {
+                const key = pal.name + '|' + cls;
+                cells[cls] = Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : plan(cls, roster);
+            });
+            return { paladin: pal.name, spec: pal.spec, cells };
+        });
+
+        const warnings = [];
+        if (!paladins.length && roster.length) warnings.push('No paladin in the raid — no blessings at all.');
+        return { classes, rows, warnings };
+    }
+
     return {
         SPEC_TREES, CLASS_COLORS,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
@@ -656,5 +710,6 @@
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
         bucketOf, proposeGroups,
+        GREATER_BLESSINGS, proposeBlessings,
     };
 }));
