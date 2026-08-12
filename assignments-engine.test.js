@@ -1122,6 +1122,19 @@ test('buildDiscord: renders rotations as a numbered order', () => {
     const line = out.split('\n').find(l => /Fear Ward/.test(l));
     assert.ok(line, 'no Fear Ward line in the output');
     assert.ok(line.indexOf('Zdiscy') < line.indexOf('Holymel'), line);
+    assert.ok(out.includes('**Rotations**'), 'no Rotations heading');
+});
+test('buildDiscord: rotations sit between cooldowns and crowd control', () => {
+    const roster = [P('Locky', 'WARLOCK', 'Affliction'), P('Zdiscy', 'PRIEST', 'Discipline'),
+                    P('Frostina', 'MAGE', 'Frost')];
+    const sheet = E.autoAssign(roster, {});
+    sheet.cc = E.defaultCC(roster);
+    const out = E.buildDiscord(roster, sheet, {});
+    const at = s => out.indexOf(s);
+    assert.ok(at('**Cooldowns**') !== -1 && at('**Rotations**') !== -1 && at('**Crowd Control**') !== -1,
+        'expected all three sections:\n' + out);
+    assert.ok(at('**Cooldowns**') < at('**Rotations**'), out);
+    assert.ok(at('**Rotations**') < at('**Crowd Control**'), out);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
