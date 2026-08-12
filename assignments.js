@@ -38,7 +38,10 @@ function recompute() {
         const src = mergeInfo.roster.find(p => p.name === m.name);
         // A manual edit rebuilds the player from the form, so anything the form does not
         // collect has to be re-attached from the scanned player behind it — discordId, and
-        // now the subgroup, race and talents the addon supplies.
+        // now the subgroup, race and talents the addon supplies. INVARIANT: this field list
+        // must be kept in step with every field a scanned player carries, or a manual edit
+        // silently drops it. This has already been missed twice — once for group/race, once
+        // for talents — so look here first when a new addon-supplied field goes missing.
         return Object.assign({}, m, {
             discordId: src ? src.discordId : m.discordId,
             group: src && src.group != null ? src.group : m.group,

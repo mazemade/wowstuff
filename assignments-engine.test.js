@@ -298,9 +298,10 @@ test('autoAssign: a higher rank wins inside the talented tier', () => {
     assert.strictEqual(duty(r, 'armor').player, 'Zhigh');
 });
 test('autoAssign: a row without improvedBy is unaffected by talent data', () => {
-    // Both rogues are Subtlety, so hemo genuinely has a choice to get wrong. Zsub takes
-    // `armor` on the talent tier, which leaves Asub ahead on duty count for hemo. If the
-    // tier ever reached a row with no improvedBy, Zsub would win hemo too and this goes red.
+    // Both rogues are Subtlety, so spec alone cannot decide armor — only the talent tier
+    // can, and Zsub's rank 2 wins it over Asub's rank 0 despite the tied spec, loading
+    // Zsub's duty count. hemo has no improvedBy, so its tier ties for both candidates and
+    // the pick falls through to duty count, which by then favors Asub.
     const r = E.autoAssign([rogue('Asub', 'Subtlety', 0), rogue('Zsub', 'Subtlety', 2)], {});
     assert.strictEqual(duty(r, 'armor').player, 'Zsub');
     assert.strictEqual(duty(r, 'hemo').player, 'Asub');
@@ -1298,6 +1299,19 @@ test('parseAddonExport: a malformed talent field rejects the line', () => {
     assert.strictEqual(res.players.length, 0);
     assert.ok(res.errors.some(e => /Stabby/.test(e)));
 });
+test('parseAddonExport: rejects a field count over the limit, an empty name, and a non-alpha race', () => {
+    const tooManyFields = E.parseAddonExport('RSS3;A:ROGUE:1/1/1:4:Human:x=1:extra');
+    assert.strictEqual(tooManyFields.players.length, 0);
+    assert.strictEqual(tooManyFields.errors.length, 1);
+
+    const emptyName = E.parseAddonExport('RSS3;:ROGUE:1/1/1');
+    assert.strictEqual(emptyName.players.length, 0);
+    assert.strictEqual(emptyName.errors.length, 1);
+
+    const digitRace = E.parseAddonExport('RSS3;A:ROGUE:1/1/1:4:Hum4n');
+    assert.strictEqual(digitRace.players.length, 0);
+    assert.strictEqual(digitRace.errors.length, 1);
+});
 
 function withTalents(p, t) { p.talents = t; return p; }
 test('talentRank: reads the rank the addon reported', () => {
@@ -1325,7 +1339,11 @@ test('talentRank: a rank above maxRank is treated as unknown, not trusted', () =
 });
 test('talentDrift: a clean roster reports nothing', () => {
     const p = withTalents(P('Stabby', 'ROGUE', 'Combat'), { impExposeArmor: 2 });
-    assert.deepStrictEqual(E.talentDrift([p, P('Smashy', 'WARRIOR', 'Arms')]), []);
+    // Smashy carries impExposeArmor's over-maxRank check under a key that belongs to ROGUE,
+    // not WARRIOR — talentDrift must not report it, the same cross-class hole talentRank's
+    // `def.class !== player.class` check was already fixed for.
+    const w = withTalents(P('Smashy', 'WARRIOR', 'Arms'), { impExposeArmor: 9 });
+    assert.deepStrictEqual(E.talentDrift([p, w]), []);
 });
 test('talentRank: a key the table does not know is unknown', () => {
     // The catalog names talent keys by hand in `improvedBy`; a typo there must read as
@@ -1364,6 +1382,52 @@ test('buildDiscord: the qualifier stays ASCII', () => {
         assert.ok(!/[^\x00-\x7F]/.test(d.qualifier), d.qualifier);
     });
     assert.ok(sheet.duties.some(d => d.qualifier), 'expected at least one qualifier to check');
+    // The fixture above only ever exercises impExposeArmor's name. Check every entry in the
+    // table directly so a future non-ASCII TALENTS name is caught even if no fixture happens
+    // to route a qualifier through it.
+    Object.keys(E.TALENTS).forEach(key => {
+        assert.ok(!/[^\x00-\x7F]/.test(E.TALENTS[key].name), E.TALENTS[key].name);
+    });
+});
+
+test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS table', () => {
+    // The talent keys are the one coupling between the two sides of the wire: the addon
+    // resolves them by name and exports the key, the engine looks the key back up in
+    // TALENTS. An engine-side rename dies loudly across many tests; an addon-side rename is
+    // invisible to every other test in this file, because nothing else here executes or
+    // reads the Lua. Read with a path relative to __dirname, not cwd — a relative path would
+    // silently read the wrong file if the process started elsewhere.
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const luaPath = path.join(__dirname, 'RaidSpecScan', 'RaidSpecScan.lua');
+    const lua = fs.readFileSync(luaPath, 'utf8');
+
+    const blockMatch = lua.match(/local TRACKED_TALENTS = \{([\s\S]*?)\n\s*\}/);
+    assert.ok(blockMatch, 'could not find TRACKED_TALENTS in RaidSpecScan.lua — did it move or get renamed?');
+
+    const luaTalents = {};
+    const classRe = /(\w+)\s*=\s*\{([^{}]*)\}/g;
+    let classMatch;
+    while ((classMatch = classRe.exec(blockMatch[1]))) {
+        const cls = classMatch[1];
+        const pairRe = /(\w+)\s*=\s*"([^"]+)"/g;
+        let pairMatch;
+        while ((pairMatch = pairRe.exec(classMatch[2]))) {
+            luaTalents[pairMatch[1]] = { class: cls, name: pairMatch[2] };
+        }
+    }
+
+    // A parse that matches nothing would leave luaTalents empty and every assertion below
+    // vacuously true — which is exactly the failure mode this whole test exists to catch.
+    // Fail loudly instead of silently reporting "no mismatches".
+    assert.strictEqual(Object.keys(luaTalents).length, 4,
+        'parsed the wrong number of talents out of RaidSpecScan.lua — regex likely did not match the table shape');
+
+    assert.deepStrictEqual(Object.keys(luaTalents).sort(), Object.keys(E.TALENTS).sort());
+    Object.keys(luaTalents).forEach(key => {
+        assert.strictEqual(luaTalents[key].name, E.TALENTS[key].name, `name mismatch for ${key}`);
+        assert.strictEqual(luaTalents[key].class, E.TALENTS[key].class, `class mismatch for ${key}`);
+    });
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -274,8 +274,10 @@
         // Does not conflict with Improved Scorch — different schools entirely.
         { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost' },
         // Strongest applies, they do not stack. Talented, Demo Shout and CoW tie at -420;
-        // untalented, CoW (-350) actually beats Demo Shout (-300). Talent picks are invisible
-        // to the addon, so this order is a spec-level guess the override exists to correct.
+        // untalented, CoW (-350) actually beats Demo Shout (-300). improvedBy now makes the
+        // ordering among warriors talent-aware, but the choice between providers — Demo
+        // Shout vs Curse of Weakness vs Demo Roar vs Screech — is still a spec-level guess
+        // the override exists to correct.
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
@@ -370,6 +372,10 @@
             const ta = talentTier(a, entry), tb = talentTier(b, entry);
             if (ta !== tb) return ta - tb;
             if (ta === 0 && entry.improvedBy) {
+                // Both candidates are tier 0 here, which per talentTier only happens when
+                // talentRank returned a positive number for each — so ra and rb are already
+                // guaranteed non-null and > 0. The `|| 0` fallbacks below are defensive only,
+                // not load-bearing; they never actually trigger on this path.
                 const ra = talentRank(a, entry.improvedBy) || 0, rb = talentRank(b, entry.improvedBy) || 0;
                 if (ra !== rb) return rb - ra; // higher rank first
             }
