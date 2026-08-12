@@ -481,7 +481,13 @@ test('buildAddonWhispers: players with no duties get no line', () => {
     const { roster, sheet } = sampleSheet();
     const names = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
         .map(l => l.slice(0, l.indexOf('=')));
-    assert.ok(!names.includes('Thunderfist')); // rogue expose now covers armor, leaving the prot warrior duty-free
+    // Assert the rule, not one incidental name: an earlier version named the prot warrior, and
+    // went stale the moment a new catalog entry gave him a duty.
+    const withDuty = new Set(sheet.duties.filter(d => d.player).map(d => d.player));
+    (sheet.cc || []).filter(c => c.player).forEach(c => withDuty.add(c.player));
+    assert.ok(names.length, 'expected at least one whisper line');
+    names.forEach(n => assert.ok(withDuty.has(n), 'whispered a player with no duties: ' + n));
+    assert.ok(!names.includes('Bubbles')); // prot paladin, still duty-free
 });
 test('buildAddonWhispers: mark tokens survive verbatim', () => {
     const { roster, sheet } = sampleSheet();
@@ -1071,6 +1077,42 @@ test('autoAssign: a rotation override replaces the order and drops absent names'
     const roster = [P('Shadowmel', 'PRIEST', 'Shadow'), P('Holymel', 'PRIEST', 'Holy')];
     const r = E.autoAssign(roster, { fearward: { players: ['Shadowmel', 'Ghost', 'Holymel'] } });
     assert.deepStrictEqual(duty(r, 'fearward').players, ['Shadowmel', 'Holymel']);
+});
+
+test('autoAssign: thunder clap, insect swarm, scorpid sting and hemorrhage are assigned', () => {
+    const roster = [P('Smashy', 'WARRIOR', 'Arms'), P('Moonpie', 'DRUID', 'Balance'),
+                    P('Legolass', 'HUNTER', 'Marksmanship'), P('Sneaky', 'ROGUE', 'Subtlety')];
+    const r = E.autoAssign(roster, {});
+    assert.strictEqual(duty(r, 'tclap').player, 'Smashy');
+    assert.strictEqual(duty(r, 'swarm').player, 'Moonpie');
+    assert.strictEqual(duty(r, 'sting').player, 'Legolass');
+    assert.strictEqual(duty(r, 'hemo').player, 'Sneaky');
+});
+test('autoAssign: insect swarm needs a balance druid, hemorrhage a sub rogue', () => {
+    const r = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Stabby', 'ROGUE', 'Combat')], {});
+    assert.ok(!duty(r, 'swarm'));
+    assert.ok(!duty(r, 'hemo'));
+    assert.ok(r.uncovered.missing.some(u => u.id === 'swarm'));
+});
+test('autoAssign: scorpid sting carries a stacking caution', () => {
+    const r = E.autoAssign([P('Legolass', 'HUNTER', 'Marksmanship')], {});
+    assert.ok(/Insect Swarm/.test(duty(r, 'sting').caution));
+});
+test('autoAssign: a combat rogue makes hemorrhage not applicable, not missing', () => {
+    const r = E.autoAssign([P('Stabby', 'ROGUE', 'Combat')], {});
+    assert.ok(!duty(r, 'hemo'));
+    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'hemo'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'hemo'));
+});
+test('autoAssign: thunder clap prefers the arms warrior over the tank', () => {
+    // Anti-alphabetical on purpose: rankPool's name tiebreak would otherwise produce the same
+    // answer whether or not preferSpecs exists.
+    const r = E.autoAssign([P('Aegis', 'WARRIOR', 'Protection'), P('Zarms', 'WARRIOR', 'Arms')], {});
+    assert.strictEqual(duty(r, 'tclap').player, 'Zarms');
+});
+test('autoAssign: scorpid sting prefers a survival hunter', () => {
+    const r = E.autoAssign([P('Aimer', 'HUNTER', 'Marksmanship'), P('Zsurv', 'HUNTER', 'Survival')], {});
+    assert.strictEqual(duty(r, 'sting').player, 'Zsurv');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
