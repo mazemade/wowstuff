@@ -317,6 +317,12 @@ test('autoAssign: improvedBy survives providersOf on a single-class entry', () =
     const r = E.autoAssign([warrior('Aarms', 'Arms', 0), warrior('Zprot', 'Protection', 3)], {});
     assert.strictEqual(duty(r, 'tclap').player, 'Zprot');
 });
+test('autoAssign: a talented player beats one whose talents are unknown', () => {
+    // Same spec on both, so specRank cannot decide, and the unknown player sorts first
+    // alphabetically — only the tier can put Ztalented ahead.
+    const r = E.autoAssign([rogue('Aunknown', 'Combat', null), rogue('Ztalented', 'Combat', 2)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Ztalented');
+});
 
 // --- Task 6: cooldowns + CC ---
 test('autoAssign: two druids innervate first mage and reserve last', () => {
