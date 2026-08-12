@@ -135,8 +135,21 @@ These habits caught every real defect on this branch.
 ## 4. Harness notes — hard-won, not in any plan
 
 **Tests:** `node assignments-engine.test.js` from the worktree root. Prints `N passed, M failed`,
-exits non-zero on failure. There is no Lua test harness and **no `lua`/`luac` binary on this
-machine** — addon changes can only be reviewed by careful reading.
+exits non-zero on failure.
+
+**Lua:** there is no Lua *test* harness, but **`luajit` IS available** at
+`/opt/homebrew/bin/luajit` (LuaJIT 2.1, Lua 5.1 syntax — the same dialect WoW uses). Syntax-check
+any addon change with:
+
+```
+luajit -b RaidSpecScan/RaidSpecScan.lua /dev/null
+```
+
+All four addons (`RaidSpecScan`, `RaidAssign`, `GruulPositions`, and the throwaway `TalentProbe`)
+compile clean as of 2026-08-12. This does not execute anything or resolve WoW globals, so it
+catches syntax and nothing else — behaviour still needs a live client. *(Earlier revisions of this
+file claimed no Lua binary existed and that addon changes could only be reviewed by reading. That
+was wrong.)*
 
 **Browser verification:** there is no browser tool in this harness. A CDP driver lives in the
 session scratchpad as `cdp.js` (usage: `node cdp.js <url> <script-file>`); adapted per-feature
