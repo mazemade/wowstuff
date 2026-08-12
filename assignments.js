@@ -12,6 +12,7 @@ let state = {
     cc: null,                            // [{mark, ability, player}] or null = engine defaults
     pings: true,
     title: '',
+    blessings: {},                       // '<paladin>|<CLASS>' -> blessing name or null
 };
 let linkMap = {};   // discordId -> character name (persists across roster resets)
 let roster = [];
@@ -55,6 +56,11 @@ function recompute() {
         if (o.player && !names.has(o.player)) delete o.player;
         if (o.target && !names.has(o.target) && o.target !== 'HEALER_RESERVE') delete o.target;
     });
+    // Drop cells belonging to a paladin who is no longer on the roster, the same way
+    // override players are dropped — otherwise a re-import resurrects a stale grid.
+    Object.keys(state.blessings || {}).forEach(k => {
+        if (!names.has(k.split('|')[0])) delete state.blessings[k];
+    });
 
     const result = E.autoAssign(roster, state.overrides);
     sheet = Object.assign({}, result, { cc: state.cc || E.defaultCC(roster) });
@@ -67,6 +73,7 @@ function renderAll() {
     renderLinkPanel();
     renderAssignments();
     renderGroups();
+    renderBlessings();
     renderOutput();
 }
 
@@ -383,6 +390,54 @@ function renderGroups() {
     }
 }
 
+function renderBlessings() {
+    const box = document.getElementById('blessingGrid');
+    const warnBox = document.getElementById('blessingWarnings');
+    box.innerHTML = '';
+    if (!roster.length) { box.textContent = 'Import a roster first.'; warnBox.classList.add('hidden'); return; }
+
+    const g = E.proposeBlessings(roster, state.blessings);
+    const table = document.createElement('table');
+    table.className = 'blessing-grid';
+
+    const head = document.createElement('tr');
+    head.appendChild(document.createElement('th'));
+    g.classes.forEach(c => {
+        const th = document.createElement('th');
+        th.textContent = c.slice(0, 3);
+        th.title = c;
+        th.style.color = E.CLASS_COLORS[c];
+        head.appendChild(th);
+    });
+    table.appendChild(head);
+
+    const opts = E.GREATER_BLESSINGS.map(b => ({ value: b, label: b.replace('Greater ', 'G.') }));
+    g.rows.forEach(row => {
+        const tr = document.createElement('tr');
+        const name = document.createElement('th');
+        name.textContent = row.paladin;
+        name.style.color = E.CLASS_COLORS.PALADIN;
+        tr.appendChild(name);
+        g.classes.forEach(cls => {
+            const td = document.createElement('td');
+            td.appendChild(makeSelect(opts, row.cells[cls], true, val => {
+                state.blessings[row.paladin + '|' + cls] = val;
+                renderAll();
+            }));
+            tr.appendChild(td);
+        });
+        table.appendChild(tr);
+    });
+    box.appendChild(table);
+
+    if (g.warnings.length) {
+        warnBox.classList.remove('hidden');
+        warnBox.textContent = '⚠ ' + g.warnings.join('  ·  ');
+    } else {
+        warnBox.classList.add('hidden');
+    }
+}
+
 function renderAssignments() {
     const uncoveredBox = document.getElementById('uncoveredBox');
     const missing = E.missingList(sheet.uncovered);
@@ -457,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('clearRosterBtn').addEventListener('click', () => {
         if (!confirm('Clear the whole roster and assignments? (Name links are kept.)')) return;
-        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, cc: null, pings: state.pings, title: '' };
+        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, title: '' };
         renderAll();
     });
     document.getElementById('autoAssignBtn').addEventListener('click', () => {

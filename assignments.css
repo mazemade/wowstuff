@@ -66,3 +66,8 @@
 .hint { font-weight: normal; font-size: 0.7em; opacity: 0.6; }
 
 #groupsBox > .warn { flex: 1 0 100%; }
+
+.blessing-grid { border-collapse: collapse; font-size: 0.85em; }
+.blessing-grid th { padding: 4px 6px; text-align: left; font-weight: 600; }
+.blessing-grid td { padding: 2px; }
+.blessing-grid select { font-size: 0.9em; }
