@@ -496,11 +496,23 @@
                 uncovered.missing.push({ id: entry.id, name: entry.name });
                 return;
             }
+            // A provider whose best candidate is KNOWN to lack the improving talent loses its
+            // place in line: pass 1 takes the first provider in catalog order whose best
+            // candidate is not tier 2, pass 2 accepts anyone. Unknown data (tier 1) never
+            // demotes — a Raid-Helper roster keeps today's order — and a known-untalented
+            // candidate still beats an empty row.
+            const ranked = [];
             for (let i = 0; i < provs.length; i++) {
                 const prov = Object.assign({}, provs[i], { id: entry.id, category: entry.category });
                 const pool = rankPool(roster.filter(p => eligible(p, prov)), prov, dutyCount);
-                if (pool.length) { record(prov, prov.name, pool[0]); return; }
+                if (pool.length) ranked.push({ prov: prov, pool: pool });
             }
+            let pick = null;
+            for (let i = 0; i < ranked.length && !pick; i++) {
+                if (talentTier(ranked[i].pool[0], ranked[i].prov) !== 2) pick = ranked[i];
+            }
+            if (!pick && ranked.length) pick = ranked[0];
+            if (pick) { record(pick.prov, pick.prov.name, pick.pool[0]); return; }
             uncovered.missing.push({ id: entry.id, name: entry.name });
         });
 

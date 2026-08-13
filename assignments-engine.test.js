@@ -1570,5 +1570,30 @@ test('autoAssign: hemorrhage goes to the combat rogue who has the talent, spec n
     assert.strictEqual(duty(r, 'hemo').qualifier, 'Hemorrhage 1/1');
 });
 
+test('autoAssign: a rogue known to lack improved expose armor loses armor to sunder', () => {
+    const r = E.autoAssign([rogue('Astab', 'Combat', 0), P('Ztank', 'WARRIOR', 'Protection')], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Ztank');
+    assert.strictEqual(duty(r, 'armor').name, 'Sunder Armor');
+});
+test('autoAssign: a rogue with unknown talents keeps armor ahead of sunder, as today', () => {
+    const r = E.autoAssign([rogue('Astab', 'Combat', null), P('Ztank', 'WARRIOR', 'Protection')], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Astab');
+    assert.strictEqual(duty(r, 'armor').name, 'Improved Expose Armor');
+});
+test('autoAssign: a known-untalented rogue still beats an empty armor row', () => {
+    const r = E.autoAssign([rogue('Astab', 'Combat', 0)], {});
+    assert.strictEqual(duty(r, 'armor').player, 'Astab');
+    assert.strictEqual(duty(r, 'armor').qualifier, 'no Improved Expose Armor');
+});
+test('autoAssign: an ap warrior known to lack imp demo shout loses the row to curse of weakness', () => {
+    // THREE locks: coe and cor each burn one via the curse-exclusivity group before the ap
+    // row runs, so a third is needed for Curse of Weakness to have an eligible caster.
+    function dslock(name) { return P(name, 'WARLOCK', 'Affliction'); }
+    const war = P('Awar', 'WARRIOR', 'Arms');
+    war.talents = { impDemoShout: 0 };
+    const r = E.autoAssign([war, dslock('Block'), dslock('Clock'), dslock('Dlock')], {});
+    assert.strictEqual(duty(r, 'ap').name, 'Curse of Weakness');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
