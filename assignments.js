@@ -75,6 +75,14 @@ function recompute() {
         if (!names.has(k.slice(0, k.lastIndexOf('|')))) delete state.blessings[k];
     });
 
+    // Per-player tuning the optimizer reads (spec §6). Keyed by name like state.overrides, so
+    // it survives a re-import; the engine treats missing fields as mt:false / mult:1.
+    if (!state.playerMeta) state.playerMeta = {};
+    roster.forEach(p => {
+        const m = state.playerMeta[p.name];
+        if (m) { p.mt = !!m.mt; if (typeof m.mult === 'number' && m.mult > 0) p.mult = m.mult; }
+    });
+
     const result = E.autoAssign(roster, state.overrides);
     sheet = Object.assign({}, result, {
         cc: state.cc || E.defaultCC(roster),
@@ -431,6 +439,16 @@ function ccRow(c, index) {
 
 const ROLE_LABELS = { melee: 'Melee', casters: 'Casters', healers: 'Healers', ranged: 'Hunters', tanks: 'Tanks' };
 
+// These deltas are small by nature — a genuine alternative can sit at -0.03% — so one decimal
+// would print "-0.0%" and read as "no difference". Widen the precision until a non-zero digit
+// survives, so a real trade-off is never displayed as a wash.
+function fmtPct(x) {
+    for (const dp of [1, 2, 3]) {
+        if (Math.abs(x) >= 0.5 / Math.pow(10, dp)) return x.toFixed(dp);
+    }
+    return x.toFixed(3);
+}
+
 function renderGroups() {
     // A rendered AI review critiques one specific layout. If the layout changes underneath
     // it (import, remove, auto-assign) it must not outlive that layout, so clear and rehide
@@ -440,6 +458,44 @@ function renderGroups() {
     const box = document.getElementById('groupsBox');
     box.innerHTML = '';
     if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
+
+    // Collapsed by default: two rarely-touched dials that the optimizer genuinely needs —
+    // which tank is the MT (the survivability floor) and how a player rates against an
+    // average one of their spec (the one case gear changes the structural answer).
+    const tune = document.createElement('details');
+    tune.className = 'player-tuning';
+    const sum = document.createElement('summary');
+    sum.textContent = 'Player tuning (MT flag / DPS multiplier)';
+    tune.appendChild(sum);
+    roster.forEach(p => {
+        const m = state.playerMeta[p.name] || {};
+        const row = document.createElement('div');
+        row.className = 'tuning-row';
+        const label = document.createElement('span');
+        label.textContent = p.name;
+        label.style.color = E.CLASS_COLORS[p.class];
+        const mt = document.createElement('input');
+        mt.type = 'checkbox';
+        mt.checked = !!m.mt;
+        mt.title = 'Main tank — the optimizer guarantees a shaman in this group';
+        mt.addEventListener('change', () => {
+            state.playerMeta[p.name] = Object.assign({}, state.playerMeta[p.name], { mt: mt.checked });
+            renderAll();
+        });
+        const mult = document.createElement('input');
+        mult.type = 'number';
+        mult.min = '0.5'; mult.max = '2'; mult.step = '0.05';
+        mult.value = typeof m.mult === 'number' ? m.mult : 1;
+        mult.title = 'Relative output vs an average player of this spec (gear/skill)';
+        mult.addEventListener('change', () => {
+            state.playerMeta[p.name] = Object.assign({}, state.playerMeta[p.name], { mult: parseFloat(mult.value) || 1 });
+            renderAll();
+        });
+        row.appendChild(mt); row.appendChild(label); row.appendChild(mult);
+        tune.appendChild(row);
+    });
+    box.appendChild(tune);
+
     const res = E.proposeGroups(roster);
     res.groups.forEach((g, i) => {
         const card = document.createElement('div');
@@ -452,6 +508,10 @@ function renderGroups() {
             row.className = 'group-player';
             row.textContent = p.name + (p.spec ? ' (' + p.spec + ')' : '');
             row.style.color = E.CLASS_COLORS[p.class];
+            if (res.marginals && res.marginals[p.name] != null) {
+                row.title = 'Moving ' + p.name + ' to their best other seat costs '
+                    + fmtPct(res.marginals[p.name]) + '% raid DPS';
+            }
             card.appendChild(row);
         });
         g.notes.forEach(t => {
@@ -462,6 +522,21 @@ function renderGroups() {
         });
         box.appendChild(card);
     });
+    // Keep the tool an argument rather than an oracle (spec §8): show what the layout scores,
+    // whether any floor is breached, and the nearest alternatives it rejected.
+    if (typeof res.score === 'number') {
+        const meta = document.createElement('div');
+        meta.className = 'group-note';
+        meta.textContent = 'Layout score: ' + Math.round(res.score) + ' raid DPS (model)'
+            + (res.violations ? ' — ⚠ floor violations: ' + res.violations : '');
+        box.appendChild(meta);
+        (res.alternates || []).forEach(a => {
+            const alt = document.createElement('div');
+            alt.className = 'group-note';
+            alt.textContent = 'Alternative: ' + a.change + ' (' + fmtPct(a.deltaPct) + '%)';
+            box.appendChild(alt);
+        });
+    }
     if (res.unplaced.length) {
         const warn = document.createElement('div');
         warn.className = 'warn';
