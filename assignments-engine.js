@@ -443,8 +443,19 @@
             // An improvedBy or requireTalent row can pick an off-spec player because they hold
             // the talent, which reads as a bug unless the row says why. ASCII only — this
             // object feeds the addon whisper path, whose length budget assumes it.
+            //
+            // Only speak up here if the player was scanned at all (player.talents is set).
+            // A Raid-Helper signup, a manually added player, or a player the addon never
+            // inspected has no talents object, and "talent unknown" about them would only
+            // restate that the roster has no scan data for anyone like them — noise, not a
+            // finding, and the common case on most rosters. A player who WAS scanned but whose
+            // talents object lacks this specific key is a different animal: the addon resolves
+            // talent names by string and silently drops any name it cannot find, so a missing
+            // key there means a real talent-name drift between the addon and TALENTS above, or
+            // a known scan-bounds bug in the addon. That is worth saying "talent unknown" about,
+            // so it must not be folded into the same silence as the wholly-unscanned case.
             const explainKey = entry.improvedBy || entry.requireTalent;
-            if (explainKey && player) {
+            if (explainKey && player && player.talents) {
                 const def = TALENTS[explainKey];
                 const rank = talentRank(player, explainKey);
                 if (def) {

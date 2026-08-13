@@ -1426,8 +1426,29 @@ test('autoAssign: an improvedBy row says so when the talent is missing', () => {
     assert.strictEqual(duty(r, 'armor').qualifier, 'no Improved Expose Armor');
 });
 test('autoAssign: an improvedBy row says so when the talent is unknown', () => {
-    const r = E.autoAssign([rogue('Zcombat', 'Combat', null)], {});
+    const p = rogue('Zcombat', 'Combat', null);
+    p.talents = { hemorrhage: 0 }; // scanned, but impExposeArmor was not among the pairs
+    const r = E.autoAssign([p], {});
     assert.strictEqual(duty(r, 'armor').qualifier, 'talent unknown');
+});
+test('autoAssign: a player who was never scanned gets no qualifier at all', () => {
+    // The owner's call on the whole-plan review: an unset `talents` means a Raid-Helper
+    // signup, a manually added player, or a player the addon never inspected — not a finding,
+    // just the common case on most rosters. Saying "talent unknown" there only restates that
+    // fact, repeated on every talent-dependent row the player holds, so the row must carry no
+    // qualifier at all rather than the old noisy text.
+    const r = E.autoAssign([rogue('Zcombat', 'Combat', null)], {});
+    assert.strictEqual(duty(r, 'armor').qualifier, undefined);
+});
+test('autoAssign: a requireTalent row still says talent unknown for a scanned player missing this key', () => {
+    // Distinct from the test above: this mage WAS scanned (talents is set), just not for
+    // wintersChill. That gap is a real diagnostic — a talent-name drift between the addon and
+    // TALENTS, or a known scan-bounds bug in the addon — so it must keep saying so, unlike the
+    // wholly-unscanned case.
+    const p = mage('Zfrost', 'Frost', null);
+    p.talents = { impScorch: 0 };
+    const r = E.autoAssign([p], {});
+    assert.strictEqual(duty(r, 'wc').qualifier, 'talent unknown');
 });
 test('autoAssign: a row without improvedBy carries no qualifier', () => {
     // hemo was the example here until it gained requireTalent. The Sunder provider has
@@ -1537,9 +1558,14 @@ test("autoAssign: hunter's mark goes to the hunter whose mark is improved", () =
     const r = E.autoAssign([hunt('Amm', 'Marksmanship', 0), hunt('Zbm', 'Beast Mastery', 5)], {});
     assert.strictEqual(duty(r, 'hm').player, 'Zbm');
 });
-test('autoAssign: ranker rows with no talent data keep their spec-guess pick', () => {
-    // The degrade-to-today rule: unknown data must reproduce the current behaviour.
-    const r = E.autoAssign([lock('Aaffl', 'Affliction', null), lock('Zdestro', 'Destruction', null)], {});
+test('autoAssign: ranker rows with an unknown talent rank keep their spec-guess pick', () => {
+    // The degrade-to-today rule: unknown data must reproduce the current behaviour. Both locks
+    // are scanned, but Malediction is not among the pairs the addon found for either — that
+    // keeps the qualifier meaningful (see below) without disturbing the pick logic, which only
+    // cares that talentRank(p, 'malediction') comes back null for both.
+    const aaffl = lock('Aaffl', 'Affliction', null); aaffl.talents = { unrelatedTalent: 0 };
+    const zdestro = lock('Zdestro', 'Destruction', null); zdestro.talents = { unrelatedTalent: 0 };
+    const r = E.autoAssign([aaffl, zdestro], {});
     assert.strictEqual(duty(r, 'coe').player, 'Aaffl');
     assert.strictEqual(duty(r, 'coe').qualifier, 'talent unknown');
 });
@@ -1561,7 +1587,9 @@ test('autoAssign: a frost mage known to lack winters chill does not get the row'
     assert.ok(r.uncovered.missing.some(u => u.id === 'wc'));
 });
 test('autoAssign: a frost mage with unknown talents keeps the row, as today', () => {
-    const r = E.autoAssign([mage('Afrost', 'Frost', null)], {});
+    const p = mage('Afrost', 'Frost', null);
+    p.talents = { impScorch: 0 }; // scanned, but wintersChill was not among the pairs
+    const r = E.autoAssign([p], {});
     assert.strictEqual(duty(r, 'wc').player, 'Afrost');
     assert.strictEqual(duty(r, 'wc').qualifier, 'talent unknown');
 });
@@ -1607,7 +1635,9 @@ test('autoAssign: a fire mage known to lack improved scorch does not get the row
     assert.ok(r.uncovered.missing.some(u => u.id === 'scorch'));
 });
 test('autoAssign: a fire mage with unknown talents keeps improved scorch, as today', () => {
-    const r = E.autoAssign([scorchMage('Afire', 'Fire', null)], {});
+    const p = scorchMage('Afire', 'Fire', null);
+    p.talents = { wintersChill: 0 }; // scanned, but impScorch was not among the pairs
+    const r = E.autoAssign([p], {});
     assert.strictEqual(duty(r, 'scorch').player, 'Afire');
     assert.strictEqual(duty(r, 'scorch').qualifier, 'talent unknown');
 });
@@ -1624,7 +1654,9 @@ test('autoAssign: a balance druid known to lack insect swarm does not get the ro
     assert.ok(r.uncovered.missing.some(u => u.id === 'swarm'));
 });
 test('autoAssign: a balance druid with unknown talents keeps insect swarm, as today', () => {
-    const r = E.autoAssign([dru('Abal', 'Balance', 'insectSwarm', null)], {});
+    const p = dru('Abal', 'Balance', 'insectSwarm', null);
+    p.talents = { feralAggression: 0 }; // scanned, but insectSwarm was not among the pairs
+    const r = E.autoAssign([p], {});
     assert.strictEqual(duty(r, 'swarm').player, 'Abal');
     assert.strictEqual(duty(r, 'swarm').qualifier, 'talent unknown');
 });
@@ -1650,14 +1682,17 @@ test('autoAssign: a known-untalented rogue still beats an empty armor row', () =
     assert.strictEqual(duty(r, 'armor').player, 'Astab');
     assert.strictEqual(duty(r, 'armor').qualifier, 'no Improved Expose Armor');
 });
-test('autoAssign: an unscanned rogue protects the armor row even with a known-0 rogue present', () => {
+test('autoAssign: a rogue with an unknown armor talent protects the row even with a known-0 rogue present', () => {
     // Spec decision 6: a provider is demoted only when its BEST eligible candidate is
-    // known-untalented. With two rogues, Aunk (unscanned) outranks Zbad (known-0) inside the
-    // Improved Expose Armor pool, so the pool's best candidate (pool[0]) is unknown, not
-    // known-untalented, and the row must not demote to Sunder Armor even though a known-0
-    // sibling is standing right there. Reading pool[pool.length - 1] instead would grab Zbad
-    // and wrongly demote to the Protection warrior's Sunder Armor.
-    const r = E.autoAssign([rogue('Aunk', 'Combat', null), rogue('Zbad', 'Combat', 0),
+    // known-untalented. With two rogues, Aunk (impExposeArmor unknown, but scanned — hemorrhage
+    // is on record) outranks Zbad (known-0) inside the Improved Expose Armor pool, so the
+    // pool's best candidate (pool[0]) is unknown, not known-untalented, and the row must not
+    // demote to Sunder Armor even though a known-0 sibling is standing right there. Reading
+    // pool[pool.length - 1] instead would grab Zbad and wrongly demote to the Protection
+    // warrior's Sunder Armor.
+    const aunk = rogue('Aunk', 'Combat', null);
+    aunk.talents = { hemorrhage: 0 }; // scanned, but impExposeArmor was not among the pairs
+    const r = E.autoAssign([aunk, rogue('Zbad', 'Combat', 0),
                             P('Ztank', 'WARRIOR', 'Protection')], {});
     assert.strictEqual(duty(r, 'armor').name, 'Improved Expose Armor');
     assert.strictEqual(duty(r, 'armor').player, 'Aunk');
