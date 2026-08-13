@@ -77,8 +77,11 @@ encode. For scoring, a group's shaman contribution is computed group-wide, not
 per-shaman:
 
 - **earth:** Strength of Earth if any shaman is present.
-- **air:** whichever of Windfury / Grace of Air / Wrath of Air maximizes the group's
-  summed score (argmax over the three).
+- **air:** if an Elemental shaman is present, always Wrath of Air — this preserves
+  the shipped ruling (an Elemental will not sacrifice its own spell damage to imbue
+  melee) that the existing air-note tests already pin down. Otherwise whichever of
+  Windfury / Grace of Air / Wrath of Air maximizes the group's summed score (argmax
+  over the three; ties keep Windfury).
 - **fire:** Totem of Wrath if any Elemental is present.
 - **water:** Mana Tide if any Restoration shaman is present.
 
@@ -92,12 +95,20 @@ place. Two consistency rules follow from that:
 
 1. **Every scored buff gets a group note.** `NOTE_RULES` today covers Windfury,
    Strength of Earth, Grace of Air, Wrath of Air, Totem of Wrath, Mana Tide, Battle
-   Shout, Unleashed Rage, Leader of the Pack, Ferocious Inspiration and the paladin
-   aura. New note rules are added for the modeled buffs that currently print
-   nothing: **Trueshot Aura, Moonkin Aura, Vampiric Touch (mana), Blood Pact** —
-   otherwise the optimizer places someone "for" a buff the panel never shows, and
-   the layout looks arbitrary. Same pattern as the existing rules (provider in
-   group + at least one non-provider beneficiary).
+   Shout, Unleashed Rage, Leader of the Pack, Ferocious Inspiration, Moonkin Aura,
+   Vampiric Touch, the paladin aura and the draenei presence. New note rules are
+   added for the two modeled buffs that currently print nothing: **Trueshot Aura**
+   (requires a physical beneficiary besides the provider) and **Blood Pact**
+   (benefits everyone; provider-only) — otherwise the optimizer places someone
+   "for" a buff the panel never shows, and the layout looks arbitrary.
+   Additionally, the four air-totem note rules (Windfury + Strength of Earth,
+   Grace of Air, Wrath of Air, baseline Windfury) are **rewritten to delegate to
+   the score's air-totem choice** instead of duplicating its conditions — the note
+   claims exactly the air totem the score model picked, so score and notes cannot
+   disagree and the one-air-note invariant holds by construction. This makes the
+   notes honest in cases the old rules under-claimed (a resto shaman parked with
+   casters now correctly claims Wrath of Air; a resto shaman with a cat and a bear
+   claims Grace of Air even with no hunter present).
 2. **No per-player buff assignments are needed.** Unlike debuffs, party buffs are
    automatic from group membership (every warrior shouts their own group, every
    shaman drops for their own party), so "assigning Battle Shout" IS the group
@@ -200,10 +211,10 @@ assignments-engine.test.js`, currently 225 passing; no network calls in the suit
 
 - **Weights:** spot checks per archetype (rogue values WF at 10 and WoA at 0; hunter
   values GoA over WF; enh shaman gains 0 from Windfury Totem).
-- **New note rules:** an MM hunter with melee prints the Trueshot note; a Balance
-  druid with casters prints Moonkin Aura; a Shadow priest with casters prints
-  Vampiric Touch; a warlock group prints Blood Pact; none print without a
-  beneficiary present.
+- **New note rules:** an MM hunter with melee prints the Trueshot note and a lone
+  MM among casters does not; any warlock group prints Blood Pact; a resto shaman
+  with a cat and bear claims Grace of Air (air delegation) with exactly one air
+  note total.
 - **Totem choice:** a group of casters + shaman scores air as Wrath of Air; the same
   shaman with melee scores it as Windfury; adding a second same-spec shaman changes
   no group's score.

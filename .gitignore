@@ -27,3 +27,6 @@ node_modules/
 package-lock.json
 yarn.lock
 .superpowers/
+
+# Secrets — the OpenAI key for /api/ai-review lives here, never in the repo
+.env
