@@ -355,9 +355,9 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
     by `talentDrift`" — only covers an *under*-stated value. An *over*-stated `maxRank` is silent in
     the opposite direction: `talentRank` never rejects it, `talentDrift` never fires, selection is
     unaffected, and the row renders wrong text forever with no signal (e.g. `Winter's Chill 3/5`).
-    `wintersChill: 5` is the value the spec itself flags as least certain (TBC Winter's Chill is
-    widely 3 ranks), and is the one most worth checking this way. The absence of a `talentDrift`
-    warning does not confirm a `maxRank` is correct.
+    The absence of a `talentDrift` warning does not confirm a `maxRank` is correct. Applies to every
+    max rank in `TALENTS`; `impWisdom` (2) is the least certain. For `wintersChill` see item 11 —
+    that one was challenged and the challenge was rejected on TBC-vs-WotLK grounds, so 5 stands.
 
 ---
 
