@@ -1065,6 +1065,10 @@ test('proposeBlessings: a feral druid counts as a tank for the salvation rule', 
     assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Bear', 'DRUID', 'Feral')]), {}).rows[2].cells.DRUID, null);
     assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
 });
+test('proposeBlessings: a Guardian druid counts as a tank for the salvation rule', () => {
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Bear', 'DRUID', 'Guardian')]), {}).rows[2].cells.DRUID, null);
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
+});
 
 function pala(name, spec, t) {
     const p = P(name, 'PALADIN', spec);
@@ -1706,6 +1710,177 @@ test('autoAssign: an ap warrior known to lack imp demo shout loses the row to cu
     war.talents = { impDemoShout: 0 };
     const r = E.autoAssign([war, dslock('Block'), dslock('Clock'), dslock('Dlock')], {});
     assert.strictEqual(duty(r, 'ap').name, 'Curse of Weakness');
+});
+
+test('SELECTABLE_SPECS: druids can be marked Guardian, other classes are unchanged', () => {
+    assert.deepStrictEqual(E.SELECTABLE_SPECS.DRUID, ['Balance', 'Feral', 'Guardian', 'Restoration']);
+    assert.deepStrictEqual(E.SELECTABLE_SPECS.MAGE, ['Arcane', 'Fire', 'Frost']);
+});
+test('SPEC_TREES stays positional so talent inference is unaffected', () => {
+    assert.deepStrictEqual(E.SPEC_TREES.DRUID, ['Balance', 'Feral', 'Restoration']);
+    assert.strictEqual(E.inferSpec('DRUID', [0, 47, 14]).spec, 'Feral');
+});
+test('isFeralSpec: guardian and feral both count as feral for abilities', () => {
+    assert.strictEqual(E.isFeralSpec('Feral'), true);
+    assert.strictEqual(E.isFeralSpec('Guardian'), true);
+    assert.strictEqual(E.isFeralSpec('Balance'), false);
+    assert.strictEqual(E.isFeralSpec(null), false);
+});
+test('parseRaidHelper: a Guardian signup stays Guardian instead of collapsing to Feral', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Bearface', className: 'Druid', specName: 'Guardian', status: 'primary', userId: '1' },
+    ] });
+    assert.strictEqual(r.players[0].spec, 'Guardian');
+    assert.deepStrictEqual(r.players[0].flags, []);
+});
+
+test('mergeRosters: a Guardian signup refines the addon Feral rather than being overwritten', () => {
+    const addon = [{ name: 'Bearface', class: 'DRUID', spec: 'Feral', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Bearface', class: 'DRUID', spec: 'Guardian', discordId: '1', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    const bear = r.roster.find(p => p.name === 'Bearface');
+    assert.strictEqual(bear.spec, 'Guardian');
+    assert.deepStrictEqual(r.mismatches, []);
+    assert.ok(!bear.flags.some(f => /signed-as/.test(f)));
+});
+test('mergeRosters: Feral signup against an addon Feral is not a mismatch either', () => {
+    const addon = [{ name: 'Kitty', class: 'DRUID', spec: 'Feral', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Kitty', class: 'DRUID', spec: 'Feral', discordId: '2', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    assert.strictEqual(r.roster[0].spec, 'Feral');
+    assert.deepStrictEqual(r.mismatches, []);
+});
+test('mergeRosters: a genuine spec disagreement is still flagged', () => {
+    const addon = [{ name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Moonpie', class: 'DRUID', spec: 'Restoration', discordId: '3', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    assert.strictEqual(r.roster[0].spec, 'Balance');
+    assert.strictEqual(r.mismatches.length, 1);
+});
+
+test('autoAssign: a Guardian druid can take faerie fire and demoralizing roar', () => {
+    // A cat is in the roster so preferSpecs ordering is actually exercised — with a lone druid
+    // the pool has one candidate and this would pass whether or not Guardian is preferred.
+    const r = E.autoAssign([P('Kitty', 'DRUID', 'Feral'), P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.strictEqual(duty(r, 'ff').player, 'Bearface');
+    assert.strictEqual(duty(r, 'ap').name, 'Demoralizing Roar');
+    assert.strictEqual(duty(r, 'ap').player, 'Bearface');
+});
+test('autoAssign: a Guardian druid provides Mangle', () => {
+    const r = E.autoAssign([P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.ok(r.passives.some(p => p.name === 'Mangle' && p.player === 'Bearface'));
+});
+test('autoAssign: faerie fire prefers balance, then guardian, then cat, then resto', () => {
+    const all = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Kitty', 'DRUID', 'Feral'),
+                              P('Bearface', 'DRUID', 'Guardian'), P('Moonpie', 'DRUID', 'Balance')], {});
+    assert.strictEqual(duty(all, 'ff').player, 'Moonpie');
+    const noBalance = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Kitty', 'DRUID', 'Feral'),
+                                    P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.strictEqual(duty(noBalance, 'ff').player, 'Bearface'); // bear keeps FF up for threat anyway
+});
+
+test('parseRaidHelper: Tank pseudo-class resolves to the real class via its spec', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Warbear', className: 'Tank', specName: 'Guardian', userId: 1, status: 'primary' },
+        { name: 'Bubbles', className: 'Tank', specName: 'Protection1', userId: 2, status: 'primary' },
+        { name: 'Shieldy', className: 'Tank', specName: 'Protection', userId: 3, status: 'primary' },
+    ] });
+    assert.strictEqual(r.errors.length, 0);
+    const by = n => r.players.find(p => p.name === n);
+    assert.deepStrictEqual([by('Warbear').class, by('Warbear').spec], ['DRUID', 'Guardian']);
+    assert.deepStrictEqual([by('Bubbles').class, by('Bubbles').spec], ['PALADIN', 'Protection']);
+    assert.deepStrictEqual([by('Shieldy').class, by('Shieldy').spec], ['WARRIOR', 'Protection']);
+});
+test('parseRaidHelper: a Tank signup with an unrecognized spec is an error, not a crash', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Confused', className: 'Tank', specName: 'Holy', userId: 4, status: 'primary' },
+    ] });
+    assert.strictEqual(r.players.length, 0);
+    assert.strictEqual(r.errors.length, 1);
+    assert.ok(r.errors[0].includes('tank spec') && r.errors[0].includes('Confused'));
+});
+
+test('bucketOf: Guardian is a tank, not melee', () => {
+    assert.strictEqual(E.bucketOf(P('bear', 'DRUID', 'Guardian')), 'tanks');
+});
+test('proposeGroups: a Guardian lands with the tanks and still notes Leader of the Pack', () => {
+    const roster = raid25().map(p => p.name === 'Feral' ? P('Feral', 'DRUID', 'Guardian') : p);
+    const res = E.proposeGroups(roster);
+    assert.strictEqual(groupOf(res, 'Feral'), 'tanks');
+    const tanks = res.groups.find(g => g.players.some(p => p.name === 'Feral'));
+    assert.ok(tanks.notes.some(t => /Leader of the Pack/.test(t)));
+});
+
+test('proposeGroups: two resto shamans never share a group', () => {
+    const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
+    const res = E.proposeGroups(roster);
+    assert.notStrictEqual(groupOf(res, 'Resto'), groupOf(res, 'Resto2'));
+});
+test('proposeGroups: the spare resto shaman lands in a group that had no shaman', () => {
+    const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Resto2'));
+    assert.strictEqual(g.players.filter(p => p.class === 'SHAMAN').length, 1);
+});
+
+test('proposeGroups: a lone shaman among hunters notes Grace of Air, not Windfury', () => {
+    const roster = [
+        P('Resto', 'SHAMAN', 'Restoration'),
+        P('Hunt1', 'HUNTER', 'Beast Mastery'), P('Hunt2', 'HUNTER', 'Beast Mastery'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Resto'));
+    assert.ok(g.notes.some(t => /Grace of Air/.test(t)), 'missing GoA note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Windfury/.test(t)));
+});
+test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
+    const R = [
+        P('Sylvanor', 'PALADIN', 'Protection'), P('Smellmystaff', 'DRUID', 'Guardian'),
+        P('Haku', 'SHAMAN', 'Enhancement'), P('Culuneta', 'WARRIOR', 'Fury'),
+        P('Davina', 'WARRIOR', 'Arms'), P('RedNeko', 'WARRIOR', 'Fury'),
+        P('utopik', 'ROGUE', 'Combat'), P('xavamros', 'ROGUE', 'Combat'),
+        P('Warzilla', 'DRUID', 'Feral'),
+        P('Connylloyd', 'HUNTER', 'Beast Mastery'), P('Funkell', 'HUNTER', 'Beast Mastery'),
+        P('produdu', 'HUNTER', 'Survival'),
+        P('Slyvester', 'SHAMAN', 'Elemental'), P('Craqu', 'MAGE', 'Arcane'),
+        P('JohnNoozeMusume', 'MAGE', 'Arcane'), P('Cartis', 'WARLOCK', 'Destruction'),
+        P('Lovestoned', 'WARLOCK', 'Destruction'),
+        P('Gouken', 'SHAMAN', 'Restoration'), P('woptenwodei', 'SHAMAN', 'Restoration'),
+        P('Frawa', 'DRUID', 'Restoration'), P('sspope', 'PRIEST', 'Holy'),
+    ];
+    const res = E.proposeGroups(R);
+    assert.strictEqual(groupOf(res, 'Smellmystaff'), 'tanks');   // the bug that started all this
+    assert.strictEqual(groupOf(res, 'Sylvanor'), 'tanks');
+    assert.notStrictEqual(groupOf(res, 'Gouken'), groupOf(res, 'woptenwodei'));
+    assert.strictEqual(res.groups.filter(g => g.players.some(p => p.class === 'SHAMAN')).length, 4);
+    const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
+    assert.ok(spare.notes.some(t => /Grace of Air/.test(t)));    // she's with the hunters for GoA
+    assert.strictEqual(res.unplaced.length, 0);
+});
+
+test('proposeGroups: an Elemental shaman with hunters keeps Wrath of Air, not Grace of Air', () => {
+    const roster = [
+        P('Ele', 'SHAMAN', 'Elemental'),
+        P('Hunt1', 'HUNTER', 'Beast Mastery'), P('Hunt2', 'HUNTER', 'Beast Mastery'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Ele'));
+    assert.ok(g.notes.some(t => /Wrath of Air/.test(t)), 'missing Wrath of Air note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Grace of Air/.test(t)), 'wrongly also claims Grace of Air: ' + g.notes.join(' | '));
+    const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
+    assert.strictEqual(airNotes.length, 1, 'more than one air totem claimed: ' + airNotes.join(' | '));
+});
+test('proposeGroups: an Elemental shaman with melee and no hunters keeps Wrath of Air, not baseline Windfury', () => {
+    const roster = [
+        P('Ele', 'SHAMAN', 'Elemental'),
+        P('Rog1', 'ROGUE', 'Combat'), P('Rog2', 'ROGUE', 'Combat'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Ele'));
+    assert.ok(g.notes.some(t => /Wrath of Air/.test(t)), 'missing Wrath of Air note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Windfury Totem \(baseline\)/.test(t)), 'wrongly also claims baseline Windfury: ' + g.notes.join(' | '));
+    const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
+    assert.strictEqual(airNotes.length, 1, 'more than one air totem claimed: ' + airNotes.join(' | '));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

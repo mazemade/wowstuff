@@ -16,6 +16,19 @@
         DRUID: ['Balance', 'Feral', 'Restoration'],
     };
 
+    // SPEC_TREES is positional — inferSpec indexes it by talent tab, so it must stay three
+    // entries per class. Guardian is a role a human declares, not something talent totals can
+    // reveal (bear and cat are the same tree), so it lives here instead.
+    const SELECTABLE_SPECS = Object.keys(SPEC_TREES).reduce((acc, cls) => {
+        acc[cls] = SPEC_TREES[cls].slice();
+        return acc;
+    }, {});
+    SELECTABLE_SPECS.DRUID = ['Balance', 'Feral', 'Guardian', 'Restoration'];
+
+    // A bear casts Faerie Fire, Demoralizing Roar and carries Leader of the Pack exactly like
+    // a cat. Guardian differs only in which group it belongs to.
+    function isFeralSpec(spec) { return spec === 'Feral' || spec === 'Guardian'; }
+
     // The talents the catalog reasons about, under the same keys RaidSpecScan exports. The
     // addon resolved these by name at scan time, so there are no coordinates here to drift.
     // `maxRank` is the guard for the one thing that CAN drift: these keys and the addon's
@@ -174,7 +187,18 @@
         Warrior: 'WARRIOR', Paladin: 'PALADIN', Hunter: 'HUNTER', Rogue: 'ROGUE',
         Priest: 'PRIEST', Shaman: 'SHAMAN', Mage: 'MAGE', Warlock: 'WARLOCK', Druid: 'DRUID',
     };
-    const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery', Guardian: 'Feral' };
+    const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery' };
+
+    // The Tank sign-up emote reports class "Tank", not the real class. Raid-Helper's spec
+    // names disambiguate: a digit suffix separates classes sharing a spec name (Protection =
+    // warrior, Protection1 = paladin — same convention as Restoration/Restoration1 for
+    // druid/shaman), and Guardian is the druid tank. TBC has exactly these three tank
+    // classes, so this map is total. Keys are lowercased raw specs BEFORE digit stripping.
+    const RH_TANK_SPECS = {
+        protection: { class: 'WARRIOR', spec: 'Protection' },
+        protection1: { class: 'PALADIN', spec: 'Protection' },
+        guardian: { class: 'DRUID', spec: 'Guardian' },
+    };
 
     // Raid-Helper's endpoints disagree on how they case these names and fields,
     // so match on lowercase throughout and take the first field name that's present.
@@ -208,12 +232,21 @@
             const rawClass = String(rhPick(su, ['className', 'class']) || '');
             if (RH_STATUS_CLASSES_LC.includes(rawClass.toLowerCase())) { excluded.push({ name: su.name, reason: rawClass }); return; }
             if (su.status && su.status !== 'primary') { excluded.push({ name: su.name, reason: su.status }); return; }
-            const cls = RH_CLASS_NAMES_LC[rawClass.toLowerCase()];
-            if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
-            let spec = String(rhPick(su, ['specName', 'spec']) || '').replace(/\d+$/, '');
-            spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
+            const rawSpec = String(rhPick(su, ['specName', 'spec']) || '');
+            let cls, spec;
+            if (rawClass.toLowerCase() === 'tank') {
+                const t = RH_TANK_SPECS[rawSpec.toLowerCase()];
+                if (!t) { errors.push('Unknown tank spec "' + rawSpec + '" for ' + su.name); return; }
+                cls = t.class;
+                spec = t.spec;
+            } else {
+                cls = RH_CLASS_NAMES_LC[rawClass.toLowerCase()];
+                if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
+                spec = rawSpec.replace(/\d+$/, '');
+                spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
+            }
             const flags = [];
-            const canonical = SPEC_TREES[cls].find(s => s.toLowerCase() === spec.toLowerCase());
+            const canonical = SELECTABLE_SPECS[cls].find(s => s.toLowerCase() === spec.toLowerCase());
             if (canonical) { spec = canonical; } else { spec = null; flags.push('spec-unknown'); }
             const userId = rhPick(su, ['userId', 'userid']);
             players.push({
@@ -252,8 +285,16 @@
             if (m) {
                 m.discordId = rh.discordId;
                 if (rh.spec && m.spec && rh.spec !== m.spec) {
-                    m.flags.push('signed-as:' + rh.spec);
-                    mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
+                    // Talent totals cannot tell a bear from a cat, so an addon scan always
+                    // says Feral. A Guardian signup is strictly more information, not a
+                    // contradiction — take it rather than flagging a mismatch that is really
+                    // just the addon's blind spot.
+                    if (isFeralSpec(rh.spec) && isFeralSpec(m.spec)) {
+                        m.spec = rh.spec;
+                    } else {
+                        m.flags.push('signed-as:' + rh.spec);
+                        mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
+                    }
                 }
             } else {
                 unmatched.raidhelper.push(Object.assign({}, rh, { flags: (rh.flags || []).slice() }));
@@ -286,7 +327,7 @@
         // Improved Faerie Fire (+3% melee/ranged hit) is Balance-only, but the 610 armor
         // applies regardless — so keep the duty and rank Feral above Resto, who would
         // otherwise spend a GCD and mana they would rather heal with.
-        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Feral'], improvedBy: 'impFaerieFire' },
+        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Guardian', 'Feral'], improvedBy: 'impFaerieFire' },
         { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'], improvedBy: 'impHuntersMark' },
         // Fire Vulnerability is +3% fire damage taken per stack, not spell crit (that is
         // WotLK), and the fire mage maintains it through their own rotation. Low priority.
@@ -302,7 +343,7 @@
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
-            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'], improvedBy: 'feralAggression' },
+            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Guardian', 'Feral'], improvedBy: 'feralAggression' },
             { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
         ] },
         // Improved Thunder Clap is −20% attack speed at 3/3 (base 10% plus 10%), and it is an
@@ -370,7 +411,7 @@
         { name: 'Shadow Weaving', class: 'PRIEST', spec: 'Shadow' },
         { name: 'Improved Shadow Bolt', class: 'WARLOCK', spec: 'Destruction' },
         { name: 'Blood Frenzy', class: 'WARRIOR', spec: 'Arms' },
-        { name: 'Mangle', class: 'DRUID', spec: 'Feral' },
+        { name: 'Mangle', class: 'DRUID', specs: ['Feral', 'Guardian'] },
         { name: 'Expose Weakness', class: 'HUNTER', spec: 'Survival' },
     ];
 
@@ -579,7 +620,8 @@
         });
 
         const passives = PASSIVES.map(ps => {
-            const p = roster.find(x => x.class === ps.class && (!ps.spec || x.spec === ps.spec));
+            const p = roster.find(x => x.class === ps.class
+                && (ps.specs ? ps.specs.indexOf(x.spec) !== -1 : (!ps.spec || x.spec === ps.spec)));
             return p ? { name: ps.name, player: p.name } : null;
         }).filter(Boolean);
 
@@ -761,7 +803,9 @@
         switch (p.class) {
             case 'WARRIOR': return s === 'Protection' ? 'tanks' : 'melee';
             case 'PALADIN': return s === 'Holy' ? 'healers' : (s === 'Protection' ? 'tanks' : 'melee');
-            case 'DRUID':   return s === 'Restoration' ? 'healers' : (s === 'Balance' ? 'casters' : 'melee');
+            case 'DRUID':   return s === 'Restoration' ? 'healers'
+                                 : (s === 'Balance' ? 'casters'
+                                 : (s === 'Guardian' ? 'tanks' : 'melee'));
             case 'PRIEST':  return s === 'Shadow' ? 'casters' : 'healers';
             case 'SHAMAN':  return s === 'Restoration' ? 'healers' : (s === 'Elemental' ? 'casters' : 'melee');
             case 'ROGUE':   return 'melee';
@@ -773,6 +817,13 @@
     // Scarcity order: this is the order a limited number of shamans is spent. Windfury/Strength
     // of Earth on melee is the largest single delta; Totem of Wrath's spell hit is next; tanks
     // gain least.
+    //
+    // Anniversary-realm scope, verified 2026-08-13: Bloodlust/Heroism is RAID-wide there
+    // (10-minute Sated-style debuff, resets on boss kills/wipes), so it is deliberately
+    // absent from this model — do not add it as a grouping reason. Everything modeled below
+    // is still party-scoped on Anniversary: all totems, paladin auras, Battle Shout, Leader
+    // of the Pack, Moonkin Aura, Trueshot, Ferocious Inspiration, Vampiric Touch, Mana Tide
+    // and the draenei presences.
     const GROUP_ROLES = ['melee', 'casters', 'healers', 'ranged', 'tanks'];
     const SHAMAN_ROLE = { Enhancement: 'melee', Elemental: 'casters', Restoration: 'healers' };
     const GROUP_CAP = 5;
@@ -781,7 +832,7 @@
     // reason the group exists, so they must not be crowded out by a filler DPS.
     function anchorScore(p) {
         if (p.class === 'WARRIOR' && p.spec !== 'Protection') return 0; // Battle Shout
-        if (p.class === 'DRUID' && p.spec === 'Feral') return 0;        // Leader of the Pack
+        if (p.class === 'DRUID' && isFeralSpec(p.spec)) return 0;       // Leader of the Pack (bear or cat)
         if (p.class === 'DRUID' && p.spec === 'Balance') return 0;      // Moonkin Aura
         if (p.class === 'PRIEST' && p.spec === 'Shadow') return 0;      // Vampiric Touch
         if (p.class === 'HUNTER' && p.spec === 'Beast Mastery') return 0; // Ferocious Inspiration
@@ -808,9 +859,15 @@
             return true;
         }
 
-        // 1. Shamans seed first — one per group, spec-matched, then spare shamans spread out.
+        // 1. Shamans seed first — one per group, spec-matched. A second shaman of the same
+        //    spec duplicates every totem the first one drops (totems are party-scoped and do
+        //    not stack), so it is a spare, not a seed: the spread pass below sends it to a
+        //    group that has no shaman at all.
         const shamans = roster.filter(p => p.class === 'SHAMAN');
-        shamans.forEach(sh => place(sh, byRole[SHAMAN_ROLE[sh.spec]]));
+        shamans.forEach(sh => {
+            const g = byRole[SHAMAN_ROLE[sh.spec]];
+            if (g && !g.players.some(x => x.class === 'SHAMAN')) place(sh, g);
+        });
         shamans.filter(p => !placed.has(p)).forEach(sh => {
             place(sh, groups.find(g => !g.players.some(x => x.class === 'SHAMAN') && g.players.length < GROUP_CAP));
         });
@@ -880,9 +937,32 @@
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
+            // A shaman can run only one air totem at a time, so these two rules must stay
+            // mutually consistent with the Windfury + Strength of Earth rule and the Wrath of
+            // Air rule above them: Windfury + Strength of Earth claims Windfury for the
+            // enhancement-with-melee case; Wrath of Air claims it outright for any Elemental
+            // shaman; Grace of Air claims everything else with hunters present; and baseline
+            // Windfury covers a non-enhancement, non-Elemental shaman with melee/tanks but no
+            // hunters to drop Grace of Air for. A group holding both an Elemental shaman and a
+            // second, non-Elemental shaman genuinely runs two air totems at once, but these
+            // rules will only ever report the Wrath of Air one — that under-claim is accepted
+            // on purpose, because a note that overstates a buff misleads the raid lead while a
+            // note that understates one merely costs a line they didn't need.
+            { text: 'Grace of Air (+77 agility)',
+              has: g => g.players.some(p => p.class === 'SHAMAN')
+                     && g.players.some(p => p.class === 'HUNTER')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
+                     && !(g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                          && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks'))) },
+            { text: 'Windfury Totem (baseline)',
+              has: g => g.players.some(p => p.class === 'SHAMAN')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
+                     && !g.players.some(p => p.class === 'HUNTER')
+                     && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
             { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
-            { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Feral') },
+            { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
             { text: 'Moonkin Aura (+5% spell crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance') },
             { text: 'Ferocious Inspiration (+3% damage, stacks per BM hunter)', has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery') },
             { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },
@@ -903,12 +983,14 @@
 
     // A Greater Blessing is cast on a whole class, so Salvation on WARRIOR lands on the tank too
     // and cannot be withheld from him. Any class holding a tank therefore skips Salvation and the
-    // raid lead covers that tank with a single-target blessing instead. Feral counts as a tank:
-    // a cat losing Salvation costs little, a bear silently receiving it does not, and talent
-    // totals cannot tell the two apart.
+    // raid lead covers that tank with a single-target blessing instead. isFeralSpec counts as a
+    // tank: a declared Guardian IS a bear, full stop, and silently handing him Salvation is the
+    // failure mode this rule exists to prevent. Feral stays included too, as the conservative
+    // case — an undeclared cat might in truth be a bear nobody bothered to relabel, and a cat
+    // losing Salvation costs little next to that risk.
     function classHoldsTank(roster, cls) {
         return roster.some(p => p.class === cls
-            && (p.spec === 'Protection' || (p.class === 'DRUID' && p.spec === 'Feral')));
+            && (p.spec === 'Protection' || (p.class === 'DRUID' && isFeralSpec(p.spec))));
     }
 
     // Paladin n gets plan n. Ret takes Kings raid-wide because it is the single best blessing
@@ -1004,7 +1086,7 @@
     }
 
     return {
-        SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
+        SPEC_TREES, SELECTABLE_SPECS, isFeralSpec, CLASS_COLORS, CLASS_ABBREV,
         TALENTS, talentRank, talentDrift, gateAllows,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,

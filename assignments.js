@@ -154,8 +154,8 @@ function openManualForm(player) {
 function fillManualSpecs(selected) {
     const cls = document.getElementById('manualClass').value;
     const specSel = document.getElementById('manualSpec');
-    specSel.innerHTML = E.SPEC_TREES[cls].map(s => '<option value="' + s + '">' + s + '</option>').join('');
-    if (selected && E.SPEC_TREES[cls].includes(selected)) specSel.value = selected;
+    specSel.innerHTML = E.SELECTABLE_SPECS[cls].map(s => '<option value="' + s + '">' + s + '</option>').join('');
+    if (selected && E.SELECTABLE_SPECS[cls].includes(selected)) specSel.value = selected;
 }
 function saveManualPlayer() {
     const name = document.getElementById('manualName').value.trim();
