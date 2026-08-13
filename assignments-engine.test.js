@@ -2279,5 +2279,18 @@ test('v2: proposeGroups is deterministic across calls', () => {
     assert.deepStrictEqual(names(E.proposeGroups(raid25())), names(E.proposeGroups(raid25())));
 });
 
+test('v2: proposeGroups returns score, violations, alternates, marginals', () => {
+    const res = E.proposeGroups(raid25());
+    assert.strictEqual(typeof res.score, 'number');
+    assert.ok(res.score > 0);
+    assert.strictEqual(typeof res.violations, 'number');
+    assert.ok(Array.isArray(res.alternates) && res.alternates.length <= 2);
+    res.alternates.forEach(a => {
+        assert.strictEqual(typeof a.change, 'string');
+        assert.ok(a.deltaPct < 0, 'alternates must be strictly worse: ' + a.deltaPct);
+    });
+    Object.keys(res.marginals).forEach(n => assert.ok(res.marginals[n] >= 0));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

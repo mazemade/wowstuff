@@ -431,6 +431,16 @@ function ccRow(c, index) {
 
 const ROLE_LABELS = { melee: 'Melee', casters: 'Casters', healers: 'Healers', ranged: 'Hunters', tanks: 'Tanks' };
 
+// These deltas are small by nature — a genuine alternative can sit at -0.03% — so one decimal
+// would print "-0.0%" and read as "no difference". Widen the precision until a non-zero digit
+// survives, so a real trade-off is never displayed as a wash.
+function fmtPct(x) {
+    for (const dp of [1, 2, 3]) {
+        if (Math.abs(x) >= 0.5 / Math.pow(10, dp)) return x.toFixed(dp);
+    }
+    return x.toFixed(3);
+}
+
 function renderGroups() {
     // A rendered AI review critiques one specific layout. If the layout changes underneath
     // it (import, remove, auto-assign) it must not outlive that layout, so clear and rehide
@@ -452,6 +462,10 @@ function renderGroups() {
             row.className = 'group-player';
             row.textContent = p.name + (p.spec ? ' (' + p.spec + ')' : '');
             row.style.color = E.CLASS_COLORS[p.class];
+            if (res.marginals && res.marginals[p.name] != null) {
+                row.title = 'Moving ' + p.name + ' to their best other seat costs '
+                    + fmtPct(res.marginals[p.name]) + '% raid DPS';
+            }
             card.appendChild(row);
         });
         g.notes.forEach(t => {
@@ -462,6 +476,21 @@ function renderGroups() {
         });
         box.appendChild(card);
     });
+    // Keep the tool an argument rather than an oracle (spec §8): show what the layout scores,
+    // whether any floor is breached, and the nearest alternatives it rejected.
+    if (typeof res.score === 'number') {
+        const meta = document.createElement('div');
+        meta.className = 'group-note';
+        meta.textContent = 'Layout score: ' + Math.round(res.score) + ' raid DPS (model)'
+            + (res.violations ? ' — ⚠ floor violations: ' + res.violations : '');
+        box.appendChild(meta);
+        (res.alternates || []).forEach(a => {
+            const alt = document.createElement('div');
+            alt.className = 'group-note';
+            alt.textContent = 'Alternative: ' + a.change + ' (' + fmtPct(a.deltaPct) + '%)';
+            box.appendChild(alt);
+        });
+    }
     if (res.unplaced.length) {
         const warn = document.createElement('div');
         warn.className = 'warn';

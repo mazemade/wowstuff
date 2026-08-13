@@ -1258,6 +1258,51 @@
             else groups[best.b].players.push(groups[best.a].players.splice(best.ia, 1)[0]);
         }
 
+        // Final neighbor sweep (spec §8): the two best strictly-worse alternatives, and each
+        // player's marginal seat cost — same enumeration order as the climb, so deterministic.
+        // Only feasibility-equal neighbors are considered: an alternative that breaks a floor
+        // is not an argument the raid lead should be shown, it is just an illegal layout.
+        const finalV = layoutViolations(groups), finalS = scoreLayout(groups);
+        const alternates = [], marginals = {};
+        function record(names, s) {
+            const deltaPct = finalS ? (s - finalS) / finalS * 100 : 0;
+            if (deltaPct < -1e-9) alternates.push({ change: names.join(' ↔ '), deltaPct });
+            names.forEach(n => {
+                const cost = -deltaPct;
+                if (!(n in marginals) || cost < marginals[n]) marginals[n] = cost;
+            });
+        }
+        for (let a = 0; a < groups.length; a++) {
+            for (let ia = 0; ia < groups[a].players.length; ia++) {
+                for (let b = 0; b < groups.length; b++) {
+                    if (b === a) continue;
+                    if (b > a) {
+                        for (let ib = 0; ib < groups[b].players.length; ib++) {
+                            trySwap(groups[a], ia, groups[b], ib);
+                            if (layoutViolations(groups) === finalV) {
+                                // Swapped: groups[b].players[ib] is the player who came FROM a.
+                                record([groups[b].players[ib].name, groups[a].players[ia].name], scoreLayout(groups));
+                            }
+                            trySwap(groups[a], ia, groups[b], ib);
+                        }
+                    }
+                    if (groups[b].players.length < GROUP_CAP) {
+                        const p = groups[a].players[ia];
+                        groups[a].players.splice(ia, 1);
+                        groups[b].players.push(p);
+                        if (layoutViolations(groups) === finalV) record([p.name], scoreLayout(groups));
+                        groups[b].players.pop();
+                        groups[a].players.splice(ia, 0, p);
+                    }
+                }
+            }
+        }
+        alternates.sort((x, y) => y.deltaPct - x.deltaPct);
+        alternates.length = Math.min(alternates.length, 2);
+        // Deliberately NOT rounded here. These percentages are small — a real alternative can
+        // sit at -0.03% — and rounding to one decimal collapses "strictly worse" into a
+        // displayed 0, breaking the one guarantee the field makes. Formatting is the UI's job.
+
         // The role list is chosen up front from which buckets exist, but group COUNT comes from
         // headcount, so a short or lopsided roster can leave a group labelled with a role nobody
         // in it has. Relabel from who actually landed here — the label is what the panel prints.
@@ -1323,7 +1368,7 @@
         ];
         groups.forEach(g => { g.notes = NOTE_RULES.filter(r => r.has(g)).map(r => r.text); });
 
-        return { groups, unplaced };
+        return { groups, unplaced, score: finalS, violations: finalV, alternates, marginals };
     }
 
     const GREATER_BLESSINGS = ['Greater Kings', 'Greater Might', 'Greater Wisdom', 'Greater Salvation'];
