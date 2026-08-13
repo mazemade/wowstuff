@@ -1107,6 +1107,20 @@ test('proposeBlessings: the might/wisdom row goes to the better-talented paladin
     const r = E.proposeBlessings([ret, holy, prot, P('Grunt', 'WARRIOR', 'Arms')], {});
     assert.strictEqual(r.rows.find(row => row.paladin === 'Zprot').cells.WARRIOR, 'Greater Might');
 });
+test('proposeBlessings: talented in either beats a paladin with no talent data at all', () => {
+    // Spec decision 5's ordering is "talented in either > unknown > known-0 in both", which is
+    // what Math.min(impMight tier, impWisdom tier) implements. Zprot is known-0 in Wisdom but
+    // talented in Might (tiers 0, 2) — min(0, 2) = 0. Bholy has no talent data at all, so both
+    // tiers read unknown (1, 1) — min(1, 1) = 1. 0 beats 1, so Zprot must take the row even
+    // though Bholy sorts first by both name and spec order. Math.max would flip it: max(0, 2)
+    // = 2 loses to max(1, 1) = 1, handing the row to Bholy instead — "talented in both", a
+    // different rule the owner did not choose.
+    const ret = pala('Aret', 'Retribution', { kings: 1 });
+    const holy = pala('Bholy', 'Holy');
+    const prot = pala('Zprot', 'Protection', { impMight: 5, impWisdom: 0 });
+    const r = E.proposeBlessings([ret, holy, prot, P('Grunt', 'WARRIOR', 'Arms')], {});
+    assert.strictEqual(r.rows.find(row => row.paladin === 'Zprot').cells.WARRIOR, 'Greater Might');
+});
 test('proposeBlessings: a roster with no talent data reproduces the spec-order grid', () => {
     // The degrade-to-today rule for the grid: with every tier unknown, both sorts are
     // stable and paladin N gets plan N exactly as before this plan.
@@ -1635,6 +1649,19 @@ test('autoAssign: a known-untalented rogue still beats an empty armor row', () =
     const r = E.autoAssign([rogue('Astab', 'Combat', 0)], {});
     assert.strictEqual(duty(r, 'armor').player, 'Astab');
     assert.strictEqual(duty(r, 'armor').qualifier, 'no Improved Expose Armor');
+});
+test('autoAssign: an unscanned rogue protects the armor row even with a known-0 rogue present', () => {
+    // Spec decision 6: a provider is demoted only when its BEST eligible candidate is
+    // known-untalented. With two rogues, Aunk (unscanned) outranks Zbad (known-0) inside the
+    // Improved Expose Armor pool, so the pool's best candidate (pool[0]) is unknown, not
+    // known-untalented, and the row must not demote to Sunder Armor even though a known-0
+    // sibling is standing right there. Reading pool[pool.length - 1] instead would grab Zbad
+    // and wrongly demote to the Protection warrior's Sunder Armor.
+    const r = E.autoAssign([rogue('Aunk', 'Combat', null), rogue('Zbad', 'Combat', 0),
+                            P('Ztank', 'WARRIOR', 'Protection')], {});
+    assert.strictEqual(duty(r, 'armor').name, 'Improved Expose Armor');
+    assert.strictEqual(duty(r, 'armor').player, 'Aunk');
+    assert.strictEqual(duty(r, 'armor').qualifier, 'talent unknown');
 });
 test('autoAssign: an ap warrior known to lack imp demo shout loses the row to curse of weakness', () => {
     // THREE locks: coe and cor each burn one via the curse-exclusivity group before the ap
