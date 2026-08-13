@@ -803,7 +803,9 @@
         switch (p.class) {
             case 'WARRIOR': return s === 'Protection' ? 'tanks' : 'melee';
             case 'PALADIN': return s === 'Holy' ? 'healers' : (s === 'Protection' ? 'tanks' : 'melee');
-            case 'DRUID':   return s === 'Restoration' ? 'healers' : (s === 'Balance' ? 'casters' : 'melee');
+            case 'DRUID':   return s === 'Restoration' ? 'healers'
+                                 : (s === 'Balance' ? 'casters'
+                                 : (s === 'Guardian' ? 'tanks' : 'melee'));
             case 'PRIEST':  return s === 'Shadow' ? 'casters' : 'healers';
             case 'SHAMAN':  return s === 'Restoration' ? 'healers' : (s === 'Elemental' ? 'casters' : 'melee');
             case 'ROGUE':   return 'melee';
@@ -823,7 +825,7 @@
     // reason the group exists, so they must not be crowded out by a filler DPS.
     function anchorScore(p) {
         if (p.class === 'WARRIOR' && p.spec !== 'Protection') return 0; // Battle Shout
-        if (p.class === 'DRUID' && p.spec === 'Feral') return 0;        // Leader of the Pack
+        if (p.class === 'DRUID' && isFeralSpec(p.spec)) return 0;       // Leader of the Pack (bear or cat)
         if (p.class === 'DRUID' && p.spec === 'Balance') return 0;      // Moonkin Aura
         if (p.class === 'PRIEST' && p.spec === 'Shadow') return 0;      // Vampiric Touch
         if (p.class === 'HUNTER' && p.spec === 'Beast Mastery') return 0; // Ferocious Inspiration
@@ -924,7 +926,7 @@
             { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
             { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
-            { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Feral') },
+            { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
             { text: 'Moonkin Aura (+5% spell crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance') },
             { text: 'Ferocious Inspiration (+3% damage, stacks per BM hunter)', has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery') },
             { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },

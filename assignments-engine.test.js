@@ -1796,5 +1796,16 @@ test('parseRaidHelper: a Tank signup with an unrecognized spec is an error, not 
     assert.ok(r.errors[0].includes('tank spec') && r.errors[0].includes('Confused'));
 });
 
+test('bucketOf: Guardian is a tank, not melee', () => {
+    assert.strictEqual(E.bucketOf(P('bear', 'DRUID', 'Guardian')), 'tanks');
+});
+test('proposeGroups: a Guardian lands with the tanks and still notes Leader of the Pack', () => {
+    const roster = raid25().map(p => p.name === 'Feral' ? P('Feral', 'DRUID', 'Guardian') : p);
+    const res = E.proposeGroups(roster);
+    assert.strictEqual(groupOf(res, 'Feral'), 'tanks');
+    const tanks = res.groups.find(g => g.players.some(p => p.name === 'Feral'));
+    assert.ok(tanks.notes.some(t => /Leader of the Pack/.test(t)));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
