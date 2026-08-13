@@ -261,7 +261,7 @@
             { name: 'Improved Expose Armor', class: 'ROGUE', preferSpecs: ['Subtlety', 'Combat'], improvedBy: 'impExposeArmor' },
             { name: 'Sunder Armor', class: 'WARRIOR', preferSpecs: ['Protection'] },
         ] },
-        { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse' },
+        { id: 'coe', name: 'Curse of Elements', category: 'debuffs', class: 'WARLOCK', preferSpecs: ['Affliction'], group: 'curse', improvedBy: 'malediction' },
         { id: 'cor', name: 'Curse of Recklessness', category: 'debuffs', class: 'WARLOCK', preferSpecs: [], group: 'curse',
           caution: '−800 armor but +136 melee AP on the boss. Clear this row on enrage or AP-scaling fights.' },
         // The value here is Improved Seal of the Crusader (Ret tier 2): +3% crit to all
@@ -276,8 +276,8 @@
         // Improved Faerie Fire (+3% melee/ranged hit) is Balance-only, but the 610 armor
         // applies regardless — so keep the duty and rank Feral above Resto, who would
         // otherwise spend a GCD and mana they would rather heal with.
-        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Feral'] },
-        { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'] },
+        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Feral'], improvedBy: 'impFaerieFire' },
+        { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'], improvedBy: 'impHuntersMark' },
         // Fire Vulnerability is +3% fire damage taken per stack, not spell crit (that is
         // WotLK), and the fire mage maintains it through their own rotation. Low priority.
         { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire' },
@@ -292,7 +292,7 @@
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
-            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'] },
+            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'], improvedBy: 'feralAggression' },
             { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
         ] },
         // Improved Thunder Clap is −20% attack speed at 3/3 (base 10% plus 10%), and it is an

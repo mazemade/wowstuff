@@ -1430,5 +1430,51 @@ test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS t
     });
 });
 
+function lock(name, spec, rank) {
+    const p = P(name, 'WARLOCK', spec);
+    if (rank !== null) p.talents = { malediction: rank };
+    return p;
+}
+test('autoAssign: curse of elements goes to the lock with Malediction, not the spec guess', () => {
+    // Affliction is the preferred spec, but Malediction is the thing the preference proxied.
+    const r = E.autoAssign([lock('Aaffl', 'Affliction', 0), lock('Zdestro', 'Destruction', 3)], {});
+    assert.strictEqual(duty(r, 'coe').player, 'Zdestro');
+    assert.strictEqual(duty(r, 'coe').qualifier, 'Malediction 3/3');
+});
+function dru(name, spec, key, rank) {
+    const p = P(name, 'DRUID', spec);
+    if (rank !== null) { p.talents = {}; p.talents[key] = rank; }
+    return p;
+}
+test('autoAssign: faerie fire goes to the druid with Improved Faerie Fire', () => {
+    // Balance ranks ahead of Feral on preferSpecs; the talent flips it.
+    const r = E.autoAssign([dru('Abal', 'Balance', 'impFaerieFire', 0),
+                            dru('Zferal', 'Feral', 'impFaerieFire', 3)], {});
+    assert.strictEqual(duty(r, 'ff').player, 'Zferal');
+});
+test('autoAssign: demoralizing roar goes to the druid with Feral Aggression', () => {
+    // No warrior/warlock/hunter in the roster, so ap falls to the druid provider; the
+    // Feral preference loses to the talent.
+    const r = E.autoAssign([dru('Aferal', 'Feral', 'feralAggression', 0),
+                            dru('Zresto', 'Restoration', 'feralAggression', 5)], {});
+    assert.strictEqual(duty(r, 'ap').player, 'Zresto');
+    assert.strictEqual(duty(r, 'ap').name, 'Demoralizing Roar');
+});
+function hunt(name, spec, rank) {
+    const p = P(name, 'HUNTER', spec);
+    if (rank !== null) p.talents = { impHuntersMark: rank };
+    return p;
+}
+test("autoAssign: hunter's mark goes to the hunter whose mark is improved", () => {
+    const r = E.autoAssign([hunt('Amm', 'Marksmanship', 0), hunt('Zbm', 'Beast Mastery', 5)], {});
+    assert.strictEqual(duty(r, 'hm').player, 'Zbm');
+});
+test('autoAssign: ranker rows with no talent data keep their spec-guess pick', () => {
+    // The degrade-to-today rule: unknown data must reproduce the current behaviour.
+    const r = E.autoAssign([lock('Aaffl', 'Affliction', null), lock('Zdestro', 'Destruction', null)], {});
+    assert.strictEqual(duty(r, 'coe').player, 'Aaffl');
+    assert.strictEqual(duty(r, 'coe').qualifier, 'talent unknown');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
