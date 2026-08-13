@@ -1898,16 +1898,21 @@ test('proposeGroups: an Elemental shaman with melee and no hunters keeps Wrath o
 const uplift = (specK, names) => names.reduce((f, n) => f * (1 + (E.BUFF_V[n][specK] || 0)), 1) - 1;
 test('playerBuffScore: rogue with an enhancement shaman gets Windfury, Strength of Earth, Unleashed Rage', () => {
     const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
+    // v2 (spec §9.4): Grace of Air joins the list — the enh shaman TWISTS, so this group
+    // runs both air totems rather than the argmax's single pick.
     assert.ok(Math.abs(E.playerBuffScore(g[1], g)
-        - uplift('ROGUE:Combat', ['Windfury Totem', 'Strength of Earth', 'Unleashed Rage'])) < 1e-9,
+        - uplift('ROGUE:Combat', ['Windfury Totem', 'Grace of Air', 'Strength of Earth', 'Unleashed Rage'])) < 1e-9,
         'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: enhancement shaman gains nothing from its own Windfury Totem', () => {
     const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
-    // SoE only — imbues beat the totem, UR is its own, and the group's air argmax picks
-    // Windfury (worth more to the rogue than Grace of Air is to the pair).
-    assert.ok(Math.abs(E.playerBuffScore(g[0], g) - uplift('SHAMAN:Enhancement', ['Strength of Earth'])) < 1e-9,
+    // Windfury is still worth exactly nothing to the shaman itself (imbues beat the totem)
+    // and Unleashed Rage is its own. v2 (spec §9.4): it does take Grace of Air off its own
+    // twist, which the single-air argmax used to spend on Windfury for the rogue.
+    assert.ok(Math.abs(E.playerBuffScore(g[0], g)
+        - uplift('SHAMAN:Enhancement', ['Grace of Air', 'Strength of Earth'])) < 1e-9,
         'got ' + E.playerBuffScore(g[0], g));
+    assert.strictEqual(E.BUFF_V['Windfury Totem']['SHAMAN:Enhancement'], undefined);
 });
 test('playerBuffScore: hunter with a resto shaman scores Grace of Air, not Windfury', () => {
     const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Hunt', 'HUNTER', 'Beast Mastery')];
@@ -2110,6 +2115,19 @@ test('v2: Mana Spring Totem is modeled and noted', () => {
 });
 test('v2: Blood Pact is gone from the model', () => {
     assert.ok(!E.PARTY_BUFFS.some(b => b.name === 'Blood Pact'));
+});
+
+test('v2: twisting — enh shaman group runs Windfury AND Grace of Air', () => {
+    const res = E.proposeGroups([P('Enh', 'SHAMAN', 'Enhancement'), P('Fu', 'WARRIOR', 'Fury')]);
+    const notes = res.groups[0].notes.join(' | ');
+    assert.ok(/Windfury Totem/.test(notes), notes);
+    assert.ok(/Grace of Air/.test(notes), notes);
+    assert.ok(!/Wrath of Air/.test(notes), notes);
+});
+test('v2: twisting raises the score of an enh melee group', () => {
+    const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Fu', 'WARRIOR', 'Fury')];
+    const names = E.groupBuffs(g).map(a => a.buff.name);
+    assert.ok(names.indexOf('Windfury Totem') !== -1 && names.indexOf('Grace of Air') !== -1, names.join(','));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

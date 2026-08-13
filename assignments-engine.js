@@ -1005,20 +1005,29 @@
         });
         const airs = PARTY_BUFFS.filter(b => b.element === 'air' && b.count(players) > 0);
         if (airs.length) {
-            // An Elemental shaman always keeps Wrath of Air — established ruling (it will
-            // not sacrifice its own spell damage to imbue melee), and the existing air-note
-            // tests pin it. Otherwise: argmax of group value, ties keep table order (WF first).
-            let bestAir = null;
-            if (players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')) {
-                bestAir = airs.filter(b => b.name === 'Wrath of Air')[0];
+            if (players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')) {
+                // Totem twisting (Max's ruling; wowsims `totem_twisting`): Windfury AND
+                // Grace of Air together — twist two, not three, so Wrath of Air stays out.
+                // A totem worth 0 to every member is dropped from the set rather than
+                // claimed: it contributes nothing to the score either way, and the notes
+                // must not tell a raid lead that a healer group "buys" Windfury.
+                airs.filter(b => b.name !== 'Wrath of Air')
+                    .filter(b => groupValueOf(b, players) > 0)
+                    .forEach(b => active.push({ buff: b, count: 1 }));
+            } else if (players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')) {
+                // An Elemental shaman always keeps Wrath of Air — established ruling (it
+                // will not sacrifice its own spell damage to imbue melee).
+                const woa = airs.filter(b => b.name === 'Wrath of Air')[0];
+                if (woa) active.push({ buff: woa, count: 1 });
             } else {
-                let bestVal = -1;
+                // Argmax of group value, ties keep table order (Windfury first).
+                let bestAir = null, bestVal = -1;
                 airs.forEach(b => {
                     const v = groupValueOf(b, players);
                     if (v > bestVal) { bestVal = v; bestAir = b; }
                 });
+                if (bestAir) active.push({ buff: bestAir, count: 1 });
             }
-            if (bestAir) active.push({ buff: bestAir, count: 1 });
         }
         return active;
     }
@@ -1225,23 +1234,25 @@
         // The air-note rules delegate to the score model's air-totem choice, so the notes
         // and the optimizer can never disagree about which air totem a group runs — and the
         // one-air-note invariant holds by construction instead of by rule coordination.
-        function airChoice(g) {
-            const air = groupBuffs(g.players).filter(a => a.buff.element === 'air')[0];
-            return air ? air.buff.name : null;
+        // Plural since the twisting ruling: an enh-shaman group runs TWO air totems, so a
+        // note rule asks whether its totem is among the group's choices, not whether it is
+        // the single choice.
+        function airChoiceNames(g) {
+            return groupBuffs(g.players).filter(a => a.buff.element === 'air').map(a => a.buff.name);
         }
 
         const NOTE_RULES = [
             { text: 'Windfury Totem',
-              has: g => airChoice(g) === 'Windfury Totem'
+              has: g => airChoiceNames(g).indexOf('Windfury Totem') !== -1
                      && g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Wrath of Air (+101 spell damage and healing)',
-              has: g => airChoice(g) === 'Wrath of Air' },
+              has: g => airChoiceNames(g).indexOf('Wrath of Air') !== -1 },
             { text: 'Grace of Air (+77 agility)',
-              has: g => airChoice(g) === 'Grace of Air' },
+              has: g => airChoiceNames(g).indexOf('Grace of Air') !== -1 },
             { text: 'Windfury Totem (baseline)',
-              has: g => airChoice(g) === 'Windfury Totem'
+              has: g => airChoiceNames(g).indexOf('Windfury Totem') !== -1
                      && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             // Strength of Earth is an EARTH totem: any shaman drops it regardless of which
             // AIR totem airChoice() picks for the group, so it cannot ride along on the
