@@ -2,8 +2,8 @@
 
 **Read this file first.** It is the single entry point for the `debuff-coverage` branch.
 
-Last updated: 2026-08-13, after the seventh plan (talent-aware assignments) completed and its
-whole-plan review and fix wave closed.
+Last updated: 2026-08-13, after the eighth plan (talent catalog expansion) completed — six tasks,
+each task-reviewed, with one fix round on task 3.
 
 ---
 
@@ -12,11 +12,11 @@ whole-plan review and fix wave closed.
 | | |
 |---|---|
 | Branch | `debuff-coverage`, in worktree `/Users/maxvanzoelen/wowstuff/.claude/worktrees/debuff-coverage` |
-| HEAD | `bb14fff` |
+| HEAD | `d397f87` (last code commit; the docs commit that wrote this line sits on top of it) |
 | Working tree | clean (`TalentProbe/` is an untracked throwaway diagnostic addon — leave it alone) |
-| Suite | **173 passed, 0 failed** (`node assignments-engine.test.js`) |
+| Suite | **200 passed, 0 failed** (`node assignments-engine.test.js`) |
 | `main` | untouched at `bb838f9`, still deployable (Railway deploys from `main`) |
-| Commits on branch | 56, none squashed — one per task, plus fix waves |
+| Commits on branch | 65, none squashed — one per task, plus fix waves |
 
 | Plan | State |
 |---|---|
@@ -28,9 +28,12 @@ whole-plan review and fix wave closed.
 | 5 — `2026-08-11-greater-blessings-grid.md` | ✅ complete, 4 tasks + fix wave `faf10db` |
 | 6 — `2026-08-11-rotations-and-remaining-debuffs.md` | ✅ complete, 4 tasks + fix wave `ce4ab5f` |
 | 7 — `2026-08-12-talent-aware-assignments.md` | ✅ complete, 6 tasks + 2 task-review fixes + fix wave `bb14fff` |
+| 8 — `2026-08-13-talent-catalog-expansion.md` | ✅ all 6 tasks complete and task-reviewed, + fix round `723165d` on task 3; final code commit `d397f87`. **Whole-plan review not yet run.** |
 
-**All six plans are done and every whole-plan review is closed.** The branch is ready to merge,
-subject to section 5 (the one thing that still needs a live WoW client).
+**All eight plans are done.** Whole-plan reviews are closed for plans 1–7; **plan 8's is still
+outstanding** — its six tasks were each reviewed, but nothing has yet looked at the plan end to end.
+Otherwise the branch is ready to merge, subject to section 5 (the one thing that still needs a live
+WoW client).
 
 ## What the branch adds, end to end
 
@@ -54,18 +57,45 @@ subject to section 5 (the one thing that still needs a live WoW client).
   (`armor`, `ap`, `tclap`, `joc`). Each such row renders a `qualifier` explaining its pick
   (`Improved Expose Armor 2/2`, `no Improved Expose Armor`, `talent unknown`) in the Assignments
   panel and the Discord output only — never on the length-bound whisper or `/raid` paths.
+- **Talent catalog expansion**: `RaidSpecScan` **3.1** tracks **15** talents rather than 4 (the 11
+  new ones are `kings`, `impMight`, `impWisdom`, `malediction`, `impFaerieFire`, `feralAggression`,
+  `insectSwarm`, `impScorch`, `wintersChill`, `impHuntersMark`, `hemorrhage`), and the same 15 keys
+  are held engine-side under the parity test. Three things follow from the bigger table:
+  **(a) four more `improvedBy` rankers** — `coe` (Malediction), `ff`, `hm`, and the Demoralizing
+  Roar provider on `ap`; **(b) `requireTalent` gates** on the four rows where the talent *is* the
+  spell rather than an improvement — `scorch`, `wc`, `swarm`, `hemo` — replacing the tree-total spec
+  proxy with the real rank via one `gateAllows(p, key, fallbackSpec)`, so a talented off-spec player
+  gets the row and a known-untalented on-spec one does not, while unknown data degrades to exactly
+  today's behaviour; **(c) the provider loop is two-pass**, so a provider whose best candidate is
+  *known* untalented yields its row to the next provider (pass 2 accepts anyone, so a known-
+  untalented candidate still beats an empty row). The Greater Blessings grid became talent-aware
+  too: plan→paladin matching uses the same three-tier ordering, Greater Kings is gated on the
+  `kings` talent, and two warnings were added (nobody can cast Kings; a manual Kings cell on a
+  paladin known to lack it).
 
 ## What is planned next, not yet started
 
-**Cross-provider selection is still spec-guessed.** Plan 7 scoped the talent tier to `rankPool`,
-which orders candidates *within* one provider. It does not reorder the providers themselves. So a
-rogue known to lack Improved Expose Armor still takes the `armor` row ahead of an available Sunder
-warrior — and the sheet now says `(no Improved Expose Armor)` next to a pick the design doc's own
-opening paragraph calls "worse than a maxed Sunder stack". Same shape on `ap`: an untalented
-Demoralizing Shout still outranks Curse of Weakness, which that entry's comment says is the wrong
-call at −300 vs −350. Faithful to the approved scope, and the whole-plan review recommended
-accepting it rather than blocking the merge — but it is the largest remaining product gap, and
-"the row explains itself" should not be read as "the row is now correct".
+**Nothing is in flight.** Plan 8 closed the cross-provider selection gap that this section described
+as the largest remaining product gap: `autoAssign`'s provider loop now demotes a provider whose best
+candidate is known-untalented, so a rogue with no Improved Expose Armor loses `armor` to the Sunder
+warrior and an untalented Demoralizing Shout loses `ap` to Curse of Weakness. The engine work this
+branch set out to do is done.
+
+**The gate is section 5, not more code.** Every remaining item needs a live WoW client or an owner
+ruling, not another plan:
+
+1. **Re-install `RaidSpecScan` (3.0 → 3.1) and run section 5.** The installed copy is still 3.0 and
+   now differs from the worktree — none of the 15-talent export exists in-game yet, so no section 5
+   check can pass until it is copied over. This is the only thing standing between the branch and a
+   merge decision.
+2. **Improved Curse of Weakness**, if it exists in 2.5.x, is a one-line `improvedBy` on the Curse of
+   Weakness provider — deliberately left out of plan 8 because nobody could confirm the talent
+   exists. See section 5 and section 7.
+3. **The group layout's quality is an open owner's call** (section 6) — the greedy pass produces
+   arguably poor 25-man layouts, and the hill-climb polish was deferred until real rosters showed
+   it. They plausibly have.
+4. **The share-link view page still shows neither blessings nor rotations** (section 6), which is the
+   largest remaining *output* gap now that the selection gaps are closed.
 
 ---
 
@@ -137,7 +167,13 @@ These habits caught every real defect on this branch.
   found 7 survivors.
 - **Coverage is not a one-time property.** Plan 6 Task 1 proved a fixture falsifiable; Plan 6 Task 3
   silently neutralised it by adding a catalog entry that changed duty counts. Re-run key mutations
-  at the end of a plan, not only when the test is written.
+  at the end of a plan, not only when the test is written. Plan 8 ended with an 11-mutant sweep
+  against the final tree — 0 survivors, every mutant killed by at least the tests predicted for it,
+  several by more. **Run the sweep on scratch copies that include `RaidSpecScan/`**: the parity test
+  reads the Lua via `path.join(__dirname, ...)` and fails spuriously without it, which reads as a
+  killed mutant when it is really a broken harness. Make an unmatched search string a hard error in
+  the runner, too — a stale search string that silently matches nothing looks exactly like a
+  survivor.
 - **Verify reviewer claims yourself, in both directions.** Several findings were sharp and correct.
   But one reviewer's *justification for downgrading* a finding ("names are unique system-wide") was
   false and checkable in one command; another's claim that assertions were unfalsifiable was also
@@ -238,10 +274,13 @@ Gotchas that cost real time:
 
 ## 5. Unverified — needs the owner, before release
 
-**`RaidSpecScan` 3.0 is now installed** in `/Applications/World of Warcraft/_anniversary_/Interface/
-AddOns/RaidSpecScan/`, verified byte-identical to the worktree copy and syntax-clean under `luajit`.
-The v1.0 it replaced is backed up in the session scratchpad. Nothing below has been run — no live
-client was available to this session.
+**⚠ The installed addon is STALE. Re-install before running anything below.** Plan 8 bumped
+`RaidSpecScan` to **3.1** (15 tracked talents); the copy in `/Applications/World of Warcraft/
+_anniversary_/Interface/AddOns/RaidSpecScan/` is still **3.0** and now differs from the worktree —
+checked 2026-08-13. Until it is copied over, every talent added by plan 8 is simply absent from the
+export, and the new rows read `talent unknown` in-game no matter how correct the engine is. The
+worktree copy is syntax-clean under `luajit`. Nothing below has been run — no live client has been
+available to any session that has worked on this file.
 
 Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once, in a real raid:
 
@@ -266,12 +305,31 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
     all four tracked talents sit at tier 2-3 (index ≲12) while the smallest TBC tree has ~17-19
     talents, and over-iteration is absorbed harmlessly — but it becomes live the moment anyone tracks
     a deep talent. Worth confirming once.
+11. **`/tprobe`-verify all 11 talent names and `maxRank`s added by plan 8**, one player per affected
+    class (paladin, warlock, druid, mage, hunter, rogue): `kings`, `impMight`, `impWisdom`,
+    `malediction`, `impFaerieFire`, `feralAggression`, `insectSwarm`, `impScorch`, `wintersChill`,
+    `impHuntersMark`, `hemorrhage`. **These are English strings typed from a design doc, never
+    captured from the client**, and a mismatch is silent: a wrong *name* omits the key, which reads
+    as a permanently `talent unknown` row rather than an error, and a too-low *`maxRank`* makes a
+    legitimate rank read as unknown (that one at least shows up in `talentDrift`). `wintersChill`
+    (5) and `impWisdom` (2) are the least certain max ranks. Check the spelling with
+    `/tprobe target <partial name>` before suspecting the ranking logic.
+12. **Confirm whether `Improved Curse of Weakness` exists in 2.5.x at all**, and if it does, report
+    its exact name, ranks and effect. It would become a one-line `improvedBy` on the Curse of
+    Weakness provider in `ap` — deliberately *not* part of plan 8, because the talent could not be
+    confirmed to exist. Until then that provider is ranked by `preferSpecs` alone.
+13. **A paladin without the Kings talent**: the grid must refuse to auto-assign them Greater Kings,
+    and when *no* paladin has it the warning must read
+    `Nobody can cast Blessing of Kings — it is a Protection talent.` Both were verified in a headless
+    browser against a synthetic roster; what is unverified is that a real scan reports `kings=0`
+    rather than omitting the key.
 
 ---
 
 ## 6. Deferred minors — triaged, none block merge
 
-Every whole-plan review triaged these explicitly.
+Every whole-plan review triaged these explicitly. The plan 8 block below is the exception — those
+items were raised by task reviews and are still awaiting that plan's whole-plan review.
 
 **Correctness nits, low reach**
 - `minClassCount` is dead code and a trap: it reads `entry.class`, which is `undefined` on a
@@ -342,6 +400,30 @@ Every whole-plan review triaged these explicitly.
 - Error-message priority drifted for a line with two simultaneous violations (class and duplicate
   name are now checked before the subgroup range). No accepted input changes.
 
+**From plan 8 (talent catalog expansion)**
+- **The four `requireTalent` rows now render `(talent unknown)` on a roster with no talent data,
+  where they previously rendered nothing.** `scorch`, `wc`, `swarm` and `hemo` gained a
+  `requireTalent`, and the qualifier follows from `entry.improvedBy || entry.requireTalent`. This is
+  plan-mandated and consistent with the `improvedBy` rows shipped by plan 7, but it is a **visible
+  output change for Raid-Helper-only rosters**, which never carry talents — those four rows will
+  read `talent unknown` for every such raid. Task 3 flagged it for the owner to sign off; no
+  response is recorded. If the answer is no, the fix is at the qualifier, not the gate — the
+  *selection* behaviour on unknown data is unchanged from before the plan.
+- **`proposeBlessings`' `planOf` is keyed by paladin name**, which extends the branch's pre-existing
+  name-uniqueness assumption into the plan-matching path. Two paladins with the same name would now
+  share a plan slot as well as colliding elsewhere. The parser already rejects duplicate names, so
+  this is not reachable from the wire.
+- **The provider loop now ranks every provider on every call** instead of short-circuiting at the
+  first non-empty pool — that is what lets pass 1 look at each provider's best candidate. Verified
+  side-effect-free (`rankPool` sorts a copy and `eligible` is a predicate) and measured harmless at
+  raid scale, since the extra work is bounded by the number of providers on an entry, which is at
+  most three.
+- **One pre-existing test was repointed, the only one this plan changed:** `autoAssign: a row
+  without improvedBy carries no qualifier` used `hemo` as its no-qualifier example. `hemo` gained a
+  `requireTalent` and therefore a qualifier, so the test now uses the `armor` row's Sunder provider,
+  which has neither field. It additionally pins that a provider without `improvedBy` does not
+  inherit one. The invariant is unchanged; only the row exercising it moved.
+
 **Documentation and hygiene**
 - `SubgroupOf`'s name-scan fallback is unreachable and its comment claims otherwise.
 - Nothing tells a raider to update the addon. RSS1 works forever by design, so the rollout is silent
@@ -368,16 +450,20 @@ Every whole-plan review triaged these explicitly.
   is moot. Removal is **Task 1 of `docs/superpowers/plans/2026-08-12-talent-aware-assignments.md`**
   and has not landed yet — the `sting` entry and its hedged `caution` are still in the catalog until
   that task runs.
-- ~~**Improved Demo Shout vs untalented Curse of Weakness**~~ — **PARTIALLY RESOLVED by plan 7.** The
-  rank is no longer invisible: `improvedBy: 'impDemoShout'` now picks the best-talented warrior for
-  the row. What remains is the choice *between* providers — an untalented warrior still outranks the
-  warlock, because the tier orders candidates within a provider, not the providers themselves.
+- ~~**Improved Demo Shout vs untalented Curse of Weakness**~~ — **RESOLVED, plan 7 then plan 8.**
+  Plan 7 made the rank visible (`improvedBy: 'impDemoShout'` picks the best-talented warrior for the
+  row); plan 8's two-pass provider loop closed the cross-provider half, so a warrior *known* to lack
+  Improved Demoralizing Shout now loses `ap` to Curse of Weakness rather than outranking it at −300
+  vs −350. Unknown talent data still keeps the warrior, which is the intended degrade-to-today rule.
+  The one piece left is not this question: **whether `Improved Curse of Weakness` exists in 2.5.x**
+  and should rank the warlock in turn — see section 5 check 12.
 - **Totem of Wrath's exact effect** (+3% spell hit and crit) — worth a second check.
-- ~~**Improved Expose Armor is a 2-point Subtlety talent**~~ — **RESOLVED by plan 7 within the rogue
-  pool.** The row now picks the rogue who actually has it, regardless of spec, and says so. The
-  `requireSpec: 'Subtlety'` fix contemplated here is no longer needed and would be worse — it would
-  exclude a Combat rogue who *did* take the talent. What survives is the cross-provider case above:
-  if *no* rogue has it, the row still goes to a rogue rather than to the Sunder warrior.
+- ~~**Improved Expose Armor is a 2-point Subtlety talent**~~ — **RESOLVED, plan 7 then plan 8.** Plan
+  7 fixed it within the rogue pool: the row picks the rogue who actually has it, regardless of spec,
+  and says so. The `requireSpec: 'Subtlety'` fix contemplated here is still the wrong move — it
+  would exclude a Combat rogue who *did* take the talent. Plan 8 closed the cross-provider case that
+  survived: if the best rogue is *known* to lack it, `armor` now goes to the Sunder warrior instead.
+  A rogue whose talents are unknown still takes the row, as before.
 - ~~**Improved Thunder Clap is an Arms talent**~~ — **RESOLVED by plan 7.** `improvedBy:
   'impThunderClap'` reads the real rank, so a Protection warrior who took it now wins the row over an
   Arms warrior who did not, and the row states the rank it found.
