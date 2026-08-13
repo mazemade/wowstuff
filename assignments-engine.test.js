@@ -2027,5 +2027,19 @@ test('optimizer: an already-clean seed comes back unchanged', () => {
     assert.deepStrictEqual(casters.players.map(p => p.name).sort(), ['Ele', 'Holy', 'Lock', 'M1', 'M2']);
 });
 
+// --- Group optimizer v2 ---
+test('v2: BASELINE covers every spec plus Guardian, healers at zero', () => {
+    Object.keys(E.SPEC_TREES).forEach(cls => E.SPEC_TREES[cls].forEach(spec => {
+        assert.ok((cls + ':' + spec) in E.BASELINE, 'missing baseline for ' + cls + ':' + spec);
+    }));
+    assert.ok('DRUID:Guardian' in E.BASELINE);
+    ['PRIEST:Holy', 'PRIEST:Discipline', 'PALADIN:Holy', 'SHAMAN:Restoration', 'DRUID:Restoration']
+        .forEach(k => assert.strictEqual(E.BASELINE[k], 0, k + ' must be 0'));
+    assert.ok(E.BASELINE['WARRIOR:Fury'] > 0);
+    assert.strictEqual(E.specKey({ class: 'WARRIOR', spec: 'Fury' }), 'WARRIOR:Fury');
+    assert.ok(E.BUFF_V['Windfury Totem']['WARRIOR:Fury'] > 0);
+    assert.ok(!('HUNTER:Beast Mastery' in E.BUFF_V['Windfury Totem']), 'WF must not apply to hunters');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
