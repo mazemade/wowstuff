@@ -93,7 +93,7 @@ app.post('/api/ai-review', async (req, res) => {
     const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(180000),
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-5-mini',
         messages: [
