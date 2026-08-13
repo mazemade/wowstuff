@@ -852,9 +852,15 @@
             return true;
         }
 
-        // 1. Shamans seed first — one per group, spec-matched, then spare shamans spread out.
+        // 1. Shamans seed first — one per group, spec-matched. A second shaman of the same
+        //    spec duplicates every totem the first one drops (totems are party-scoped and do
+        //    not stack), so it is a spare, not a seed: the spread pass below sends it to a
+        //    group that has no shaman at all.
         const shamans = roster.filter(p => p.class === 'SHAMAN');
-        shamans.forEach(sh => place(sh, byRole[SHAMAN_ROLE[sh.spec]]));
+        shamans.forEach(sh => {
+            const g = byRole[SHAMAN_ROLE[sh.spec]];
+            if (g && !g.players.some(x => x.class === 'SHAMAN')) place(sh, g);
+        });
         shamans.filter(p => !placed.has(p)).forEach(sh => {
             place(sh, groups.find(g => !g.players.some(x => x.class === 'SHAMAN') && g.players.length < GROUP_CAP));
         });

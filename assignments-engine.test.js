@@ -1807,5 +1807,17 @@ test('proposeGroups: a Guardian lands with the tanks and still notes Leader of t
     assert.ok(tanks.notes.some(t => /Leader of the Pack/.test(t)));
 });
 
+test('proposeGroups: two resto shamans never share a group', () => {
+    const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
+    const res = E.proposeGroups(roster);
+    assert.notStrictEqual(groupOf(res, 'Resto'), groupOf(res, 'Resto2'));
+});
+test('proposeGroups: the spare resto shaman lands in a group that had no shaman', () => {
+    const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Resto2'));
+    assert.strictEqual(g.players.filter(p => p.class === 'SHAMAN').length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
