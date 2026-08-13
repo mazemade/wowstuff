@@ -1,0 +1,23 @@
+[
+ { "name": "Sylvanor", "class": "PALADIN", "spec": "Protection" },
+ { "name": "Smellmystaff", "class": "DRUID", "spec": "Guardian" },
+ { "name": "Haku", "class": "SHAMAN", "spec": "Enhancement" },
+ { "name": "Culuneta", "class": "WARRIOR", "spec": "Fury" },
+ { "name": "Davina", "class": "WARRIOR", "spec": "Arms" },
+ { "name": "RedNeko", "class": "WARRIOR", "spec": "Fury" },
+ { "name": "utopik", "class": "ROGUE", "spec": "Combat" },
+ { "name": "xavamros", "class": "ROGUE", "spec": "Combat" },
+ { "name": "Warzilla", "class": "DRUID", "spec": "Feral" },
+ { "name": "Connylloyd", "class": "HUNTER", "spec": "Beast Mastery" },
+ { "name": "Funkell", "class": "HUNTER", "spec": "Beast Mastery" },
+ { "name": "produdu", "class": "HUNTER", "spec": "Survival" },
+ { "name": "Slyvester", "class": "SHAMAN", "spec": "Elemental" },
+ { "name": "Craqu", "class": "MAGE", "spec": "Arcane" },
+ { "name": "JohnNoozeMusume", "class": "MAGE", "spec": "Arcane" },
+ { "name": "Cartis", "class": "WARLOCK", "spec": "Destruction" },
+ { "name": "Lovestoned", "class": "WARLOCK", "spec": "Destruction" },
+ { "name": "Gouken", "class": "SHAMAN", "spec": "Restoration" },
+ { "name": "woptenwodei", "class": "SHAMAN", "spec": "Restoration" },
+ { "name": "Frawa", "class": "DRUID", "spec": "Restoration" },
+ { "name": "sspope", "class": "PRIEST", "spec": "Holy" }
+]

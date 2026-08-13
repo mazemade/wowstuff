@@ -51,7 +51,7 @@ const RACE = {
     'PALADIN:Retribution': 'RaceBloodElf', 'PALADIN:Protection': 'RaceBloodElf',
     'ROGUE:Combat': 'RaceHuman', 'PRIEST:Shadow': 'RaceTroll',
     'SHAMAN:Elemental': 'RaceTroll', 'SHAMAN:Enhancement': 'RaceTroll',
-    'MAGE:Arcane': 'RaceTroll', 'WARLOCK:Destruction': 'RaceOrc',
+    'MAGE:Arcane': 'RaceTroll', 'WARLOCK:Destruction': 'RaceOrc', 'WARLOCK:Affliction': 'RaceOrc', 'WARLOCK:Demonology': 'RaceOrc',
     'DRUID:Balance': 'RaceNightElf', 'DRUID:Feral': 'RaceNightElf', 'DRUID:Guardian': 'RaceNightElf',
 };
 
@@ -111,7 +111,6 @@ function talentString(dir, constName) {
 const SPECS = {
     'HUNTER:Beast Mastery': { dir: 'ui/hunter/dps', talents: 'BMTalents' },
     'HUNTER:Survival': { dir: 'ui/hunter/dps', talents: 'SVTalents' },
-    'HUNTER:Marksmanship': { dir: 'ui/hunter/dps', talents: 'SVTalents' }, // see README: no MM preset
     'WARRIOR:Fury': { dir: 'ui/warrior/dps', talents: 'FuryTalents' },
     'WARRIOR:Arms': { dir: 'ui/warrior/dps', talents: 'ArmsTalents' },
     'WARRIOR:Protection': { dir: 'ui/warrior/protection', talents: 'DefaultTalents' },
@@ -123,6 +122,8 @@ const SPECS = {
     'SHAMAN:Enhancement': { dir: 'ui/shaman/enhancement', talents: 'SubRestoIWT' },
     'MAGE:Arcane': { dir: 'ui/mage/dps', talents: 'ARCANE_TALENTS' },
     'WARLOCK:Destruction': { dir: 'ui/warlock/dps', talents: 'TalentsDestruction' },
+    'WARLOCK:Affliction': { dir: 'ui/warlock/dps', talents: 'TalentsAffliction' },
+    'WARLOCK:Demonology': { dir: 'ui/warlock/dps', talents: 'TalentsDemoFelguard' },
     'DRUID:Balance': { dir: 'ui/druid/balance', talents: 'StandardTalents' },
     'DRUID:Feral': { dir: 'ui/druid/feralcat', talents: 'StandardTalents' },
     'DRUID:Guardian': { dir: 'ui/druid/feralbear', talents: 'StandardTalents' },
@@ -139,7 +140,7 @@ const RACE = {
     'PALADIN:Retribution': 'RaceBloodElf', 'PALADIN:Protection': 'RaceBloodElf',
     'ROGUE:Combat': 'RaceHuman', 'PRIEST:Shadow': 'RaceTroll',
     'SHAMAN:Elemental': 'RaceTroll', 'SHAMAN:Enhancement': 'RaceTroll',
-    'MAGE:Arcane': 'RaceTroll', 'WARLOCK:Destruction': 'RaceOrc',
+    'MAGE:Arcane': 'RaceTroll', 'WARLOCK:Destruction': 'RaceOrc', 'WARLOCK:Affliction': 'RaceOrc', 'WARLOCK:Demonology': 'RaceOrc',
     'DRUID:Balance': 'RaceNightElf', 'DRUID:Feral': 'RaceNightElf', 'DRUID:Guardian': 'RaceNightElf',
 };
 

@@ -46,27 +46,29 @@ type spec struct {
 	aplFile  string
 	setSpec  func(*proto.Player) // the Player.Spec oneof wrapper is unexported
 	isTank   bool
+	turret   bool // hunters only: disable the melee-weave APL variable
 }
 
 // Phase-2 (SSC/TK) gear for every spec that has it, matching spec §7's "P2/SSC gear".
 var specs = map[string]spec{
-	"HUNTER:Beast Mastery": {"ui/hunter/dps/gear_sets/phase_2/bm", "2h_6p", "ui/hunter/dps/apls", "default", hunterSpec, false},
-	"HUNTER:Survival":      {"ui/hunter/dps/gear_sets/phase_2/sv", "2h_6p", "ui/hunter/dps/apls", "default", hunterSpec, false},
-	"HUNTER:Marksmanship":  {"ui/hunter/dps/gear_sets/phase_2/sv", "2h_6p", "ui/hunter/dps/apls", "default", hunterSpec, false},
-	"WARRIOR:Fury":         {"ui/warrior/dps/gear_sets", "p2_fury", "ui/warrior/dps/apls", "fury", dpsWarriorSpec, false},
-	"WARRIOR:Arms":         {"ui/warrior/dps/gear_sets", "p2_arms", "ui/warrior/dps/apls", "arms", dpsWarriorSpec, false},
-	"WARRIOR:Protection":   {"ui/warrior/protection/gear_sets", "p2_bis", "ui/warrior/protection/apls", "default", protWarriorSpec, true},
-	"PALADIN:Retribution":  {"ui/paladin/retribution/gear_sets", "p2", "ui/paladin/retribution/apls", "default", retPaladinSpec, false},
-	"PALADIN:Protection":   {"ui/paladin/protection/gear_sets", "p2", "ui/paladin/protection/apls", "default", protPaladinSpec, true},
-	"ROGUE:Combat":         {"ui/rogue/dps/gear_sets", "p2", "ui/rogue/dps/apls", "swords", rogueSpec, false},
-	"PRIEST:Shadow":        {"ui/priest/dps/gear_sets", "p2", "ui/priest/dps/apls", "default", priestSpec, false},
-	"SHAMAN:Elemental":     {"ui/shaman/elemental/gear_sets", "p2", "ui/shaman/elemental/apls", "default", eleShamanSpec, false},
-	"SHAMAN:Enhancement":   {"ui/shaman/enhancement/gear_sets", "p2", "ui/shaman/enhancement/apls", "default", enhShamanSpec, false},
-	"MAGE:Arcane":          {"ui/mage/dps/gear_sets", "p2Arcane", "ui/mage/dps/apls", "arcane", mageSpec, false},
-	"WARLOCK:Destruction":  {"ui/warlock/dps/gear_sets", "t5", "ui/warlock/dps/apls", "destruction", warlockSpec, false},
-	"DRUID:Balance":        {"ui/druid/balance/gear_sets", "p2_a", "ui/druid/balance/apls", "default", balanceSpec, false},
-	"DRUID:Feral":          {"ui/druid/feralcat/gear_sets", "p2_6p", "ui/druid/feralcat/apls", "default", feralCatSpec, false},
-	"DRUID:Guardian":       {"ui/druid/feralbear/gear_sets", "p2_balanced", "ui/druid/feralbear/apls", "default", feralBearSpec, true},
+	"HUNTER:Beast Mastery": {"ui/hunter/dps/gear_sets/phase_2/bm", "2h_6p", "ui/hunter/dps/apls", "default", hunterSpec, false, true},
+	"HUNTER:Survival":      {"ui/hunter/dps/gear_sets/phase_2/sv", "2h_6p", "ui/hunter/dps/apls", "default", hunterSpec, false, true},
+	"WARRIOR:Fury":         {"ui/warrior/dps/gear_sets", "p2_fury", "ui/warrior/dps/apls", "fury", dpsWarriorSpec, false, false},
+	"WARRIOR:Arms":         {"ui/warrior/dps/gear_sets", "p2_arms", "ui/warrior/dps/apls", "arms", dpsWarriorSpec, false, false},
+	"WARRIOR:Protection":   {"ui/warrior/protection/gear_sets", "p2_bis", "ui/warrior/protection/apls", "default", protWarriorSpec, true, false},
+	"PALADIN:Retribution":  {"ui/paladin/retribution/gear_sets", "p2", "ui/paladin/retribution/apls", "default", retPaladinSpec, false, false},
+	"PALADIN:Protection":   {"ui/paladin/protection/gear_sets", "p2", "ui/paladin/protection/apls", "default", protPaladinSpec, true, false},
+	"ROGUE:Combat":         {"ui/rogue/dps/gear_sets", "p2", "ui/rogue/dps/apls", "swords", rogueSpec, false, false},
+	"PRIEST:Shadow":        {"ui/priest/dps/gear_sets", "p2", "ui/priest/dps/apls", "default", priestSpec, false, false},
+	"SHAMAN:Elemental":     {"ui/shaman/elemental/gear_sets", "p2", "ui/shaman/elemental/apls", "default", eleShamanSpec, false, false},
+	"SHAMAN:Enhancement":   {"ui/shaman/enhancement/gear_sets", "p2", "ui/shaman/enhancement/apls", "default", enhShamanSpec, false, false},
+	"MAGE:Arcane":          {"ui/mage/dps/gear_sets", "p2Arcane", "ui/mage/dps/apls", "arcane", mageSpec, false, false},
+	"WARLOCK:Destruction":  {"ui/warlock/dps/gear_sets", "t5", "ui/warlock/dps/apls", "destruction", warlockSpec, false, false},
+	"WARLOCK:Affliction":   {"ui/warlock/dps/gear_sets", "t5", "ui/warlock/dps/apls", "affliction", warlockAfflictionSpec, false, false},
+	"WARLOCK:Demonology":   {"ui/warlock/dps/gear_sets", "t5", "ui/warlock/dps/apls", "demonology", warlockDemonologySpec, false, false},
+	"DRUID:Balance":        {"ui/druid/balance/gear_sets", "p2_a", "ui/druid/balance/apls", "default", balanceSpec, false, false},
+	"DRUID:Feral":          {"ui/druid/feralcat/gear_sets", "p2_6p", "ui/druid/feralcat/apls", "default", feralCatSpec, false, false},
+	"DRUID:Guardian":       {"ui/druid/feralbear/gear_sets", "p2_balanced", "ui/druid/feralbear/apls", "default", feralBearSpec, true, false},
 }
 
 var classOf = map[string]proto.Class{
@@ -116,6 +118,19 @@ func main() {
 func buildPlayer(key string, s spec, p preset) *proto.Player {
 	gear := core.GetGearSet(filepath.Join(repo, s.gearDir), s.gearFile)
 	apl := core.GetAplRotation(filepath.Join(repo, s.aplDir), s.aplFile)
+	if s.turret {
+		// Max's ruling 2026-08-13: hunters are simmed as TURRETS, not melee weavers. The
+		// shipped APL weaves, which makes a hunter auto-attack in melee and so genuinely
+		// proc Windfury (+3-4%) — real, but only if your hunters actually weave. Same
+		// override the repo's own hunter_test.go uses for its "Turret" variant.
+		if len(apl.Rotation.ValueVariables) > 2 && apl.Rotation.ValueVariables[2].Name == "Melee weave" {
+			apl.Rotation.ValueVariables[2].Value = &proto.APLValue{
+				Value: &proto.APLValue_Const{Const: &proto.APLValueConst{Val: "false"}},
+			}
+		} else {
+			panic("hunter APL variable 2 is not 'Melee weave' — the checkout moved")
+		}
+	}
 
 	var consumes proto.ConsumesSpec
 	must(protojson.Unmarshal(p.Consumables, &consumes))
@@ -220,6 +235,18 @@ func mageSpec(pl *proto.Player) {
 func warlockSpec(pl *proto.Player) {
 	pl.Spec = &proto.Player_Warlock{Warlock: &proto.Warlock{Options: &proto.Warlock_Options{
 		ClassOptions: &proto.WarlockOptions{Armor: proto.WarlockOptions_FelArmor, Summon: proto.WarlockOptions_Imp},
+	}}}
+}
+
+func warlockAfflictionSpec(pl *proto.Player) {
+	pl.Spec = &proto.Player_Warlock{Warlock: &proto.Warlock{Options: &proto.Warlock_Options{
+		ClassOptions: &proto.WarlockOptions{Armor: proto.WarlockOptions_FelArmor, Summon: proto.WarlockOptions_Felhunter},
+	}}}
+}
+
+func warlockDemonologySpec(pl *proto.Player) {
+	pl.Spec = &proto.Player_Warlock{Warlock: &proto.Warlock{Options: &proto.Warlock_Options{
+		ClassOptions: &proto.WarlockOptions{Armor: proto.WarlockOptions_FelArmor, Summon: proto.WarlockOptions_Felguard},
 	}}}
 }
 

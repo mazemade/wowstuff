@@ -49,31 +49,6 @@
   "profession2": "Blacksmithing",
   "distanceFromTarget": 7
  },
- "HUNTER:Marksmanship": {
-  "dir": "ui/hunter/dps",
-  "consumables": {
-   "battleElixirId": 22831,
-   "guardianElixirId": 22840,
-   "foodId": 27659,
-   "potId": 22838,
-   "conjuredId": 12662,
-   "explosiveId": 30217,
-   "petFoodId": 33874,
-   "petScrollAgi": true,
-   "petScrollStr": true,
-   "superSapper": true,
-   "goblinSapper": true,
-   "scrollAgi": true,
-   "scrollStr": true
-  },
-  "talentsConst": "SVTalents",
-  "talents": "502-0550201205-333200022003223005103",
-  "race": "RaceOrc",
-  "presetRace": "RaceOrc",
-  "profession1": "Engineering",
-  "profession2": "Blacksmithing",
-  "distanceFromTarget": 7
- },
  "WARRIOR:Fury": {
   "dir": "ui/warrior/dps",
   "consumables": {
@@ -296,6 +271,46 @@
   },
   "talentsConst": "TalentsDestruction",
   "talents": "-20500301332101-50500051220051053105",
+  "race": "RaceOrc",
+  "presetRace": null,
+  "profession1": "Engineering",
+  "profession2": "Tailoring",
+  "distanceFromTarget": 20
+ },
+ "WARLOCK:Affliction": {
+  "dir": "ui/warlock/dps",
+  "consumables": {
+   "flaskId": 22866,
+   "foodId": 27657,
+   "conjuredId": 12662,
+   "mhImbueId": 25122,
+   "potId": 22839,
+   "explosiveId": 30217,
+   "petScrollAgi": true,
+   "petScrollStr": true
+  },
+  "talentsConst": "TalentsAffliction",
+  "talents": "05022221112351055003--50500051220001",
+  "race": "RaceOrc",
+  "presetRace": null,
+  "profession1": "Engineering",
+  "profession2": "Tailoring",
+  "distanceFromTarget": 20
+ },
+ "WARLOCK:Demonology": {
+  "dir": "ui/warlock/dps",
+  "consumables": {
+   "flaskId": 22866,
+   "foodId": 27657,
+   "conjuredId": 12662,
+   "mhImbueId": 25122,
+   "potId": 22839,
+   "explosiveId": 30217,
+   "petScrollAgi": true,
+   "petScrollStr": true
+  },
+  "talentsConst": "TalentsDemoFelguard",
+  "talents": "01-2050030133250101501351-5050005112",
   "race": "RaceOrc",
   "presetRace": null,
   "profession1": "Engineering",

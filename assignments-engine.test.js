@@ -904,15 +904,19 @@ test('proposeGroups: a doubled-up draenei presence is never counted twice', () =
         .forEach(a => assert.strictEqual(a.count, 1, g.role + ' double-counted a racial')));
     // Splitting the pair must not be an improvement the climb missed.
     const layout = res.groups.map(g => ({ role: g.role, players: g.players.slice() }));
-    const best = E.scoreLayout(layout);
+    const best = E.scoreLayout(layout), bestV = E.layoutViolations(layout);
     layout.forEach((gA, a) => gA.players.forEach((pa, ia) => layout.forEach((gB, b) => {
         if (b <= a) return;
         gB.players.forEach((pb, ib) => {
             const t = gA.players[ia]; gA.players[ia] = gB.players[ib]; gB.players[ib] = t;
-            const spread = res.groups.map((g, i) => layout[i].players.filter(p => p.race === 'Draenei').length);
-            if (Math.max.apply(null, spread) <= 1) {
+            const spread = layout.map(g => g.players.filter(p => p.race === 'Draenei').length);
+            // Only FEASIBILITY-EQUAL neighbours are evidence about the climb. A swap that
+            // scores higher while breaking a floor is one the climb is required to refuse —
+            // violations outrank score (spec §2) — and on this roster every spreading swap
+            // that beats the score does exactly that, by stranding 2+ healers without a shaman.
+            if (Math.max.apply(null, spread) <= 1 && E.layoutViolations(layout) === bestV) {
                 assert.ok(E.scoreLayout(layout) <= best + 1e-9,
-                    'a draenei-spreading swap scores higher and the climb missed it');
+                    'a feasible draenei-spreading swap scores higher and the climb missed it');
             }
             const u = gA.players[ia]; gA.players[ia] = gB.players[ib]; gB.players[ib] = u;
         });
@@ -957,10 +961,15 @@ test('proposeGroups: each group explains what its composition buys', () => {
 });
 test('proposeGroups: every note rule fires for the group that actually has its provider', () => {
     const res = E.proposeGroups(raid25());
-    const notes = {};
-    res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
-    assert.ok(/Unleashed Rage/.test(notes.melee), 'melee: ' + notes.melee);
-    assert.ok(/Battle Shout/.test(notes.melee), 'melee: ' + notes.melee);
+    // v2 (spec §9.4, calibration): role labels are NOT unique — with measured weights two
+    // groups can both relabel 'casters', so keying a map by g.role silently drops one and
+    // asserts against the wrong group. Ask which group holds each provider instead, which is
+    // what the test's own title says it checks.
+    const withProvider = pred => res.groups.find(g => g.players.some(pred));
+    const notesOf = g => (g ? g.notes.join(' | ') : '<no such group>');
+    const enhG = withProvider(p => p.class === 'SHAMAN' && p.spec === 'Enhancement');
+    assert.ok(/Unleashed Rage/.test(notesOf(enhG)), 'enh group: ' + notesOf(enhG));
+    assert.ok(/Battle Shout/.test(notesOf(withProvider(p => p.class === 'WARRIOR'))), 'warrior group');
     // v2 (spec §9.4): the guard removal lets the feral trade into the hunter group — which is
     // what brief §7 recommends anyway. The rule under test is that a note fires for the group
     // that HAS the provider, so ask the layout where the feral actually landed.
@@ -972,12 +981,12 @@ test('proposeGroups: every note rule fires for the group that actually has its p
     res.groups.filter(g => g.players.some(p => p.class === 'PALADIN')).forEach(g =>
         assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(g.notes.join(' | ')),
             g.role + ' has a paladin but names no aura: ' + g.notes.join(' | ')));
-    assert.ok(/Wrath of Air/.test(notes.casters), 'casters: ' + notes.casters);
-    assert.ok(/Moonkin Aura/.test(notes.casters), 'casters: ' + notes.casters);
-    assert.ok(/Vampiric Touch/.test(notes.casters), 'casters: ' + notes.casters);
-    assert.ok(/Mana Tide Totem/.test(notes.healers), 'healers: ' + notes.healers);
-    assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.healers), 'healers: ' + notes.healers);
-    assert.ok(/Ferocious Inspiration/.test(notes.ranged), 'ranged: ' + notes.ranged);
+    const eleG = withProvider(p => p.class === 'SHAMAN' && p.spec === 'Elemental');
+    assert.ok(/Wrath of Air/.test(notesOf(eleG)), 'elemental group: ' + notesOf(eleG));
+    assert.ok(/Moonkin Aura/.test(notesOf(withProvider(p => p.class === 'DRUID' && p.spec === 'Balance'))), 'moonkin group');
+    assert.ok(/Vampiric Touch/.test(notesOf(withProvider(p => p.class === 'PRIEST' && p.spec === 'Shadow'))), 'spriest group');
+    assert.ok(/Mana Tide Totem/.test(notesOf(withProvider(p => p.class === 'SHAMAN' && p.spec === 'Restoration'))), 'resto group');
+    assert.ok(/Ferocious Inspiration/.test(notesOf(withProvider(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery'))), 'BM group');
 });
 test('proposeGroups: a group never claims a buff whose provider is not in it', () => {
     // v2 (spec §9.4 / §9.3): this used to hard-code "the tanks group has no shaman, paladin
@@ -1867,7 +1876,13 @@ test('proposeGroups: a Guardian carries Leader of the Pack into whatever group i
 test('proposeGroups: two resto shamans never share a group', () => {
     const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
     const res = E.proposeGroups(roster);
-    assert.notStrictEqual(groupOf(res, 'Resto'), groupOf(res, 'Resto2'));
+    // v2 (spec §9.4, calibration): groupOf() returns the role LABEL, and labels are no longer
+    // unique — both shamans' groups now relabel 'healers', which failed the comparison while
+    // the invariant itself held. Compare the groups themselves; totems do not stack, so what
+    // matters is that the two shamans are not in the SAME group.
+    const gA = res.groups.find(g => g.players.some(p => p.name === 'Resto'));
+    const gB = res.groups.find(g => g.players.some(p => p.name === 'Resto2'));
+    assert.notStrictEqual(gA, gB, 'both resto shamans landed in ' + gA.players.map(p => p.name).join(','));
 });
 test('proposeGroups: the spare resto shaman lands in a group that had no shaman', () => {
     const roster = raid25().filter(p => p.name !== 'Ret2').concat([P('Resto2', 'SHAMAN', 'Restoration')]);
@@ -1913,14 +1928,14 @@ test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
         'the 2-man tank island should have dissolved, got: ' + guardianGroup.players.map(p => p.name).join(','));
     assert.notStrictEqual(groupOf(res, 'Gouken'), groupOf(res, 'woptenwodei'));
     assert.strictEqual(res.groups.filter(g => g.players.some(p => p.class === 'SHAMAN')).length, 4);
-    // v2 (spec §9.1 / §2): the spare resto shaman used to sit with the hunters for Grace of
-    // Air. The threat floor now outranks that — a Protection paladin's group MUST run Wrath
-    // of Air (Improved Righteous Fury makes spell damage drive his threat), so she goes to
-    // Sylvanor. This is the floor being readable: she is there for a stated reason.
-    const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
-    assert.ok(spare.players.some(p => p.name === 'Sylvanor'),
-        'spare shaman should cover the prot paladin: ' + spare.players.map(p => p.name).join(','));
-    assert.ok(spare.notes.some(t => /Wrath of Air/.test(t)), spare.notes.join(' | '));
+    // v2 (spec §9.1 / §2): what the threat floor REQUIRES is that a Protection paladin's group
+    // runs Wrath of Air — Improved Righteous Fury makes spell damage drive his threat. Which
+    // player moves to satisfy it is the optimizer's call, and with the calibrated weights it
+    // sends Sylvanor to the Elemental shaman's group rather than dragging a resto shaman to
+    // him. That is the brief §7 layout, and cheaper. Pin the floor, not the mechanism.
+    const palG = res.groups.find(g => g.players.some(p => p.name === 'Sylvanor'));
+    assert.ok(palG.notes.some(t => /Wrath of Air/.test(t)),
+        'prot paladin group must run Wrath of Air: ' + palG.notes.join(' | '));
     assert.strictEqual(E.layoutViolations(res.groups), 0);
     assert.strictEqual(res.unplaced.length, 0);
 });
@@ -1977,13 +1992,16 @@ test('playerBuffScore: enhancement shaman gains nothing from its own Windfury To
 test('playerBuffScore: hunter with a resto shaman scores Grace of Air, not Windfury', () => {
     const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Hunt', 'HUNTER', 'Beast Mastery')];
     assert.ok(Math.abs(E.playerBuffScore(g[1], g)
-        - uplift('HUNTER:Beast Mastery', ['Grace of Air', 'Mana Tide Totem', 'Ferocious Inspiration'])) < 1e-9,
+        // v2 (calibration): Strength of Earth joins the list — any shaman drops it, and it is
+        // now MEASURED at 2.45% for a BM hunter where the ordinal table gave hunters nothing.
+        - uplift('HUNTER:Beast Mastery',
+            ['Grace of Air', 'Strength of Earth', 'Mana Spring Totem', 'Mana Tide Totem', 'Ferocious Inspiration'])) < 1e-9,
         'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: caster with a resto shaman scores Wrath of Air', () => {
     const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
     assert.ok(Math.abs(E.playerBuffScore(g[1], g)
-        - uplift('MAGE:Arcane', ['Wrath of Air', 'Mana Tide Totem'])) < 1e-9,
+        - uplift('MAGE:Arcane', ['Wrath of Air', 'Mana Spring Totem', 'Mana Tide Totem'])) < 1e-9,
         'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: a second same-spec shaman adds nothing', () => {
@@ -2003,8 +2021,13 @@ test('scoreLayout: fury warrior and rogue share Battle Shout, in DPS units', () 
     // v2 (spec §9.4): the layout score is raid DPS, so this is each baseline lifted by the
     // one buff the pair provides. The cohesion half of the old expectation is gone (§1).
     const g = [{ players: [P('War', 'WARRIOR', 'Fury'), P('Rog', 'ROGUE', 'Combat')] }];
-    const want = E.BASELINE['WARRIOR:Fury'] * (1 + E.BUFF_V['Battle Shout']['WARRIOR:Fury'])
-        + E.BASELINE['ROGUE:Combat'] * (1 + E.BUFF_V['Battle Shout']['ROGUE:Combat']);
+    // v2 (spec §9.4, calibration): a warrior shouts for ITSELF, so the measured marginal value
+    // of a party Battle Shout to a warrior is 0 and the table omits the key entirely. That is
+    // correct for a grouping model — a warrior gains nothing by being grouped with a warrior.
+    const bs = k => E.BUFF_V['Battle Shout'][k] || 0;
+    assert.ok(bs('ROGUE:Combat') > 0, 'Battle Shout must still be worth something to a rogue');
+    const want = E.BASELINE['WARRIOR:Fury'] * (1 + bs('WARRIOR:Fury'))
+        + E.BASELINE['ROGUE:Combat'] * (1 + bs('ROGUE:Combat'));
     assert.ok(Math.abs(E.scoreLayout(g) - want) < 1e-9, 'got ' + E.scoreLayout(g) + ' want ' + want);
 });
 test('scoreLayout: bucket cohesion no longer moves the score', () => {
@@ -2063,12 +2086,12 @@ test('optimizer: a hunter dumped with casters moves to the Grace of Air group', 
     ];
     const res = E.proposeGroups(roster);
     const g = res.groups.find(g => g.players.some(p => p.name === 'MM'));
-    // v2 (spec §9.4): the hunter still leaves the casters for a Grace of Air group — but the
-    // twisting ruling means the ENH shaman's group now runs Grace of Air too, and it adds
-    // Unleashed Rage on top, so that is the better seat. Pin the buff, not the companion.
+    // v2 (spec §9.4): the hunter still leaves the casters for a Grace of Air group. Which one
+    // is now a measured question rather than an assumed one — Grace of Air is worth 4.9% to a
+    // hunter and Unleashed Rage only 1.3%, so the resto shaman's group wins over the enh
+    // shaman's. Pin the buff the hunter came for, not the companion it came with.
     assert.ok(!g.players.some(p => p.name === 'Ele'), 'MM stayed with the casters: ' + g.players.map(p => p.name).join(','));
     assert.ok(g.notes.some(t => /Grace of Air/.test(t)), g.notes.join(' | '));
-    assert.ok(g.notes.some(t => /Unleashed Rage/.test(t)), g.notes.join(' | '));
 });
 test('optimizer: 22-man fixture puts the Guardian with the hunters', () => {
     const res = E.proposeGroups(LIVE22);
