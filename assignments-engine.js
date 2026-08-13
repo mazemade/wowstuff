@@ -189,6 +189,17 @@
     };
     const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery' };
 
+    // The Tank sign-up emote reports class "Tank", not the real class. Raid-Helper's spec
+    // names disambiguate: a digit suffix separates classes sharing a spec name (Protection =
+    // warrior, Protection1 = paladin — same convention as Restoration/Restoration1 for
+    // druid/shaman), and Guardian is the druid tank. TBC has exactly these three tank
+    // classes, so this map is total. Keys are lowercased raw specs BEFORE digit stripping.
+    const RH_TANK_SPECS = {
+        protection: { class: 'WARRIOR', spec: 'Protection' },
+        protection1: { class: 'PALADIN', spec: 'Protection' },
+        guardian: { class: 'DRUID', spec: 'Guardian' },
+    };
+
     // Raid-Helper's endpoints disagree on how they case these names and fields,
     // so match on lowercase throughout and take the first field name that's present.
     function lowerKeyed(obj) {
@@ -221,10 +232,19 @@
             const rawClass = String(rhPick(su, ['className', 'class']) || '');
             if (RH_STATUS_CLASSES_LC.includes(rawClass.toLowerCase())) { excluded.push({ name: su.name, reason: rawClass }); return; }
             if (su.status && su.status !== 'primary') { excluded.push({ name: su.name, reason: su.status }); return; }
-            const cls = RH_CLASS_NAMES_LC[rawClass.toLowerCase()];
-            if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
-            let spec = String(rhPick(su, ['specName', 'spec']) || '').replace(/\d+$/, '');
-            spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
+            const rawSpec = String(rhPick(su, ['specName', 'spec']) || '');
+            let cls, spec;
+            if (rawClass.toLowerCase() === 'tank') {
+                const t = RH_TANK_SPECS[rawSpec.toLowerCase()];
+                if (!t) { errors.push('Unknown tank spec "' + rawSpec + '" for ' + su.name); return; }
+                cls = t.class;
+                spec = t.spec;
+            } else {
+                cls = RH_CLASS_NAMES_LC[rawClass.toLowerCase()];
+                if (!cls) { errors.push('Unknown class "' + rawClass + '" for ' + su.name); return; }
+                spec = rawSpec.replace(/\d+$/, '');
+                spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
+            }
             const flags = [];
             const canonical = SELECTABLE_SPECS[cls].find(s => s.toLowerCase() === spec.toLowerCase());
             if (canonical) { spec = canonical; } else { spec = null; flags.push('spec-unknown'); }

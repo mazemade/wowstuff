@@ -1775,5 +1775,26 @@ test('autoAssign: faerie fire prefers balance, then guardian, then cat, then res
     assert.strictEqual(duty(noBalance, 'ff').player, 'Bearface'); // bear keeps FF up for threat anyway
 });
 
+test('parseRaidHelper: Tank pseudo-class resolves to the real class via its spec', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Warbear', className: 'Tank', specName: 'Guardian', userId: 1, status: 'primary' },
+        { name: 'Bubbles', className: 'Tank', specName: 'Protection1', userId: 2, status: 'primary' },
+        { name: 'Shieldy', className: 'Tank', specName: 'Protection', userId: 3, status: 'primary' },
+    ] });
+    assert.strictEqual(r.errors.length, 0);
+    const by = n => r.players.find(p => p.name === n);
+    assert.deepStrictEqual([by('Warbear').class, by('Warbear').spec], ['DRUID', 'Guardian']);
+    assert.deepStrictEqual([by('Bubbles').class, by('Bubbles').spec], ['PALADIN', 'Protection']);
+    assert.deepStrictEqual([by('Shieldy').class, by('Shieldy').spec], ['WARRIOR', 'Protection']);
+});
+test('parseRaidHelper: a Tank signup with an unrecognized spec is an error, not a crash', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Confused', className: 'Tank', specName: 'Holy', userId: 4, status: 'primary' },
+    ] });
+    assert.strictEqual(r.players.length, 0);
+    assert.strictEqual(r.errors.length, 1);
+    assert.ok(r.errors[0].includes('tank spec') && r.errors[0].includes('Confused'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
