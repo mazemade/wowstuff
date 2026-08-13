@@ -1525,6 +1525,50 @@ test('catalog: all four gate rows carry their requireTalent through providersOf'
             assert.strictEqual(E.providersOf(entry)[0].requireTalent, pair[1], pair[0]);
         });
 });
+function scorchMage(name, spec, rank) {
+    const p = P(name, 'MAGE', spec);
+    if (rank !== null) p.talents = { impScorch: rank };
+    return p;
+}
+test('autoAssign: improved scorch goes to the frost mage who has the talent, spec notwithstanding', () => {
+    // Tree totals said Frost, but they took Improved Scorch; totals were always a guess.
+    const r = E.autoAssign([scorchMage('Zfrost', 'Frost', 3)], {});
+    assert.strictEqual(duty(r, 'scorch').player, 'Zfrost');
+    assert.strictEqual(duty(r, 'scorch').qualifier, 'Improved Scorch 3/3');
+});
+test('autoAssign: a fire mage known to lack improved scorch does not get the row', () => {
+    const r = E.autoAssign([scorchMage('Afire', 'Fire', 0)], {});
+    assert.ok(!duty(r, 'scorch') || duty(r, 'scorch').player === null);
+    assert.ok(r.uncovered.missing.some(u => u.id === 'scorch'));
+});
+test('autoAssign: a fire mage with unknown talents keeps improved scorch, as today', () => {
+    const r = E.autoAssign([scorchMage('Afire', 'Fire', null)], {});
+    assert.strictEqual(duty(r, 'scorch').player, 'Afire');
+    assert.strictEqual(duty(r, 'scorch').qualifier, 'talent unknown');
+});
+test('autoAssign: insect swarm goes to the restoration druid who has the talent, spec notwithstanding', () => {
+    // Tree totals said Restoration, but they took Insect Swarm; totals were always a guess.
+    const r = E.autoAssign([dru('Zresto', 'Restoration', 'insectSwarm', 1)], {});
+    assert.strictEqual(duty(r, 'swarm').player, 'Zresto');
+    assert.strictEqual(duty(r, 'swarm').qualifier, 'Insect Swarm 1/1');
+});
+test('autoAssign: a balance druid known to lack insect swarm does not get the row', () => {
+    // swarm has no applicableWhen (unlike hemo) — it deliberately still files missing.
+    const r = E.autoAssign([dru('Abal', 'Balance', 'insectSwarm', 0)], {});
+    assert.ok(!duty(r, 'swarm') || duty(r, 'swarm').player === null);
+    assert.ok(r.uncovered.missing.some(u => u.id === 'swarm'));
+});
+test('autoAssign: a balance druid with unknown talents keeps insect swarm, as today', () => {
+    const r = E.autoAssign([dru('Abal', 'Balance', 'insectSwarm', null)], {});
+    assert.strictEqual(duty(r, 'swarm').player, 'Abal');
+    assert.strictEqual(duty(r, 'swarm').qualifier, 'talent unknown');
+});
+test('autoAssign: hemorrhage goes to the combat rogue who has the talent, spec notwithstanding', () => {
+    // Tree totals said Combat, but they took Hemorrhage; totals were always a guess.
+    const r = E.autoAssign([subrogue('Zcombat', 'Combat', 1)], {});
+    assert.strictEqual(duty(r, 'hemo').player, 'Zcombat');
+    assert.strictEqual(duty(r, 'hemo').qualifier, 'Hemorrhage 1/1');
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
