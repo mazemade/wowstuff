@@ -279,13 +279,13 @@ Gotchas that cost real time:
 
 ## 5. Unverified — needs the owner, before release
 
-**⚠ The installed addon is STALE. Re-install before running anything below.** Plan 8 bumped
-`RaidSpecScan` to **3.1** (15 tracked talents); the copy in `/Applications/World of Warcraft/
-_anniversary_/Interface/AddOns/RaidSpecScan/` is still **3.0** and now differs from the worktree —
-checked 2026-08-13. Until it is copied over, every talent added by plan 8 is simply absent from the
-export, and the new rows read `talent unknown` in-game no matter how correct the engine is. The
-worktree copy is syntax-clean under `luajit`. Nothing below has been run — no live client has been
-available to any session that has worked on this file.
+**`RaidSpecScan` 3.1 is installed** in `/Applications/World of Warcraft/_anniversary_/Interface/
+AddOns/RaidSpecScan/` — copied over at the owner's request on 2026-08-13, verified byte-identical to
+the worktree copy, syntax-clean under `luajit`, and confirmed to carry all 15 tracked talents in
+parity with the engine's `TALENTS` (zero name/class mismatches). The 3.0 it replaced was backed up
+first. The client was not running at install time, so the changed `.toc` is picked up on next launch
+without a `/reload` caveat. Nothing below has been run — no live client has been available to any
+session that has worked on this file.
 
 Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once, in a real raid:
 
@@ -325,8 +325,13 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
     `impHuntersMark`, `hemorrhage`. **These are English strings typed from a design doc, never
     captured from the client**, and a mismatch is silent: a wrong *name* omits the key, which reads
     as a permanently `talent unknown` row rather than an error, and a too-low *`maxRank`* makes a
-    legitimate rank read as unknown (that one at least shows up in `talentDrift`). `wintersChill`
-    (5) and `impWisdom` (2) are the least certain max ranks. Check the spelling with
+    legitimate rank read as unknown (that one at least shows up in `talentDrift`). `impWisdom` (2)
+    is the least certain max rank. **`wintersChill` (5) was challenged by plan 8's whole-plan review
+    as "widely 3 ranks" and that challenge was checked and rejected**: Winter's Chill is 5 ranks in
+    TBC (20/40/60/80/100% chance to apply) and was only cut to 3 in WotLK, which is what the claim
+    was remembering. Lowering it to 3 would have *created* the bug it was meant to prevent — a real
+    rank 4 or 5 would read as unknown and start firing `talentDrift`. Left at 5 deliberately; still
+    worth one tooltip glance, but the burden of proof is now on changing it. Check the spelling with
     `/tprobe target <partial name>` before suspecting the ranking logic — but for `wintersChill` and
     `malediction` specifically, check item 10 first: a permanently-`talent unknown` row on either one
     can also be the scan-bounds bug rather than a name mismatch, since both are the deep talents item
