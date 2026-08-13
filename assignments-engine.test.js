@@ -889,12 +889,34 @@ test('proposeGroups: two players sharing a name are both placed, not silently dr
     const accounted = res.groups.reduce((n, g) => n + g.players.length, 0) + res.unplaced.length;
     assert.strictEqual(accounted, 3);
 });
-test('proposeGroups: spreads draenei across groups rather than doubling up', () => {
+// v2 (spec §9.4, Max's ruling 2026-08-13): the unrestricted climb may overrule the seed's
+// draenei spread when raid DPS says so, and on this roster it does — clustering both rogues
+// in the Windfury group wins by 6.3 raid DPS (0.03%). The de-duplication pass is now a SEED
+// heuristic, not a promise about the final layout, so this pins what must still hold: a
+// duplicate presence is worth exactly nothing, and the clustering is a real local optimum
+// rather than the climb losing track of the racial.
+test('proposeGroups: a doubled-up draenei presence is never counted twice', () => {
     const roster = raid25().map(p => Object.assign({}, p, { race: 'Human' }));
     roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
     const res = E.proposeGroups(roster);
-    const perGroup = res.groups.map(g => g.players.filter(p => p.race === 'Draenei').length);
-    assert.ok(Math.max.apply(null, perGroup) <= 1, 'a group has two draenei: ' + perGroup.join(','));
+    res.groups.forEach(g => E.groupBuffs(g.players)
+        .filter(a => /Presence/.test(a.buff.name))
+        .forEach(a => assert.strictEqual(a.count, 1, g.role + ' double-counted a racial')));
+    // Splitting the pair must not be an improvement the climb missed.
+    const layout = res.groups.map(g => ({ role: g.role, players: g.players.slice() }));
+    const best = E.scoreLayout(layout);
+    layout.forEach((gA, a) => gA.players.forEach((pa, ia) => layout.forEach((gB, b) => {
+        if (b <= a) return;
+        gB.players.forEach((pb, ib) => {
+            const t = gA.players[ia]; gA.players[ia] = gB.players[ib]; gB.players[ib] = t;
+            const spread = res.groups.map((g, i) => layout[i].players.filter(p => p.race === 'Draenei').length);
+            if (Math.max.apply(null, spread) <= 1) {
+                assert.ok(E.scoreLayout(layout) <= best + 1e-9,
+                    'a draenei-spreading swap scores higher and the climb missed it');
+            }
+            const u = gA.players[ia]; gA.players[ia] = gB.players[ib]; gB.players[ib] = u;
+        });
+    })));
 });
 test('proposeGroups: the draenei pass never changes group sizes', () => {
     const roster = raid25().map(p => Object.assign({}, p, { race: 'Draenei' }));
@@ -913,9 +935,12 @@ test('proposeGroups: a real draenei swap conserves every group size and every pl
     roster.filter(p => ['Rog1', 'Rog2'].includes(p.name)).forEach(p => { p.race = 'Draenei'; });
     const before = E.proposeGroups(roster.map(p => Object.assign({}, p, { race: 'Human' })));
     const after = E.proposeGroups(roster);
-    // The swap must actually have fired, or this test proves nothing.
-    const perGroup = after.groups.map(g => g.players.filter(p => p.race === 'Draenei').length);
-    assert.ok(Math.max.apply(null, perGroup) <= 1, 'no swap fired: ' + perGroup.join(','));
+    // v2 (spec §9.4): the pass fires before the climb, and the climb may now re-cluster the
+    // pair, so "max one draenei per group" is no longer observable in the output. The race
+    // data still has to reach the layout, which is what this precondition checks instead —
+    // conservation, the property under test, is asserted below exactly as before.
+    assert.ok(after.groups.some(g => g.notes.some(t => /Draenei/.test(t))),
+        'race data never reached the layout, so this test would prove nothing');
     assert.deepStrictEqual(after.groups.map(g => g.players.length),
                            before.groups.map(g => g.players.length));
     const names = after.groups.flatMap(g => g.players.map(p => p.name)).concat(after.unplaced.map(p => p.name));
@@ -936,10 +961,17 @@ test('proposeGroups: every note rule fires for the group that actually has its p
     res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
     assert.ok(/Unleashed Rage/.test(notes.melee), 'melee: ' + notes.melee);
     assert.ok(/Battle Shout/.test(notes.melee), 'melee: ' + notes.melee);
-    assert.ok(/Leader of the Pack/.test(notes.melee), 'melee: ' + notes.melee);
-    // v2 (spec §9.3): the generic 'A paladin aura' note is superseded by four real rows —
-    // a group with k paladins names the top k auras it actually runs.
-    assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.melee), 'melee: ' + notes.melee);
+    // v2 (spec §9.4): the guard removal lets the feral trade into the hunter group — which is
+    // what brief §7 recommends anyway. The rule under test is that a note fires for the group
+    // that HAS the provider, so ask the layout where the feral actually landed.
+    const feralG = res.groups.find(g => g.players.some(p => p.class === 'DRUID' && E.isFeralSpec(p.spec)));
+    assert.ok(/Leader of the Pack/.test(feralG.notes.join(' | ')), 'feral group: ' + feralG.notes.join(' | '));
+    // v2 (spec §9.3): the generic 'A paladin aura' note is superseded by four real rows — a
+    // group with k paladins names the top k auras it actually runs. (§9.4: and the climb is
+    // free to move the paladin, so ask which group has one rather than pinning 'melee'.)
+    res.groups.filter(g => g.players.some(p => p.class === 'PALADIN')).forEach(g =>
+        assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(g.notes.join(' | ')),
+            g.role + ' has a paladin but names no aura: ' + g.notes.join(' | ')));
     assert.ok(/Wrath of Air/.test(notes.casters), 'casters: ' + notes.casters);
     assert.ok(/Moonkin Aura/.test(notes.casters), 'casters: ' + notes.casters);
     assert.ok(/Vampiric Touch/.test(notes.casters), 'casters: ' + notes.casters);
@@ -948,14 +980,29 @@ test('proposeGroups: every note rule fires for the group that actually has its p
     assert.ok(/Ferocious Inspiration/.test(notes.ranged), 'ranged: ' + notes.ranged);
 });
 test('proposeGroups: a group never claims a buff whose provider is not in it', () => {
+    // v2 (spec §9.4 / §9.3): this used to hard-code "the tanks group has no shaman, paladin
+    // or BM hunter", which the unrestricted climb no longer guarantees — a Holy paladin now
+    // trades in, so its Devotion Aura note is TRUE and the old assertion pinned the fixture
+    // rather than the rule. Checking every group against its own members tests the actual
+    // invariant, and cannot go stale when a layout moves.
     const res = E.proposeGroups(raid25());
-    const notes = {};
-    res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
-    // No shaman, no paladin, no warrior-with-Battle-Shout, no BM hunter in the tanks group.
-    assert.ok(!/Totem|Wrath of Air|Unleashed Rage/.test(notes.tanks), 'tanks: ' + notes.tanks);
-    // v2 (spec §9.3): same rename on the negative side — no paladin, so no NAMED aura.
-    assert.ok(!/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.tanks), 'tanks: ' + notes.tanks);
-    assert.ok(!/Ferocious Inspiration/.test(notes.tanks), 'tanks: ' + notes.tanks);
+    const REQUIRES = [
+        [/Totem|Wrath of Air/, g => g.players.some(p => p.class === 'SHAMAN'), 'a shaman'],
+        [/Unleashed Rage/, g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement'), 'an enh shaman'],
+        [/(Devotion|Retribution|Concentration|Sanctity) Aura/, g => g.players.some(p => p.class === 'PALADIN'), 'a paladin'],
+        [/Sanctity Aura/, g => g.players.some(p => p.class === 'PALADIN' && p.spec === 'Retribution'), 'a ret paladin'],
+        [/Ferocious Inspiration/, g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery'), 'a BM hunter'],
+        [/Battle Shout/, g => g.players.some(p => p.class === 'WARRIOR'), 'a warrior'],
+        [/Leader of the Pack/, g => g.players.some(p => p.class === 'DRUID' && E.isFeralSpec(p.spec)), 'a feral druid'],
+        [/Moonkin Aura/, g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance'), 'a moonkin'],
+        [/Vampiric Touch/, g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow'), 'a shadow priest'],
+    ];
+    res.groups.forEach(g => {
+        const notes = g.notes.join(' | ');
+        REQUIRES.forEach(([claim, has, who]) => {
+            if (claim.test(notes)) assert.ok(has(g), g.role + ' claims ' + claim + ' without ' + who + ': ' + notes);
+        });
+    });
     // Nobody has a race in raid25(), so no group may claim the Draenei presence.
     res.groups.forEach(g => assert.ok(!/Draenei/.test(g.notes.join(' | ')), g.role + ': ' + g.notes.join(' | ')));
 });
@@ -1806,12 +1853,15 @@ test('parseRaidHelper: a Tank signup with an unrecognized spec is an error, not 
 test('bucketOf: Guardian is a tank, not melee', () => {
     assert.strictEqual(E.bucketOf(P('bear', 'DRUID', 'Guardian')), 'tanks');
 });
-test('proposeGroups: a Guardian lands with the tanks and still notes Leader of the Pack', () => {
+test('proposeGroups: a Guardian carries Leader of the Pack into whatever group it lands in', () => {
+    // v2 (spec §9.4 / §2): the group a feral sits in is the optimizer's call now — the bear
+    // lands with the hunters here, and spec §2 says seat-level feral preference beyond the
+    // floors is Max's manual call, not a pinned layout. What must not change is that a bear
+    // carries Leader of the Pack exactly like a cat.
     const roster = raid25().map(p => p.name === 'Feral' ? P('Feral', 'DRUID', 'Guardian') : p);
     const res = E.proposeGroups(roster);
-    assert.strictEqual(groupOf(res, 'Feral'), 'tanks');
-    const tanks = res.groups.find(g => g.players.some(p => p.name === 'Feral'));
-    assert.ok(tanks.notes.some(t => /Leader of the Pack/.test(t)));
+    const bearG = res.groups.find(g => g.players.some(p => p.name === 'Feral'));
+    assert.ok(bearG.notes.some(t => /Leader of the Pack/.test(t)), bearG.notes.join(' | '));
 });
 
 test('proposeGroups: two resto shamans never share a group', () => {
@@ -2013,8 +2063,12 @@ test('optimizer: a hunter dumped with casters moves to the Grace of Air group', 
     ];
     const res = E.proposeGroups(roster);
     const g = res.groups.find(g => g.players.some(p => p.name === 'MM'));
-    assert.ok(g.players.some(p => p.name === 'Resto'), 'MM should sit with the resto shaman, got: ' + g.players.map(p => p.name).join(','));
+    // v2 (spec §9.4): the hunter still leaves the casters for a Grace of Air group — but the
+    // twisting ruling means the ENH shaman's group now runs Grace of Air too, and it adds
+    // Unleashed Rage on top, so that is the better seat. Pin the buff, not the companion.
+    assert.ok(!g.players.some(p => p.name === 'Ele'), 'MM stayed with the casters: ' + g.players.map(p => p.name).join(','));
     assert.ok(g.notes.some(t => /Grace of Air/.test(t)), g.notes.join(' | '));
+    assert.ok(g.notes.some(t => /Unleashed Rage/.test(t)), g.notes.join(' | '));
 });
 test('optimizer: 22-man fixture puts the Guardian with the hunters', () => {
     const res = E.proposeGroups(LIVE22);
@@ -2201,6 +2255,28 @@ test('v2: MT flag pulls a shaman into the tank\'s group', () => {
     const g2 = E.proposeGroups(unflagged).groups.find(g => g.players.some(p => p.name === 'Tank'));
     assert.ok(!g2.players.some(p => p.class === 'SHAMAN'),
         'fixture is vacuous — the tank gets a shaman even unflagged: ' + g2.players.map(p => p.name).join(','));
+});
+
+test('v2: full groups may trade players when the score says so', () => {
+    // The seed fills BOTH groups to 5 and overflows the second combat rogue into the hunter
+    // group, where Grace of Air is worth 2% to him. Getting him to a Windfury group needs a
+    // swap between two FULL groups — which the v1 under-full-endpoint guard forbade outright,
+    // so the +126 raid DPS on the table was unreachable (brief §8 Q4).
+    const roster = [
+        P('Enh', 'SHAMAN', 'Enhancement'), P('W1', 'WARRIOR', 'Fury'), P('W2', 'WARRIOR', 'Fury'),
+        P('W3', 'WARRIOR', 'Arms'), P('R1', 'ROGUE', 'Combat'), P('R2', 'ROGUE', 'Combat'),
+        P('H1', 'HUNTER', 'Beast Mastery'), P('H2', 'HUNTER', 'Beast Mastery'),
+        P('H3', 'HUNTER', 'Survival'), P('Sh2', 'SHAMAN', 'Restoration'),
+    ];
+    const res = E.proposeGroups(roster);
+    assert.deepStrictEqual(res.groups.map(g => g.players.length), [5, 5], 'fixture must seed two FULL groups');
+    const rogueG = res.groups.find(g => g.players.some(p => p.name === 'R2'));
+    assert.ok(rogueG.notes.some(t => /Windfury/.test(t)),
+        'the overflowed rogue never reached a Windfury group: ' + rogueG.players.map(p => p.name).join(','));
+});
+test('v2: proposeGroups is deterministic across calls', () => {
+    const names = r => r.groups.map(g => g.players.map(p => p.name));
+    assert.deepStrictEqual(names(E.proposeGroups(raid25())), names(E.proposeGroups(raid25())));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
