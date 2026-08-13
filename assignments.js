@@ -600,6 +600,41 @@ document.addEventListener('DOMContentLoaded', () => {
         state.blessings = {};
         renderAll();
     });
+    document.getElementById('aiReviewBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('aiReviewBtn');
+        const box = document.getElementById('aiReviewBox');
+        box.classList.remove('hidden');
+        if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
+        box.textContent = 'Asking for a second opinion…';
+        btn.disabled = true;
+        try {
+            const payload = {
+                roster: roster.map(p => ({ name: p.name, class: p.class, spec: p.spec, race: p.race })),
+                groups: E.proposeGroups(roster).groups.map((g, i) => ({
+                    group: i + 1, role: g.role,
+                    players: g.players.map(p => p.name + ' (' + (p.spec || '?') + ' ' + p.class + ')'),
+                    notes: g.notes,
+                })),
+                duties: sheet.duties,
+                uncovered: sheet.uncovered,
+                passives: sheet.passives,
+                crowdControl: sheet.cc,
+                blessings: sheet.blessings.rows.map(r => ({ paladin: r.paladin, spec: r.spec, perClass: r.cells })),
+                blessingWarnings: sheet.blessings.warnings,
+            };
+            const resp = await fetch('/api/ai-review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            box.textContent = resp.ok ? data.review : ('AI review failed: ' + (data.error || resp.status));
+        } catch (e) {
+            box.textContent = 'AI review failed: ' + e.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
     document.getElementById('addCcBtn').addEventListener('click', () => {
         if (!state.cc) state.cc = sheet.cc.map(x => Object.assign({}, x));
         state.cc.push({ mark: 'star', ability: 'polymorph', player: null });
