@@ -931,6 +931,20 @@
         return groupBuffs(players).reduce((s, b) => s + (b.w[buffArchetype(p)] || 0), 0);
     }
 
+    // Layout score = buff coverage plus a small cohesion nudge (0.25 per player in the
+    // group's most common bucket). 0.25 is deliberately below the smallest buff weight:
+    // cohesion breaks near-ties toward recognizable role groups but never outweighs a
+    // real buff gain.
+    function scoreLayout(groups) {
+        return groups.reduce((sum, g) => {
+            const perPlayer = g.players.reduce((s, p) => s + playerBuffScore(p, g.players), 0);
+            const tally = {};
+            g.players.forEach(p => { const b = bucketOf(p); tally[b] = (tally[b] || 0) + 1; });
+            const majority = Object.keys(tally).reduce((m, k) => Math.max(m, tally[k]), 0);
+            return sum + perPlayer + 0.25 * majority;
+        }, 0);
+    }
+
     // Within a role, place the players whose buffs are party-scoped first — they are the
     // reason the group exists, so they must not be crowded out by a filler DPS.
     function anchorScore(p) {
@@ -1195,7 +1209,7 @@
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
-        bucketOf, proposeGroups, playerBuffScore,
+        bucketOf, proposeGroups, playerBuffScore, scoreLayout,
         GREATER_BLESSINGS, proposeBlessings,
     };
 }));

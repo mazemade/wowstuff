@@ -1910,5 +1910,16 @@ test('playerBuffScore: an Elemental shaman pins air to Wrath of Air even with me
     assert.strictEqual(E.playerBuffScore(g[1], g), 3); // SoE 3 only — no Windfury, ToW is caster-only
 });
 
+// --- Optimizer Task 2: scoreLayout ---
+test('scoreLayout: fury warrior and rogue share Battle Shout plus cohesion', () => {
+    const g = [{ players: [P('War', 'WARRIOR', 'Fury'), P('Rog', 'ROGUE', 'Combat')] }];
+    assert.ok(Math.abs(E.scoreLayout(g) - 8.5) < 1e-9); // shout 4+4, cohesion 0.25 x 2 same-bucket
+});
+test('scoreLayout: cohesion prefers same-bucket grouping when buffs tie', () => {
+    const together = [{ players: [P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')] }, { players: [P('Rog', 'ROGUE', 'Combat')] }];
+    const split = [{ players: [P('M1', 'MAGE', 'Arcane'), P('Rog', 'ROGUE', 'Combat')] }, { players: [P('M2', 'MAGE', 'Arcane')] }];
+    assert.ok(E.scoreLayout(together) > E.scoreLayout(split));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
