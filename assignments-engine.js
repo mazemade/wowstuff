@@ -938,18 +938,26 @@
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             // A shaman can run only one air totem at a time, so these two rules must stay
-            // mutually consistent with the Windfury + Strength of Earth rule above: that one
-            // claims Windfury for the enhancement-with-melee case; Grace of Air claims
-            // everything else with hunters present; and baseline Windfury covers a
-            // non-enhancement shaman with melee/tanks but no hunters to drop Grace of Air for.
+            // mutually consistent with the Windfury + Strength of Earth rule and the Wrath of
+            // Air rule above them: Windfury + Strength of Earth claims Windfury for the
+            // enhancement-with-melee case; Wrath of Air claims it outright for any Elemental
+            // shaman; Grace of Air claims everything else with hunters present; and baseline
+            // Windfury covers a non-enhancement, non-Elemental shaman with melee/tanks but no
+            // hunters to drop Grace of Air for. A group holding both an Elemental shaman and a
+            // second, non-Elemental shaman genuinely runs two air totems at once, but these
+            // rules will only ever report the Wrath of Air one — that under-claim is accepted
+            // on purpose, because a note that overstates a buff misleads the raid lead while a
+            // note that understates one merely costs a line they didn't need.
             { text: 'Grace of Air (+77 agility)',
               has: g => g.players.some(p => p.class === 'SHAMAN')
                      && g.players.some(p => p.class === 'HUNTER')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
                      && !(g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
                           && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks'))) },
             { text: 'Windfury Totem (baseline)',
               has: g => g.players.some(p => p.class === 'SHAMAN')
                      && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
                      && !g.players.some(p => p.class === 'HUNTER')
                      && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
@@ -975,12 +983,14 @@
 
     // A Greater Blessing is cast on a whole class, so Salvation on WARRIOR lands on the tank too
     // and cannot be withheld from him. Any class holding a tank therefore skips Salvation and the
-    // raid lead covers that tank with a single-target blessing instead. Feral counts as a tank:
-    // a cat losing Salvation costs little, a bear silently receiving it does not, and talent
-    // totals cannot tell the two apart.
+    // raid lead covers that tank with a single-target blessing instead. isFeralSpec counts as a
+    // tank: a declared Guardian IS a bear, full stop, and silently handing him Salvation is the
+    // failure mode this rule exists to prevent. Feral stays included too, as the conservative
+    // case — an undeclared cat might in truth be a bear nobody bothered to relabel, and a cat
+    // losing Salvation costs little next to that risk.
     function classHoldsTank(roster, cls) {
         return roster.some(p => p.class === cls
-            && (p.spec === 'Protection' || (p.class === 'DRUID' && p.spec === 'Feral')));
+            && (p.spec === 'Protection' || (p.class === 'DRUID' && isFeralSpec(p.spec))));
     }
 
     // Paladin n gets plan n. Ret takes Kings raid-wide because it is the single best blessing

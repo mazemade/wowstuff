@@ -1065,6 +1065,10 @@ test('proposeBlessings: a feral druid counts as a tank for the salvation rule', 
     assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Bear', 'DRUID', 'Feral')]), {}).rows[2].cells.DRUID, null);
     assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
 });
+test('proposeBlessings: a Guardian druid counts as a tank for the salvation rule', () => {
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Bear', 'DRUID', 'Guardian')]), {}).rows[2].cells.DRUID, null);
+    assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
+});
 
 function pala(name, spec, t) {
     const p = P(name, 'PALADIN', spec);
@@ -1852,6 +1856,31 @@ test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
     const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
     assert.ok(spare.notes.some(t => /Grace of Air/.test(t)));    // she's with the hunters for GoA
     assert.strictEqual(res.unplaced.length, 0);
+});
+
+test('proposeGroups: an Elemental shaman with hunters keeps Wrath of Air, not Grace of Air', () => {
+    const roster = [
+        P('Ele', 'SHAMAN', 'Elemental'),
+        P('Hunt1', 'HUNTER', 'Beast Mastery'), P('Hunt2', 'HUNTER', 'Beast Mastery'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Ele'));
+    assert.ok(g.notes.some(t => /Wrath of Air/.test(t)), 'missing Wrath of Air note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Grace of Air/.test(t)), 'wrongly also claims Grace of Air: ' + g.notes.join(' | '));
+    const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
+    assert.strictEqual(airNotes.length, 1, 'more than one air totem claimed: ' + airNotes.join(' | '));
+});
+test('proposeGroups: an Elemental shaman with melee and no hunters keeps Wrath of Air, not baseline Windfury', () => {
+    const roster = [
+        P('Ele', 'SHAMAN', 'Elemental'),
+        P('Rog1', 'ROGUE', 'Combat'), P('Rog2', 'ROGUE', 'Combat'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Ele'));
+    assert.ok(g.notes.some(t => /Wrath of Air/.test(t)), 'missing Wrath of Air note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Windfury Totem \(baseline\)/.test(t)), 'wrongly also claims baseline Windfury: ' + g.notes.join(' | '));
+    const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
+    assert.strictEqual(airNotes.length, 1, 'more than one air totem claimed: ' + airNotes.join(' | '));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
