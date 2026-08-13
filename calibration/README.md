@@ -20,7 +20,7 @@ go build -tags with_db -o ../wowsimcli ./cmd/wowsimcli        # see the trap bel
 cd ../..
 node extract-presets.mjs                                     # ui/<spec>/presets.ts -> presets.json
 (cd dump-profiles && go run .)                               # + phase_2 gear/APLs -> out/profiles
-node build-requests.mjs                                      # -> out/requests (378 requests)
+node build-requests.mjs                                      # -> out/requests (396 requests)
 node run-sims.mjs --resume                                   # ~35 min; writes out/results.json incrementally
 node make-weights.mjs 2026-08-13                             # -> weights.json, floors-report.md
 node inject-weights.mjs                                      # rewrites the engine's calibration block
@@ -54,7 +54,7 @@ Each of these changes what the engine believes, so they are listed rather than b
    `PartyBuffs` flag under test is set. None of the test races is Draenei.
 2. **Hunters are simmed as turrets, not melee weavers** (Max's ruling). wowsims' shipped hunter
    APL weaves, which makes the hunter auto-attack in melee and genuinely proc Windfury — worth
-   +3.1% (BM) and +4.2% (SV), and it lifted BM's baseline from 3589 to 4115 DPS. Real, but only
+   +3.1% (BM) and +4.2% (SV), and worth ~15% on the hunter's own DPS. Real, but only
    if your hunters actually weave. With the turret APL (the repo's own `Turret` variant, the
    `Melee weave` APL variable forced false) Windfury measures exactly 0.00% for all hunters,
    matching the engine's long-standing assumption. **Revisit this if the raid starts weaving.**
@@ -73,6 +73,14 @@ Each of these changes what the engine believes, so they are listed rather than b
    than Combat, so treating them as equal **overstates** it — sim it properly if one ever joins.
 5. **A 0.2% noise floor.** Anything smaller is recorded as absent rather than as a small real
    effect, because a spurious 0.2% is enough to move a layout.
+6. **BASELINE and the buff values come from DIFFERENT runs, on purpose.** `BASELINE` is the
+   UNBUFFED-party run, because the engine multiplies it back up by whatever the group provides
+   — a baseline that already contained party buffs would double-count them. The buff values
+   are marginals measured from the FULLY-BUFFED run, because that is the decision the optimizer
+   actually makes (Battle Shout and Unleashed Rage are both attack power and have diminishing
+   joint value). Getting this wrong is not a harmless constant: each spec's party-buff package
+   is worth a different amount, from 1.09x for a shadow priest to 1.55x for a ret paladin, so
+   using the fully-buffed number as the baseline inflates melee against casters by ~40%.
 
 ## What the measurement changed
 
@@ -89,29 +97,57 @@ Each of these changes what the engine believes, so they are listed rather than b
 | Leader of the Pack / feral | 0.05 | **absent** | a feral provides its own; no grouping value |
 | Windfury / enh shaman | absent | **0.00** | own imbues — the assumption was exactly right |
 
-## Gap measurement (2026-08-13, PROVISIONAL weights — RE-RUN THIS)
+## Gap measurement — is exact search worth building?
 
 `node calibration/measure-gap.mjs` brute-forces the true optimum for rosters of ≤ 11 players
 (all partitions, variable group sizes ≤ 5) and compares it with the shipped hill-climb.
 
+**With the calibrated weights (2026-08-13) — the run that counts:**
+
 ```
-enh-melee-hunters-10: exact (v=0) 10584.2 vs climb (v=0) 10531.7 -> gap 0.50%
-caster-pally-9:       exact (v=0)  5925.9 vs climb (v=0)  5925.9 -> gap -0.00%
-two-full-groups-10:   exact (v=0) 10519.9 vs climb (v=0) 10519.9 -> gap 0.00%
-mt-floor-11:          exact (v=0)  5082.0 vs climb (v=0)  4990.1 -> gap 1.81%
+enh-melee-hunters-10: exact (v=0) 23429.6 vs climb (v=0) 23411.9 -> gap 0.08%
+caster-pally-9:       exact (v=0)  9218.8 vs climb (v=0)  9218.8 -> gap -0.00%
+two-full-groups-10:   exact (v=0) 22400.6 vs climb (v=0) 22400.6 -> gap 0.00%
+mt-floor-11:          exact (v=0) 13591.7 vs climb (v=0) 13591.7 -> gap 0.00%
 ```
 
-**Verdict on that evidence: exact search IS warranted — 1.81% exceeds the ~1% threshold.** Per
-Max's ruling that calls for a follow-up plan, not an implementation here. He also ruled
-(2026-08-13) to **defer writing that plan until this is re-measured with the calibrated
-weights**, since the numbers above are over a surrogate whose values were still placeholders.
+**Verdict: exact search is NOT warranted. Worst gap 0.08%, far under the ~1% threshold.**
+Per Max's ruling this is recorded and the matter stops here — no follow-up plan.
 
-Before committing to a big build, note the failure mode is legible and may be cheaper to fix:
-on `mt-floor-11` the climb settles at group sizes 4/4/3 where the optimum is 5/5/1. Brief §5
-correction 3 predicted exactly this — party buffs do not dilute with group size, so buffed
-groups should be as FULL as possible and empty seats concentrated. A single-swap climb cannot
-always reach that shape because the intermediate steps are not individually improving. A
-seat-concentration pass, or admitting 2-player compound moves, may buy most of the ground.
+This REVERSES the provisional-weight reading, which is exactly why Max ruled to defer the
+decision until calibration landed. For the record, the earlier run said:
+
+```
+enh-melee-hunters-10 0.50%   caster-pally-9 -0.00%   two-full-groups-10 0.00%   mt-floor-11 1.81%
+```
+
+The 1.81% case was the climb settling at group sizes 4/4/3 where the optimum was 5/5/1. With
+measured weights that roster's optimum is reachable by single swaps and the gap closes
+completely. The provisional numbers were not merely imprecise, they pointed at a conclusion
+(build exact set-partitioning search) that the real numbers do not support.
+
+## Sim verification of the model's ranking
+
+`node calibration/sim-verify.mjs ssc-roster.json 5000` builds the model's chosen layout and its
+alternates as FULL raids from real providers — every proto buff flag off, so a group only gets
+what the players in it actually bring — and asks whether the sim ranks them the same way.
+
+```
+model best                        -> 31975 raid DPS (sim)
+alt 1 (utopik <-> Connylloyd)     -> 31963   model -0.02% vs sim -0.04%
+alt 2 (utopik <-> Funkell)        -> 31975   model -0.02% vs sim -0.00%
+
+VERDICT: the sim AGREES with the model's ranking (noise allowance 0.3%).
+```
+
+Agreement means spec §8's revisit trigger has NOT fired: there is no evidence yet that
+per-player gear inputs are needed. Re-run this whenever the weights or the roster change.
+
+**Absolute totals are not comparable, only rankings.** The model reports ~36.7k for this layout
+and the sim ~32.0k. The model is a surrogate that multiplies unbuffed baselines by marginals
+measured in a fully-buffed context; in a real layout most groups carry only a few of those
+buffs, so the reconstruction drifts. Judging the model by its absolute number is a category
+error — it exists to order layouts.
 
 ## Standing caveats these numbers carry
 

@@ -2093,11 +2093,17 @@ test('optimizer: a hunter dumped with casters moves to the Grace of Air group', 
     assert.ok(!g.players.some(p => p.name === 'Ele'), 'MM stayed with the casters: ' + g.players.map(p => p.name).join(','));
     assert.ok(g.notes.some(t => /Grace of Air/.test(t)), g.notes.join(' | '));
 });
-test('optimizer: 22-man fixture puts the Guardian with the hunters', () => {
+test('optimizer: 22-man fixture splits the two ferals for double Leader of the Pack', () => {
+    // v2 (spec §9.4, calibration): the Guardian no longer lands with the hunters. Spec §2 makes
+    // seat-level feral placement Max's manual call, so pinning WHICH group the bear joins pins
+    // a preference, not a requirement. What the model must get right is that the two ferals do
+    // not stack — Leader of the Pack does not stack, so splitting them buys a second group's
+    // worth of crit.
     const res = E.proposeGroups(LIVE22);
-    const g = res.groups.find(g => g.players.some(p => p.name === 'Smellmywand'));
-    assert.ok(g.players.filter(p => p.class === 'HUNTER').length >= 2,
-        'Guardian group: ' + g.players.map(p => p.name).join(','));
+    const bearG = res.groups.find(g => g.players.some(p => p.name === 'Smellmywand'));
+    const catG = res.groups.find(g => g.players.some(p => p.name === 'Warzilla'));
+    assert.notStrictEqual(bearG, catG, 'both ferals landed in ' + bearG.players.map(p => p.name).join(','));
+    [bearG, catG].forEach(g => assert.ok(g.notes.some(t => /Leader of the Pack/.test(t)), g.notes.join(' | ')));
 });
 test('optimizer: layouts are deterministic across runs', () => {
     const a = E.proposeGroups(LIVE22).groups.map(g => g.players.map(p => p.name));
@@ -2125,11 +2131,21 @@ test('optimizer: both destro locks sit with caster totems', () => {
             name + ' notes: ' + g.notes.join(' | '));
     });
 });
-test('optimizer: the enhancement shaman keeps a windfury group', () => {
+test('optimizer: the enhancement shaman is never wasted', () => {
+    // v2 (spec §9.4, calibration): this used to demand 3+ Windfury users beside the enh shaman.
+    // Measured, that is the WRONG thing to want, and following it costs 618.6 raid DPS (1.6%)
+    // on this roster. Rogues get Windfury from ANY shaman — the resto shaman's group runs it —
+    // so they do not need this one. What only the ENH shaman provides is Unleashed Rage and the
+    // twist (Windfury AND Grace of Air at once), which is worth most to a MIXED group. So pin
+    // the thing that must not happen: the enh shaman parked where nobody can use it.
     const res = E.proposeGroups(LIVE22);
     const g = res.groups.find(g => g.players.some(p => p.name === 'Haku'));
-    const wf = g.players.filter(p => p.class === 'WARRIOR' && p.spec !== 'Protection' || p.class === 'ROGUE');
-    assert.ok(wf.length >= 3, 'windfury users with Haku: ' + wf.length);
+    const notes = g.notes.join(' | ');
+    assert.ok(/Windfury Totem/.test(notes) && /Grace of Air/.test(notes), 'enh group must twist: ' + notes);
+    assert.ok(/Unleashed Rage/.test(notes), notes);
+    g.players.filter(p => p.name !== 'Haku').forEach(p =>
+        assert.ok(E.playerBuffScore(p, g.players) > 0,
+            p.name + ' gains nothing from the enh shaman group: ' + g.players.map(x => x.name).join(',')));
 });
 test('optimizer: an already-clean seed comes back unchanged', () => {
     const roster = [

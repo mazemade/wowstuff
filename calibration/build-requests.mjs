@@ -63,6 +63,13 @@ const TOGGLES = {
     'Vampiric Touch': ['individual', 'shadowPriestDps', 0],
 };
 
+// Every party-scoped effect switched off, for the unbuffed baseline.
+const ALL_PARTY_OFF = Object.fromEntries(Object.keys(BASE_PARTY).map(k => {
+    const v = BASE_PARTY[k];
+    return [k, typeof v === 'number' ? 0 : (typeof v === 'boolean' ? false : 'TristateEffectMissing')];
+}));
+const ALL_INDIVIDUAL_OFF = { unleashedRage: false, shadowPriestDps: 0 };
+
 const here = p => new URL(p, import.meta.url);
 
 // Raid-wide buffs and target debuffs are held CONSTANT across every request. They are not
@@ -114,6 +121,12 @@ for (const f of readdirSync(here('./out/profiles/')).filter(f => f.endsWith('.js
         n++;
     };
     w('BASELINE', makeRequest(entry, {}, {}));
+    // Spec §1: BASELINE is the spec's UNBUFFED-PARTY dps, not the fully-buffed one. It has to
+    // be measured separately — each spec's party-buff package is worth a different amount
+    // (1.09x for a shadow priest, 1.55x for a ret paladin), so using the fully-buffed number
+    // as the baseline would inflate melee against casters by ~40%. Raid buffs, debuffs and
+    // blessings stay ON: they are not party-scoped, so they are not what the model chooses.
+    w('UNBUFFED', makeRequest(entry, ALL_PARTY_OFF, ALL_INDIVIDUAL_OFF));
     for (const [buff, [scope, field, off]] of Object.entries(TOGGLES)) {
         w(buff.replace(/ /g, '_'),
             makeRequest(entry,

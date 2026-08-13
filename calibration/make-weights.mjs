@@ -21,14 +21,26 @@ function specKeyOf(specFile) {
     return specFile.slice(0, i) + ':' + specFile.slice(i + 1).replace(/_/g, ' ');
 }
 
-const baselines = {}, buffs = {}, floors = [];
+// Two different measurements, deliberately:
+//   BASELINE = the UNBUFFED-party run (spec §1). The engine multiplies it back up by whatever
+//              the group actually provides, so it must not already contain party buffs.
+//   v        = marginal value measured from the FULLY-BUFFED run (brief §6), because that is
+//              the decision the optimizer actually makes — Battle Shout and Unleashed Rage are
+//              both attack power and have diminishing joint value.
+// Using the fully-buffed number as the baseline would inflate each spec by its own package,
+// which ranges from 1.09x (shadow priest) to 1.55x (ret paladin) — a ~40% distortion BETWEEN
+// specs, not a harmless constant factor.
+const baselines = {}, fullyBuffed = {}, buffs = {}, floors = [];
 for (const key of Object.keys(results)) {
     const [specFile, buffFile] = key.split('__');
-    if (buffFile !== 'BASELINE') continue;
     const specKey = specKeyOf(specFile);
-    baselines[specKey] = Math.round(results[key].dps);
-    if (results[key].tps != null) {
-        floors.push({ specKey, dps: results[key].dps, tps: results[key].tps, dtps: results[key].dtps });
+    if (buffFile === 'UNBUFFED') {
+        baselines[specKey] = Math.round(results[key].dps);
+    } else if (buffFile === 'BASELINE') {
+        fullyBuffed[specKey] = results[key].dps;
+        if (results[key].tps != null) {
+            floors.push({ specKey, dps: results[key].dps, tps: results[key].tps, dtps: results[key].dtps });
+        }
     }
 }
 
@@ -42,10 +54,10 @@ for (const key of Object.keys(results)) {
 const clamped = [];
 for (const key of Object.keys(results)) {
     const [specFile, buffFile] = key.split('__');
-    if (buffFile === 'BASELINE') continue;
+    if (buffFile === 'BASELINE' || buffFile === 'UNBUFFED') continue;
     const specKey = specKeyOf(specFile);
     const buffName = buffFile.replace(/_/g, ' ');
-    const base = baselines[specKey];
+    const base = fullyBuffed[specKey];
     const without = results[key].dps;
     if (!base || !without) continue;
     let v = base / without - 1;
