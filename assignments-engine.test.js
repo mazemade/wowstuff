@@ -1863,8 +1863,15 @@ test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
         'the 2-man tank island should have dissolved, got: ' + guardianGroup.players.map(p => p.name).join(','));
     assert.notStrictEqual(groupOf(res, 'Gouken'), groupOf(res, 'woptenwodei'));
     assert.strictEqual(res.groups.filter(g => g.players.some(p => p.class === 'SHAMAN')).length, 4);
+    // v2 (spec §9.1 / §2): the spare resto shaman used to sit with the hunters for Grace of
+    // Air. The threat floor now outranks that — a Protection paladin's group MUST run Wrath
+    // of Air (Improved Righteous Fury makes spell damage drive his threat), so she goes to
+    // Sylvanor. This is the floor being readable: she is there for a stated reason.
     const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
-    assert.ok(spare.notes.some(t => /Grace of Air/.test(t)));    // she's with the hunters for GoA
+    assert.ok(spare.players.some(p => p.name === 'Sylvanor'),
+        'spare shaman should cover the prot paladin: ' + spare.players.map(p => p.name).join(','));
+    assert.ok(spare.notes.some(t => /Wrath of Air/.test(t)), spare.notes.join(' | '));
+    assert.strictEqual(E.layoutViolations(res.groups), 0);
     assert.strictEqual(res.unplaced.length, 0);
 });
 
@@ -2163,6 +2170,37 @@ test('v2: mixed-kind draenei pair in one group is NOT redundant', () => {
     const g = [D('Dw', 'WARRIOR', 'Fury'), D('Dm', 'MAGE', 'Arcane')];
     const names = E.groupBuffs(g).map(a => a.buff.name);
     assert.ok(names.indexOf('Heroic Presence') !== -1 && names.indexOf('Inspiring Presence') !== -1, names.join(','));
+});
+
+test('v2: layoutViolations weights survival > threat > healing', () => {
+    const mk = players => [{ role: 'x', players }];
+    assert.strictEqual(E.layoutViolations(mk([Object.assign(P('T', 'WARRIOR', 'Protection'), { mt: true })])), 100);
+    assert.strictEqual(E.layoutViolations(mk([P('PP', 'PALADIN', 'Protection')])), 10);
+    assert.strictEqual(E.layoutViolations(mk([P('H1', 'PRIEST', 'Holy'), P('H2', 'DRUID', 'Restoration')])), 1);
+    assert.strictEqual(E.layoutViolations(mk([P('H1', 'PRIEST', 'Holy'), P('Sh', 'SHAMAN', 'Restoration')])), 0);
+});
+test('v2: MT flag pulls a shaman into the tank\'s group', () => {
+    // The fixture has to make the floor BINDING, or it proves nothing. Healer baselines
+    // are 0, so on score alone this resto shaman abandons the healers for whoever gains
+    // most — the four hunters (Grace of Air + Strength of Earth). Only the survival floor
+    // redirects it to the tank instead, so flipping `mt` flips the answer.
+    const roster = [
+        P('Resto', 'SHAMAN', 'Restoration'),
+        P('Holy1', 'PRIEST', 'Holy'), P('Holy2', 'PRIEST', 'Holy'), P('Holy3', 'PRIEST', 'Holy'),
+        P('Hunt1', 'HUNTER', 'Survival'), P('Hunt2', 'HUNTER', 'Survival'),
+        P('Hunt3', 'HUNTER', 'Survival'), P('Hunt4', 'HUNTER', 'Survival'),
+        Object.assign(P('Tank', 'WARRIOR', 'Protection'), { mt: true }),
+        P('Bear1', 'DRUID', 'Guardian'), P('Bear2', 'DRUID', 'Guardian'),
+    ];
+    const res = E.proposeGroups(roster);
+    const tankG = res.groups.find(g => g.players.some(p => p.name === 'Tank'));
+    assert.ok(tankG.players.some(p => p.class === 'SHAMAN'),
+        'MT parked without a shaman: ' + tankG.players.map(p => p.name).join(','));
+    // ... and without the flag the shaman goes where the DPS is, proving the floor moved it.
+    const unflagged = roster.map(p => Object.assign({}, p, { mt: false }));
+    const g2 = E.proposeGroups(unflagged).groups.find(g => g.players.some(p => p.name === 'Tank'));
+    assert.ok(!g2.players.some(p => p.class === 'SHAMAN'),
+        'fixture is vacuous — the tank gets a shaman even unflagged: ' + g2.players.map(p => p.name).join(','));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

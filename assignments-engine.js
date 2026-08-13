@@ -1084,6 +1084,27 @@
             sum + g.players.reduce((s, p) => s + playerScore(p, g.players), 0), 0);
     }
 
+    // The air totems a group runs. Plural: an enh-shaman group twists two.
+    function airChoiceNamesOf(players) {
+        return groupBuffs(players).filter(a => a.buff.element === 'air').map(a => a.buff.name);
+    }
+
+    // Floors (spec §2). Weighted so the relax order is healing → threat → never survival:
+    // any single survival breach outweighs every possible threat+healing breach combined.
+    // Expressed as required-PROVIDER rules, so the panel can say "Sylvanor is here because
+    // the tank needs Wrath of Air" rather than quoting an opaque computed number.
+    function layoutViolations(groups) {
+        let v = 0;
+        groups.forEach(g => {
+            const hasShaman = g.players.some(p => p.class === 'SHAMAN');
+            g.players.forEach(p => { if (p.mt && !hasShaman) v += 100; });
+            if (g.players.some(p => p.class === 'PALADIN' && p.spec === 'Protection')
+                && airChoiceNamesOf(g.players).indexOf('Wrath of Air') === -1) v += 10;
+            if (g.players.filter(p => bucketOf(p) === 'healers').length >= 2 && !hasShaman) v += 1;
+        });
+        return v;
+    }
+
     // Within a role, place the players whose buffs are party-scoped first — they are the
     // reason the group exists, so they must not be crowded out by a filler DPS.
     function anchorScore(p) {
@@ -1215,9 +1236,19 @@
         function relocatable(g, p) {
             return bucketOf(p) !== g.role || g.players.length < GROUP_CAP;
         }
+        // Candidates are compared (violations, score) lexicographically (spec §2): a change
+        // that repairs a floor breach wins over any DPS gain, and among floor-equal changes
+        // the biggest DPS gain wins. First-found keeps ties, so determinism is unchanged.
         for (let iter = 0; iter < 500; iter++) {
-            const base = scoreLayout(groups);
+            const baseV = layoutViolations(groups), baseS = scoreLayout(groups);
             let best = null;
+            function consider(cand) {
+                const dv = baseV - layoutViolations(groups), ds = scoreLayout(groups) - baseS;
+                if (dv < 0 || (dv === 0 && ds <= 1e-9)) return;
+                if (!best || dv > best.dv || (dv === best.dv && ds > best.ds + 1e-9)) {
+                    best = Object.assign({ dv, ds }, cand);
+                }
+            }
             for (let a = 0; a < groups.length; a++) {
                 for (let ia = 0; ia < groups[a].players.length; ia++) {
                     for (let b = 0; b < groups.length; b++) {
@@ -1227,9 +1258,8 @@
                                 if ((groups[a].players.length < GROUP_CAP || groups[b].players.length < GROUP_CAP)
                                     && relocatable(groups[a], groups[a].players[ia]) && relocatable(groups[b], groups[b].players[ib])) {
                                     trySwap(groups[a], ia, groups[b], ib);
-                                    const d = scoreLayout(groups) - base;
+                                    consider({ kind: 'swap', a, ia, b, ib });
                                     trySwap(groups[a], ia, groups[b], ib);
-                                    if (d > 0 && (!best || d > best.delta)) best = { delta: d, kind: 'swap', a, ia, b, ib };
                                 }
                             }
                         }
@@ -1237,10 +1267,9 @@
                             const p = groups[a].players[ia];
                             groups[a].players.splice(ia, 1);
                             groups[b].players.push(p);
-                            const d = scoreLayout(groups) - base;
+                            consider({ kind: 'move', a, ia, b });
                             groups[b].players.pop();
                             groups[a].players.splice(ia, 0, p);
-                            if (d > 0 && (!best || d > best.delta)) best = { delta: d, kind: 'move', a, ia, b };
                         }
                     }
                 }
@@ -1273,9 +1302,7 @@
         // Plural since the twisting ruling: an enh-shaman group runs TWO air totems, so a
         // note rule asks whether its totem is among the group's choices, not whether it is
         // the single choice.
-        function airChoiceNames(g) {
-            return groupBuffs(g.players).filter(a => a.buff.element === 'air').map(a => a.buff.name);
-        }
+        function airChoiceNames(g) { return airChoiceNamesOf(g.players); }
         function auraNames(g) {
             return groupBuffs(g.players).filter(a => a.buff.element === 'aura').map(a => a.buff.name);
         }
@@ -1439,7 +1466,7 @@
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
         bucketOf, proposeGroups, playerBuffScore, playerScore, scoreLayout,
-        specKey, BASELINE, BUFF_V, PARTY_BUFFS, groupBuffs,
+        specKey, BASELINE, BUFF_V, PARTY_BUFFS, groupBuffs, layoutViolations,
         GREATER_BLESSINGS, proposeBlessings,
     };
 }));
