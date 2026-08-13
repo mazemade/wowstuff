@@ -12,11 +12,11 @@ each task-reviewed, with one fix round on task 3.
 | | |
 |---|---|
 | Branch | `debuff-coverage`, in worktree `/Users/maxvanzoelen/wowstuff/.claude/worktrees/debuff-coverage` |
-| HEAD | `a3d841e` (last code commit; the docs commit `c13b909` sits on top of it) |
+| HEAD | `33722ee` (the docs commit recording the 3.1 install; last code commit is `a3d841e`) |
 | Working tree | clean (`TalentProbe/` is an untracked throwaway diagnostic addon — leave it alone) |
 | Suite | **204 passed, 0 failed** (`node assignments-engine.test.js`) |
-| `main` | untouched at `bb838f9`, still deployable (Railway deploys from `main`) |
-| Commits on branch | 71, none squashed — one per task, plus fix waves |
+| `main` | **merged, local only.** Fast-forwarded to `33722ee` on 2026-08-13; all 73 commits intact, none squashed. **Not pushed** — `origin/main` is still `bb838f9`, so Railway is still serving the pre-merge build |
+| Branch | `debuff-coverage` kept, identical to `main`, still checked out in the worktree |
 
 | Plan | State |
 |---|---|
@@ -28,12 +28,17 @@ each task-reviewed, with one fix round on task 3.
 | 5 — `2026-08-11-greater-blessings-grid.md` | ✅ complete, 4 tasks + fix wave `faf10db` |
 | 6 — `2026-08-11-rotations-and-remaining-debuffs.md` | ✅ complete, 4 tasks + fix wave `ce4ab5f` |
 | 7 — `2026-08-12-talent-aware-assignments.md` | ✅ complete, 6 tasks + 2 task-review fixes + fix wave `bb14fff` |
-| 8 — `2026-08-13-talent-catalog-expansion.md` | ✅ all 6 tasks complete and task-reviewed, + fix round `723165d` on task 3; final code commit `d397f87`. **Whole-plan review not yet run.** |
+| 8 — `2026-08-13-talent-catalog-expansion.md` | ✅ complete, 6 tasks + fix round `723165d` on task 3 + whole-plan fix wave `562fd33` + owner-directed qualifier suppression `c13b909` |
 
-**All eight plans are done.** Whole-plan reviews are closed for plans 1–7; **plan 8's is still
-outstanding** — its six tasks were each reviewed, but nothing has yet looked at the plan end to end.
-**Two things gate the merge, not one:** that outstanding whole-plan review, and section 5 (the one
-thing that still needs a live WoW client).
+**All eight plans are done and every whole-plan review is closed**, plan 8's included — it returned
+"ready to merge, with fixes", and its fix wave plus the owner-directed qualifier suppression landed
+after it. The branch was merged into local `main` on 2026-08-13.
+
+**What still gates the PUSH is section 5**, and it is the only thing: none of the twelve in-game
+checks has run. The engine is exhaustively tested and the degrade-to-today rule was verified
+empirically across nine surfaces, but the addon↔client contract is unverified — the 11 new talent
+names, the max ranks, and the scan-bounds bug in item 10 that this plan's deep talents activated.
+Pushing deploys via Railway, so confirm on a raid night first.
 
 ## What the branch adds, end to end
 
@@ -89,10 +94,10 @@ branch set out to do is done.
 **The gate is section 5, not more code.** Every remaining item needs a live WoW client or an owner
 ruling, not another plan:
 
-1. **Re-install `RaidSpecScan` (3.0 → 3.1) and run section 5.** The installed copy is still 3.0 and
-   now differs from the worktree — none of the 15-talent export exists in-game yet, so no section 5
-   check can pass until it is copied over. This is the only thing standing between the branch and a
-   merge decision.
+1. **Run section 5.** `RaidSpecScan` 3.1 is installed (2026-08-13, verified byte-identical and in
+   talent parity with the engine — see section 5), so the 15-talent export is live in-game and every
+   check below is now runnable. This is the only thing standing between the merged branch and a
+   push.
 2. **Improved Curse of Weakness**, if it exists in 2.5.x, is a one-line `improvedBy` on the Curse of
    Weakness provider — deliberately left out of plan 8 because nobody could confirm the talent
    exists. See section 5 and section 7.
