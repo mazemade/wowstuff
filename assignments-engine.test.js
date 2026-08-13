@@ -1883,5 +1883,32 @@ test('proposeGroups: an Elemental shaman with melee and no hunters keeps Wrath o
     assert.strictEqual(airNotes.length, 1, 'more than one air totem claimed: ' + airNotes.join(' | '));
 });
 
+// --- Optimizer Task 1: party-buff value model ---
+test('playerBuffScore: rogue with an enhancement shaman gets Windfury, Strength of Earth, Unleashed Rage', () => {
+    const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
+    assert.strictEqual(E.playerBuffScore(g[1], g), 18); // WF 10 + SoE 3 + UR 5
+});
+test('playerBuffScore: enhancement shaman gains nothing from its own Windfury Totem', () => {
+    const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
+    assert.strictEqual(E.playerBuffScore(g[0], g), 3); // SoE only — imbues beat the totem, UR is its own
+});
+test('playerBuffScore: hunter with a resto shaman scores Grace of Air, not Windfury', () => {
+    const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Hunt', 'HUNTER', 'Beast Mastery')];
+    assert.strictEqual(E.playerBuffScore(g[1], g), 11); // GoA 7 + Mana Tide 1 + own Ferocious 3
+});
+test('playerBuffScore: caster with a resto shaman scores Wrath of Air', () => {
+    const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
+    assert.strictEqual(E.playerBuffScore(g[1], g), 9); // WoA 7 + Mana Tide 2
+});
+test('playerBuffScore: a second same-spec shaman adds nothing', () => {
+    const one = [P('Resto', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
+    const two = [P('Resto', 'SHAMAN', 'Restoration'), P('Resto2', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
+    assert.strictEqual(E.playerBuffScore(two[2], two), E.playerBuffScore(one[1], one));
+});
+test('playerBuffScore: an Elemental shaman pins air to Wrath of Air even with melee', () => {
+    const g = [P('Ele', 'SHAMAN', 'Elemental'), P('R1', 'ROGUE', 'Combat'), P('R2', 'ROGUE', 'Combat')];
+    assert.strictEqual(E.playerBuffScore(g[1], g), 3); // SoE 3 only — no Windfury, ToW is caster-only
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

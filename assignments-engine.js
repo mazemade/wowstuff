@@ -828,6 +828,109 @@
     const SHAMAN_ROLE = { Enhancement: 'melee', Elemental: 'casters', Restoration: 'healers' };
     const GROUP_CAP = 5;
 
+    // Party-buff value model (spec: docs/superpowers/specs/2026-08-13-group-optimizer-
+    // ai-review-design.md). Units are ordinal, not simulated: 10 is the largest single
+    // delta in the game (Windfury on a windfury user), 1 is minor. Only the ORDER of
+    // the weights needs to be right — the optimizer compares sums, never absolute values.
+    function buffArchetype(p) {
+        switch (p.class) {
+            case 'WARRIOR': return p.spec === 'Protection' ? 'protWarrior' : 'wfMelee';
+            case 'ROGUE':   return 'wfMelee';
+            case 'PALADIN': return p.spec === 'Protection' ? 'protPaladin'
+                                 : (p.spec === 'Holy' ? 'healer' : 'wfMelee');
+            case 'DRUID':   return p.spec === 'Restoration' ? 'healer'
+                                 : (p.spec === 'Balance' ? 'caster'
+                                 : (p.spec === 'Guardian' ? 'bear' : 'feralCat'));
+            case 'PRIEST':  return p.spec === 'Shadow' ? 'caster' : 'healer';
+            case 'SHAMAN':  return p.spec === 'Enhancement' ? 'enhShaman'
+                                 : (p.spec === 'Elemental' ? 'caster' : 'healer');
+            case 'HUNTER':  return 'hunter';
+            default:        return 'caster'; // mage, warlock
+        }
+    }
+
+    // element:'air' rows compete — a shaman runs ONE air totem, so groupBuffs picks a
+    // single air row per group. Windfury is absent for enhShaman (own imbues), feralCat
+    // and bear (weapon-imbue totems do not affect shapeshifted druids) and hunters
+    // (main-hand proc, ranged attacks never trigger it). A buff provided twice still
+    // counts once: `provided` is a boolean over the whole group.
+    const PARTY_BUFFS = [
+        { name: 'Windfury Totem', element: 'air',
+          provided: ps => ps.some(p => p.class === 'SHAMAN'),
+          w: { wfMelee: 10, protWarrior: 5 } },
+        { name: 'Grace of Air', element: 'air',
+          provided: ps => ps.some(p => p.class === 'SHAMAN'),
+          w: { wfMelee: 2, enhShaman: 2, feralCat: 5, bear: 5, hunter: 7, protWarrior: 1, protPaladin: 1 } },
+        { name: 'Wrath of Air', element: 'air',
+          provided: ps => ps.some(p => p.class === 'SHAMAN'),
+          w: { caster: 7, healer: 3, protPaladin: 1 } },
+        { name: 'Strength of Earth',
+          provided: ps => ps.some(p => p.class === 'SHAMAN'),
+          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 2, protWarrior: 2, protPaladin: 1 } },
+        { name: 'Totem of Wrath',
+          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental'),
+          w: { caster: 7, healer: 1, protPaladin: 1 } },
+        { name: 'Mana Tide Totem',
+          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration'),
+          w: { enhShaman: 1, hunter: 1, caster: 2, healer: 6, protPaladin: 1 } },
+        { name: 'Battle Shout',
+          provided: ps => ps.some(p => p.class === 'WARRIOR'),
+          w: { wfMelee: 4, enhShaman: 4, feralCat: 4, bear: 3, protWarrior: 3 } },
+        { name: 'Unleashed Rage',
+          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement'),
+          w: { wfMelee: 5, feralCat: 4, bear: 2, protWarrior: 2 } },
+        { name: 'Leader of the Pack',
+          provided: ps => ps.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)),
+          w: { wfMelee: 5, enhShaman: 4, feralCat: 5, bear: 3, hunter: 5, protWarrior: 2 } },
+        { name: 'Ferocious Inspiration',
+          provided: ps => ps.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery'),
+          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 1, hunter: 3, caster: 3, protWarrior: 1, protPaladin: 1 } },
+        { name: 'Trueshot Aura',
+          provided: ps => ps.some(p => p.class === 'HUNTER' && p.spec === 'Marksmanship'),
+          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 1, hunter: 5, protWarrior: 1 } },
+        { name: 'Moonkin Aura',
+          provided: ps => ps.some(p => p.class === 'DRUID' && p.spec === 'Balance'),
+          w: { caster: 4, healer: 1 } },
+        { name: 'Vampiric Touch',
+          provided: ps => ps.some(p => p.class === 'PRIEST' && p.spec === 'Shadow'),
+          w: { caster: 4, healer: 3, protPaladin: 1 } },
+        { name: 'Blood Pact',
+          provided: ps => ps.some(p => p.class === 'WARLOCK'),
+          w: { wfMelee: 1, enhShaman: 1, feralCat: 1, bear: 1, hunter: 1, caster: 1, healer: 1, protWarrior: 2, protPaladin: 2 } },
+        { name: 'Paladin aura',
+          provided: ps => ps.some(p => p.class === 'PALADIN'),
+          w: { wfMelee: 1, enhShaman: 1, feralCat: 1, bear: 1, hunter: 1, caster: 1, healer: 1, protWarrior: 1, protPaladin: 1 } },
+        { name: 'Draenei presence',
+          provided: ps => ps.some(p => p.race === 'Draenei'),
+          w: { wfMelee: 2, enhShaman: 2, hunter: 2, caster: 2, protWarrior: 2 } },
+    ];
+
+    function groupBuffs(players) {
+        const active = PARTY_BUFFS.filter(b => !b.element && b.provided(players));
+        const airs = PARTY_BUFFS.filter(b => b.element === 'air' && b.provided(players));
+        if (airs.length) {
+            // An Elemental shaman always keeps Wrath of Air — established ruling (it will
+            // not sacrifice its own spell damage to imbue melee), and the existing air-note
+            // tests pin it. Otherwise: argmax of group value, ties keep table order (WF first).
+            let bestAir = null;
+            if (players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')) {
+                bestAir = airs.filter(b => b.name === 'Wrath of Air')[0];
+            } else {
+                let bestVal = -1;
+                airs.forEach(b => {
+                    const v = players.reduce((s, p) => s + (b.w[buffArchetype(p)] || 0), 0);
+                    if (v > bestVal) { bestVal = v; bestAir = b; }
+                });
+            }
+            if (bestAir) active.push(bestAir);
+        }
+        return active;
+    }
+
+    function playerBuffScore(p, players) {
+        return groupBuffs(players).reduce((s, b) => s + (b.w[buffArchetype(p)] || 0), 0);
+    }
+
     // Within a role, place the players whose buffs are party-scoped first — they are the
     // reason the group exists, so they must not be crowded out by a filler DPS.
     function anchorScore(p) {
@@ -1092,7 +1195,7 @@
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
-        bucketOf, proposeGroups,
+        bucketOf, proposeGroups, playerBuffScore,
         GREATER_BLESSINGS, proposeBlessings,
     };
 }));
