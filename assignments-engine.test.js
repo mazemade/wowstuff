@@ -1921,5 +1921,26 @@ test('scoreLayout: cohesion prefers same-bucket grouping when buffs tie', () => 
     assert.ok(E.scoreLayout(together) > E.scoreLayout(split));
 });
 
+// --- Optimizer Task 3: note rules ---
+test('NOTE_RULES: Trueshot Aura printed for an MM hunter with melee', () => {
+    const res = E.proposeGroups([P('Legolas', 'HUNTER', 'Marksmanship'), P('Rog', 'ROGUE', 'Combat')]);
+    assert.ok(res.groups[0].notes.some(t => /Trueshot/.test(t)), res.groups[0].notes.join(' | '));
+});
+test('NOTE_RULES: no Trueshot note for a lone MM among casters', () => {
+    const res = E.proposeGroups([P('Legolas', 'HUNTER', 'Marksmanship'), P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')]);
+    res.groups.forEach(g => assert.ok(!g.notes.some(t => /Trueshot/.test(t)), g.notes.join(' | ')));
+});
+test('NOTE_RULES: Blood Pact printed for any warlock group', () => {
+    const res = E.proposeGroups([P('Lock', 'WARLOCK', 'Destruction'), P('Mage', 'MAGE', 'Arcane')]);
+    assert.ok(res.groups[0].notes.some(t => /Blood Pact/.test(t)), res.groups[0].notes.join(' | '));
+});
+test('NOTE_RULES: air delegation — resto shaman with a cat and a bear claims Grace of Air', () => {
+    const res = E.proposeGroups([P('Resto', 'SHAMAN', 'Restoration'), P('Cat', 'DRUID', 'Feral'), P('Bear', 'DRUID', 'Guardian')]);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Resto'));
+    assert.ok(g.notes.some(t => /Grace of Air/.test(t)), 'missing Grace of Air: ' + g.notes.join(' | '));
+    const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
+    assert.strictEqual(airNotes.length, 1, 'air notes: ' + airNotes.join(' | '));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

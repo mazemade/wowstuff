@@ -1047,42 +1047,40 @@
 
         // Say what the grouping actually buys, so the raid lead can sanity-check it rather
         // than trust it. Only claim a buff when the provider is genuinely in the group.
+
+        // The air-note rules delegate to the score model's air-totem choice, so the notes
+        // and the optimizer can never disagree about which air totem a group runs — and the
+        // one-air-note invariant holds by construction instead of by rule coordination.
+        function airChoice(g) {
+            const air = groupBuffs(g.players).filter(b => b.element === 'air')[0];
+            return air ? air.name : null;
+        }
+
         const NOTE_RULES = [
             { text: 'Windfury Totem + Strength of Earth',
-              has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
-                     && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
+              has: g => airChoice(g) === 'Windfury Totem'
+                     && g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
-            { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
-            // A shaman can run only one air totem at a time, so these two rules must stay
-            // mutually consistent with the Windfury + Strength of Earth rule and the Wrath of
-            // Air rule above them: Windfury + Strength of Earth claims Windfury for the
-            // enhancement-with-melee case; Wrath of Air claims it outright for any Elemental
-            // shaman; Grace of Air claims everything else with hunters present; and baseline
-            // Windfury covers a non-enhancement, non-Elemental shaman with melee/tanks but no
-            // hunters to drop Grace of Air for. A group holding both an Elemental shaman and a
-            // second, non-Elemental shaman genuinely runs two air totems at once, but these
-            // rules will only ever report the Wrath of Air one — that under-claim is accepted
-            // on purpose, because a note that overstates a buff misleads the raid lead while a
-            // note that understates one merely costs a line they didn't need.
+            { text: 'Wrath of Air (+101 spell damage and healing)',
+              has: g => airChoice(g) === 'Wrath of Air' },
             { text: 'Grace of Air (+77 agility)',
-              has: g => g.players.some(p => p.class === 'SHAMAN')
-                     && g.players.some(p => p.class === 'HUNTER')
-                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
-                     && !(g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
-                          && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks'))) },
+              has: g => airChoice(g) === 'Grace of Air' },
             { text: 'Windfury Totem (baseline)',
-              has: g => g.players.some(p => p.class === 'SHAMAN')
-                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
-                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental')
-                     && !g.players.some(p => p.class === 'HUNTER')
-                     && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
+              has: g => airChoice(g) === 'Windfury Totem'
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
             { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
             { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
             { text: 'Moonkin Aura (+5% spell crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance') },
             { text: 'Ferocious Inspiration (+3% damage, stacks per BM hunter)', has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery') },
+            { text: 'Trueshot Aura (+125 attack power)',
+              has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Marksmanship')
+                     && g.players.some(p => !(p.class === 'HUNTER' && p.spec === 'Marksmanship')
+                          && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks' || bucketOf(p) === 'ranged')) },
             { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },
+            { text: 'Blood Pact (+70 stamina, needs the imp out)',
+              has: g => g.players.some(p => p.class === 'WARLOCK') },
             { text: 'A paladin aura', has: g => g.players.some(p => p.class === 'PALADIN') },
             { text: '+1% hit from Draenei presence', has: g => g.players.some(p => p.race === 'Draenei') },
         ];
