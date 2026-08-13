@@ -979,9 +979,22 @@
         { name: 'Vampiric Touch', mode: 'once',
           count: ps => ps.filter(p => p.class === 'PRIEST' && p.spec === 'Shadow').length,
           v: BUFF_V['Vampiric Touch'] || {} },
-        { name: 'Paladin aura', mode: 'once',
+        // element:'aura' rows compete for paladin aura slots: a group with k paladins runs
+        // the top k by group value (wowsims models all four separately, brief §3 fix #6).
+        { name: 'Devotion Aura', element: 'aura', mode: 'once',
           count: ps => ps.filter(p => p.class === 'PALADIN').length,
-          v: BUFF_V['Paladin aura'] || {} },
+          v: BUFF_V['Devotion Aura'] || {} },
+        { name: 'Retribution Aura', element: 'aura', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'PALADIN').length,
+          v: BUFF_V['Retribution Aura'] || {} },
+        { name: 'Concentration Aura', element: 'aura', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'PALADIN').length,
+          v: BUFF_V['Concentration Aura'] || {} },
+        { name: 'Sanctity Aura', element: 'aura', mode: 'once',
+          // Ret talent: available only when a Retribution paladin is in the group.
+          count: ps => ps.some(p => p.class === 'PALADIN' && p.spec === 'Retribution')
+              ? ps.filter(p => p.class === 'PALADIN').length : 0,
+          v: BUFF_V['Sanctity Aura'] || {} },
         { name: 'Draenei presence', mode: 'once',
           count: ps => ps.filter(p => p.race === 'Draenei').length,
           v: BUFF_V['Draenei presence'] || {} },
@@ -1028,6 +1041,14 @@
                 });
                 if (bestAir) active.push({ buff: bestAir, count: 1 });
             }
+        }
+        const auras = PARTY_BUFFS.filter(b => b.element === 'aura' && b.count(players) > 0);
+        if (auras.length) {
+            const nPal = players.filter(p => p.class === 'PALADIN').length;
+            auras.map(b => ({ b, val: groupValueOf(b, players) }))
+                .sort((x, y) => y.val - x.val) // stable: ties keep table order
+                .slice(0, Math.min(nPal, auras.length))
+                .forEach(x => active.push({ buff: x.b, count: 1 }));
         }
         return active;
     }
@@ -1240,6 +1261,9 @@
         function airChoiceNames(g) {
             return groupBuffs(g.players).filter(a => a.buff.element === 'air').map(a => a.buff.name);
         }
+        function auraNames(g) {
+            return groupBuffs(g.players).filter(a => a.buff.element === 'aura').map(a => a.buff.name);
+        }
 
         const NOTE_RULES = [
             { text: 'Windfury Totem',
@@ -1269,7 +1293,10 @@
                      && g.players.some(p => !(p.class === 'HUNTER' && p.spec === 'Marksmanship')
                           && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks' || bucketOf(p) === 'ranged')) },
             { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },
-            { text: 'A paladin aura', has: g => g.players.some(p => p.class === 'PALADIN') },
+            { text: 'Devotion Aura', has: g => auraNames(g).indexOf('Devotion Aura') !== -1 },
+            { text: 'Retribution Aura', has: g => auraNames(g).indexOf('Retribution Aura') !== -1 },
+            { text: 'Concentration Aura', has: g => auraNames(g).indexOf('Concentration Aura') !== -1 },
+            { text: 'Sanctity Aura (+10% Holy damage)', has: g => auraNames(g).indexOf('Sanctity Aura') !== -1 },
             { text: '+1% hit from Draenei presence', has: g => g.players.some(p => p.race === 'Draenei') },
         ];
         groups.forEach(g => { g.notes = NOTE_RULES.filter(r => r.has(g)).map(r => r.text); });

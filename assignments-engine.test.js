@@ -937,12 +937,14 @@ test('proposeGroups: every note rule fires for the group that actually has its p
     assert.ok(/Unleashed Rage/.test(notes.melee), 'melee: ' + notes.melee);
     assert.ok(/Battle Shout/.test(notes.melee), 'melee: ' + notes.melee);
     assert.ok(/Leader of the Pack/.test(notes.melee), 'melee: ' + notes.melee);
-    assert.ok(/A paladin aura/.test(notes.melee), 'melee: ' + notes.melee);
+    // v2 (spec §9.3): the generic 'A paladin aura' note is superseded by four real rows —
+    // a group with k paladins names the top k auras it actually runs.
+    assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.melee), 'melee: ' + notes.melee);
     assert.ok(/Wrath of Air/.test(notes.casters), 'casters: ' + notes.casters);
     assert.ok(/Moonkin Aura/.test(notes.casters), 'casters: ' + notes.casters);
     assert.ok(/Vampiric Touch/.test(notes.casters), 'casters: ' + notes.casters);
     assert.ok(/Mana Tide Totem/.test(notes.healers), 'healers: ' + notes.healers);
-    assert.ok(/A paladin aura/.test(notes.healers), 'healers: ' + notes.healers);
+    assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.healers), 'healers: ' + notes.healers);
     assert.ok(/Ferocious Inspiration/.test(notes.ranged), 'ranged: ' + notes.ranged);
 });
 test('proposeGroups: a group never claims a buff whose provider is not in it', () => {
@@ -951,7 +953,8 @@ test('proposeGroups: a group never claims a buff whose provider is not in it', (
     res.groups.forEach(g => { notes[g.role] = g.notes.join(' | '); });
     // No shaman, no paladin, no warrior-with-Battle-Shout, no BM hunter in the tanks group.
     assert.ok(!/Totem|Wrath of Air|Unleashed Rage/.test(notes.tanks), 'tanks: ' + notes.tanks);
-    assert.ok(!/A paladin aura/.test(notes.tanks), 'tanks: ' + notes.tanks);
+    // v2 (spec §9.3): same rename on the negative side — no paladin, so no NAMED aura.
+    assert.ok(!/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes.tanks), 'tanks: ' + notes.tanks);
     assert.ok(!/Ferocious Inspiration/.test(notes.tanks), 'tanks: ' + notes.tanks);
     // Nobody has a race in raid25(), so no group may claim the Draenei presence.
     res.groups.forEach(g => assert.ok(!/Draenei/.test(g.notes.join(' | ')), g.role + ': ' + g.notes.join(' | ')));
@@ -2128,6 +2131,23 @@ test('v2: twisting raises the score of an enh melee group', () => {
     const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Fu', 'WARRIOR', 'Fury')];
     const names = E.groupBuffs(g).map(a => a.buff.name);
     assert.ok(names.indexOf('Windfury Totem') !== -1 && names.indexOf('Grace of Air') !== -1, names.join(','));
+});
+
+test('v2: paladin group notes a named aura, generic note gone', () => {
+    const res = E.proposeGroups([P('Pal', 'PALADIN', 'Protection'), P('M', 'MAGE', 'Arcane')]);
+    const notes = res.groups[0].notes.join(' | ');
+    assert.ok(!/A paladin aura/.test(notes), notes);
+    assert.ok(/(Devotion|Retribution|Concentration|Sanctity) Aura/.test(notes), notes);
+});
+test('v2: Sanctity Aura needs a Retribution paladin and wins for holy-damage specs', () => {
+    const two = E.proposeGroups([P('Ret', 'PALADIN', 'Retribution'), P('Pro', 'PALADIN', 'Protection')]);
+    assert.ok(/Sanctity Aura/.test(two.groups[0].notes.join(' | ')), two.groups[0].notes.join(' | '));
+    const noRet = E.proposeGroups([P('Pro', 'PALADIN', 'Protection'), P('M', 'MAGE', 'Arcane')]);
+    assert.ok(!/Sanctity Aura/.test(noRet.groups[0].notes.join(' | ')));
+});
+test('v2: two paladins activate two auras', () => {
+    const g = [P('Ret', 'PALADIN', 'Retribution'), P('Pro', 'PALADIN', 'Protection')];
+    assert.strictEqual(E.groupBuffs(g).filter(a => a.buff.element === 'aura').length, 2);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
