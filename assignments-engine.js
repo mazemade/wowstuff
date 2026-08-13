@@ -1005,20 +1005,6 @@
             if (!place(p, g)) unplaced.push(p);
         });
 
-        // The role list is chosen up front from which buckets exist, but group COUNT comes from
-        // headcount, so a short or lopsided roster can leave a group labelled with a role nobody
-        // in it has. Relabel from who actually landed here — the label is what the panel prints.
-        // A tie keeps the role the group was created for: the tank group holding two tanks and
-        // two mages is still the tank group. Only a strict majority renames it.
-        groups.forEach(g => {
-            if (!g.players.length) return;
-            const tally = {};
-            g.players.forEach(p => { const b = bucketOf(p); tally[b] = (tally[b] || 0) + 1; });
-            const best = Math.max.apply(null, Object.keys(tally).map(k => tally[k]));
-            if ((tally[g.role] || 0) === best) return;
-            g.role = Object.keys(tally).sort((a, b) => tally[b] - tally[a] || a.localeCompare(b))[0];
-        });
-
         // Heroic/Inspiring Presence is party-scoped and does not stack for non-draenei, so a
         // second draenei in a group is wasted. Swap-only: sizes never change, and only filler
         // players trade places. Anchors are off-limits on BOTH sides of the swap — a draenei
@@ -1043,6 +1029,93 @@
                 g.players[g.players.indexOf(extra)] = swap;
                 target.players[target.players.indexOf(swap)] = extra;
             });
+        });
+
+        // 4. Buff-aware hill-climb (spec: docs/superpowers/specs/2026-08-13-group-
+        // optimizer-ai-review-design.md). Enumerate every cross-group swap and every move
+        // into an empty seat in a fixed order, apply the single best strictly-positive
+        // improvement, repeat until nothing improves. Determinism is the point: the seed
+        // is deterministic, the enumeration order is deterministic, and ties keep the
+        // first candidate found, so the same roster always yields the same layout. The
+        // iteration cap is a runaway guard, not a tuning knob — convergence happens in a
+        // handful of moves on any real roster.
+        function trySwap(gA, iA, gB, iB) {
+            const t = gA.players[iA]; gA.players[iA] = gB.players[iB]; gB.players[iB] = t;
+        }
+        // Only the seed's actual defects are eligible to move — not every player who
+        // happens to sit in a buff-suboptimal seat. The spec's Problem section blames the
+        // overflow pass specifically ("leftover players go to the fullest group with
+        // room ... this parked a combat rogue and a destruction warlock with the healers
+        // and left both tanks alone in a 2-man group with 3 empty seats"), and its
+        // Consequences section promises groups stay recognizable archetypes — a promise
+        // an unrestricted hill-climb cannot keep on a full roster with no slack seats. A
+        // player is relocatable only if (a) the seed could not place them in their own
+        // bucket's group — bucketOf(p) !== their group's role, exactly the overflow the
+        // spec blames (the relabel block runs after this pass, so g.role here is still
+        // the seed's label, not a post-hoc relabeling) — or (b) their group is under-full,
+        // the tank-island pathology. Relocatability alone still lets two FULL groups swap
+        // two mutually-overflowed players, which on an every-bucket-full roster (raid25's
+        // 8-strong melee bucket against a 5-seat group) reshuffles two clean groups into
+        // each other for a real buff gain, and can flip a relabel tie against the group
+        // the spec never asked to touch. So the swap candidate additionally requires that
+        // at least one endpoint group is under-full: a swap that touches only full groups
+        // is never a repair, only a reshuffle, and reshuffling is not this pass's job.
+        // Under that combined guard, a fully-seeded roster (no under-full group) allows no
+        // relocation at all, so its role groups are provably intact — not "no relocatable
+        // player exists" (that was disproved: overflow players are relocatable there too)
+        // but "no relocation can fire without an under-full group to fire into." Evaluated
+        // off the live layout at each check, not cached from the seed, so a group a move
+        // leaves under-full correctly becomes eligible on a later iteration.
+        function relocatable(g, p) {
+            return bucketOf(p) !== g.role || g.players.length < GROUP_CAP;
+        }
+        for (let iter = 0; iter < 500; iter++) {
+            const base = scoreLayout(groups);
+            let best = null;
+            for (let a = 0; a < groups.length; a++) {
+                for (let ia = 0; ia < groups[a].players.length; ia++) {
+                    for (let b = 0; b < groups.length; b++) {
+                        if (b === a) continue;
+                        if (b > a) { // each swap pair once
+                            for (let ib = 0; ib < groups[b].players.length; ib++) {
+                                if ((groups[a].players.length < GROUP_CAP || groups[b].players.length < GROUP_CAP)
+                                    && relocatable(groups[a], groups[a].players[ia]) && relocatable(groups[b], groups[b].players[ib])) {
+                                    trySwap(groups[a], ia, groups[b], ib);
+                                    const d = scoreLayout(groups) - base;
+                                    trySwap(groups[a], ia, groups[b], ib);
+                                    if (d > 0 && (!best || d > best.delta)) best = { delta: d, kind: 'swap', a, ia, b, ib };
+                                }
+                            }
+                        }
+                        if (groups[b].players.length < GROUP_CAP && relocatable(groups[a], groups[a].players[ia])) {
+                            const p = groups[a].players[ia];
+                            groups[a].players.splice(ia, 1);
+                            groups[b].players.push(p);
+                            const d = scoreLayout(groups) - base;
+                            groups[b].players.pop();
+                            groups[a].players.splice(ia, 0, p);
+                            if (d > 0 && (!best || d > best.delta)) best = { delta: d, kind: 'move', a, ia, b };
+                        }
+                    }
+                }
+            }
+            if (!best) break;
+            if (best.kind === 'swap') trySwap(groups[best.a], best.ia, groups[best.b], best.ib);
+            else groups[best.b].players.push(groups[best.a].players.splice(best.ia, 1)[0]);
+        }
+
+        // The role list is chosen up front from which buckets exist, but group COUNT comes from
+        // headcount, so a short or lopsided roster can leave a group labelled with a role nobody
+        // in it has. Relabel from who actually landed here — the label is what the panel prints.
+        // A tie keeps the role the group was created for: the tank group holding two tanks and
+        // two mages is still the tank group. Only a strict majority renames it.
+        groups.forEach(g => {
+            if (!g.players.length) return;
+            const tally = {};
+            g.players.forEach(p => { const b = bucketOf(p); tally[b] = (tally[b] || 0) + 1; });
+            const best = Math.max.apply(null, Object.keys(tally).map(k => tally[k]));
+            if ((tally[g.role] || 0) === best) return;
+            g.role = Object.keys(tally).sort((a, b) => tally[b] - tally[a] || a.localeCompare(b))[0];
         });
 
         // Say what the grouping actually buys, so the raid lead can sanity-check it rather

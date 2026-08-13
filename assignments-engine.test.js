@@ -1849,8 +1849,15 @@ test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
         P('Frawa', 'DRUID', 'Restoration'), P('sspope', 'PRIEST', 'Holy'),
     ];
     const res = E.proposeGroups(R);
-    assert.strictEqual(groupOf(res, 'Smellmystaff'), 'tanks');   // the bug that started all this
-    assert.strictEqual(groupOf(res, 'Sylvanor'), 'tanks');
+    // The spec (docs/superpowers/specs/2026-08-13-group-optimizer-ai-review-design.md, sec 2)
+    // and this plan's task 4 intend the 2-man tank island to dissolve, not persist — so pinning
+    // both tanks to 'tanks' would pin the bug, not the fix. Observed layout: the Guardian joins
+    // the hunters' group and no 2-man island of just the two tanks remains.
+    const guardianGroup = res.groups.find(g => g.players.some(p => p.name === 'Smellmystaff'));
+    assert.ok(guardianGroup.players.some(p => p.class === 'HUNTER'),
+        'Guardian should share a group with hunters, got: ' + guardianGroup.players.map(p => p.name).join(','));
+    assert.ok(!(guardianGroup.players.length === 2 && guardianGroup.players.some(p => p.name === 'Sylvanor')),
+        'the 2-man tank island should have dissolved, got: ' + guardianGroup.players.map(p => p.name).join(','));
     assert.notStrictEqual(groupOf(res, 'Gouken'), groupOf(res, 'woptenwodei'));
     assert.strictEqual(res.groups.filter(g => g.players.some(p => p.class === 'SHAMAN')).length, 4);
     const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
@@ -1940,6 +1947,84 @@ test('NOTE_RULES: air delegation — resto shaman with a cat and a bear claims G
     assert.ok(g.notes.some(t => /Grace of Air/.test(t)), 'missing Grace of Air: ' + g.notes.join(' | '));
     const airNotes = g.notes.filter(t => /Wrath of Air|Grace of Air|Windfury Totem/.test(t));
     assert.strictEqual(airNotes.length, 1, 'air notes: ' + airNotes.join(' | '));
+});
+
+// --- Optimizer Task 4: hill-climb ---
+const LIVE22 = [
+    P('Haku', 'SHAMAN', 'Enhancement'), P('Slyvester', 'SHAMAN', 'Elemental'),
+    P('Gouken', 'SHAMAN', 'Restoration'), P('Wopten', 'SHAMAN', 'Restoration'),
+    P('Culuneta', 'WARRIOR', 'Fury'), P('RedNeko', 'WARRIOR', 'Fury'), P('Davina', 'WARRIOR', 'Arms'),
+    P('Warzilla', 'DRUID', 'Feral'), P('Smellmywand', 'DRUID', 'Guardian'),
+    P('Sylvanor', 'PALADIN', 'Protection'),
+    P('Xavamros', 'ROGUE', 'Combat'), P('Utopik', 'ROGUE', 'Combat'),
+    P('Bejoux', 'MAGE', 'Arcane'), P('Craqu', 'MAGE', 'Arcane'), P('JohnNooze', 'MAGE', 'Arcane'),
+    P('Cartis', 'WARLOCK', 'Destruction'), P('Lovestoned', 'WARLOCK', 'Destruction'),
+    P('Conny', 'HUNTER', 'Beast Mastery'), P('Funkell', 'HUNTER', 'Beast Mastery'), P('Produdu', 'HUNTER', 'Survival'),
+    P('Frawa', 'DRUID', 'Restoration'), P('Sspope', 'PRIEST', 'Holy'),
+];
+test('optimizer: a hunter dumped with casters moves to the Grace of Air group', () => {
+    const roster = [
+        P('Enh', 'SHAMAN', 'Enhancement'), P('Fury', 'WARRIOR', 'Fury'),
+        P('R1', 'ROGUE', 'Combat'), P('R2', 'ROGUE', 'Combat'), P('R3', 'ROGUE', 'Combat'),
+        P('Ele', 'SHAMAN', 'Elemental'), P('Mage', 'MAGE', 'Arcane'), P('Lock', 'WARLOCK', 'Destruction'),
+        P('Resto', 'SHAMAN', 'Restoration'), P('Holy', 'PRIEST', 'Holy'),
+        P('MM', 'HUNTER', 'Marksmanship'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'MM'));
+    assert.ok(g.players.some(p => p.name === 'Resto'), 'MM should sit with the resto shaman, got: ' + g.players.map(p => p.name).join(','));
+    assert.ok(g.notes.some(t => /Grace of Air/.test(t)), g.notes.join(' | '));
+});
+test('optimizer: 22-man fixture puts the Guardian with the hunters', () => {
+    const res = E.proposeGroups(LIVE22);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Smellmywand'));
+    assert.ok(g.players.filter(p => p.class === 'HUNTER').length >= 2,
+        'Guardian group: ' + g.players.map(p => p.name).join(','));
+});
+test('optimizer: layouts are deterministic across runs', () => {
+    const a = E.proposeGroups(LIVE22).groups.map(g => g.players.map(p => p.name));
+    const b = E.proposeGroups(LIVE22).groups.map(g => g.players.map(p => p.name));
+    assert.deepStrictEqual(a, b);
+});
+test('optimizer: everyone placed exactly once, no group over cap', () => {
+    const res = E.proposeGroups(LIVE22);
+    const names = res.groups.reduce((acc, g) => acc.concat(g.players.map(p => p.name)), []);
+    assert.strictEqual(names.length, 22);
+    assert.strictEqual(new Set(names).size, 22);
+    res.groups.forEach(g => assert.ok(g.players.length <= 5));
+    assert.strictEqual(res.unplaced.length, 0);
+});
+test('optimizer: the two resto shamans stay in different groups', () => {
+    const res = E.proposeGroups(LIVE22);
+    const g1 = res.groups.find(g => g.players.some(p => p.name === 'Gouken'));
+    assert.ok(!g1.players.some(p => p.name === 'Wopten'));
+});
+test('optimizer: both destro locks sit with caster totems', () => {
+    const res = E.proposeGroups(LIVE22);
+    ['Cartis', 'Lovestoned'].forEach(name => {
+        const g = res.groups.find(g => g.players.some(p => p.name === name));
+        assert.ok(g.notes.some(t => /Wrath of Air|Totem of Wrath/.test(t)),
+            name + ' notes: ' + g.notes.join(' | '));
+    });
+});
+test('optimizer: the enhancement shaman keeps a windfury group', () => {
+    const res = E.proposeGroups(LIVE22);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Haku'));
+    const wf = g.players.filter(p => p.class === 'WARRIOR' && p.spec !== 'Protection' || p.class === 'ROGUE');
+    assert.ok(wf.length >= 3, 'windfury users with Haku: ' + wf.length);
+});
+test('optimizer: an already-clean seed comes back unchanged', () => {
+    const roster = [
+        P('Enh', 'SHAMAN', 'Enhancement'), P('F1', 'WARRIOR', 'Fury'), P('F2', 'WARRIOR', 'Fury'),
+        P('R1', 'ROGUE', 'Combat'), P('R2', 'ROGUE', 'Combat'),
+        P('Ele', 'SHAMAN', 'Elemental'), P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane'),
+        P('Lock', 'WARLOCK', 'Destruction'), P('Holy', 'PRIEST', 'Holy'),
+    ];
+    const res = E.proposeGroups(roster);
+    const melee = res.groups.find(g => g.players.some(p => p.name === 'Enh'));
+    assert.deepStrictEqual(melee.players.map(p => p.name).sort(), ['Enh', 'F1', 'F2', 'R1', 'R2']);
+    const casters = res.groups.find(g => g.players.some(p => p.name === 'Ele'));
+    assert.deepStrictEqual(casters.players.map(p => p.name).sort(), ['Ele', 'Holy', 'Lock', 'M1', 'M2']);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
