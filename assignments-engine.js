@@ -950,6 +950,12 @@
         { name: 'Mana Tide Totem', mode: 'once',
           count: ps => ps.filter(p => p.class === 'SHAMAN' && p.spec === 'Restoration').length,
           v: BUFF_V['Mana Tide Totem'] || {} },
+        // Mana Tide is a 5-minute cooldown; Mana Spring is the water-slot UPTIME buff, and
+        // the healer floor is really about it. DPS value ~0, so it exists for the floor
+        // and the note rather than the objective (brief §3 fix #3).
+        { name: 'Mana Spring Totem', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN').length,
+          v: BUFF_V['Mana Spring Totem'] || {} },
         { name: 'Battle Shout', mode: 'once',
           count: ps => ps.filter(p => p.class === 'WARRIOR').length,
           v: BUFF_V['Battle Shout'] || {} },
@@ -959,7 +965,9 @@
         { name: 'Leader of the Pack', mode: 'once',
           count: ps => ps.filter(p => p.class === 'DRUID' && isFeralSpec(p.spec)).length,
           v: BUFF_V['Leader of the Pack'] || {} },
-        { name: 'Ferocious Inspiration', mode: 'once',
+        // The one row that compounds: two BM hunters in a party give 1.03² = +6.09%
+        // (wowsims: `int32 ferocious_inspiration` — a COUNT, not a flag).
+        { name: 'Ferocious Inspiration', mode: 'stacks',
           count: ps => ps.filter(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery').length,
           v: BUFF_V['Ferocious Inspiration'] || {} },
         { name: 'Trueshot Aura', mode: 'once',
@@ -971,9 +979,6 @@
         { name: 'Vampiric Touch', mode: 'once',
           count: ps => ps.filter(p => p.class === 'PRIEST' && p.spec === 'Shadow').length,
           v: BUFF_V['Vampiric Touch'] || {} },
-        { name: 'Blood Pact', mode: 'once',
-          count: ps => ps.filter(p => p.class === 'WARLOCK').length,
-          v: BUFF_V['Blood Pact'] || {} },
         { name: 'Paladin aura', mode: 'once',
           count: ps => ps.filter(p => p.class === 'PALADIN').length,
           v: BUFF_V['Paladin aura'] || {} },
@@ -1242,6 +1247,7 @@
             // AIR totem airChoice() picks for the group, so it cannot ride along on the
             // Windfury note above — it has to be its own rule or it scores with no note.
             { text: 'Strength of Earth', has: g => g.players.some(p => p.class === 'SHAMAN') },
+            { text: 'Mana Spring Totem', has: g => g.players.some(p => p.class === 'SHAMAN') },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
             { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR') },
             { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
@@ -1252,8 +1258,6 @@
                      && g.players.some(p => !(p.class === 'HUNTER' && p.spec === 'Marksmanship')
                           && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks' || bucketOf(p) === 'ranged')) },
             { text: 'Vampiric Touch (mana to the party)', has: g => g.players.some(p => p.class === 'PRIEST' && p.spec === 'Shadow') },
-            { text: 'Blood Pact (+70 stamina, needs the imp out)',
-              has: g => g.players.some(p => p.class === 'WARLOCK') },
             { text: 'A paladin aura', has: g => g.players.some(p => p.class === 'PALADIN') },
             { text: '+1% hit from Draenei presence', has: g => g.players.some(p => p.race === 'Draenei') },
         ];

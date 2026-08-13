@@ -1960,9 +1960,12 @@ test('NOTE_RULES: no Trueshot note for a lone MM among casters', () => {
     const res = E.proposeGroups([P('Legolas', 'HUNTER', 'Marksmanship'), P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')]);
     res.groups.forEach(g => assert.ok(!g.notes.some(t => /Trueshot/.test(t)), g.notes.join(' | ')));
 });
-test('NOTE_RULES: Blood Pact printed for any warlock group', () => {
-    const res = E.proposeGroups([P('Lock', 'WARLOCK', 'Destruction'), P('Mage', 'MAGE', 'Arcane')]);
-    assert.ok(res.groups[0].notes.some(t => /Blood Pact/.test(t)), res.groups[0].notes.join(' | '));
+// v2 (spec §9.2): Blood Pact is dead in practice — it needs the imp out and nobody raids
+// with the imp, which the old note text ("needs the imp out") was already admitting. Max
+// ruled it dropped, so this flips from pinning the note to pinning its ABSENCE.
+test('NOTE_RULES: Blood Pact is not modeled — no note for warlock groups', () => {
+    const res = E.proposeGroups([P('L', 'WARLOCK', 'Destruction'), P('M', 'MAGE', 'Arcane')]);
+    assert.ok(!res.groups[0].notes.some(t => /Blood Pact/.test(t)), res.groups[0].notes.join(' | '));
 });
 test('NOTE_RULES: air delegation — resto shaman with a cat and a bear claims Grace of Air', () => {
     const res = E.proposeGroups([P('Resto', 'SHAMAN', 'Restoration'), P('Cat', 'DRUID', 'Feral'), P('Bear', 'DRUID', 'Guardian')]);
@@ -2085,6 +2088,28 @@ test('v2: scoreLayout has no cohesion term', () => {
     const groups = [{ role: 'casters', players: [P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')] }];
     // Two mages provide nothing to each other: score must be exactly the sum of baselines.
     assert.strictEqual(E.scoreLayout(groups), 2 * E.BASELINE['MAGE:Arcane']);
+});
+
+test('v2: Ferocious Inspiration compounds per BM hunter', () => {
+    const one = [P('B1', 'HUNTER', 'Beast Mastery'), P('M', 'MAGE', 'Arcane')];
+    const two = [P('B1', 'HUNTER', 'Beast Mastery'), P('B2', 'HUNTER', 'Beast Mastery'), P('M', 'MAGE', 'Arcane')];
+    const fi = E.BUFF_V['Ferocious Inspiration']['MAGE:Arcane'];
+    const base = E.BASELINE['MAGE:Arcane'];
+    assert.ok(Math.abs(E.playerScore(two[2], two) - base * Math.pow(1 + fi, 2)) < 1e-6);
+    assert.ok(Math.abs(E.playerScore(one[1], one) - base * (1 + fi)) < 1e-6);
+});
+test('v2: Unleashed Rage reaches hunters', () => {
+    const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('B', 'HUNTER', 'Beast Mastery')];
+    assert.ok(E.groupBuffs(g).some(a => a.buff.name === 'Unleashed Rage'));
+    assert.ok(E.BUFF_V['Unleashed Rage']['HUNTER:Beast Mastery'] > 0);
+});
+test('v2: Mana Spring Totem is modeled and noted', () => {
+    assert.ok(E.PARTY_BUFFS.some(b => b.name === 'Mana Spring Totem'));
+    const res = E.proposeGroups([P('Sh', 'SHAMAN', 'Restoration'), P('H', 'PRIEST', 'Holy')]);
+    assert.ok(res.groups[0].notes.some(t => /Mana Spring/.test(t)), res.groups[0].notes.join(' | '));
+});
+test('v2: Blood Pact is gone from the model', () => {
+    assert.ok(!E.PARTY_BUFFS.some(b => b.name === 'Blood Pact'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
