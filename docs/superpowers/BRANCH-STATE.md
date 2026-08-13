@@ -32,8 +32,8 @@ each task-reviewed, with one fix round on task 3.
 
 **All eight plans are done.** Whole-plan reviews are closed for plans 1–7; **plan 8's is still
 outstanding** — its six tasks were each reviewed, but nothing has yet looked at the plan end to end.
-Otherwise the branch is ready to merge, subject to section 5 (the one thing that still needs a live
-WoW client).
+**Two things gate the merge, not one:** that outstanding whole-plan review, and section 5 (the one
+thing that still needs a live WoW client).
 
 ## What the branch adds, end to end
 
