@@ -300,11 +300,20 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
 8. A player who cannot be inspected still appears, with `?` for points and an empty talent field.
 9. On a real rogue known to lack Improved Expose Armor: the armor row says so rather than claiming it.
 10. **Scan a player whose class differs from yours** and confirm their talent field is right. The
-    addon sizes its loop with `GetNumTalentTabs()`/`GetNumTalents(tab)` without an `isInspect`
-    argument, so the bounds come from the *scanner's* trees. Analysis says this cannot bite today —
-    all four tracked talents sit at tier 2-3 (index ≲12) while the smallest TBC tree has ~17-19
-    talents, and over-iteration is absorbed harmlessly — but it becomes live the moment anyone tracks
-    a deep talent. Worth confirming once.
+    addon sizes its loop with `GetNumTalentTabs()` (line 84) and `GetNumTalents(tab)` (line 86) —
+    neither passes `isInspect` — while `GetTalentInfo(tab, i, isInspect)` (line 88) does. So the loop
+    bounds come from the *scanner's* own talent trees while the talent data comes from the *target's*.
+    Plan 7's four tracked talents sat shallow enough (index ≲12, against the smallest TBC tree's
+    ~17-19) that this could not bite. **That condition is now met: plan 8 added `wintersChill` (Mage
+    Frost) and `malediction` (Warlock Affliction), both deep, high-index talents near the bottom of
+    their trees.** If the scanner's tab is shorter than the target's, the loop stops before reaching
+    them and the key is silently omitted. **A permanently-`talent unknown` row on Winter's Chill or
+    Curse of Elements may therefore be this bounds bug rather than a misspelled talent name** — see
+    item 11, which must not be read as the only explanation for that symptom. A fix under
+    consideration is passing the inspect flag through both calls (`GetNumTalentTabs(isInspect)` /
+    `GetNumTalents(tab, isInspect)`); **it is not yet applied** — it awaits the owner's decision,
+    since it is a TBC API signature that needs confirming against a live 2.5.6 client, not something
+    to guess from documentation.
 11. **`/tprobe`-verify all 11 talent names and `maxRank`s added by plan 8**, one player per affected
     class (paladin, warlock, druid, mage, hunter, rogue): `kings`, `impMight`, `impWisdom`,
     `malediction`, `impFaerieFire`, `feralAggression`, `insectSwarm`, `impScorch`, `wintersChill`,
@@ -313,7 +322,10 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
     as a permanently `talent unknown` row rather than an error, and a too-low *`maxRank`* makes a
     legitimate rank read as unknown (that one at least shows up in `talentDrift`). `wintersChill`
     (5) and `impWisdom` (2) are the least certain max ranks. Check the spelling with
-    `/tprobe target <partial name>` before suspecting the ranking logic.
+    `/tprobe target <partial name>` before suspecting the ranking logic — but for `wintersChill` and
+    `malediction` specifically, check item 10 first: a permanently-`talent unknown` row on either one
+    can also be the scan-bounds bug rather than a name mismatch, since both are the deep talents item
+    10 now names.
 12. **Confirm whether `Improved Curse of Weakness` exists in 2.5.x at all**, and if it does, report
     its exact name, ranks and effect. It would become a one-line `improvedBy` on the Curse of
     Weakness provider in `ap` — deliberately *not* part of plan 8, because the talent could not be
@@ -323,6 +335,14 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
     `Nobody can cast Blessing of Kings — it is a Protection talent.` Both were verified in a headless
     browser against a synthetic roster; what is unverified is that a real scan reports `kings=0`
     rather than omitting the key.
+14. **Read the `maxRank`s off the tooltip directly, not just off `talentDrift`.** The spec's safety
+    argument for a wrong `maxRank` — that it "makes a legitimate rank read as unknown and is surfaced
+    by `talentDrift`" — only covers an *under*-stated value. An *over*-stated `maxRank` is silent in
+    the opposite direction: `talentRank` never rejects it, `talentDrift` never fires, selection is
+    unaffected, and the row renders wrong text forever with no signal (e.g. `Winter's Chill 3/5`).
+    `wintersChill: 5` is the value the spec itself flags as least certain (TBC Winter's Chill is
+    widely 3 ranks), and is the one most worth checking this way. The absence of a `talentDrift`
+    warning does not confirm a `maxRank` is correct.
 
 ---
 
@@ -401,14 +421,23 @@ items were raised by task reviews and are still awaiting that plan's whole-plan 
   name are now checked before the subgroup range). No accepted input changes.
 
 **From plan 8 (talent catalog expansion)**
-- **The four `requireTalent` rows now render `(talent unknown)` on a roster with no talent data,
-  where they previously rendered nothing.** `scorch`, `wc`, `swarm` and `hemo` gained a
-  `requireTalent`, and the qualifier follows from `entry.improvedBy || entry.requireTalent`. This is
-  plan-mandated and consistent with the `improvedBy` rows shipped by plan 7, but it is a **visible
-  output change for Raid-Helper-only rosters**, which never carry talents — those four rows will
-  read `talent unknown` for every such raid. Task 3 flagged it for the owner to sign off; no
-  response is recorded. If the answer is no, the fix is at the qualifier, not the gate — the
-  *selection* behaviour on unknown data is unchanged from before the plan.
+- **Seven rows now render `(talent unknown)` on a roster with no talent data, where they previously
+  rendered nothing — not four.** `coe`, `ff` and `hm` gained an `improvedBy` (Task 2), and `scorch`,
+  `wc`, `swarm` and `hemo` gained a `requireTalent` (Task 3); the qualifier follows from
+  `entry.improvedBy || entry.requireTalent` either way. `ap` can additionally read `talent unknown`
+  via the new Demoralizing Roar provider's `feralAggression` whenever a druid covers it, though `ap`
+  itself is not a new row — it already carried a qualifier from plan 7's Demoralizing Shout. Combined
+  with the four rows plan 7 shipped (`armor`, `ap`, `tclap`, `joc`), a Raid-Helper-only Discord
+  message — which never carries talents — can now carry up to **eleven** `(talent unknown)`
+  annotations, none of which convey information. Task 3 flagged the original four for the owner to
+  sign off; no response is recorded. **The reviewer's proposed alternative, now the recommended fix
+  pending the owner's word:** suppress the qualifier entirely when the player carries **no talent
+  data at all** (`!player.talents`), keeping `talent unknown` only when the player *was* scanned but
+  this specific key is missing — the second case is a genuine diagnostic for name drift or the
+  scan-bounds bug (section 5 item 10), the first is pure noise. **Not applied** — it would change the
+  previous plan's shipped behaviour, which is why it awaits the owner's decision rather than being
+  done here. If the answer is no, the fix is at the qualifier, not the gate — the *selection*
+  behaviour on unknown data is unchanged from before the plan.
 - **`proposeBlessings`' `planOf` is keyed by paladin name**, which extends the branch's pre-existing
   name-uniqueness assumption into the plan-matching path. Two paladins with the same name would now
   share a plan slot as well as colliding elsewhere. The parser already rejects duplicate names, so
@@ -423,6 +452,17 @@ items were raised by task reviews and are still awaiting that plan's whole-plan 
   `requireTalent` and therefore a qualifier, so the test now uses the `armor` row's Sunder provider,
   which has neither field. It additionally pins that a provider without `improvedBy` does not
   inherit one. The invariant is unchanged; only the row exercising it moved.
+- **Two more equivalent mutants, in the same spirit as `talentTier`'s above.** Recorded so a future
+  reviewer does not file either as a coverage gap:
+  - Removing `paladins.indexOf(a) - paladins.indexOf(b)` from `takeBest`'s comparator survives,
+    because `Array.prototype.sort` is stable and `pool` is already in `paladins` order (it is built
+    from `unassigned`, which starts as `paladins.slice()` and is only ever spliced, never
+    reordered) — so the explicit tie-break and the sort's own stability produce the same order.
+  - `unassigned.slice().forEach(p => { planOf[p.name] = 3; });` is dead code — deleting it entirely
+    leaves the suite green, because `BLESSING_PLANS[planOf[pal.name]] || BLESSING_PLANS[BLESSING_PLANS.length - 1]`
+    already yields plan 3 (`BLESSING_PLANS[3]`) for any paladin the line would have touched, via the
+    `undefined` fallback. Having both means neither is load-bearing; the tidy-up is deferred, not
+    done, since it is out of this fix wave's scope.
 
 **Documentation and hygiene**
 - `SubgroupOf`'s name-scan fallback is unreachable and its comment claims otherwise.
