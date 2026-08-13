@@ -1365,8 +1365,11 @@ test('autoAssign: an improvedBy row says so when the talent is unknown', () => {
     assert.strictEqual(duty(r, 'armor').qualifier, 'talent unknown');
 });
 test('autoAssign: a row without improvedBy carries no qualifier', () => {
-    const r = E.autoAssign([rogue('Asub', 'Subtlety', 2)], {});
-    assert.strictEqual(duty(r, 'hemo').qualifier, undefined);
+    // hemo was the example here until it gained requireTalent. The Sunder provider has
+    // neither field, so this keeps the invariant on the same row as the three tests above,
+    // and additionally pins that a provider without improvedBy does not inherit one.
+    const r = E.autoAssign([P('Ztank', 'WARRIOR', 'Protection')], {});
+    assert.strictEqual(duty(r, 'armor').qualifier, undefined);
 });
 test('buildDiscord: the qualifier rides along on the duty line', () => {
     const roster = [rogue('Zcombat', 'Combat', 0)];
@@ -1474,6 +1477,53 @@ test('autoAssign: ranker rows with no talent data keep their spec-guess pick', (
     const r = E.autoAssign([lock('Aaffl', 'Affliction', null), lock('Zdestro', 'Destruction', null)], {});
     assert.strictEqual(duty(r, 'coe').player, 'Aaffl');
     assert.strictEqual(duty(r, 'coe').qualifier, 'talent unknown');
+});
+
+function mage(name, spec, rank) {
+    const p = P(name, 'MAGE', spec);
+    if (rank !== null) p.talents = { wintersChill: rank };
+    return p;
+}
+test('autoAssign: winters chill goes to the mage who has the talent, spec notwithstanding', () => {
+    // Tree totals said Fire, but they took Winter's Chill; totals were always a guess.
+    const r = E.autoAssign([mage('Zfire', 'Fire', 5)], {});
+    assert.strictEqual(duty(r, 'wc').player, 'Zfire');
+    assert.strictEqual(duty(r, 'wc').qualifier, "Winter's Chill 5/5");
+});
+test('autoAssign: a frost mage known to lack winters chill does not get the row', () => {
+    const r = E.autoAssign([mage('Afrost', 'Frost', 0)], {});
+    assert.ok(!duty(r, 'wc') || duty(r, 'wc').player === null);
+    assert.ok(r.uncovered.missing.some(u => u.id === 'wc'));
+});
+test('autoAssign: a frost mage with unknown talents keeps the row, as today', () => {
+    const r = E.autoAssign([mage('Afrost', 'Frost', null)], {});
+    assert.strictEqual(duty(r, 'wc').player, 'Afrost');
+    assert.strictEqual(duty(r, 'wc').qualifier, 'talent unknown');
+});
+function subrogue(name, spec, rank) {
+    const p = P(name, 'ROGUE', spec);
+    if (rank !== null) p.talents = { hemorrhage: rank };
+    return p;
+}
+test('autoAssign: a subtlety rogue known to lack hemorrhage files the row notApplicable', () => {
+    // The gate and the applicability warning must agree: known-cannot-cast is the same
+    // no-noise case as no-subtlety-rogue-at-all, not a "missing" alarm.
+    const r = E.autoAssign([subrogue('Astab', 'Subtlety', 0)], {});
+    assert.ok(r.uncovered.notApplicable.some(u => u.id === 'hemo'));
+    assert.ok(!r.uncovered.missing.some(u => u.id === 'hemo'));
+});
+test('autoAssign: a subtlety rogue with unknown talents keeps hemorrhage, as today', () => {
+    const r = E.autoAssign([subrogue('Astab', 'Subtlety', null)], {});
+    assert.strictEqual(duty(r, 'hemo').player, 'Astab');
+});
+test('catalog: all four gate rows carry their requireTalent through providersOf', () => {
+    // providersOf rebuilds single-class entries from an explicit field allowlist; a field
+    // left off that list is silently dropped, and the gate would never fire.
+    [['scorch', 'impScorch'], ['wc', 'wintersChill'], ['swarm', 'insectSwarm'], ['hemo', 'hemorrhage']]
+        .forEach(pair => {
+            const entry = E.DEBUFF_CATALOG.find(e => e.id === pair[0]);
+            assert.strictEqual(E.providersOf(entry)[0].requireTalent, pair[1], pair[0]);
+        });
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

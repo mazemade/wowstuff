@@ -50,6 +50,16 @@
         return rank;
     }
 
+    // The gate for talents that ARE the spell (Winter's Chill, Hemorrhage, ...): a known
+    // rank decides outright — a positive rank can cast regardless of what the tree totals
+    // implied, rank 0 cannot cast at all. Only when the scan told us nothing does the old
+    // spec proxy get a vote. This is the degrade-to-today rule as one function.
+    function gateAllows(p, talentKey, fallbackSpec) {
+        const rank = talentRank(p, talentKey);
+        if (rank !== null) return rank > 0;
+        return !fallbackSpec || p.spec === fallbackSpec;
+    }
+
     // A key mismatch between the addon and this table is systemic — it hits every player of
     // that class at once — so surface it rather than letting the whole class read as unknown.
     function talentDrift(roster) {
@@ -280,10 +290,10 @@
         { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'], improvedBy: 'impHuntersMark' },
         // Fire Vulnerability is +3% fire damage taken per stack, not spell crit (that is
         // WotLK), and the fire mage maintains it through their own rotation. Low priority.
-        { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire' },
+        { id: 'scorch', name: 'Improved Scorch', category: 'debuffs', class: 'MAGE', requireSpec: 'Fire', requireTalent: 'impScorch' },
         // A maintained 5-stack debuff, not passive coverage. +2% frost crit per stack.
         // Does not conflict with Improved Scorch — different schools entirely.
-        { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost' },
+        { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost', requireTalent: 'wintersChill' },
         // Strongest applies, they do not stack. Talented, Demo Shout and CoW tie at -420;
         // untalented, CoW (-350) actually beats Demo Shout (-300). improvedBy now makes the
         // ordering among warriors talent-aware, but the choice between providers — Demo
@@ -300,12 +310,12 @@
         // the safer bet even though the tank is on the boss permanently. Its own effect group
         // with Chilled and Thunderfury — strongest applies, they do not stack.
         { id: 'tclap', name: 'Thunder Clap', category: 'debuffs', class: 'WARRIOR', preferSpecs: ['Arms', 'Protection'], improvedBy: 'impThunderClap' },
-        { id: 'swarm', name: 'Insect Swarm', category: 'debuffs', class: 'DRUID', requireSpec: 'Balance' },
+        { id: 'swarm', name: 'Insect Swarm', category: 'debuffs', class: 'DRUID', requireSpec: 'Balance', requireTalent: 'insectSwarm' },
         // Hemorrhage needs a Subtlety rogue, and essentially no TBC raid brings one. Warning
         // about it every night would be permanent unfixable noise, so it stays quiet unless
         // someone who can actually cast it is present.
-        { id: 'hemo', name: 'Hemorrhage', category: 'debuffs', class: 'ROGUE', requireSpec: 'Subtlety',
-          applicableWhen: roster => roster.some(p => p.class === 'ROGUE' && p.spec === 'Subtlety') },
+        { id: 'hemo', name: 'Hemorrhage', category: 'debuffs', class: 'ROGUE', requireSpec: 'Subtlety', requireTalent: 'hemorrhage',
+          applicableWhen: roster => roster.some(p => p.class === 'ROGUE' && gateAllows(p, 'hemorrhage', 'Subtlety')) },
     ];
 
     // Duties that need an ordered list rather than one player. Fear Ward is TBC-only and
@@ -332,7 +342,8 @@
                 pr.caution ? pr : Object.assign({}, pr, { caution: entry.caution }));
         }
         return [{ name: entry.name, class: entry.class, preferSpecs: entry.preferSpecs,
-                  requireSpec: entry.requireSpec, group: entry.group, caution: entry.caution,
+                  requireSpec: entry.requireSpec, requireTalent: entry.requireTalent,
+                  group: entry.group, caution: entry.caution,
                   improvedBy: entry.improvedBy }];
     }
 
@@ -412,7 +423,9 @@
         function eligible(p, entry) {
             if (p.class !== entry.class) return false;
             if ((p.flags || []).includes('spec-unknown')) return false;
-            if (entry.requireSpec && p.spec !== entry.requireSpec) return false;
+            if (entry.requireTalent) {
+                if (!gateAllows(p, entry.requireTalent, entry.requireSpec)) return false;
+            } else if (entry.requireSpec && p.spec !== entry.requireSpec) return false;
             if (entry.group && groupUsed[entry.group + ':' + p.name]) return false;
             return true;
         }
@@ -427,12 +440,13 @@
             const d = { id: entry.id, name: displayName, category: entry.category, player: player ? player.name : null };
             if (target) d.target = target;
             if (entry.caution) d.caution = entry.caution;
-            // An improvedBy row can pick an off-spec player because they hold the talent, which
-            // reads as a bug unless the row says why. ASCII only — this object feeds the addon
-            // whisper path, whose length budget assumes it.
-            if (entry.improvedBy && player) {
-                const def = TALENTS[entry.improvedBy];
-                const rank = talentRank(player, entry.improvedBy);
+            // An improvedBy or requireTalent row can pick an off-spec player because they hold
+            // the talent, which reads as a bug unless the row says why. ASCII only — this
+            // object feeds the addon whisper path, whose length budget assumes it.
+            const explainKey = entry.improvedBy || entry.requireTalent;
+            if (explainKey && player) {
+                const def = TALENTS[explainKey];
+                const rank = talentRank(player, explainKey);
                 if (def) {
                     if (rank === null) d.qualifier = 'talent unknown';
                     else if (rank === 0) d.qualifier = 'no ' + def.name;
@@ -926,7 +940,7 @@
 
     return {
         SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
-        TALENTS, talentRank, talentDrift,
+        TALENTS, talentRank, talentDrift, gateAllows,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
