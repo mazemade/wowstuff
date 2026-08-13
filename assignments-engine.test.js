@@ -1420,7 +1420,7 @@ test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS t
     // A parse that matches nothing would leave luaTalents empty and every assertion below
     // vacuously true — which is exactly the failure mode this whole test exists to catch.
     // Fail loudly instead of silently reporting "no mismatches".
-    assert.strictEqual(Object.keys(luaTalents).length, 4,
+    assert.strictEqual(Object.keys(luaTalents).length, 15,
         'parsed the wrong number of talents out of RaidSpecScan.lua — regex likely did not match the table shape');
 
     assert.deepStrictEqual(Object.keys(luaTalents).sort(), Object.keys(E.TALENTS).sort());

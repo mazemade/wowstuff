@@ -22,9 +22,20 @@
     // TRACKED_TALENTS are maintained on opposite sides of the wire.
     const TALENTS = {
         impExposeArmor:  { class: 'ROGUE',   maxRank: 2, name: 'Improved Expose Armor' },
+        hemorrhage:      { class: 'ROGUE',   maxRank: 1, name: 'Hemorrhage' },
         impThunderClap:  { class: 'WARRIOR', maxRank: 3, name: 'Improved Thunder Clap' },
         impDemoShout:    { class: 'WARRIOR', maxRank: 5, name: 'Improved Demoralizing Shout' },
         impSealCrusader: { class: 'PALADIN', maxRank: 3, name: 'Improved Seal of the Crusader' },
+        kings:           { class: 'PALADIN', maxRank: 1, name: 'Blessing of Kings' },
+        impMight:        { class: 'PALADIN', maxRank: 5, name: 'Improved Blessing of Might' },
+        impWisdom:       { class: 'PALADIN', maxRank: 2, name: 'Improved Blessing of Wisdom' },
+        malediction:     { class: 'WARLOCK', maxRank: 3, name: 'Malediction' },
+        impFaerieFire:   { class: 'DRUID',   maxRank: 3, name: 'Improved Faerie Fire' },
+        feralAggression: { class: 'DRUID',   maxRank: 5, name: 'Feral Aggression' },
+        insectSwarm:     { class: 'DRUID',   maxRank: 1, name: 'Insect Swarm' },
+        impScorch:       { class: 'MAGE',    maxRank: 3, name: 'Improved Scorch' },
+        wintersChill:    { class: 'MAGE',    maxRank: 5, name: "Winter's Chill" },
+        impHuntersMark:  { class: 'HUNTER',  maxRank: 5, name: "Improved Hunter's Mark" },
     };
 
     // null means "we do not know" — a Raid-Helper signup, a manually added player, or a talent

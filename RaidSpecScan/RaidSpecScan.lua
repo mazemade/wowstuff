@@ -56,10 +56,21 @@ end
 -- English name is safe here because /specscan inspects the whole raid from ONE client — the
 -- scanner's — so only that client's locale is ever involved.
 local TRACKED_TALENTS = {
-    ROGUE   = { impExposeArmor  = "Improved Expose Armor" },
+    ROGUE   = { impExposeArmor  = "Improved Expose Armor",
+                hemorrhage      = "Hemorrhage" },
     WARRIOR = { impThunderClap  = "Improved Thunder Clap",
                 impDemoShout    = "Improved Demoralizing Shout" },
-    PALADIN = { impSealCrusader = "Improved Seal of the Crusader" },
+    PALADIN = { impSealCrusader = "Improved Seal of the Crusader",
+                kings           = "Blessing of Kings",
+                impMight        = "Improved Blessing of Might",
+                impWisdom       = "Improved Blessing of Wisdom" },
+    WARLOCK = { malediction     = "Malediction" },
+    DRUID   = { impFaerieFire   = "Improved Faerie Fire",
+                feralAggression = "Feral Aggression",
+                insectSwarm     = "Insect Swarm" },
+    MAGE    = { impScorch       = "Improved Scorch",
+                wintersChill    = "Winter's Chill" },
+    HUNTER  = { impHuntersMark  = "Improved Hunter's Mark" },
 }
 
 -- Emits "key=rank" for every tracked talent of this class, INCLUDING rank 0. An untaken talent
