@@ -1754,5 +1754,26 @@ test('mergeRosters: a genuine spec disagreement is still flagged', () => {
     assert.strictEqual(r.mismatches.length, 1);
 });
 
+test('autoAssign: a Guardian druid can take faerie fire and demoralizing roar', () => {
+    // A cat is in the roster so preferSpecs ordering is actually exercised — with a lone druid
+    // the pool has one candidate and this would pass whether or not Guardian is preferred.
+    const r = E.autoAssign([P('Kitty', 'DRUID', 'Feral'), P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.strictEqual(duty(r, 'ff').player, 'Bearface');
+    assert.strictEqual(duty(r, 'ap').name, 'Demoralizing Roar');
+    assert.strictEqual(duty(r, 'ap').player, 'Bearface');
+});
+test('autoAssign: a Guardian druid provides Mangle', () => {
+    const r = E.autoAssign([P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.ok(r.passives.some(p => p.name === 'Mangle' && p.player === 'Bearface'));
+});
+test('autoAssign: faerie fire prefers balance, then guardian, then cat, then resto', () => {
+    const all = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Kitty', 'DRUID', 'Feral'),
+                              P('Bearface', 'DRUID', 'Guardian'), P('Moonpie', 'DRUID', 'Balance')], {});
+    assert.strictEqual(duty(all, 'ff').player, 'Moonpie');
+    const noBalance = E.autoAssign([P('Treebeard', 'DRUID', 'Restoration'), P('Kitty', 'DRUID', 'Feral'),
+                                    P('Bearface', 'DRUID', 'Guardian')], {});
+    assert.strictEqual(duty(noBalance, 'ff').player, 'Bearface'); // bear keeps FF up for threat anyway
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

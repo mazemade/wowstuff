@@ -307,7 +307,7 @@
         // Improved Faerie Fire (+3% melee/ranged hit) is Balance-only, but the 610 armor
         // applies regardless — so keep the duty and rank Feral above Resto, who would
         // otherwise spend a GCD and mana they would rather heal with.
-        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Feral'], improvedBy: 'impFaerieFire' },
+        { id: 'ff', name: 'Faerie Fire', category: 'debuffs', class: 'DRUID', preferSpecs: ['Balance', 'Guardian', 'Feral'], improvedBy: 'impFaerieFire' },
         { id: 'hm', name: "Hunter's Mark", category: 'debuffs', class: 'HUNTER', preferSpecs: ['Marksmanship'], improvedBy: 'impHuntersMark' },
         // Fire Vulnerability is +3% fire damage taken per stack, not spell crit (that is
         // WotLK), and the fire mage maintains it through their own rotation. Low priority.
@@ -323,7 +323,7 @@
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
             { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
-            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Feral'], improvedBy: 'feralAggression' },
+            { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Guardian', 'Feral'], improvedBy: 'feralAggression' },
             { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
         ] },
         // Improved Thunder Clap is −20% attack speed at 3/3 (base 10% plus 10%), and it is an
@@ -391,7 +391,7 @@
         { name: 'Shadow Weaving', class: 'PRIEST', spec: 'Shadow' },
         { name: 'Improved Shadow Bolt', class: 'WARLOCK', spec: 'Destruction' },
         { name: 'Blood Frenzy', class: 'WARRIOR', spec: 'Arms' },
-        { name: 'Mangle', class: 'DRUID', spec: 'Feral' },
+        { name: 'Mangle', class: 'DRUID', specs: ['Feral', 'Guardian'] },
         { name: 'Expose Weakness', class: 'HUNTER', spec: 'Survival' },
     ];
 
@@ -600,7 +600,8 @@
         });
 
         const passives = PASSIVES.map(ps => {
-            const p = roster.find(x => x.class === ps.class && (!ps.spec || x.spec === ps.spec));
+            const p = roster.find(x => x.class === ps.class
+                && (ps.specs ? ps.specs.indexOf(x.spec) !== -1 : (!ps.spec || x.spec === ps.spec)));
             return p ? { name: ps.name, player: p.name } : null;
         }).filter(Boolean);
 
