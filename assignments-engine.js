@@ -851,6 +851,14 @@
 
     function specKey(p) { return p.class + ':' + (p.spec || ''); }
 
+    // wowsims splits the racial into draenei_racial_melee and draenei_racial_caster, so
+    // redundancy is per KIND: a Heroic-Presence draenei and an Inspiring-Presence draenei
+    // in one group are both useful and must not trigger the de-duplication swap.
+    function presenceKind(p) {
+        if (p.race !== 'Draenei') return null;
+        return ['WARRIOR', 'PALADIN', 'HUNTER'].indexOf(p.class) !== -1 ? 'melee' : 'caster';
+    }
+
     // Value tables are keyed by specKey. The hand-written provisional numbers below are
     // expressed per ARCHETYPE and expanded, because that is the granularity the old ordinal
     // table encoded; the calibration harness replaces the whole block with per-spec numbers.
@@ -995,9 +1003,12 @@
           count: ps => ps.some(p => p.class === 'PALADIN' && p.spec === 'Retribution')
               ? ps.filter(p => p.class === 'PALADIN').length : 0,
           v: BUFF_V['Sanctity Aura'] || {} },
-        { name: 'Draenei presence', mode: 'once',
-          count: ps => ps.filter(p => p.race === 'Draenei').length,
-          v: BUFF_V['Draenei presence'] || {} },
+        { name: 'Heroic Presence', mode: 'once',
+          count: ps => ps.filter(p => presenceKind(p) === 'melee').length,
+          v: BUFF_V['Heroic Presence'] || {} },
+        { name: 'Inspiring Presence', mode: 'once',
+          count: ps => ps.filter(p => presenceKind(p) === 'caster').length,
+          v: BUFF_V['Inspiring Presence'] || {} },
     ];
 
     function multOf(p) { return typeof p.mult === 'number' ? p.mult : 1; }
@@ -1147,18 +1158,22 @@
         // surplus draenei who IS an anchor (a draenei BM hunter next to
         // another draenei) simply stays put: wasting a racial beats breaking a buff group.
         function swappable(p) { return p.class !== 'SHAMAN' && anchorScore(p) === 2; }
+        // v2: redundancy is keyed on presence KIND, not on race — a Heroic-Presence draenei
+        // and an Inspiring-Presence draenei in the same group are both earning their racial.
         groups.forEach(g => {
-            const dr = g.players.filter(p => p.race === 'Draenei')
-                .sort((a, b) => anchorScore(a) - anchorScore(b)); // keep the most anchor-like one in place
-            dr.slice(1).forEach(extra => {
-                if (!swappable(extra)) return;
-                const target = groups.find(o => o !== g
-                    && !o.players.some(p => p.race === 'Draenei')
-                    && o.players.some(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra)));
-                if (!target) return;
-                const swap = target.players.find(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra));
-                g.players[g.players.indexOf(extra)] = swap;
-                target.players[target.players.indexOf(swap)] = extra;
+            ['melee', 'caster'].forEach(kind => {
+                const dr = g.players.filter(p => presenceKind(p) === kind)
+                    .sort((a, b) => anchorScore(a) - anchorScore(b)); // keep the most anchor-like one in place
+                dr.slice(1).forEach(extra => {
+                    if (!swappable(extra)) return;
+                    const target = groups.find(o => o !== g
+                        && !o.players.some(p => presenceKind(p) === kind)
+                        && o.players.some(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra)));
+                    if (!target) return;
+                    const swap = target.players.find(p => p.race !== 'Draenei' && swappable(p) && bucketOf(p) === bucketOf(extra));
+                    g.players[g.players.indexOf(extra)] = swap;
+                    target.players[target.players.indexOf(swap)] = extra;
+                });
             });
         });
 
@@ -1297,7 +1312,8 @@
             { text: 'Retribution Aura', has: g => auraNames(g).indexOf('Retribution Aura') !== -1 },
             { text: 'Concentration Aura', has: g => auraNames(g).indexOf('Concentration Aura') !== -1 },
             { text: 'Sanctity Aura (+10% Holy damage)', has: g => auraNames(g).indexOf('Sanctity Aura') !== -1 },
-            { text: '+1% hit from Draenei presence', has: g => g.players.some(p => p.race === 'Draenei') },
+            { text: '+1% hit from Draenei Heroic Presence', has: g => g.players.some(p => presenceKind(p) === 'melee') },
+            { text: '+1% spell hit from Draenei Inspiring Presence', has: g => g.players.some(p => presenceKind(p) === 'caster') },
         ];
         groups.forEach(g => { g.notes = NOTE_RULES.filter(r => r.has(g)).map(r => r.text); });
 

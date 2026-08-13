@@ -2150,5 +2150,20 @@ test('v2: two paladins activate two auras', () => {
     assert.strictEqual(E.groupBuffs(g).filter(a => a.buff.element === 'aura').length, 2);
 });
 
+test('v2: draenei presences split by class kind', () => {
+    const D = (n, cls, spec) => Object.assign(P(n, cls, spec), { race: 'Draenei' });
+    const melee = E.proposeGroups([D('Dw', 'WARRIOR', 'Fury'), P('R', 'ROGUE', 'Combat')]).groups[0].notes.join(' | ');
+    assert.ok(/Heroic Presence/.test(melee), melee);
+    assert.ok(!/Inspiring Presence/.test(melee), melee);
+    const caster = E.proposeGroups([D('Dm', 'MAGE', 'Arcane'), P('M', 'MAGE', 'Fire')]).groups[0].notes.join(' | ');
+    assert.ok(/Inspiring Presence/.test(caster), caster);
+});
+test('v2: mixed-kind draenei pair in one group is NOT redundant', () => {
+    const D = (n, cls, spec) => Object.assign(P(n, cls, spec), { race: 'Draenei' });
+    const g = [D('Dw', 'WARRIOR', 'Fury'), D('Dm', 'MAGE', 'Arcane')];
+    const names = E.groupBuffs(g).map(a => a.buff.name);
+    assert.ok(names.indexOf('Heroic Presence') !== -1 && names.indexOf('Inspiring Presence') !== -1, names.join(','));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
