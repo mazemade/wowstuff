@@ -1708,5 +1708,27 @@ test('autoAssign: an ap warrior known to lack imp demo shout loses the row to cu
     assert.strictEqual(duty(r, 'ap').name, 'Curse of Weakness');
 });
 
+test('SELECTABLE_SPECS: druids can be marked Guardian, other classes are unchanged', () => {
+    assert.deepStrictEqual(E.SELECTABLE_SPECS.DRUID, ['Balance', 'Feral', 'Guardian', 'Restoration']);
+    assert.deepStrictEqual(E.SELECTABLE_SPECS.MAGE, ['Arcane', 'Fire', 'Frost']);
+});
+test('SPEC_TREES stays positional so talent inference is unaffected', () => {
+    assert.deepStrictEqual(E.SPEC_TREES.DRUID, ['Balance', 'Feral', 'Restoration']);
+    assert.strictEqual(E.inferSpec('DRUID', [0, 47, 14]).spec, 'Feral');
+});
+test('isFeralSpec: guardian and feral both count as feral for abilities', () => {
+    assert.strictEqual(E.isFeralSpec('Feral'), true);
+    assert.strictEqual(E.isFeralSpec('Guardian'), true);
+    assert.strictEqual(E.isFeralSpec('Balance'), false);
+    assert.strictEqual(E.isFeralSpec(null), false);
+});
+test('parseRaidHelper: a Guardian signup stays Guardian instead of collapsing to Feral', () => {
+    const r = E.parseRaidHelper({ signUps: [
+        { name: 'Bearface', className: 'Druid', specName: 'Guardian', status: 'primary', userId: '1' },
+    ] });
+    assert.strictEqual(r.players[0].spec, 'Guardian');
+    assert.deepStrictEqual(r.players[0].flags, []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

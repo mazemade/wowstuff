@@ -16,6 +16,19 @@
         DRUID: ['Balance', 'Feral', 'Restoration'],
     };
 
+    // SPEC_TREES is positional — inferSpec indexes it by talent tab, so it must stay three
+    // entries per class. Guardian is a role a human declares, not something talent totals can
+    // reveal (bear and cat are the same tree), so it lives here instead.
+    const SELECTABLE_SPECS = Object.keys(SPEC_TREES).reduce((acc, cls) => {
+        acc[cls] = SPEC_TREES[cls].slice();
+        return acc;
+    }, {});
+    SELECTABLE_SPECS.DRUID = ['Balance', 'Feral', 'Guardian', 'Restoration'];
+
+    // A bear casts Faerie Fire, Demoralizing Roar and carries Leader of the Pack exactly like
+    // a cat. Guardian differs only in which group it belongs to.
+    function isFeralSpec(spec) { return spec === 'Feral' || spec === 'Guardian'; }
+
     // The talents the catalog reasons about, under the same keys RaidSpecScan exports. The
     // addon resolved these by name at scan time, so there are no coordinates here to drift.
     // `maxRank` is the guard for the one thing that CAN drift: these keys and the addon's
@@ -174,7 +187,7 @@
         Warrior: 'WARRIOR', Paladin: 'PALADIN', Hunter: 'HUNTER', Rogue: 'ROGUE',
         Priest: 'PRIEST', Shaman: 'SHAMAN', Mage: 'MAGE', Warlock: 'WARLOCK', Druid: 'DRUID',
     };
-    const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery', Guardian: 'Feral' };
+    const RH_SPEC_ALIASES = { Beastmastery: 'Beast Mastery' };
 
     // Raid-Helper's endpoints disagree on how they case these names and fields,
     // so match on lowercase throughout and take the first field name that's present.
@@ -213,7 +226,7 @@
             let spec = String(rhPick(su, ['specName', 'spec']) || '').replace(/\d+$/, '');
             spec = RH_SPEC_ALIASES_LC[spec.toLowerCase()] || spec;
             const flags = [];
-            const canonical = SPEC_TREES[cls].find(s => s.toLowerCase() === spec.toLowerCase());
+            const canonical = SELECTABLE_SPECS[cls].find(s => s.toLowerCase() === spec.toLowerCase());
             if (canonical) { spec = canonical; } else { spec = null; flags.push('spec-unknown'); }
             const userId = rhPick(su, ['userId', 'userid']);
             players.push({
@@ -1004,7 +1017,7 @@
     }
 
     return {
-        SPEC_TREES, CLASS_COLORS, CLASS_ABBREV,
+        SPEC_TREES, SELECTABLE_SPECS, isFeralSpec, CLASS_COLORS, CLASS_ABBREV,
         TALENTS, talentRank, talentDrift, gateAllows,
         inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
