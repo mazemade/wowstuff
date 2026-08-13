@@ -1819,5 +1819,40 @@ test('proposeGroups: the spare resto shaman lands in a group that had no shaman'
     assert.strictEqual(g.players.filter(p => p.class === 'SHAMAN').length, 1);
 });
 
+test('proposeGroups: a lone shaman among hunters notes Grace of Air, not Windfury', () => {
+    const roster = [
+        P('Resto', 'SHAMAN', 'Restoration'),
+        P('Hunt1', 'HUNTER', 'Beast Mastery'), P('Hunt2', 'HUNTER', 'Beast Mastery'),
+    ];
+    const res = E.proposeGroups(roster);
+    const g = res.groups.find(g => g.players.some(p => p.name === 'Resto'));
+    assert.ok(g.notes.some(t => /Grace of Air/.test(t)), 'missing GoA note: ' + g.notes.join(' | '));
+    assert.ok(!g.notes.some(t => /Windfury/.test(t)));
+});
+test('proposeGroups: regression — the 2026-08-13 SSC roster', () => {
+    const R = [
+        P('Sylvanor', 'PALADIN', 'Protection'), P('Smellmystaff', 'DRUID', 'Guardian'),
+        P('Haku', 'SHAMAN', 'Enhancement'), P('Culuneta', 'WARRIOR', 'Fury'),
+        P('Davina', 'WARRIOR', 'Arms'), P('RedNeko', 'WARRIOR', 'Fury'),
+        P('utopik', 'ROGUE', 'Combat'), P('xavamros', 'ROGUE', 'Combat'),
+        P('Warzilla', 'DRUID', 'Feral'),
+        P('Connylloyd', 'HUNTER', 'Beast Mastery'), P('Funkell', 'HUNTER', 'Beast Mastery'),
+        P('produdu', 'HUNTER', 'Survival'),
+        P('Slyvester', 'SHAMAN', 'Elemental'), P('Craqu', 'MAGE', 'Arcane'),
+        P('JohnNoozeMusume', 'MAGE', 'Arcane'), P('Cartis', 'WARLOCK', 'Destruction'),
+        P('Lovestoned', 'WARLOCK', 'Destruction'),
+        P('Gouken', 'SHAMAN', 'Restoration'), P('woptenwodei', 'SHAMAN', 'Restoration'),
+        P('Frawa', 'DRUID', 'Restoration'), P('sspope', 'PRIEST', 'Holy'),
+    ];
+    const res = E.proposeGroups(R);
+    assert.strictEqual(groupOf(res, 'Smellmystaff'), 'tanks');   // the bug that started all this
+    assert.strictEqual(groupOf(res, 'Sylvanor'), 'tanks');
+    assert.notStrictEqual(groupOf(res, 'Gouken'), groupOf(res, 'woptenwodei'));
+    assert.strictEqual(res.groups.filter(g => g.players.some(p => p.class === 'SHAMAN')).length, 4);
+    const spare = res.groups.find(g => g.players.some(p => p.name === 'woptenwodei'));
+    assert.ok(spare.notes.some(t => /Grace of Air/.test(t)));    // she's with the hunters for GoA
+    assert.strictEqual(res.unplaced.length, 0);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

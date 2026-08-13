@@ -817,6 +817,13 @@
     // Scarcity order: this is the order a limited number of shamans is spent. Windfury/Strength
     // of Earth on melee is the largest single delta; Totem of Wrath's spell hit is next; tanks
     // gain least.
+    //
+    // Anniversary-realm scope, verified 2026-08-13: Bloodlust/Heroism is RAID-wide there
+    // (10-minute Sated-style debuff, resets on boss kills/wipes), so it is deliberately
+    // absent from this model — do not add it as a grouping reason. Everything modeled below
+    // is still party-scoped on Anniversary: all totems, paladin auras, Battle Shout, Leader
+    // of the Pack, Moonkin Aura, Trueshot, Ferocious Inspiration, Vampiric Touch, Mana Tide
+    // and the draenei presences.
     const GROUP_ROLES = ['melee', 'casters', 'healers', 'ranged', 'tanks'];
     const SHAMAN_ROLE = { Enhancement: 'melee', Elemental: 'casters', Restoration: 'healers' };
     const GROUP_CAP = 5;
@@ -930,6 +937,21 @@
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Totem of Wrath (+3% spell hit and crit)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
             { text: 'Wrath of Air (+101 spell damage and healing)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental') },
+            // A shaman can run only one air totem at a time, so these two rules must stay
+            // mutually consistent with the Windfury + Strength of Earth rule above: that one
+            // claims Windfury for the enhancement-with-melee case; Grace of Air claims
+            // everything else with hunters present; and baseline Windfury covers a
+            // non-enhancement shaman with melee/tanks but no hunters to drop Grace of Air for.
+            { text: 'Grace of Air (+77 agility)',
+              has: g => g.players.some(p => p.class === 'SHAMAN')
+                     && g.players.some(p => p.class === 'HUNTER')
+                     && !(g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                          && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks'))) },
+            { text: 'Windfury Totem (baseline)',
+              has: g => g.players.some(p => p.class === 'SHAMAN')
+                     && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement')
+                     && !g.players.some(p => p.class === 'HUNTER')
+                     && g.players.some(p => p.class !== 'SHAMAN' && (bucketOf(p) === 'melee' || bucketOf(p) === 'tanks')) },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
             { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
             { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
