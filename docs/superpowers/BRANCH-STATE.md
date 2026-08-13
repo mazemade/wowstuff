@@ -68,10 +68,15 @@ thing that still needs a live WoW client).
   gets the row and a known-untalented on-spec one does not, while unknown data degrades to exactly
   today's behaviour; **(c) the provider loop is two-pass**, so a provider whose best candidate is
   *known* untalented yields its row to the next provider (pass 2 accepts anyone, so a known-
-  untalented candidate still beats an empty row). The Greater Blessings grid became talent-aware
-  too: plan→paladin matching uses the same three-tier ordering, Greater Kings is gated on the
-  `kings` talent, and two warnings were added (nobody can cast Kings; a manual Kings cell on a
-  paladin known to lack it).
+  untalented candidate still beats an empty row); **(d) the qualifier stays quiet about a
+  wholly-unscanned player** — `record()` only says `talent unknown` when the player *was* scanned
+  but this row's talent key is missing from what the addon reported; a player with no `talents` at
+  all (a Raid-Helper signup, a manual add, an un-inspectable player) gets no qualifier, so a
+  Raid-Helper-only roster no longer carries up to eleven meaningless `(talent unknown)`
+  annotations (owner ruling on the whole-plan review, see section 6). The Greater Blessings grid
+  became talent-aware too: plan→paladin matching uses the same three-tier ordering, Greater Kings
+  is gated on the `kings` talent, and two warnings were added (nobody can cast Kings; a manual
+  Kings cell on a paladin known to lack it).
 
 ## What is planned next, not yet started
 
@@ -349,7 +354,9 @@ Plan 3's RSS2 checks are superseded by RSS3, so run this consolidated list once,
 ## 6. Deferred minors — triaged, none block merge
 
 Every whole-plan review triaged these explicitly. The plan 8 block below is the exception — those
-items were raised by task reviews and are still awaiting that plan's whole-plan review.
+items were raised by task reviews and are still awaiting that plan's whole-plan review, except the
+`talent unknown` qualifier item, which the owner has since ruled on and which is marked RESOLVED
+below.
 
 **Correctness nits, low reach**
 - `minClassCount` is dead code and a trap: it reads `entry.class`, which is `undefined` on a
@@ -415,29 +422,32 @@ items were raised by task reviews and are still awaiting that plan's whole-plan 
   deleted, which is this branch's worst defect class. It was proven both ways over CDP instead. The
   invariant is now named in a comment at the field list — that list has been missed twice.
 - An override to an off-class player inherits the first provider's `improvedBy`, so overriding
-  `armor` to a mage renders `Improved Expose Armor — Bob (talent unknown)`. Consistent with the
-  pre-existing label fallback; the qualifier just makes it more visible.
+  `armor` to a mage can render `Improved Expose Armor — Bob (talent unknown)` — but only if Bob was
+  scanned for something else; since plan 8's qualifier suppression (section 6), a Bob with no
+  `talents` at all gets no qualifier. Consistent with the pre-existing label fallback; the
+  qualifier just makes it more visible when it appears.
 - Error-message priority drifted for a line with two simultaneous violations (class and duplicate
   name are now checked before the subgroup range). No accepted input changes.
 
 **From plan 8 (talent catalog expansion)**
-- **Seven rows now render `(talent unknown)` on a roster with no talent data, where they previously
-  rendered nothing — not four.** `coe`, `ff` and `hm` gained an `improvedBy` (Task 2), and `scorch`,
-  `wc`, `swarm` and `hemo` gained a `requireTalent` (Task 3); the qualifier follows from
-  `entry.improvedBy || entry.requireTalent` either way. `ap` can additionally read `talent unknown`
-  via the new Demoralizing Roar provider's `feralAggression` whenever a druid covers it, though `ap`
-  itself is not a new row — it already carried a qualifier from plan 7's Demoralizing Shout. Combined
-  with the four rows plan 7 shipped (`armor`, `ap`, `tclap`, `joc`), a Raid-Helper-only Discord
-  message — which never carries talents — can now carry up to **eleven** `(talent unknown)`
-  annotations, none of which convey information. Task 3 flagged the original four for the owner to
-  sign off; no response is recorded. **The reviewer's proposed alternative, now the recommended fix
-  pending the owner's word:** suppress the qualifier entirely when the player carries **no talent
-  data at all** (`!player.talents`), keeping `talent unknown` only when the player *was* scanned but
-  this specific key is missing — the second case is a genuine diagnostic for name drift or the
-  scan-bounds bug (section 5 item 10), the first is pure noise. **Not applied** — it would change the
-  previous plan's shipped behaviour, which is why it awaits the owner's decision rather than being
-  done here. If the answer is no, the fix is at the qualifier, not the gate — the *selection*
-  behaviour on unknown data is unchanged from before the plan.
+- **RESOLVED 2026-08-13, applied.** Before this ruling, seven rows would have rendered
+  `(talent unknown)` on a roster with no talent data, where they previously rendered nothing — not
+  four. `coe`, `ff` and `hm` gained an `improvedBy` (Task 2), and `scorch`, `wc`, `swarm` and `hemo`
+  gained a `requireTalent` (Task 3); the qualifier followed from `entry.improvedBy ||
+  entry.requireTalent` either way. `ap` could additionally read `talent unknown` via the new
+  Demoralizing Roar provider's `feralAggression` whenever a druid covered it, though `ap` itself was
+  not a new row — it already carried a qualifier from plan 7's Demoralizing Shout. Combined with the
+  four rows plan 7 shipped (`armor`, `ap`, `tclap`, `joc`), a Raid-Helper-only Discord message —
+  which never carries talents — could carry up to **eleven** `(talent unknown)` annotations, none of
+  which conveyed information. Task 3 flagged the original four for the owner to sign off; no
+  response was recorded at the time. **The fix, chosen by the owner on the whole-plan review and now
+  live in `record()`:** the qualifier is suppressed entirely when the player carries no talent data
+  at all (`!player.talents`) — a Raid-Helper signup, a manually added player, or a player the addon
+  never inspected — and `talent unknown` is kept only when the player *was* scanned but this specific
+  key is missing from what the addon reported, which remains a genuine diagnostic for a talent-name
+  drift between the addon and the engine, or the scan-bounds bug (section 5 item 10). This
+  deliberately reverses part of what this plan shipped for the qualifier text; the *selection*
+  behaviour on unknown data is unchanged from before the plan — only the qualifier text changed.
 - **`proposeBlessings`' `planOf` is keyed by paladin name**, which extends the branch's pre-existing
   name-uniqueness assumption into the plan-matching path. Two paladins with the same name would now
   share a plan slot as well as colliding elsewhere. The parser already rejects duplicate names, so
