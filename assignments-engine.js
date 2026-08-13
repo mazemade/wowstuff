@@ -1009,7 +1009,10 @@
         // second draenei in a group is wasted. Swap-only: sizes never change, and only filler
         // players trade places. Anchors are off-limits on BOTH sides of the swap — a draenei
         // rogue must never displace the Windfury shaman — so the seeding and anchor placement
-        // from steps 1-2 cannot be undone here. anchorScore treats shamans as fillers (score 2,
+        // from steps 1-2 cannot be undone by THIS pass. (The hill-climb in step 4 runs after
+        // this pass and can still relocate these players, subject to its own relocatability
+        // rules — that guarantee is local to the draenei swap, not a promise about the
+        // roster as a whole.) anchorScore treats shamans as fillers (score 2,
         // same as any other non-anchor DPS), but a shaman is the reason the group's totem notes
         // are true regardless of whether it landed there by seeding or by overflow, so the
         // explicit class check keeps every shaman off-limits alongside the real anchors. A
@@ -1130,7 +1133,7 @@
         }
 
         const NOTE_RULES = [
-            { text: 'Windfury Totem + Strength of Earth',
+            { text: 'Windfury Totem',
               has: g => airChoice(g) === 'Windfury Totem'
                      && g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
             { text: 'Unleashed Rage (+10% AP)', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
@@ -1142,8 +1145,12 @@
             { text: 'Windfury Totem (baseline)',
               has: g => airChoice(g) === 'Windfury Totem'
                      && !g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement') },
+            // Strength of Earth is an EARTH totem: any shaman drops it regardless of which
+            // AIR totem airChoice() picks for the group, so it cannot ride along on the
+            // Windfury note above — it has to be its own rule or it scores with no note.
+            { text: 'Strength of Earth', has: g => g.players.some(p => p.class === 'SHAMAN') },
             { text: 'Mana Tide Totem', has: g => g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration') },
-            { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR' && p.spec !== 'Protection') },
+            { text: 'Battle Shout', has: g => g.players.some(p => p.class === 'WARRIOR') },
             { text: 'Leader of the Pack (+5% melee/ranged crit)', has: g => g.players.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)) },
             { text: 'Moonkin Aura (+5% spell crit)', has: g => g.players.some(p => p.class === 'DRUID' && p.spec === 'Balance') },
             { text: 'Ferocious Inspiration (+3% damage, stacks per BM hunter)', has: g => g.players.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery') },

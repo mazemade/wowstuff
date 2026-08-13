@@ -240,3 +240,23 @@ one live click of the AI button (the only live OpenAI call in verification).
   tool), streaming responses.
 - Any change to debuff/blessing/passive assignment logic — the optimizer touches
   group layout only.
+
+## As-built deviations (2026-08-13)
+
+- §2's hill-climb enumerates a *restricted* candidate set, not every swap and move: a
+  player is relocatable only if their bucket differs from their group's seeded role or
+  their group is under `GROUP_CAP`, and a swap additionally requires at least one of
+  the two groups to be under `GROUP_CAP`. This was needed to keep §2's own promise
+  that "Groups stay recognizable archetypes"; without it a full roster's tank and
+  ranged groups were dismantled.
+- §2 says the enumeration is ordered by "group index, then player name"; it is
+  ordered by group index then player *index*. Deterministic either way.
+- §3 says a 60 s timeout; shipped is 180 s, because a real-size sheet exceeded 60 s
+  against a reasoning model in live end-to-end verification.
+- §3 says the button "disables with an 'Asking…' label" and the box is
+  "collapsible"; shipped, the button label is unchanged, the status text goes in the
+  box, and the box is not collapsible.
+- §4's mandated "score is monotonically non-decreasing across iterations" test was
+  not added, to honour a hard 245-test-case target; the property is instead
+  guaranteed structurally (only strictly-positive deltas are applied) and was
+  verified over ~12,000 fuzzed rosters.

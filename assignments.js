@@ -432,6 +432,11 @@ function ccRow(c, index) {
 const ROLE_LABELS = { melee: 'Melee', casters: 'Casters', healers: 'Healers', ranged: 'Hunters', tanks: 'Tanks' };
 
 function renderGroups() {
+    // A rendered AI review critiques one specific layout. If the layout changes underneath
+    // it (import, remove, auto-assign) it must not outlive that layout, so clear and rehide
+    // it here rather than leave stale advice on screen with nothing marking it stale.
+    const reviewBox = document.getElementById('aiReviewBox');
+    if (reviewBox) { reviewBox.textContent = ''; reviewBox.classList.add('hidden'); }
     const box = document.getElementById('groupsBox');
     box.innerHTML = '';
     if (!roster.length) { box.textContent = 'Import a roster first.'; return; }

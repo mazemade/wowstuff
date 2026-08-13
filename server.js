@@ -19,6 +19,15 @@ try {
 app.use(express.static(path.join(__dirname), { index: false }));
 app.use(express.json({ limit: '1mb' }));
 
+// body-parser throws on malformed/oversized bodies before any route runs. Left to the
+// default handler that becomes an HTML stack trace with filesystem paths in the response;
+// every client here expects JSON, so translate it instead of letting it through. Express
+// recognizes error middleware only by this four-argument signature.
+app.use((err, req, res, next) => {
+  if (!err || typeof err.type !== 'string' || !err.type.startsWith('entity.')) return next(err);
+  res.status(err.status || err.statusCode || 400).json({ error: 'Malformed request body' });
+});
+
 // The site is the raid assignments tool. The older fight pages still exist and still work
 // at their own URLs (/gruul.html, /magtheridon.html, /ssc.html, /index.html); they are just
 // no longer what you land on.
@@ -85,6 +94,15 @@ const AI_SYSTEM_PROMPT = [
 ].join('\n');
 
 app.post('/api/ai-review', async (req, res) => {
+  // A text/plain or form-urlencoded POST is a CORS simple request: no preflight, so any
+  // page the user has open could fire one at this endpoint and burn the paid API key even
+  // though it can't read the reply. express.json() silently skips non-JSON bodies and
+  // leaves req.body as {}, so without this check the key check below would still run.
+  // Requiring application/json forces a preflight, which fails here since we send no CORS
+  // headers — that closes the hole.
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Expected application/json' });
+  }
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     return res.status(503).json({ error: 'No OPENAI_API_KEY configured — put it in .env next to server.js' });
