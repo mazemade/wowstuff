@@ -12,11 +12,11 @@ each task-reviewed, with one fix round on task 3.
 | | |
 |---|---|
 | Branch | `debuff-coverage`, in worktree `/Users/maxvanzoelen/wowstuff/.claude/worktrees/debuff-coverage` |
-| HEAD | `d397f87` (last code commit; the docs commit that wrote this line sits on top of it) |
+| HEAD | `a3d841e` (last code commit; the docs commit `c13b909` sits on top of it) |
 | Working tree | clean (`TalentProbe/` is an untracked throwaway diagnostic addon — leave it alone) |
-| Suite | **200 passed, 0 failed** (`node assignments-engine.test.js`) |
+| Suite | **204 passed, 0 failed** (`node assignments-engine.test.js`) |
 | `main` | untouched at `bb838f9`, still deployable (Railway deploys from `main`) |
-| Commits on branch | 65, none squashed — one per task, plus fix waves |
+| Commits on branch | 71, none squashed — one per task, plus fix waves |
 
 | Plan | State |
 |---|---|
