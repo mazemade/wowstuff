@@ -30,3 +30,11 @@ yarn.lock
 
 # Secrets — the OpenAI key for /api/ai-review lives here, never in the repo
 .env
+
+# Calibration harness: the pinned wowsims checkout, its built binary and every sim
+# artefact are reproducible from links.txt + the SHA in calibration/README.md.
+# weights.json and floors-report.md ARE committed — they are the evidence behind the
+# engine's numbers.
+calibration/vendor/
+calibration/out/
+calibration/dump-profiles/out/
