@@ -1066,6 +1066,57 @@ test('proposeBlessings: a feral druid counts as a tank for the salvation rule', 
     assert.strictEqual(E.proposeBlessings(palRoster().concat([P('Moon', 'DRUID', 'Balance')]), {}).rows[2].cells.DRUID, 'Greater Salvation');
 });
 
+function pala(name, spec, t) {
+    const p = P(name, 'PALADIN', spec);
+    if (t) p.talents = t;
+    return p;
+}
+test('proposeBlessings: kings goes to the paladin who can actually cast it', () => {
+    // Ret sorts first and would take Kings today; they are known-0, the Holy has it.
+    const ret = pala('Aret', 'Retribution', { kings: 0, impMight: 5 });
+    const holy = pala('Zholy', 'Holy', { kings: 1, impWisdom: 2 });
+    const r = E.proposeBlessings([ret, holy, P('Grunt', 'WARRIOR', 'Arms')], {});
+    const kingsRow = r.rows.find(row => row.cells.WARRIOR === 'Greater Kings');
+    assert.ok(kingsRow, 'no row assigns Greater Kings');
+    assert.strictEqual(kingsRow.paladin, 'Zholy');
+    // The known-0 Ret slid to the Might/Wisdom plan instead of losing their row.
+    const retRow = r.rows.find(row => row.paladin === 'Aret');
+    assert.strictEqual(retRow.cells.WARRIOR, 'Greater Might');
+});
+test('proposeBlessings: when no paladin can cast kings, it is withheld and warned', () => {
+    const r = E.proposeBlessings([pala('Aret', 'Retribution', { kings: 0 }),
+                                  pala('Zholy', 'Holy', { kings: 0 }),
+                                  P('Grunt', 'WARRIOR', 'Arms')], {});
+    r.rows.forEach(row => Object.keys(row.cells).forEach(cls => {
+        assert.notStrictEqual(row.cells[cls], 'Greater Kings');
+    }));
+    assert.ok(r.warnings.some(w => /Nobody can cast Blessing of Kings/.test(w)), r.warnings.join('; '));
+});
+test('proposeBlessings: a manual kings cell on a known-0 paladin warns but is not blocked', () => {
+    const r = E.proposeBlessings([pala('Aret', 'Retribution', { kings: 0 }), P('Grunt', 'WARRIOR', 'Arms')],
+                                 { 'Aret|WARRIOR': 'Greater Kings' });
+    assert.strictEqual(r.rows.find(row => row.paladin === 'Aret').cells.WARRIOR, 'Greater Kings');
+    assert.ok(r.warnings.some(w => /Aret cannot cast Blessing of Kings/.test(w)), r.warnings.join('; '));
+});
+test('proposeBlessings: the might/wisdom row goes to the better-talented paladin', () => {
+    // Kings to the Ret (talented). Of the rest, Holy sorts first but is known-0 in both
+    // improvements; the Prot has Imp Might — the talent flips the row assignment.
+    const ret = pala('Aret', 'Retribution', { kings: 1 });
+    const holy = pala('Bholy', 'Holy', { impMight: 0, impWisdom: 0 });
+    const prot = pala('Zprot', 'Protection', { impMight: 5 });
+    const r = E.proposeBlessings([ret, holy, prot, P('Grunt', 'WARRIOR', 'Arms')], {});
+    assert.strictEqual(r.rows.find(row => row.paladin === 'Zprot').cells.WARRIOR, 'Greater Might');
+});
+test('proposeBlessings: a roster with no talent data reproduces the spec-order grid', () => {
+    // The degrade-to-today rule for the grid: with every tier unknown, both sorts are
+    // stable and paladin N gets plan N exactly as before this plan.
+    const r = E.proposeBlessings([pala('Aret', 'Retribution'), pala('Bholy', 'Holy'),
+                                  P('Grunt', 'WARRIOR', 'Arms')], {});
+    assert.strictEqual(r.rows.find(row => row.paladin === 'Aret').cells.WARRIOR, 'Greater Kings');
+    assert.strictEqual(r.rows.find(row => row.paladin === 'Bholy').cells.WARRIOR, 'Greater Might');
+    assert.deepStrictEqual(r.warnings, []);
+});
+
 test('buildDiscord: renders the blessings grid when present', () => {
     const roster = palRoster();
     const sheet = E.autoAssign(roster, {});

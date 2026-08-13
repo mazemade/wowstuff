@@ -911,6 +911,13 @@
     ];
     const PALADIN_ORDER = { Retribution: 0, Holy: 1, Protection: 2 };
 
+    // 0 = talented, 1 = unknown, 2 = known-untalented — the same ordering rankPool's tier
+    // uses, so the grid and the duty rows cannot disagree about what talent data means.
+    function blessingTier(pal, key) {
+        const r = talentRank(pal, key);
+        return r === null ? 1 : (r > 0 ? 0 : 2);
+    }
+
     function proposeBlessings(roster, overrides) {
         overrides = overrides || {};
         const classes = [];
@@ -922,8 +929,33 @@
             return (oa === undefined ? 9 : oa) - (ob === undefined ? 9 : ob) || a.name.localeCompare(b.name);
         });
 
-        const rows = paladins.map((pal, i) => {
-            const plan = BLESSING_PLANS[i] || BLESSING_PLANS[BLESSING_PLANS.length - 1];
+        const warnings = [];
+
+        // Match plans to paladins talent-aware. Kings is a 1-point Protection talent, not a
+        // baseline spell: a paladin known not to have it cannot cast it at all, so they are
+        // excluded from that plan rather than merely ranked last. With no talent data every
+        // tier is 1, every sort below is stable, and paladin N gets plan N exactly as before.
+        const planOf = {};
+        const unassigned = paladins.slice();
+        function takeBest(tierOf, exclude) {
+            const pool = exclude ? unassigned.filter(p => tierOf(p) !== 2) : unassigned;
+            if (!pool.length) return null;
+            const best = pool.slice().sort((a, b) =>
+                tierOf(a) - tierOf(b) || paladins.indexOf(a) - paladins.indexOf(b))[0];
+            unassigned.splice(unassigned.indexOf(best), 1);
+            return best;
+        }
+        const kingsPal = takeBest(p => blessingTier(p, 'kings'), true);
+        if (kingsPal) planOf[kingsPal.name] = 0;
+        else if (paladins.length) warnings.push('Nobody can cast Blessing of Kings — it is a Protection talent.');
+        const mwPal = takeBest(p => Math.min(blessingTier(p, 'impMight'), blessingTier(p, 'impWisdom')), false);
+        if (mwPal) planOf[mwPal.name] = 1;
+        const salvPal = takeBest(function () { return 0; }, false);
+        if (salvPal) planOf[salvPal.name] = 2;
+        unassigned.slice().forEach(p => { planOf[p.name] = 3; });
+
+        const rows = paladins.map(pal => {
+            const plan = BLESSING_PLANS[planOf[pal.name]] || BLESSING_PLANS[BLESSING_PLANS.length - 1];
             const cells = {};
             classes.forEach(cls => {
                 const key = pal.name + '|' + cls;
@@ -932,7 +964,17 @@
             return { paladin: pal.name, spec: pal.spec, cells };
         });
 
-        const warnings = [];
+        // A manually assigned cell is never blocked (respecs happen, the lead may know
+        // better), but a Kings cell on a paladin the scan says cannot cast it deserves the
+        // same visibility as a duplicate blessing.
+        rows.forEach(r => {
+            const pal = paladins.find(p => p.name === r.paladin);
+            if (blessingTier(pal, 'kings') === 2
+                && classes.some(cls => r.cells[cls] === 'Greater Kings')) {
+                warnings.push(r.paladin + ' cannot cast Blessing of Kings (talent not taken).');
+            }
+        });
+
         if (!paladins.length && roster.length) warnings.push('No paladin in the raid — no blessings at all.');
         classes.forEach(cls => {
             // A null cell here is the salvation rule deliberately withholding a blessing from a
