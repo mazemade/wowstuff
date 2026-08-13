@@ -265,8 +265,16 @@
             if (m) {
                 m.discordId = rh.discordId;
                 if (rh.spec && m.spec && rh.spec !== m.spec) {
-                    m.flags.push('signed-as:' + rh.spec);
-                    mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
+                    // Talent totals cannot tell a bear from a cat, so an addon scan always
+                    // says Feral. A Guardian signup is strictly more information, not a
+                    // contradiction — take it rather than flagging a mismatch that is really
+                    // just the addon's blind spot.
+                    if (isFeralSpec(rh.spec) && isFeralSpec(m.spec)) {
+                        m.spec = rh.spec;
+                    } else {
+                        m.flags.push('signed-as:' + rh.spec);
+                        mismatches.push({ name: m.name, signed: rh.spec, actual: m.spec });
+                    }
                 }
             } else {
                 unmatched.raidhelper.push(Object.assign({}, rh, { flags: (rh.flags || []).slice() }));

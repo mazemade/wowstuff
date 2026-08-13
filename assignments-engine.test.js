@@ -1730,5 +1730,29 @@ test('parseRaidHelper: a Guardian signup stays Guardian instead of collapsing to
     assert.deepStrictEqual(r.players[0].flags, []);
 });
 
+test('mergeRosters: a Guardian signup refines the addon Feral rather than being overwritten', () => {
+    const addon = [{ name: 'Bearface', class: 'DRUID', spec: 'Feral', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Bearface', class: 'DRUID', spec: 'Guardian', discordId: '1', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    const bear = r.roster.find(p => p.name === 'Bearface');
+    assert.strictEqual(bear.spec, 'Guardian');
+    assert.deepStrictEqual(r.mismatches, []);
+    assert.ok(!bear.flags.some(f => /signed-as/.test(f)));
+});
+test('mergeRosters: Feral signup against an addon Feral is not a mismatch either', () => {
+    const addon = [{ name: 'Kitty', class: 'DRUID', spec: 'Feral', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Kitty', class: 'DRUID', spec: 'Feral', discordId: '2', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    assert.strictEqual(r.roster[0].spec, 'Feral');
+    assert.deepStrictEqual(r.mismatches, []);
+});
+test('mergeRosters: a genuine spec disagreement is still flagged', () => {
+    const addon = [{ name: 'Moonpie', class: 'DRUID', spec: 'Balance', flags: [], source: 'addon' }];
+    const rh = [{ name: 'Moonpie', class: 'DRUID', spec: 'Restoration', discordId: '3', flags: [] }];
+    const r = E.mergeRosters(addon, rh, {});
+    assert.strictEqual(r.roster[0].spec, 'Balance');
+    assert.strictEqual(r.mismatches.length, 1);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
