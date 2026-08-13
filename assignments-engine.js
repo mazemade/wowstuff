@@ -928,62 +928,77 @@
     // element:'air' rows compete — a shaman runs ONE air totem, so groupBuffs picks a
     // single air row per group. Windfury is absent for enhShaman (own imbues), feralCat
     // and bear (weapon-imbue totems do not affect shapeshifted druids) and hunters
-    // (main-hand proc, ranged attacks never trigger it). A buff provided twice still
-    // counts once: `provided` is a boolean over the whole group.
+    // (main-hand proc, ranged attacks never trigger it). `count` returns how many providers
+    // the group has; `mode: 'once'` clamps it to 1 (duplicate providers are wasted), while
+    // 'stacks' keeps the full count — Ferocious Inspiration is the one row that compounds.
     const PARTY_BUFFS = [
-        { name: 'Windfury Totem', element: 'air',
-          provided: ps => ps.some(p => p.class === 'SHAMAN'),
-          w: { wfMelee: 10, protWarrior: 5 } },
-        { name: 'Grace of Air', element: 'air',
-          provided: ps => ps.some(p => p.class === 'SHAMAN'),
-          w: { wfMelee: 2, enhShaman: 2, feralCat: 5, bear: 5, hunter: 7, protWarrior: 1, protPaladin: 1 } },
-        { name: 'Wrath of Air', element: 'air',
-          provided: ps => ps.some(p => p.class === 'SHAMAN'),
-          w: { caster: 7, healer: 3, protPaladin: 1 } },
-        { name: 'Strength of Earth',
-          provided: ps => ps.some(p => p.class === 'SHAMAN'),
-          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 2, protWarrior: 2, protPaladin: 1 } },
-        { name: 'Totem of Wrath',
-          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental'),
-          w: { caster: 7, healer: 1, protPaladin: 1 } },
-        { name: 'Mana Tide Totem',
-          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Restoration'),
-          w: { enhShaman: 1, hunter: 1, caster: 2, healer: 6, protPaladin: 1 } },
-        { name: 'Battle Shout',
-          provided: ps => ps.some(p => p.class === 'WARRIOR'),
-          w: { wfMelee: 4, enhShaman: 4, feralCat: 4, bear: 3, protWarrior: 3 } },
-        { name: 'Unleashed Rage',
-          provided: ps => ps.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement'),
-          w: { wfMelee: 5, feralCat: 4, bear: 2, protWarrior: 2 } },
-        { name: 'Leader of the Pack',
-          provided: ps => ps.some(p => p.class === 'DRUID' && isFeralSpec(p.spec)),
-          w: { wfMelee: 5, enhShaman: 4, feralCat: 5, bear: 3, hunter: 5, protWarrior: 2 } },
-        { name: 'Ferocious Inspiration',
-          provided: ps => ps.some(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery'),
-          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 1, hunter: 3, caster: 3, protWarrior: 1, protPaladin: 1 } },
-        { name: 'Trueshot Aura',
-          provided: ps => ps.some(p => p.class === 'HUNTER' && p.spec === 'Marksmanship'),
-          w: { wfMelee: 3, enhShaman: 3, feralCat: 3, bear: 1, hunter: 5, protWarrior: 1 } },
-        { name: 'Moonkin Aura',
-          provided: ps => ps.some(p => p.class === 'DRUID' && p.spec === 'Balance'),
-          w: { caster: 4, healer: 1 } },
-        { name: 'Vampiric Touch',
-          provided: ps => ps.some(p => p.class === 'PRIEST' && p.spec === 'Shadow'),
-          w: { caster: 4, healer: 3, protPaladin: 1 } },
-        { name: 'Blood Pact',
-          provided: ps => ps.some(p => p.class === 'WARLOCK'),
-          w: { wfMelee: 1, enhShaman: 1, feralCat: 1, bear: 1, hunter: 1, caster: 1, healer: 1, protWarrior: 2, protPaladin: 2 } },
-        { name: 'Paladin aura',
-          provided: ps => ps.some(p => p.class === 'PALADIN'),
-          w: { wfMelee: 1, enhShaman: 1, feralCat: 1, bear: 1, hunter: 1, caster: 1, healer: 1, protWarrior: 1, protPaladin: 1 } },
-        { name: 'Draenei presence',
-          provided: ps => ps.some(p => p.race === 'Draenei'),
-          w: { wfMelee: 2, enhShaman: 2, hunter: 2, caster: 2, protWarrior: 2 } },
+        { name: 'Windfury Totem', element: 'air', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN').length,
+          v: BUFF_V['Windfury Totem'] || {} },
+        { name: 'Grace of Air', element: 'air', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN').length,
+          v: BUFF_V['Grace of Air'] || {} },
+        { name: 'Wrath of Air', element: 'air', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN').length,
+          v: BUFF_V['Wrath of Air'] || {} },
+        { name: 'Strength of Earth', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN').length,
+          v: BUFF_V['Strength of Earth'] || {} },
+        { name: 'Totem of Wrath', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN' && p.spec === 'Elemental').length,
+          v: BUFF_V['Totem of Wrath'] || {} },
+        { name: 'Mana Tide Totem', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN' && p.spec === 'Restoration').length,
+          v: BUFF_V['Mana Tide Totem'] || {} },
+        { name: 'Battle Shout', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'WARRIOR').length,
+          v: BUFF_V['Battle Shout'] || {} },
+        { name: 'Unleashed Rage', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'SHAMAN' && p.spec === 'Enhancement').length,
+          v: BUFF_V['Unleashed Rage'] || {} },
+        { name: 'Leader of the Pack', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'DRUID' && isFeralSpec(p.spec)).length,
+          v: BUFF_V['Leader of the Pack'] || {} },
+        { name: 'Ferocious Inspiration', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'HUNTER' && p.spec === 'Beast Mastery').length,
+          v: BUFF_V['Ferocious Inspiration'] || {} },
+        { name: 'Trueshot Aura', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'HUNTER' && p.spec === 'Marksmanship').length,
+          v: BUFF_V['Trueshot Aura'] || {} },
+        { name: 'Moonkin Aura', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'DRUID' && p.spec === 'Balance').length,
+          v: BUFF_V['Moonkin Aura'] || {} },
+        { name: 'Vampiric Touch', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'PRIEST' && p.spec === 'Shadow').length,
+          v: BUFF_V['Vampiric Touch'] || {} },
+        { name: 'Blood Pact', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'WARLOCK').length,
+          v: BUFF_V['Blood Pact'] || {} },
+        { name: 'Paladin aura', mode: 'once',
+          count: ps => ps.filter(p => p.class === 'PALADIN').length,
+          v: BUFF_V['Paladin aura'] || {} },
+        { name: 'Draenei presence', mode: 'once',
+          count: ps => ps.filter(p => p.race === 'Draenei').length,
+          v: BUFF_V['Draenei presence'] || {} },
     ];
 
+    function multOf(p) { return typeof p.mult === 'number' ? p.mult : 1; }
+
+    // What a buff is worth to a whole group, in raid DPS — the quantity the air argmax and
+    // the aura selection compare. Unlike playerBuffScore this ignores the other active
+    // buffs, so it ranks candidates without needing the set it is choosing.
+    function groupValueOf(buff, players) {
+        return players.reduce((s, p) =>
+            s + (BASELINE[specKey(p)] || 0) * multOf(p) * (buff.v[specKey(p)] || 0), 0);
+    }
+
     function groupBuffs(players) {
-        const active = PARTY_BUFFS.filter(b => !b.element && b.provided(players));
-        const airs = PARTY_BUFFS.filter(b => b.element === 'air' && b.provided(players));
+        const active = [];
+        PARTY_BUFFS.filter(b => !b.element).forEach(b => {
+            const n = b.count(players);
+            if (n > 0) active.push({ buff: b, count: b.mode === 'stacks' ? n : 1 });
+        });
+        const airs = PARTY_BUFFS.filter(b => b.element === 'air' && b.count(players) > 0);
         if (airs.length) {
             // An Elemental shaman always keeps Wrath of Air — established ruling (it will
             // not sacrifice its own spell damage to imbue melee), and the existing air-note
@@ -994,31 +1009,33 @@
             } else {
                 let bestVal = -1;
                 airs.forEach(b => {
-                    const v = players.reduce((s, p) => s + (b.w[buffArchetype(p)] || 0), 0);
+                    const v = groupValueOf(b, players);
                     if (v > bestVal) { bestVal = v; bestAir = b; }
                 });
             }
-            if (bestAir) active.push(bestAir);
+            if (bestAir) active.push({ buff: bestAir, count: 1 });
         }
         return active;
     }
 
+    // The uplift a player takes from their group, as a fraction: Π(1 + v)^count − 1.
+    // Multiplicative by design (spec §1) — it is what makes the BM-hunter split rule fall
+    // out of the score instead of being special-cased.
     function playerBuffScore(p, players) {
-        return groupBuffs(players).reduce((s, b) => s + (b.w[buffArchetype(p)] || 0), 0);
+        return groupBuffs(players).reduce((f, a) =>
+            f * Math.pow(1 + (a.buff.v[specKey(p)] || 0), a.count), 1) - 1;
     }
 
-    // Layout score = buff coverage plus a small cohesion nudge (0.25 per player in the
-    // group's most common bucket). 0.25 is deliberately below the smallest buff weight:
-    // cohesion breaks near-ties toward recognizable role groups but never outweighs a
-    // real buff gain.
+    function playerScore(p, players) {
+        return (BASELINE[specKey(p)] || 0) * multOf(p) * (1 + playerBuffScore(p, players));
+    }
+
+    // Layout score = raid DPS in real units. No cohesion term: once weights are % DPS,
+    // the old 0.25 nudge is a unit collision, not a tiebreak (brief §8 Q3). Readability
+    // comes from the seed, the relabel pass and the deterministic enumeration order.
     function scoreLayout(groups) {
-        return groups.reduce((sum, g) => {
-            const perPlayer = g.players.reduce((s, p) => s + playerBuffScore(p, g.players), 0);
-            const tally = {};
-            g.players.forEach(p => { const b = bucketOf(p); tally[b] = (tally[b] || 0) + 1; });
-            const majority = Object.keys(tally).reduce((m, k) => Math.max(m, tally[k]), 0);
-            return sum + perPlayer + 0.25 * majority;
-        }, 0);
+        return groups.reduce((sum, g) =>
+            sum + g.players.reduce((s, p) => s + playerScore(p, g.players), 0), 0);
     }
 
     // Within a role, place the players whose buffs are party-scoped first — they are the
@@ -1204,8 +1221,8 @@
         // and the optimizer can never disagree about which air totem a group runs — and the
         // one-air-note invariant holds by construction instead of by rule coordination.
         function airChoice(g) {
-            const air = groupBuffs(g.players).filter(b => b.element === 'air')[0];
-            return air ? air.name : null;
+            const air = groupBuffs(g.players).filter(a => a.buff.element === 'air')[0];
+            return air ? air.buff.name : null;
         }
 
         const NOTE_RULES = [
@@ -1363,8 +1380,8 @@
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
-        bucketOf, proposeGroups, playerBuffScore, scoreLayout,
-        specKey, BASELINE, BUFF_V,
+        bucketOf, proposeGroups, playerBuffScore, playerScore, scoreLayout,
+        specKey, BASELINE, BUFF_V, PARTY_BUFFS, groupBuffs,
         GREATER_BLESSINGS, proposeBlessings,
     };
 }));

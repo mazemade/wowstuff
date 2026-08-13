@@ -1891,21 +1891,35 @@ test('proposeGroups: an Elemental shaman with melee and no hunters keeps Wrath o
 });
 
 // --- Optimizer Task 1: party-buff value model ---
+// v2 (spec §9.4): these five pinned ORDINAL sums. The score is now a compounded fraction
+// (Π(1+v) − 1), so each expectation is rebuilt from BUFF_V — the claim under test is still
+// exactly WHICH buffs reach the player, which is what these tests were written to pin, and
+// building it from the table keeps them valid once calibration replaces the numbers.
+const uplift = (specK, names) => names.reduce((f, n) => f * (1 + (E.BUFF_V[n][specK] || 0)), 1) - 1;
 test('playerBuffScore: rogue with an enhancement shaman gets Windfury, Strength of Earth, Unleashed Rage', () => {
     const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
-    assert.strictEqual(E.playerBuffScore(g[1], g), 18); // WF 10 + SoE 3 + UR 5
+    assert.ok(Math.abs(E.playerBuffScore(g[1], g)
+        - uplift('ROGUE:Combat', ['Windfury Totem', 'Strength of Earth', 'Unleashed Rage'])) < 1e-9,
+        'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: enhancement shaman gains nothing from its own Windfury Totem', () => {
     const g = [P('Enh', 'SHAMAN', 'Enhancement'), P('Rog', 'ROGUE', 'Combat')];
-    assert.strictEqual(E.playerBuffScore(g[0], g), 3); // SoE only — imbues beat the totem, UR is its own
+    // SoE only — imbues beat the totem, UR is its own, and the group's air argmax picks
+    // Windfury (worth more to the rogue than Grace of Air is to the pair).
+    assert.ok(Math.abs(E.playerBuffScore(g[0], g) - uplift('SHAMAN:Enhancement', ['Strength of Earth'])) < 1e-9,
+        'got ' + E.playerBuffScore(g[0], g));
 });
 test('playerBuffScore: hunter with a resto shaman scores Grace of Air, not Windfury', () => {
     const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Hunt', 'HUNTER', 'Beast Mastery')];
-    assert.strictEqual(E.playerBuffScore(g[1], g), 11); // GoA 7 + Mana Tide 1 + own Ferocious 3
+    assert.ok(Math.abs(E.playerBuffScore(g[1], g)
+        - uplift('HUNTER:Beast Mastery', ['Grace of Air', 'Mana Tide Totem', 'Ferocious Inspiration'])) < 1e-9,
+        'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: caster with a resto shaman scores Wrath of Air', () => {
     const g = [P('Resto', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
-    assert.strictEqual(E.playerBuffScore(g[1], g), 9); // WoA 7 + Mana Tide 2
+    assert.ok(Math.abs(E.playerBuffScore(g[1], g)
+        - uplift('MAGE:Arcane', ['Wrath of Air', 'Mana Tide Totem'])) < 1e-9,
+        'got ' + E.playerBuffScore(g[1], g));
 });
 test('playerBuffScore: a second same-spec shaman adds nothing', () => {
     const one = [P('Resto', 'SHAMAN', 'Restoration'), P('Mage', 'MAGE', 'Arcane')];
@@ -1914,18 +1928,27 @@ test('playerBuffScore: a second same-spec shaman adds nothing', () => {
 });
 test('playerBuffScore: an Elemental shaman pins air to Wrath of Air even with melee', () => {
     const g = [P('Ele', 'SHAMAN', 'Elemental'), P('R1', 'ROGUE', 'Combat'), P('R2', 'ROGUE', 'Combat')];
-    assert.strictEqual(E.playerBuffScore(g[1], g), 3); // SoE 3 only — no Windfury, ToW is caster-only
+    // SoE only — no Windfury, ToW is caster-only. (v2 §9.4: ordinal 3 → compounded fraction.)
+    assert.ok(Math.abs(E.playerBuffScore(g[1], g) - uplift('ROGUE:Combat', ['Strength of Earth'])) < 1e-9,
+        'got ' + E.playerBuffScore(g[1], g));
 });
 
 // --- Optimizer Task 2: scoreLayout ---
-test('scoreLayout: fury warrior and rogue share Battle Shout plus cohesion', () => {
+test('scoreLayout: fury warrior and rogue share Battle Shout, in DPS units', () => {
+    // v2 (spec §9.4): the layout score is raid DPS, so this is each baseline lifted by the
+    // one buff the pair provides. The cohesion half of the old expectation is gone (§1).
     const g = [{ players: [P('War', 'WARRIOR', 'Fury'), P('Rog', 'ROGUE', 'Combat')] }];
-    assert.ok(Math.abs(E.scoreLayout(g) - 8.5) < 1e-9); // shout 4+4, cohesion 0.25 x 2 same-bucket
+    const want = E.BASELINE['WARRIOR:Fury'] * (1 + E.BUFF_V['Battle Shout']['WARRIOR:Fury'])
+        + E.BASELINE['ROGUE:Combat'] * (1 + E.BUFF_V['Battle Shout']['ROGUE:Combat']);
+    assert.ok(Math.abs(E.scoreLayout(g) - want) < 1e-9, 'got ' + E.scoreLayout(g) + ' want ' + want);
 });
-test('scoreLayout: cohesion prefers same-bucket grouping when buffs tie', () => {
+test('scoreLayout: bucket cohesion no longer moves the score', () => {
+    // v2 (spec §9.4 / §1): the 0.25 cohesion term was an ordinal-units artifact and is
+    // deleted. When no buffs differ, splitting a bucket must now score EXACTLY the same —
+    // readability comes from the seed and the relabel pass, not from the objective.
     const together = [{ players: [P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')] }, { players: [P('Rog', 'ROGUE', 'Combat')] }];
     const split = [{ players: [P('M1', 'MAGE', 'Arcane'), P('Rog', 'ROGUE', 'Combat')] }, { players: [P('M2', 'MAGE', 'Arcane')] }];
-    assert.ok(E.scoreLayout(together) > E.scoreLayout(split));
+    assert.strictEqual(E.scoreLayout(together), E.scoreLayout(split));
 });
 
 // --- Optimizer Task 3: note rules ---
@@ -2039,6 +2062,29 @@ test('v2: BASELINE covers every spec plus Guardian, healers at zero', () => {
     assert.strictEqual(E.specKey({ class: 'WARRIOR', spec: 'Fury' }), 'WARRIOR:Fury');
     assert.ok(E.BUFF_V['Windfury Totem']['WARRIOR:Fury'] > 0);
     assert.ok(!('HUNTER:Beast Mastery' in E.BUFF_V['Windfury Totem']), 'WF must not apply to hunters');
+});
+
+test('v2: playerScore = baseline × compounded buff uplift', () => {
+    const g = [P('Fu', 'WARRIOR', 'Fury'), P('Ro', 'ROGUE', 'Combat')];
+    const bs = E.BUFF_V['Battle Shout']['ROGUE:Combat'];
+    assert.ok(bs > 0);
+    assert.ok(Math.abs(E.playerScore(g[1], g) - E.BASELINE['ROGUE:Combat'] * (1 + bs)) < 1e-6,
+        'got ' + E.playerScore(g[1], g));
+});
+test('v2: healers score zero in the objective', () => {
+    const g = [P('H', 'PRIEST', 'Holy'), P('Fu', 'WARRIOR', 'Fury')];
+    assert.strictEqual(E.playerScore(g[0], g), 0);
+});
+test('v2: manual multiplier scales a player\'s score', () => {
+    const p = P('Fu', 'WARRIOR', 'Fury');
+    const s1 = E.playerScore(p, [p]);
+    p.mult = 1.5;
+    assert.ok(Math.abs(E.playerScore(p, [p]) - 1.5 * s1) < 1e-6);
+});
+test('v2: scoreLayout has no cohesion term', () => {
+    const groups = [{ role: 'casters', players: [P('M1', 'MAGE', 'Arcane'), P('M2', 'MAGE', 'Arcane')] }];
+    // Two mages provide nothing to each other: score must be exactly the sum of baselines.
+    assert.strictEqual(E.scoreLayout(groups), 2 * E.BASELINE['MAGE:Arcane']);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
