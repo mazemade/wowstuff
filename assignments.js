@@ -1,4 +1,4 @@
-/* global AssignmentsEngine */
+/* global AssignmentsEngine, WclMult */
 'use strict';
 const E = AssignmentsEngine;
 const STORAGE_KEY = 'raidAssignmentsState';
@@ -13,6 +13,7 @@ let state = {
     pings: true,
     title: '',
     blessings: {},                       // '<paladin>|<CLASS>' -> blessing name or null
+    wcl: { server: '', region: 'eu' },   // Warcraft Logs realm slug + region for parse fetching
 };
 let linkMap = {};   // discordId -> character name (persists across roster resets)
 let roster = [];
@@ -20,6 +21,7 @@ let mergeInfo = { unmatched: { addon: [], raidhelper: [] }, mismatches: [] };
 let sheet = null;
 let activeTab = 'discord';
 let editingOriginalName = null; // name the manual form was opened for, so a rename can exclude the old entry
+let wclStatus = '';             // last WCL fetch outcome; lives outside renderGroups() so the rerender that follows a fetch does not wipe it
 
 function loadState() {
     try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}); } catch (e) { /* fresh start */ }
@@ -449,6 +451,71 @@ function fmtPct(x) {
     return x.toFixed(3);
 }
 
+// Every multiplier is relative to the rest of the roster (spec §2), so this fetches the whole
+// roster first and computes nothing until it is all in.
+async function fetchWclMults(btn, statusEl) {
+    state.wcl = state.wcl || { server: '', region: 'eu' };
+    if (!state.wcl.server) { statusEl.textContent = 'Set the realm slug first.'; return; }
+    if (!WclMult.DEFAULT_ZONE) { statusEl.textContent = 'No WCL zone configured.'; return; }
+    btn.disabled = true;
+    try {
+        const eligible = roster.filter(p => (E.BASELINE[E.specKey(p)] || 0) > 0);
+        const fetched = [];
+        const noLogs = [];    // WCL has no such character, or no parses in this zone at all
+        const wrongSpec = []; // has parses, but none on the spec we have them rostered as
+        for (let i = 0; i < eligible.length; i++) {
+            const p = eligible[i];
+            statusEl.textContent = 'Fetching ' + p.name + ' (' + (i + 1) + '/' + eligible.length + ')…';
+            const url = '/api/wcl/player?name=' + encodeURIComponent(p.name) +
+                '&server=' + encodeURIComponent(state.wcl.server) +
+                '&region=' + (state.wcl.region || 'eu') + '&zone=' + WclMult.DEFAULT_ZONE;
+            const r = await fetch(url);
+            if (r.status === 404) { noLogs.push(p.name); continue; }
+            if (!r.ok) throw new Error((await r.json()).error || 'player fetch failed');
+            const data = await r.json();
+            fetched.push({
+                name: p.name, classKey: p.class, specKey: E.specKey(p),
+                baseline: E.BASELINE[E.specKey(p)], ranksByEncounter: data.ranksByEncounter,
+            });
+        }
+        statusEl.textContent = 'Computing…';
+        const results = WclMult.computeRosterMults({ players: fetched, nowMs: Date.now() });
+        const fetchedAt = Date.now();
+        let filled = 0;
+        eligible.forEach(p => {
+            const result = results[p.name];
+            if (!result) {
+                // Separate "WCL never heard of them" from "they log, but never on this spec" —
+                // the Anniversary realm has spec labels the engine has no concept of, and a
+                // silent gap there is indistinguishable from a typo'd name without this.
+                if (noLogs.indexOf(p.name) < 0) {
+                    const got = fetched.find(f => f.name === p.name);
+                    const hasParses = got && Object.keys(got.ranksByEncounter || {})
+                        .some(k => (got.ranksByEncounter[k] || []).length > 0);
+                    (hasParses ? wrongSpec : noLogs).push(p.name);
+                }
+                return;
+            }
+            const meta = state.playerMeta[p.name] || {};
+            const next = Object.assign({}, meta, {
+                multAuto: result.mult,
+                multInfo: { bosses: result.bosses, fetchedAt: fetchedAt },
+            });
+            if (WclMult.shouldOverwrite(meta)) next.mult = result.mult;
+            state.playerMeta[p.name] = next;
+            filled++;
+        });
+        wclStatus = 'WCL: ' + filled + '/' + eligible.length + ' computed' +
+            (noLogs.length ? ' — no logs: ' + noLogs.join(', ') : '') +
+            (wrongSpec.length ? ' — no usable parses (wrong spec, too old, or too few raiders on those bosses): ' + wrongSpec.join(', ') : '');
+    } catch (err) {
+        wclStatus = 'WCL fetch failed: ' + err.message;
+    }
+    btn.disabled = false;
+    saveState();
+    renderAll(); // rebuilds the panel; the new status renders from wclStatus
+}
+
 function renderGroups() {
     // A rendered AI review critiques one specific layout. If the layout changes underneath
     // it (import, remove, auto-assign) it must not outlive that layout, so clear and rehide
@@ -467,6 +534,34 @@ function renderGroups() {
     const sum = document.createElement('summary');
     sum.textContent = 'Player tuning (MT flag / DPS multiplier)';
     tune.appendChild(sum);
+    // WCL performance prefill: realm/region settings, fetch button, last-fetch status.
+    state.wcl = state.wcl || { server: '', region: 'eu' };
+    const wclRow = document.createElement('div');
+    wclRow.className = 'tuning-row wcl-row';
+    const srv = document.createElement('input');
+    srv.type = 'text';
+    srv.placeholder = 'realm-slug';
+    srv.value = state.wcl.server || '';
+    srv.title = 'Warcraft Logs realm slug, e.g. "spineshatter"';
+    srv.addEventListener('change', () => { state.wcl.server = srv.value.trim().toLowerCase(); saveState(); });
+    const reg = document.createElement('select');
+    ['eu', 'us'].forEach(r => {
+        const o = document.createElement('option');
+        o.value = r; o.textContent = r.toUpperCase();
+        if ((state.wcl.region || 'eu') === r) o.selected = true;
+        reg.appendChild(o);
+    });
+    reg.addEventListener('change', () => { state.wcl.region = reg.value; saveState(); });
+    const fetchBtn = document.createElement('button');
+    fetchBtn.type = 'button';
+    fetchBtn.textContent = 'Fetch from Warcraft Logs';
+    fetchBtn.title = 'Prefill multipliers from your last 4 weeks of parses, measured against the rest of this roster. Manual edits survive a refetch.';
+    const status = document.createElement('span');
+    status.className = 'wcl-status';
+    status.textContent = wclStatus;
+    fetchBtn.addEventListener('click', () => fetchWclMults(fetchBtn, status));
+    wclRow.appendChild(srv); wclRow.appendChild(reg); wclRow.appendChild(fetchBtn); wclRow.appendChild(status);
+    tune.appendChild(wclRow);
     roster.forEach(p => {
         const m = state.playerMeta[p.name] || {};
         const row = document.createElement('div');
@@ -484,9 +579,17 @@ function renderGroups() {
         });
         const mult = document.createElement('input');
         mult.type = 'number';
-        mult.min = '0.5'; mult.max = '2'; mult.step = '0.05';
+        mult.min = '0.5'; mult.max = '2'; mult.step = '0.01';
         mult.value = typeof m.mult === 'number' ? m.mult : 1;
-        mult.title = 'Relative output vs an average player of this spec (gear/skill)';
+        const hasWclData = m.multInfo && typeof m.multAuto === 'number';
+        mult.title = hasWclData
+            ? 'Relative output vs the rest of this roster (gear/skill), spec-corrected'
+            : 'No WCL data — 1.0 is the simulated spec baseline, not measured against this roster';
+        if (hasWclData) {
+            mult.title += ' — WCL: ' + m.multAuto + ' vs this roster, from ' + m.multInfo.bosses +
+                ' boss(es), fetched ' + new Date(m.multInfo.fetchedAt).toISOString().slice(0, 10) +
+                (typeof m.mult === 'number' && m.mult !== m.multAuto ? ' (manual override kept)' : '');
+        }
         mult.addEventListener('change', () => {
             state.playerMeta[p.name] = Object.assign({}, state.playerMeta[p.name], { mult: parseFloat(mult.value) || 1 });
             renderAll();
@@ -671,7 +774,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('clearRosterBtn').addEventListener('click', () => {
         if (!confirm('Clear the whole roster and assignments? (Name links are kept.)')) return;
-        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, title: '' };
+        // pings and wcl are settings, not roster data, so they survive a clear — see the
+        // field-list warning near recompute() above; this literal has already missed one.
+        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, wcl: state.wcl, title: '' };
         renderAll();
     });
     document.getElementById('autoAssignBtn').addEventListener('click', () => {

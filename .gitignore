@@ -28,7 +28,8 @@ package-lock.json
 yarn.lock
 .superpowers/
 
-# Secrets — the OpenAI key for /api/ai-review lives here, never in the repo
+# Secrets — the OpenAI key for /api/ai-review and the WCL_CLIENT_ID / WCL_CLIENT_SECRET
+# credentials for the Warcraft Logs proxy live here, never in the repo
 .env
 
 # Calibration harness: the pinned wowsims checkout, its built binary and every sim
