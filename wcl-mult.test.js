@@ -31,5 +31,35 @@ test('WCL_SPECS: 22 non-healer specs, keys match engine BASELINE, no healers', (
     });
 });
 
+// --- Task 2: medianPageTarget / shouldOverwrite ---
+test('medianPageTarget: small counts stay on page 1', () => {
+    assert.deepStrictEqual(W.medianPageTarget(1), { page: 1, index: 0 });
+    assert.deepStrictEqual(W.medianPageTarget(100), { page: 1, index: 49 });
+    assert.deepStrictEqual(W.medianPageTarget(7), { page: 1, index: 3 });
+});
+test('medianPageTarget: large counts land mid-population', () => {
+    // count 2500 -> median position 1249 (0-based) -> page 13, index 49
+    assert.deepStrictEqual(W.medianPageTarget(2500), { page: 13, index: 49 });
+    assert.deepStrictEqual(W.medianPageTarget(201), { page: 2, index: 0 });
+});
+test('medianPageTarget: zero or missing count gives null', () => {
+    assert.strictEqual(W.medianPageTarget(0), null);
+    assert.strictEqual(W.medianPageTarget(undefined), null);
+});
+test('shouldOverwrite: untouched meta is overwritable', () => {
+    assert.strictEqual(W.shouldOverwrite(undefined), true);
+    assert.strictEqual(W.shouldOverwrite({}), true);
+    assert.strictEqual(W.shouldOverwrite({ mt: true }), true);
+    assert.strictEqual(W.shouldOverwrite({ mult: 1 }), true); // untouched default
+});
+test('shouldOverwrite: value still equal to last auto is overwritable', () => {
+    assert.strictEqual(W.shouldOverwrite({ mult: 1.12, multAuto: 1.12 }), true);
+});
+test('shouldOverwrite: manual divergence is protected', () => {
+    assert.strictEqual(W.shouldOverwrite({ mult: 1.3, multAuto: 1.12 }), false);
+    assert.strictEqual(W.shouldOverwrite({ mult: 0.8 }), false); // manual, never fetched
+    assert.strictEqual(W.shouldOverwrite({ mult: 1, multAuto: 1.12 }), false); // deliberately reset to 1
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

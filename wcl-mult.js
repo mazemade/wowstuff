@@ -43,5 +43,18 @@
         ['Druid', 'Balance'], ['Druid', 'Feral'],
     ].map(([className, specName]) => ({ className, specName, specKey: specNameToKey(className, specName) }));
 
-    return { DEFAULT_ZONE, specNameToKey, WCL_SPECS };
+    function medianPageTarget(count, pageSize) {
+        if (!count || count < 1) return null;
+        const ps = pageSize || 100;
+        const pos = Math.floor((count - 1) / 2); // lower-middle, 0-based
+        return { page: Math.floor(pos / ps) + 1, index: pos % ps };
+    }
+
+    function shouldOverwrite(meta) {
+        if (!meta || typeof meta.mult !== 'number') return true;
+        if (typeof meta.multAuto === 'number') return meta.mult === meta.multAuto;
+        return meta.mult === 1;
+    }
+
+    return { DEFAULT_ZONE, specNameToKey, WCL_SPECS, medianPageTarget, shouldOverwrite };
 }));
