@@ -1,7 +1,0 @@
-## Interface: 20506
-## Title: RaidSpecScan
-## Notes: Scans raid talents and exports them for the Raid Assignments web tool
-## Author: mazemade
-## Version: 3.3
-
-RaidSpecScan.lua

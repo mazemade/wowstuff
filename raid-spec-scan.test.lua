@@ -1,4 +1,4 @@
--- Tests for RaidSpecScan.lua. Run from the repo root:
+-- Tests for RaidAssign/Scan.lua (the /specscan half of the RaidAssign addon). Run from the repo root:
 --
 --     luajit raid-spec-scan.test.lua
 --
@@ -138,7 +138,7 @@ local function BuildWorld(player, opts)
         return player.name, 0, player.subgroup
     end
 
-    dofile('RaidSpecScan/RaidSpecScan.lua')
+    dofile('RaidAssign/Scan.lua')
     return frames[1]
 end
 

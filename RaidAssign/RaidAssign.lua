@@ -2,8 +2,8 @@
 -- Payload (RSW1): a version line, then one "CharacterName=message body" line per whisper.
 -- A player with many duties owns several lines; each is sent as its own whisper.
 --
--- Standalone: RaidSpecScan feeds the web tool and this reads the web tool's output, but the
--- two addons share no code and neither requires the other to be installed.
+-- Scan.lua (/specscan) feeds the web tool and this file reads the web tool's output back.
+-- The two files live in one addon but share no state; each works if the other fails to load.
 
 local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF33FF99[RaidAssign]|r " .. msg)

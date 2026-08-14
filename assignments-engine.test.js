@@ -1583,7 +1583,7 @@ test('buildDiscord: the qualifier stays ASCII', () => {
     });
 });
 
-test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS table', () => {
+test('Scan.lua TRACKED_TALENTS stays in parity with the engine TALENTS table', () => {
     // The talent keys are the one coupling between the two sides of the wire: the addon
     // resolves them by name and exports the key, the engine looks the key back up in
     // TALENTS. An engine-side rename dies loudly across many tests; an addon-side rename is
@@ -1592,11 +1592,11 @@ test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS t
     // silently read the wrong file if the process started elsewhere.
     const fs = require('node:fs');
     const path = require('node:path');
-    const luaPath = path.join(__dirname, 'RaidSpecScan', 'RaidSpecScan.lua');
+    const luaPath = path.join(__dirname, 'RaidAssign', 'Scan.lua');
     const lua = fs.readFileSync(luaPath, 'utf8');
 
     const blockMatch = lua.match(/local TRACKED_TALENTS = \{([\s\S]*?)\n\s*\}/);
-    assert.ok(blockMatch, 'could not find TRACKED_TALENTS in RaidSpecScan.lua — did it move or get renamed?');
+    assert.ok(blockMatch, 'could not find TRACKED_TALENTS in Scan.lua — did it move or get renamed?');
 
     const luaTalents = {};
     const classRe = /(\w+)\s*=\s*\{([^{}]*)\}/g;
@@ -1614,7 +1614,7 @@ test('RaidSpecScan.lua TRACKED_TALENTS stays in parity with the engine TALENTS t
     // vacuously true — which is exactly the failure mode this whole test exists to catch.
     // Fail loudly instead of silently reporting "no mismatches".
     assert.strictEqual(Object.keys(luaTalents).length, 15,
-        'parsed the wrong number of talents out of RaidSpecScan.lua — regex likely did not match the table shape');
+        'parsed the wrong number of talents out of Scan.lua — regex likely did not match the table shape');
 
     assert.deepStrictEqual(Object.keys(luaTalents).sort(), Object.keys(E.TALENTS).sort());
     Object.keys(luaTalents).forEach(key => {
