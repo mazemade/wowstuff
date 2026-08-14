@@ -5,7 +5,7 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Minimal KEY=VALUE reader for the gitignored .env (OpenAI key). No dependency, no
+// Minimal KEY=VALUE reader for the gitignored .env (OpenAI key, WCL client credentials). No dependency, no
 // quoting rules. Real environment variables win so a deployment can override the file.
 try {
   fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n').forEach((line) => {

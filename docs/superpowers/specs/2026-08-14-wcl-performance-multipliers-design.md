@@ -80,6 +80,17 @@ Beast Mastery hunter, and the optimizer wants the one who contributes more damag
 output; a percentile measures standing within a spec. §7 rules percentile ratings out of scope
 for exactly this reason.
 
+That said, the low figure is not evidence of nothing else going on. Since
+`mult ≈ observedDPS / BASELINE[spec]`, a `BASELINE` table that tracked real per-spec output
+precisely would itself produce a *high* rank correlation with percentile (both would move with
+skill once the spec's scale is right), so part of what a near-zero correlation measures is
+`BASELINE`'s own calibration error — and that table is known to be coarse: it currently gives
+identical values to `MAGE:Frost`/`Fire`/`Arcane`, to all three `ROGUE` specs, and to
+`HUNTER:Marksmanship`/`Survival`. The live cross-check also had only n≈15, too small for the
+correlation figure to be conclusive in either direction. A future reader should not treat a
+near-zero correlation here as automatically the expected, healthy outcome without also weighing
+these two confounds.
+
 **Why not the global population.** See the revision note above. Beyond reachability, a
 roster-relative denominator has two genuine advantages: it is immune to partition/phase
 mismatch (zone 1056 spans three phases, and a global median mixes guilds on gear your raid
@@ -183,6 +194,13 @@ exporting:
   get a "no logs" marker and are left untouched.
 - Errors (missing API key, 429, network) surface as a visible message in the panel, not
   silently.
+- **A non-404 error on any one player's fetch aborts the whole roster fetch**, rather than
+  skipping that player and continuing with the rest. This is deliberate, not an oversight: §2's
+  `c(B)` is fitted from whichever rostered players have qualifying parses, so continuing with a
+  partial roster would fit each boss's scale against a different, smaller subset and silently
+  produce multipliers normalized against a different roster than the one the raid leader sees —
+  plausible-looking numbers that are not comparable to a full run. Failing the whole fetch is
+  safer than a partial one that looks fine.
 
 ## 6. Testing
 

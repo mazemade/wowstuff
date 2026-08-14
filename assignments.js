@@ -505,9 +505,9 @@ async function fetchWclMults(btn, statusEl) {
             state.playerMeta[p.name] = next;
             filled++;
         });
-        wclStatus = 'WCL: ' + filled + '/' + eligible.length + ' prefilled' +
+        wclStatus = 'WCL: ' + filled + '/' + eligible.length + ' computed' +
             (noLogs.length ? ' — no logs: ' + noLogs.join(', ') : '') +
-            (wrongSpec.length ? ' — no parses on their rostered spec: ' + wrongSpec.join(', ') : '');
+            (wrongSpec.length ? ' — no usable parses (wrong spec, too old, or too few raiders on those bosses): ' + wrongSpec.join(', ') : '');
     } catch (err) {
         wclStatus = 'WCL fetch failed: ' + err.message;
     }
@@ -579,10 +579,13 @@ function renderGroups() {
         });
         const mult = document.createElement('input');
         mult.type = 'number';
-        mult.min = '0.5'; mult.max = '2'; mult.step = '0.05';
+        mult.min = '0.5'; mult.max = '2'; mult.step = '0.01';
         mult.value = typeof m.mult === 'number' ? m.mult : 1;
-        mult.title = 'Relative output vs the rest of this roster (gear/skill), spec-corrected';
-        if (m.multInfo && typeof m.multAuto === 'number') {
+        const hasWclData = m.multInfo && typeof m.multAuto === 'number';
+        mult.title = hasWclData
+            ? 'Relative output vs the rest of this roster (gear/skill), spec-corrected'
+            : 'No WCL data — 1.0 is the simulated spec baseline, not measured against this roster';
+        if (hasWclData) {
             mult.title += ' — WCL: ' + m.multAuto + ' vs this roster, from ' + m.multInfo.bosses +
                 ' boss(es), fetched ' + new Date(m.multInfo.fetchedAt).toISOString().slice(0, 10) +
                 (typeof m.mult === 'number' && m.mult !== m.multAuto ? ' (manual override kept)' : '');
@@ -771,7 +774,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('clearRosterBtn').addEventListener('click', () => {
         if (!confirm('Clear the whole roster and assignments? (Name links are kept.)')) return;
-        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, title: '' };
+        // pings and wcl are settings, not roster data, so they survive a clear — see the
+        // field-list warning near recompute() above; this literal has already missed one.
+        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, wcl: state.wcl, title: '' };
         renderAll();
     });
     document.getElementById('autoAssignBtn').addEventListener('click', () => {
