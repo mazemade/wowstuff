@@ -56,5 +56,33 @@
         return meta.mult === 1;
     }
 
-    return { DEFAULT_ZONE, specNameToKey, WCL_SPECS, medianPageTarget, shouldOverwrite };
+    function median(xs) {
+        if (!xs.length) return null;
+        const s = xs.slice().sort((a, b) => a - b);
+        const n = s.length;
+        return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+    }
+
+    function computeMult(opts) {
+        const windowMs = opts.windowMs || 28 * 24 * 3600 * 1000;
+        const medians = opts.mediansByEncounter || {};
+        const ratios = [];
+        Object.keys(medians).forEach(function (encId) {
+            const specMedian = medians[encId] && medians[encId][opts.specKey];
+            if (!(specMedian > 0)) return;
+            const amounts = ((opts.ranksByEncounter || {})[encId] || [])
+                .filter(r => r && typeof r.amount === 'number' && typeof r.startTime === 'number')
+                .filter(r => opts.nowMs - r.startTime <= windowMs)
+                .filter(r => specNameToKey(opts.classKey, r.spec) === opts.specKey)
+                .map(r => r.amount);
+            const m = median(amounts);
+            if (m !== null) ratios.push(m / specMedian);
+        });
+        if (!ratios.length) return null;
+        const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+        const mult = Math.min(2, Math.max(0.5, Math.round(mean * 100) / 100));
+        return { mult, bosses: ratios.length };
+    }
+
+    return { DEFAULT_ZONE, specNameToKey, WCL_SPECS, medianPageTarget, shouldOverwrite, computeMult };
 }));
