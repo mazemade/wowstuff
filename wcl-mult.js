@@ -10,9 +10,21 @@
     const DEFAULT_ZONE = 1056;
 
     // WCL spec names, lowercased with non-letters stripped, per engine class.
+    //
+    // WCL classifies a kill by talents AND by what the player did, so one character can carry
+    // several labels across a tier. Two of those labels describe the SAME build as a spec the
+    // engine already knows — a Protection-talented character that missed the tank thresholds on
+    // that kill — so they fold onto Protection rather than being dropped:
+    //   Justicar  = Protection paladin, failed the tank requirements
+    //   Gladiator = Protection warrior, failed the tank requirements
+    // The rest stay unmapped on purpose, because they describe a different job than the spec
+    // they would land on, and scoring them against its baseline would be worse than no prefill:
+    //   Champion   = Arms/Fury warrior that PASSED the tank requirements — tanking damage
+    //   Warden     = feral tank under the 80% bear-form threshold
+    //   Dreamstate = Balance druid doing more healing than damage
     const WCL_SPEC_NAMES = {
-        WARRIOR: { arms: 'Arms', fury: 'Fury', protection: 'Protection' },
-        PALADIN: { retribution: 'Retribution', protection: 'Protection', holy: 'Holy' },
+        WARRIOR: { arms: 'Arms', fury: 'Fury', protection: 'Protection', gladiator: 'Protection' },
+        PALADIN: { retribution: 'Retribution', protection: 'Protection', holy: 'Holy', justicar: 'Protection' },
         HUNTER: { beastmastery: 'Beast Mastery', marksmanship: 'Marksmanship', survival: 'Survival' },
         ROGUE: { assassination: 'Assassination', combat: 'Combat', subtlety: 'Subtlety' },
         PRIEST: { shadow: 'Shadow', holy: 'Holy', discipline: 'Discipline' },
