@@ -44,26 +44,70 @@
         return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
     }
 
-    function computeMult(opts) {
-        const windowMs = opts.windowMs || 28 * 24 * 3600 * 1000;
-        const medians = opts.mediansByEncounter || {};
-        const ratios = [];
-        Object.keys(medians).forEach(function (encId) {
-            const specMedian = medians[encId] && medians[encId][opts.specKey];
-            if (!(specMedian > 0)) return;
-            const amounts = ((opts.ranksByEncounter || {})[encId] || [])
+    const WINDOW_MS = 28 * 24 * 3600 * 1000;   // spec §2: the last 4 weeks
+    const MIN_PLAYERS_PER_BOSS = 3;            // spec §2: below this the boss scale is noise
+
+    // One player's median parse per boss, after the window and same-spec filters. A boss the
+    // player never qualified on is absent rather than zero — callers distinguish the two.
+    function playerBossMedians(opts) {
+        const windowMs = opts.windowMs || WINDOW_MS;
+        const ranks = opts.ranksByEncounter || {};
+        const out = {};
+        Object.keys(ranks).forEach(function (encId) {
+            const amounts = (ranks[encId] || [])
                 .filter(r => r && typeof r.amount === 'number' && typeof r.startTime === 'number')
                 .filter(r => opts.nowMs - r.startTime <= windowMs)
                 .filter(r => specNameToKey(opts.classKey, r.spec) === opts.specKey)
                 .map(r => r.amount);
             const m = median(amounts);
-            if (m !== null) ratios.push(m / specMedian);
+            if (m !== null && m > 0) out[encId] = m;
         });
-        if (!ratios.length) return null;
-        const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-        const mult = Math.min(2, Math.max(0.5, Math.round(mean * 100) / 100));
-        return { mult, bosses: ratios.length };
+        return out;
     }
 
-    return { DEFAULT_ZONE, specNameToKey, shouldOverwrite, computeMult };
+    // spec §2. Three passes: each player's per-boss median; one scale per boss fitted from the
+    // roster; then every player's ratio against that scale, averaged over their bosses.
+    function computeRosterMults(opts) {
+        const windowMs = opts.windowMs || WINDOW_MS;
+        const minPlayers = opts.minPlayersPerBoss || MIN_PLAYERS_PER_BOSS;
+        const entries = (opts.players || [])
+            .filter(p => p && p.baseline > 0)
+            .map(p => ({
+                name: p.name,
+                baseline: p.baseline,
+                medians: playerBossMedians({
+                    ranksByEncounter: p.ranksByEncounter, classKey: p.classKey,
+                    specKey: p.specKey, nowMs: opts.nowMs, windowMs: windowMs,
+                }),
+            }));
+
+        // The scale absorbs whatever the fight itself contributes — length, adds, target count,
+        // the raid's gear on the night — so a ratio compares players and not encounters. Median
+        // rather than mean: one hero parse must not redefine the boss for everyone else.
+        const scaleByBoss = {};
+        const bosses = {};
+        entries.forEach(e => Object.keys(e.medians).forEach(b => { bosses[b] = true; }));
+        Object.keys(bosses).forEach(function (b) {
+            const index = entries.filter(e => e.medians[b] > 0).map(e => e.medians[b] / e.baseline);
+            if (index.length < minPlayers) return;
+            const c = median(index);
+            if (c > 0) scaleByBoss[b] = c;
+        });
+
+        const out = {};
+        entries.forEach(function (e) {
+            const ratios = Object.keys(e.medians)
+                .filter(b => scaleByBoss[b] > 0)
+                .map(b => e.medians[b] / (e.baseline * scaleByBoss[b]));
+            if (!ratios.length) return;
+            const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+            out[e.name] = {
+                mult: Math.min(2, Math.max(0.5, Math.round(mean * 100) / 100)),
+                bosses: ratios.length,
+            };
+        });
+        return out;
+    }
+
+    return { DEFAULT_ZONE, specNameToKey, shouldOverwrite, playerBossMedians, computeRosterMults };
 }));
