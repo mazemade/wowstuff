@@ -10,20 +10,49 @@ local function Print(msg)
 end
 
 local sheet = nil        -- array of { name, body } from the last successful paste
-local malformed = {}     -- pasted lines that had no "=" in them
+local malformed = {}     -- pasted lines the parser could not read
+local layout = nil       -- group layout from the last paste's @G lines, or nil
 local frame              -- built lazily on first /specsend
 
--- Returns entries, or nil plus a human-readable reason.
+-- Returns { entries, malformed, layout }, or nil plus a human-readable reason.
+-- layout is nil when the payload has no @G lines; otherwise:
+--   byName      short lowered name -> group number 1..8 (how the engine matches the roster)
+--   groups      [n] -> display names in payload order (how messages name people)
+--   playerCount total distinct names placed
+--   duplicates  names that appeared a second time; first placement wins
 local function ParsePayload(text)
-    local entries, bad, sawHeader = {}, {}, false
+    local entries, bad, layout, sawHeader = {}, {}, nil, false
     for line in (text or ""):gmatch("[^\r\n]+") do
         line = line:match("^%s*(.-)%s*$")
         if line ~= "" then
             if not sawHeader then
-                if line ~= "RSW1" then
-                    return nil, "That is not an RSW1 payload. Copy the Addon tab from the web tool."
+                if line ~= "RSW1" and line ~= "RSW2" then
+                    return nil, "That is not an RSW1/RSW2 payload. Copy the Addon tab from the web tool."
                 end
                 sawHeader = true
+            elseif line:sub(1, 1) == "@" then
+                -- "@" cannot start a character name, so this is unambiguously a group line.
+                local n, names = line:match("^@G([1-8])=(.+)$")
+                if not n then
+                    table.insert(bad, line)
+                else
+                    layout = layout or { byName = {}, groups = {}, playerCount = 0, duplicates = {} }
+                    n = tonumber(n)
+                    layout.groups[n] = layout.groups[n] or {}
+                    for name in names:gmatch("[^,]+") do
+                        name = name:match("^%s*(.-)%s*$")
+                        if name ~= "" then
+                            local key = (name:match("^([^-]+)") or name):lower()
+                            if layout.byName[key] then
+                                table.insert(layout.duplicates, name)
+                            else
+                                layout.byName[key] = n
+                                table.insert(layout.groups[n], name)
+                                layout.playerCount = layout.playerCount + 1
+                            end
+                        end
+                    end
+                end
             else
                 local name, body = line:match("^([^=]+)=(.+)$")
                 if name then
@@ -35,8 +64,8 @@ local function ParsePayload(text)
         end
     end
     if not sawHeader then return nil, "Nothing pasted." end
-    if #entries == 0 then return nil, "No assignment lines in that payload." end
-    return entries, nil, bad
+    if #entries == 0 and not layout then return nil, "No assignment or group lines in that payload." end
+    return { entries = entries, malformed = bad, layout = layout }
 end
 
 -- Raid roster keyed by lowercased name without the realm suffix, mapping to the
@@ -167,7 +196,18 @@ local function PreviewText()
             table.insert(rows, line)
         end
     end
+    if layout and #layout.duplicates > 0 then
+        table.insert(rows, "")
+        table.insert(rows, "Duplicate group entries ignored: " .. table.concat(layout.duplicates, ", "))
+    end
     return table.concat(rows, "\n"), changed
+end
+
+local function LayoutSummary()
+    if not layout then return nil end
+    local groups = 0
+    for _ in pairs(layout.groups) do groups = groups + 1 end
+    return "Group layout loaded: " .. groups .. " groups, " .. layout.playerCount .. " players."
 end
 
 local function ShowPaste()
@@ -188,14 +228,16 @@ local function ShowPreview()
     frame.changedBtn:SetText("Send " .. changed .. " changed")
     if changed > 0 then frame.changedBtn:Enable() else frame.changedBtn:Disable() end
     frame.editBox:ClearFocus()
+    local bits = {}
+    if layout then table.insert(bits, LayoutSummary()) end
     if IsInRaid() then
-        frame.status:SetText("")
         frame.sendBtn:Enable()
     else
-        frame.status:SetText("Not in a raid — you can review, but not send.")
+        table.insert(bits, "Not in a raid — you can review, but not send.")
         frame.sendBtn:Disable()
         frame.changedBtn:Disable()
     end
+    frame.status:SetText(table.concat(bits, "  "))
     frame.loadBtn:Hide()
     frame.changedBtn:Show()
     frame.sendBtn:Show()
@@ -203,12 +245,12 @@ local function ShowPreview()
 end
 
 local function OnLoadClicked()
-    local entries, err, bad = ParsePayload(frame.editBox:GetText())
-    if not entries then
+    local result, err = ParsePayload(frame.editBox:GetText())
+    if not result then
         frame.status:SetText("|cFFFF6B6B" .. err .. "|r")
         return
     end
-    sheet, malformed = entries, bad or {}
+    sheet, malformed, layout = result.entries, result.malformed, result.layout
     ShowPreview()
 end
 
