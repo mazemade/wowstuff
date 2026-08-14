@@ -99,6 +99,7 @@ async function getWclToken() {
     body: 'grant_type=client_credentials',
     signal: AbortSignal.timeout(10000),
   });
+  if (res.status === 429) { const e = new Error('WCL rate limit reached — try again later'); e.code = 'RATE_LIMIT'; throw e; }
   if (!res.ok) throw new Error('WCL token request failed: ' + res.status);
   const data = await res.json();
   wclToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
@@ -143,7 +144,7 @@ function wclErrorResponse(res, err, what) {
   if (err.name === 'AbortError' || err.name === 'TimeoutError') {
     return res.status(504).json({ error: what + ' timed out' });
   }
-  res.status(502).json({ error: err.message || (what + ' failed') });
+  res.status(502).json({ error: what + ' failed' });
 }
 
 app.get('/api/wcl/player', async (req, res) => {
