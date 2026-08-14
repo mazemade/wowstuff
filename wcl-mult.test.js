@@ -17,6 +17,22 @@ test('specNameToKey: WCL-style names map to engine keys', () => {
 test('specNameToKey: engine-style inputs round-trip (class upper, spec with space)', () => {
     assert.strictEqual(W.specNameToKey('HUNTER', 'Beast Mastery'), 'HUNTER:Beast Mastery');
 });
+test('specNameToKey: Justicar and Gladiator are the same build as Protection', () => {
+    // WCL labels a Protection-talented character that missed the tank thresholds on a kill
+    // as Justicar (paladin) or Gladiator (warrior). Same talents, same player.
+    assert.strictEqual(W.specNameToKey('Paladin', 'Justicar'), 'PALADIN:Protection');
+    assert.strictEqual(W.specNameToKey('Warrior', 'Gladiator'), 'WARRIOR:Protection');
+});
+test('specNameToKey: role labels for a DIFFERENT build stay unmapped', () => {
+    // Champion is an Arms/Fury warrior tanking, Dreamstate a Balance druid out-healing its
+    // damage, Warden a feral tank under the bear-form threshold. Each would be scored against
+    // a baseline for work they were not doing, so a null (no prefill) is the honest answer.
+    assert.strictEqual(W.specNameToKey('Warrior', 'Champion'), null);
+    assert.strictEqual(W.specNameToKey('Druid', 'Dreamstate'), null);
+    assert.strictEqual(W.specNameToKey('Druid', 'Warden'), null);
+    assert.strictEqual(W.specNameToKey('Paladin', 'Gladiator'), null); // warrior-only label
+    assert.strictEqual(W.specNameToKey('Warrior', 'Justicar'), null);  // paladin-only label
+});
 test('specNameToKey: unknown class or spec gives null', () => {
     assert.strictEqual(W.specNameToKey('Deathknight', 'Blood'), null);
     assert.strictEqual(W.specNameToKey('Mage', 'Holy'), null);
