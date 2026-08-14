@@ -180,6 +180,118 @@ local function StartSending(list)
     sendFrame:SetScript("OnUpdate", SendTick)
 end
 
+-- === Group layout application ================================================
+-- One-shot: converge the live roster onto `layout`, one operation per tick, then stop.
+-- Never precompute a move list — the server reorders the roster between ops, so each
+-- tick re-reads it and decides the single next move.
+
+local APPLY_INTERVAL = 0.5 -- seconds between ops; the server needs each GROUP_ROSTER_UPDATE to settle
+local MAX_APPLY_OPS = 50   -- backstop only: every op below places >=1 player correctly, so a
+                           -- 40-man needs at most 40 — hitting 50 means the server is ignoring us
+
+local applyFrame = CreateFrame("Frame")
+local applying, applyElapsed, applyOps = false, 0, 0
+local applyTargets, applyMissing
+
+-- Live roster as { index, name (short, lowered — same normalization as RaidTargets),
+-- display (the full name, for messages), subgroup }.
+local function ApplyRoster()
+    local out = {}
+    for i = 1, GetNumGroupMembers() do
+        local full, _, sub = GetRaidRosterInfo(i)
+        if full and sub then
+            table.insert(out, { index = i, name = (full:match("^([^-]+)") or full):lower(),
+                                display = full, subgroup = sub })
+        end
+    end
+    return out
+end
+
+-- The single next operation: "set", raidIndex, group / "swap", indexA, indexB /
+-- nil, stuckNames when nothing movable remains. Correctly placed players are never
+-- displaced, so every returned op is net progress and convergence is guaranteed.
+local function NextMove(targets)
+    local roster = ApplyRoster()
+    local counts = {}
+    for _, r in ipairs(roster) do counts[r.subgroup] = (counts[r.subgroup] or 0) + 1 end
+    local stuck = {}
+    for _, r in ipairs(roster) do
+        local want = targets[r.name]
+        if want and want ~= r.subgroup then
+            if (counts[want] or 0) < 5 then return "set", r.index, want end
+            -- Target group full: swap with a misplaced occupant, preferring one headed
+            -- for r's current group so a single swap settles two players.
+            local fallback
+            for _, o in ipairs(roster) do
+                if o.subgroup == want and targets[o.name] and targets[o.name] ~= want then
+                    if targets[o.name] == r.subgroup then return "swap", r.index, o.index end
+                    fallback = fallback or o.index
+                end
+            end
+            if fallback then return "swap", r.index, fallback end
+            -- Everyone in the full target group belongs there: the layout over-fills it.
+            table.insert(stuck, r.display)
+        end
+    end
+    return nil, stuck
+end
+
+local function FinishApply(abortReason, stuck)
+    applying = false
+    applyFrame:SetScript("OnUpdate", nil)
+    if abortReason then
+        Print("Group apply aborted — " .. abortReason .. " (" .. applyOps .. " move(s) made). Re-run when ready.")
+        return
+    end
+    local msg = "Groups applied — " .. applyOps .. " move(s)."
+    if #applyMissing > 0 then
+        msg = msg .. " Not in raid: " .. table.concat(applyMissing, ", ") .. "."
+    end
+    if stuck and #stuck > 0 then
+        msg = msg .. " Could not place (target group full): " .. table.concat(stuck, ", ") .. "."
+    end
+    Print(msg)
+end
+
+local function ApplyTick(_, dt)
+    applyElapsed = applyElapsed + dt
+    if applyElapsed < APPLY_INTERVAL then return end
+    applyElapsed = 0
+    if InCombatLockdown() then FinishApply("combat started") return end
+    local kind, a, b = NextMove(applyTargets)
+    if not kind then FinishApply(nil, a) return end -- a = stuck names when kind is nil
+    if applyOps >= MAX_APPLY_OPS then FinishApply("hit the " .. MAX_APPLY_OPS .. "-move cap") return end
+    applyOps = applyOps + 1
+    if kind == "set" then SetRaidSubgroup(a, b) else SwapRaidSubgroups(a, b) end
+end
+
+local function ApplyGroups()
+    if not layout then Print("No layout loaded — open Assignments (/specsend) and paste the web tool payload.") return end
+    if applying then Print("Already applying groups.") return end
+    if not IsInRaid() then Print("You are not in a raid.") return end
+    if not (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")) then
+        Print("You need raid lead or assist to move players.")
+        return
+    end
+    if InCombatLockdown() then Print("Cannot move players in combat.") return end
+    local inRaid = RaidTargets()
+    local targets, missing = {}, {}
+    for key, group in pairs(layout.byName) do
+        if inRaid[key] then targets[key] = group end
+    end
+    for n = 1, 8 do
+        for _, name in ipairs(layout.groups[n] or {}) do
+            if not inRaid[(name:match("^([^-]+)") or name):lower()] then
+                table.insert(missing, name)
+            end
+        end
+    end
+    applyTargets, applyMissing = targets, missing
+    applying, applyOps, applyElapsed = true, 0, APPLY_INTERVAL -- first op on the next tick
+    Print("Applying group layout…")
+    applyFrame:SetScript("OnUpdate", ApplyTick)
+end
+
 local function PreviewText()
     local status = Classify(sheet)
     local rows, changed = {}, 0
@@ -218,6 +330,7 @@ local function ShowPaste()
     frame.loadBtn:Show()
     frame.changedBtn:Hide()
     frame.sendBtn:Hide()
+    frame.applyBtn:Hide()
     frame.backBtn:Hide()
 end
 
@@ -238,9 +351,11 @@ local function ShowPreview()
         frame.changedBtn:Disable()
     end
     frame.status:SetText(table.concat(bits, "  "))
+    if layout and IsInRaid() then frame.applyBtn:Enable() else frame.applyBtn:Disable() end
     frame.loadBtn:Hide()
     frame.changedBtn:Show()
     frame.sendBtn:Show()
+    frame.applyBtn:Show()
     frame.backBtn:Show()
 end
 
@@ -324,10 +439,13 @@ local function BuildFrame()
     f.sendBtn = Button("Send all", 100, 172)
     f.sendBtn:SetScript("OnClick", function() SendFiltered(sheet) end)
 
-    f.backBtn = Button("Back", 90, 280)
+    f.applyBtn = Button("Apply groups", 110, 280)
+    f.applyBtn:SetScript("OnClick", function() ApplyGroups() end)
+
+    f.backBtn = Button("Back", 70, 398)
     f.backBtn:SetScript("OnClick", ShowPaste)
 
-    f.closeBtn = Button("Close", 90, 430)
+    f.closeBtn = Button("Close", 70, 476)
     f.closeBtn:SetScript("OnClick", function() f:Hide() end)
 
     return f
@@ -348,3 +466,10 @@ SlashCmdList["RAIDASSIGN"] = function(msg)
     if sheet then ShowPreview() else ShowPaste() end
     frame:Show()
 end
+
+-- Entry points for Minimap.lua. A global on purpose: the addon's files share no locals,
+-- so this table is the whole surface they talk across.
+RaidAssignAPI = {
+    ApplyGroups = ApplyGroups,
+    LayoutInfo = LayoutSummary,
+}

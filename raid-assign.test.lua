@@ -172,5 +172,163 @@ test('not an RSW payload is rejected with a reason', function()
     assertMatch(RaidAssignFrame.status.text, 'not an RSW1/RSW2 payload')
 end)
 
+-- --- Group apply engine ---
+
+local function LoadAndApply(raid, payloadLines)
+    BuildWorld({ raid = raid })
+    LoadPayload(payloadLines)
+    RaidAssignFrame.applyBtn:Click()
+end
+
+test('a player moves into a group with room via SetRaidSubgroup', function()
+    LoadAndApply(
+        { { name = 'Alice', subgroup = 1 }, { name = 'Bob', subgroup = 2 } },
+        { 'RSW2', '@G2=Alice,Bob' })
+    Tick(); Tick(); Tick()
+    assertEqual(Subgroups().Alice, 2)
+    assertEqual(#world.ops, 1)
+    assertEqual(world.ops[1], 'set:Alice->2')
+    assertMatch(LastMessage(), 'Groups applied — 1 move')
+end)
+
+test('cross-realm roster names still match short payload names', function()
+    LoadAndApply(
+        { { name = 'Alice-Whitemane', subgroup = 1 } },
+        { 'RSW2', '@G2=Alice' })
+    Tick(); Tick()
+    assertEqual(Subgroups()['Alice-Whitemane'], 2)
+end)
+
+test('a full target group is resolved by one swap that settles two players', function()
+    LoadAndApply(
+        { { name = 'A1', subgroup = 1 }, { name = 'A2', subgroup = 1 },
+          { name = 'B1', subgroup = 2 }, { name = 'B2', subgroup = 2 },
+          { name = 'B3', subgroup = 2 }, { name = 'B4', subgroup = 2 },
+          { name = 'B5', subgroup = 2 } },
+        -- A1 belongs in full group 2; B5 belongs in group 1: one swap fixes both.
+        { 'RSW2', '@G1=A2,B5', '@G2=A1,B1,B2,B3,B4' })
+    Tick(); Tick(); Tick()
+    local g = Subgroups()
+    assertEqual(g.A1, 2)
+    assertEqual(g.B5, 1)
+    assertEqual(#world.ops, 1)
+    assertEqual(world.ops[1], 'swap:A1<->B5')
+end)
+
+test('a three-way cycle across full groups converges', function()
+    -- Groups 1..3 each hold five players; the first of each belongs in the next group.
+    local raid, lines = {}, { 'RSW2' }
+    local wants = {}
+    for grp = 1, 3 do
+        for slot = 1, 5 do
+            local name = 'P' .. grp .. slot
+            raid[#raid + 1] = { name = name, subgroup = grp }
+            wants[name] = (slot == 1) and (grp % 3 + 1) or grp
+        end
+    end
+    local byGroup = {}
+    for name, g in pairs(wants) do
+        byGroup[g] = byGroup[g] or {}
+        table.insert(byGroup[g], name)
+    end
+    for g = 1, 3 do
+        table.sort(byGroup[g])
+        lines[#lines + 1] = '@G' .. g .. '=' .. table.concat(byGroup[g], ',')
+    end
+    LoadAndApply(raid, lines)
+    for _ = 1, 10 do Tick() end
+    for name, g in pairs(wants) do assertEqual(Subgroups()[name], g) end
+    assertMatch(LastMessage(), 'Groups applied')
+end)
+
+test('layout names missing from the raid are reported, not moved', function()
+    LoadAndApply(
+        { { name = 'Alice', subgroup = 1 } },
+        { 'RSW2', '@G2=Alice,Ghost' })
+    Tick(); Tick(); Tick()
+    assertEqual(Subgroups().Alice, 2)
+    assertMatch(LastMessage(), 'Not in raid: Ghost')
+end)
+
+test('an over-filled target group skips the extra player and says so', function()
+    LoadAndApply(
+        { { name = 'A1', subgroup = 1 },
+          { name = 'B1', subgroup = 2 }, { name = 'B2', subgroup = 2 },
+          { name = 'B3', subgroup = 2 }, { name = 'B4', subgroup = 2 },
+          { name = 'B5', subgroup = 2 } },
+        -- Six people told to be in group 2; B1..B5 are already home, A1 can never fit.
+        { 'RSW2', '@G2=A1,B1,B2,B3,B4,B5' })
+    Tick(); Tick()
+    assertEqual(Subgroups().A1, 1)
+    assertEqual(#world.ops, 0)
+    assertMatch(LastMessage(), 'Could not place %(target group full%): A1')
+end)
+
+test('entering combat aborts mid-run and leaves the engine stopped', function()
+    LoadAndApply(
+        { { name = 'Alice', subgroup = 1 }, { name = 'Bob', subgroup = 1 } },
+        { 'RSW2', '@G2=Alice', '@G3=Bob' })
+    Tick()                       -- first move lands
+    world.inCombat = true
+    Tick()                       -- abort instead of second move
+    assertEqual(#world.ops, 1)
+    assertMatch(LastMessage(), 'combat')
+    world.inCombat = false
+    Tick()                       -- engine must be detached: no further ops
+    assertEqual(#world.ops, 1)
+end)
+
+test('an op that the server ignores hits the move cap instead of looping forever', function()
+    LoadAndApply(
+        { { name = 'Alice', subgroup = 1 } },
+        { 'RSW2', '@G2=Alice' })
+    _G.SetRaidSubgroup = function(i, g)  -- server silently refuses; roster never changes
+        world.ops[#world.ops + 1] = 'set:refused'
+    end
+    for _ = 1, 60 do Tick() end
+    assertEqual(#world.ops, 50)
+    assertMatch(LastMessage(), 'cap')
+end)
+
+test('apply refuses without lead or assist', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    world.isLeader = false
+    LoadPayload({ 'RSW2', '@G2=Alice' })
+    RaidAssignFrame.applyBtn:Click()
+    Tick()
+    assertEqual(#world.ops, 0)
+    assertMatch(LastMessage(), 'lead or assist')
+end)
+
+test('apply refuses in combat before touching anyone', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    world.inCombat = true
+    LoadPayload({ 'RSW2', '@G2=Alice' })
+    RaidAssignFrame.applyBtn:Click()
+    Tick()
+    assertEqual(#world.ops, 0)
+    assertMatch(LastMessage(), 'combat')
+end)
+
+test('apply button is disabled when the payload has no layout', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    LoadPayload({ 'RSW1', 'Alice=Tank stuff' })
+    assertEqual(RaidAssignFrame.applyBtn.shown, true)
+    assertEqual(RaidAssignFrame.applyBtn.enabled, false)
+end)
+
+test('RaidAssignAPI.ApplyGroups without a layout explains itself', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    RaidAssignAPI.ApplyGroups()
+    assertMatch(LastMessage(), 'No layout loaded')
+end)
+
+test('RaidAssignAPI.LayoutInfo mirrors the loaded layout', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    assertEqual(RaidAssignAPI.LayoutInfo(), nil)
+    LoadPayload({ 'RSW2', '@G1=Alice,Bob' })
+    assertMatch(RaidAssignAPI.LayoutInfo(), 'Group layout loaded: 1 groups, 2 players%.')
+end)
+
 print(string.format('\n%d passed, %d failed', passed, failed))
 os.exit(failed == 0 and 0 or 1)
