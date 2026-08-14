@@ -112,7 +112,7 @@ local function ChangedOnly(entries)
     return out
 end
 
-local SEND_INTERVAL = 1.0 -- seconds; faster bursts get eaten by the spam filter
+local SEND_INTERVAL = 1.5 -- seconds; 1.0 saturates the ~10 msgs/10s chat budget, so any manual reply mid-send got the tail eaten
 
 local sendFrame = CreateFrame("Frame")
 local queue, qIndex, qElapsed, sending = {}, 0, 0, false
@@ -147,7 +147,7 @@ local function StartSending(list)
     -- leaves the un-whispered tail looking CHANGED (or NEW) and gets re-sent.
     local last = History()
     for name in pairs(Signatures(list)) do last[name] = nil end
-    Print("Sending " .. #list .. " whispers, one per second…")
+    Print("Sending " .. #list .. " whispers, one every " .. SEND_INTERVAL .. "s…")
     sendFrame:SetScript("OnUpdate", SendTick)
 end
 
