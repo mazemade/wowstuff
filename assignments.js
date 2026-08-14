@@ -754,7 +754,7 @@ function renderOutput() {
     } else if (activeTab === 'whispers') {
         box.textContent = E.buildWhispers(roster, sheet).join('\n');
     } else if (activeTab === 'addon') {
-        box.textContent = E.buildAddonWhispers(roster, sheet);
+        box.textContent = E.buildAddonWhispers(roster, sheet, E.proposeGroups(roster));
     } else if (activeTab === 'share') {
         box.textContent = buildShareLink();
     }

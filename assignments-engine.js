@@ -776,7 +776,9 @@
         return Object.keys(per).map(n => '/w ' + n + ' Your assignments: ' + per[n].join('; '));
     }
 
-    // Paste payload for the RaidSpecScan addon: one "Name=body" line per whisper.
+    // Paste payload for the RaidAssign addon: one "Name=body" line per whisper, then the
+    // optimizer's group layout as "@G<n>=name,name,..." lines ("@" can never start a WoW
+    // character name, so the addon needs no escaping to tell the two apart).
     // packChat keeps each body inside WoW's 255-character chat limit, so a player with
     // many duties simply gets more than one line — the addon sends each as its own whisper.
     // Note: the 255 count above is in JS UTF-16 code units, while WoW enforces its chat
@@ -784,13 +786,16 @@
     // one UTF-16 unit is always one UTF-8 byte, so the counts agree and this cannot bite.
     // If non-ASCII text is ever introduced here, this length check would need to switch
     // to counting UTF-8 bytes to stay accurate.
-    function buildAddonWhispers(roster, sheet) {
+    function buildAddonWhispers(roster, sheet, groupsResult) {
         const per = whisperMap(sheet);
-        const lines = ['RSW1'];
+        const lines = ['RSW2'];
         Object.keys(per).forEach(n => {
             packChat('Your assignments: ', per[n], '; ', 255).forEach(body => {
                 lines.push(n + '=' + body);
             });
+        });
+        ((groupsResult && groupsResult.groups) || []).forEach((g, i) => {
+            if (g.players.length) lines.push('@G' + (i + 1) + '=' + g.players.map(p => p.name).join(','));
         });
         return lines.join('\n');
     }

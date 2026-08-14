@@ -509,11 +509,11 @@ test('parseRaidHelper: lowercase bench is still excluded, keeping the raw reason
     assert.deepStrictEqual(r.players, []);
 });
 
-// --- Addon whispers: RSW1 paste payload ---
-test('buildAddonWhispers: RSW1 header, then one Name=body line per player', () => {
+// --- Addon whispers: RSW2 paste payload ---
+test('buildAddonWhispers: RSW2 header, then one Name=body line per player', () => {
     const { roster, sheet } = sampleSheet();
     const lines = E.buildAddonWhispers(roster, sheet).split('\n');
-    assert.strictEqual(lines[0], 'RSW1');
+    assert.strictEqual(lines[0], 'RSW2');
     const bob = lines.filter(l => l.startsWith('Bob='));
     assert.strictEqual(bob.length, 1);
     assert.ok(bob[0].includes('Curse of Elements'));
@@ -587,6 +587,47 @@ test('buildAddonWhispers: a duty name containing = still splits on the FIRST = o
     const body = line.slice(eq + 1);
     assert.strictEqual(name, 'Bob');
     assert.ok(body.includes('DPS = 100%'));
+});
+
+test('buildAddonWhispers: @G lines carry the proposed layout, groups in order, placed players exactly once', () => {
+    const { roster, sheet } = sampleSheet();
+    const res = E.proposeGroups(roster);
+    const lines = E.buildAddonWhispers(roster, sheet, res).split('\n');
+    const gLines = lines.filter(l => l.startsWith('@G'));
+    assert.strictEqual(gLines.length, res.groups.filter(g => g.players.length).length);
+    gLines.forEach(l => assert.ok(/^@G[1-8]=[^,]+(,[^,]+)*$/.test(l), 'bad group line: ' + l));
+    // group numbers follow the proposal's order
+    assert.deepStrictEqual(
+        gLines.map(l => l.slice(2, l.indexOf('='))),
+        res.groups.map((g, i) => g.players.length ? String(i + 1) : null).filter(Boolean));
+    // every placed player appears exactly once across all @G lines
+    const names = gLines.map(l => l.slice(l.indexOf('=') + 1).split(',')).flat();
+    const placed = res.groups.map(g => g.players.map(p => p.name)).flat();
+    assert.deepStrictEqual(names.slice().sort(), placed.slice().sort());
+});
+test('buildAddonWhispers: @G lines come after every whisper line', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildAddonWhispers(roster, sheet, E.proposeGroups(roster)).split('\n');
+    const firstG = lines.findIndex(l => l.startsWith('@G'));
+    assert.ok(firstG > 0);
+    lines.slice(firstG).forEach(l => assert.ok(l.startsWith('@G'), 'whisper line after groups: ' + l));
+});
+test('buildAddonWhispers: unplaced players and empty groups produce no @G entries', () => {
+    const { roster, sheet } = sampleSheet();
+    // Structural test with a hand-built proposal: only groups[] is read, unplaced never appears.
+    const fake = {
+        groups: [{ role: 'melee', players: [{ name: 'Aaa' }, { name: 'Bbb' }] },
+                 { role: 'casters', players: [] }],
+        unplaced: [{ name: 'Zzz' }],
+    };
+    const gLines = E.buildAddonWhispers(roster, sheet, fake).split('\n').filter(l => l.startsWith('@G'));
+    assert.deepStrictEqual(gLines, ['@G1=Aaa,Bbb']);
+});
+test('buildAddonWhispers: no groups argument still yields RSW2 with zero @G lines', () => {
+    const { roster, sheet } = sampleSheet();
+    const lines = E.buildAddonWhispers(roster, sheet).split('\n');
+    assert.strictEqual(lines[0], 'RSW2');
+    assert.strictEqual(lines.filter(l => l.startsWith('@G')).length, 0);
 });
 
 test('RSS1 regression: a full raid export parses to exactly this roster', () => {
