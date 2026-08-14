@@ -7,3 +7,4 @@
 
 Scan.lua
 RaidAssign.lua
+Minimap.lua

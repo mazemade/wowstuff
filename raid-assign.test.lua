@@ -97,7 +97,15 @@ local function BuildWorld(opts)
         world.raid[i].subgroup, world.raid[j].subgroup =
             world.raid[j].subgroup, world.raid[i].subgroup
     end
+    _G.Minimap = MockFrame()
+    _G.Minimap.GetCenter = function() return 0, 0 end
+    _G.UIParent.GetEffectiveScale = function() return 1 end
+    _G.GameTooltip = MockFrame()
+    _G.EasyMenu = function(items) world.menu = items end
+    _G.GetCursorPosition = function() return world.cursorX or 100, world.cursorY or 0 end
+    _G.RaidAssignMinimapButton = nil
     dofile('RaidAssign/RaidAssign.lua')
+    dofile('RaidAssign/Minimap.lua')
 end
 
 -- Fires every registered OnUpdate once. dt defaults past APPLY_INTERVAL so each call
@@ -328,6 +336,40 @@ test('RaidAssignAPI.LayoutInfo mirrors the loaded layout', function()
     assertEqual(RaidAssignAPI.LayoutInfo(), nil)
     LoadPayload({ 'RSW2', '@G1=Alice,Bob' })
     assertMatch(RaidAssignAPI.LayoutInfo(), 'Group layout loaded: 1 groups, 2 players%.')
+end)
+
+-- --- Minimap button ---
+
+test('clicking the minimap button opens a menu with the three actions', function()
+    BuildWorld({})
+    RaidAssignMinimapButton:Click()
+    local texts = {}
+    for _, item in ipairs(world.menu) do texts[#texts + 1] = item.text end
+    assertEqual(table.concat(texts, '|'), 'RaidAssign|Scan raid|Assignments…|Apply groups')
+end)
+
+test('menu actions call the scan slash, the assignments slash, and ApplyGroups', function()
+    BuildWorld({})
+    local scanCalled = false
+    _G.SlashCmdList['RAIDSPECSCAN'] = function() scanCalled = true end
+    RaidAssignMinimapButton:Click()
+    world.menu[2].func()
+    assertEqual(scanCalled, true)
+    world.menu[3].func()
+    assertEqual(RaidAssignFrame ~= nil, true)     -- assignments window built and shown
+    assertEqual(RaidAssignFrame.shown, true)
+    world.menu[4].func()
+    assertMatch(LastMessage(), 'No layout loaded') -- ApplyGroups guard fired
+end)
+
+test('dragging the button saves the angle to RaidAssignDB', function()
+    BuildWorld({})
+    world.cursorX, world.cursorY = 0, 80          -- straight up from the minimap centre
+    RaidAssignMinimapButton.scripts.OnDragStart(RaidAssignMinimapButton)
+    RaidAssignMinimapButton.scripts.OnUpdate(RaidAssignMinimapButton)
+    RaidAssignMinimapButton.scripts.OnDragStop(RaidAssignMinimapButton)
+    assertEqual(RaidAssignDB.minimap.angle, 90)
+    assertEqual(RaidAssignMinimapButton.scripts.OnUpdate, nil)
 end)
 
 print(string.format('\n%d passed, %d failed', passed, failed))
