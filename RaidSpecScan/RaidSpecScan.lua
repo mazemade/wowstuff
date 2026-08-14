@@ -15,13 +15,44 @@ local function Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF33FF99[RaidSpecScan]|r " .. msg)
 end
 
--- 2.5.6: GetTalentTabInfo(tab, isInspect) -> id, name, description, iconTexture, pointsSpent, fileName
--- Read pointsSpent by position, the way every other addon on this client does. An earlier
--- version scanned for "the first numeric return" and picked up `id` instead — a few hundred,
--- so the highest tab id always won and every player got the same confidently wrong spec.
-local function TabPoints(tab, isInspect)
-    local _, _, _, _, pointsSpent = GetTalentTabInfo(tab, isInspect)
+-- GetTalentTabInfo(tab, isInspect, isPet, talentGroup) -> id, name, description, iconTexture,
+-- pointsSpent, fileName. Read pointsSpent by position, the way every other addon on this client
+-- does. An earlier version scanned for "the first numeric return" and picked up `id` instead —
+-- a few hundred, so the highest tab id always won and every player got the same confidently
+-- wrong spec.
+--
+-- talentGroup is NOT optional in practice. Omit it on a dual-spec client and you get saved
+-- spec 1, which is whatever the player last saved in that slot — not what they are raiding as.
+-- That exported a whole raid's offspecs once. Clients that never gained the parameter ignore
+-- the extra arguments, so passing them is safe everywhere.
+local function TabPoints(tab, isInspect, group)
+    local _, _, _, _, pointsSpent = GetTalentTabInfo(tab, isInspect, false, group)
     return tonumber(pointsSpent) or 0
+end
+
+-- Missing or unsupported means one spec exists, so there is nothing to be wrong about.
+local function GroupCount(isInspect)
+    if type(GetNumTalentGroups) ~= "function" then return 1 end
+    local ok, count = pcall(GetNumTalentGroups, isInspect, false)
+    if ok and type(count) == "number" and count > 0 then return count end
+    return 1
+end
+
+-- Returns the talent group to read, plus "we could not tell". A nil group is only safe when the
+-- unit has ONE spec — then it means "this client has no talent groups" and the talent API's own
+-- default is the only answer there is. A nil group on a unit with TWO specs is the dangerous
+-- case: the API would quietly hand back saved spec 1, which is a plausible-looking lie of
+-- exactly the kind this addon exports "?" for everywhere else. Happens when inspect data has
+-- not finished populating by the time INSPECT_READY fires.
+--
+-- pcall because a client that exposes the name without supporting inspect groups should degrade
+-- to an obviously-unscanned player rather than abort the whole raid scan.
+local function ActiveGroup(isInspect)
+    if type(GetActiveTalentGroup) == "function" then
+        local ok, group = pcall(GetActiveTalentGroup, isInspect, false)
+        if ok and type(group) == "number" and group > 0 then return group, false end
+    end
+    return nil, GroupCount(isInspect) > 1
 end
 
 -- 61 points at level 70; the headroom is slack, not a real cap.
@@ -29,8 +60,8 @@ local MAX_TALENT_POINTS = 71
 
 -- Returns "?" rather than a number triple whenever the totals are impossible, so a future
 -- signature change shows up as an obviously unscanned player instead of a plausible lie.
-local function TalentString(isInspect)
-    local t1, t2, t3 = TabPoints(1, isInspect), TabPoints(2, isInspect), TabPoints(3, isInspect)
+local function TalentString(isInspect, group)
+    local t1, t2, t3 = TabPoints(1, isInspect, group), TabPoints(2, isInspect, group), TabPoints(3, isInspect, group)
     local total = t1 + t2 + t3
     if total == 0 or total > MAX_TALENT_POINTS then return "?" end
     return t1 .. "/" .. t2 .. "/" .. t3
@@ -77,7 +108,7 @@ local TRACKED_TALENTS = {
 -- must read as "=0" rather than being left out, or the web tool cannot tell "they did not take
 -- it" from "we have no data at all". A name we cannot find is omitted instead, which reads as
 -- unknown — the honest answer if a talent is ever renamed out from under us.
-local function TalentPairs(classToken, isInspect)
+local function TalentPairs(classToken, isInspect, group)
     local wanted = TRACKED_TALENTS[classToken]
     if not wanted then return "" end
     local found = {}
@@ -85,7 +116,7 @@ local function TalentPairs(classToken, isInspect)
     for tab = 1, tabs do
         local count = (GetNumTalents and GetNumTalents(tab)) or 0
         for i = 1, count do
-            local name, _, _, _, rank = GetTalentInfo(tab, i, isInspect)
+            local name, _, _, _, rank = GetTalentInfo(tab, i, isInspect, false, group)
             if name then
                 for key, wantedName in pairs(wanted) do
                     if name == wantedName then found[key] = tonumber(rank) or 0 end
@@ -106,7 +137,11 @@ end
 -- RSS3 is positional with fixed slots: name:CLASS:points:subgroup:race:talents. Every field
 -- after points may be empty and is independent of the others. RSS2 nested race inside the
 -- subgroup check, so one missing subgroup silently took the race with it.
-local function AddResult(unit, points, isInspect)
+-- `group` is resolved once per unit by the caller and passed down rather than looked up again
+-- here: points and talent ranks are read by two different functions against a live inspect that
+-- FinishUnit clears immediately afterwards, so two independent lookups can straddle a change and
+-- pair one spec's totals with the other spec's ranks — worse than being consistently wrong.
+local function AddResult(unit, points, isInspect, group)
     local name = UnitName(unit)
     local _, classToken = UnitClass(unit)
     if not (name and classToken) then return end
@@ -116,7 +151,7 @@ local function AddResult(unit, points, isInspect)
     local _, raceToken = UnitRace(unit)
     -- A player we could not scan has no talent data either; "?" points and an empty talent
     -- field must travel together.
-    local talents = (points ~= "?") and TalentPairs(classToken, isInspect) or ""
+    local talents = (points ~= "?") and TalentPairs(classToken, isInspect, group) or ""
     local line = name .. ":" .. classToken .. ":" .. points
         .. ":" .. (subgroup and tostring(subgroup) or "")
         .. ":" .. (raceToken or "")
@@ -170,8 +205,8 @@ local function ShowExport()
     f:Show()
 end
 
-local function FinishUnit(points, isInspect)
-    AddResult(current, points, isInspect)
+local function FinishUnit(points, isInspect, group)
+    AddResult(current, points, isInspect, group)
     ClearInspectPlayer()
     current = nil
     elapsed = 0
@@ -188,7 +223,9 @@ local function NextUnit()
     current = table.remove(queue, 1)
     elapsed = 0
     if UnitIsUnit(current, "player") then
-        AddResult(current, TalentString(false), false) -- own talents readable directly
+        -- own talents readable directly
+        local group, unknown = ActiveGroup(false)
+        AddResult(current, unknown and "?" or TalentString(false, group), false, group)
         current = nil
         return -- OnUpdate picks the next unit next frame
     end
@@ -217,7 +254,8 @@ frame:SetScript("OnEvent", function(_, event, guid)
     -- someone would otherwise be recorded against whoever is being inspected now — a confident
     -- but wrong spec. Ignoring it lets the timeout mark that player "?" instead.
     if guid and UnitGUID(current) ~= guid then return end
-    FinishUnit(TalentString(true), true)
+    local group, unknown = ActiveGroup(true)
+    FinishUnit(unknown and "?" or TalentString(true, group), true, group)
 end)
 
 local function OnUpdate(_, dt)
