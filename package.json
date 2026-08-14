@@ -4,7 +4,8 @@
   "description": "TBC raid assignments tool: Raid-Helper and in-game addon import, auto-assigned debuffs, cooldowns and crowd control, with Discord, share-link and in-game whisper output",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node assignments-engine.test.js && node wcl-mult.test.js"
   },
   "keywords": [
     "wow",
