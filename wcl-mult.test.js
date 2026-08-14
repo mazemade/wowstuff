@@ -8,7 +8,7 @@ function test(name, fn) {
     catch (e) { failed++; console.error('FAIL -', name, '\n   ', e.message); }
 }
 
-// --- Task 1: specNameToKey / WCL_SPECS ---
+// --- Task 1: specNameToKey ---
 test('specNameToKey: WCL-style names map to engine keys', () => {
     assert.strictEqual(W.specNameToKey('Hunter', 'BeastMastery'), 'HUNTER:Beast Mastery');
     assert.strictEqual(W.specNameToKey('Warlock', 'Destruction'), 'WARLOCK:Destruction');
@@ -22,30 +22,20 @@ test('specNameToKey: unknown class or spec gives null', () => {
     assert.strictEqual(W.specNameToKey('Mage', 'Holy'), null);
     assert.strictEqual(W.specNameToKey(null, 'Arms'), null);
 });
-test('WCL_SPECS: 22 non-healer specs, keys match engine BASELINE, no healers', () => {
+test('specNameToKey covers every damage-dealing engine spec, in both name forms', () => {
     const E = require('./assignments-engine.js');
-    assert.strictEqual(W.WCL_SPECS.length, 22);
-    W.WCL_SPECS.forEach(s => {
-        assert.ok(E.BASELINE[s.specKey] > 0, s.specKey + ' must have a nonzero baseline');
-        assert.strictEqual(W.specNameToKey(s.className, s.specName), s.specKey);
+    const damage = Object.keys(E.BASELINE).filter(k => E.BASELINE[k] > 0);
+    assert.strictEqual(damage.length, 23);
+    damage.forEach(key => {
+        const cls = key.slice(0, key.indexOf(':'));
+        const spec = key.slice(key.indexOf(':') + 1);
+        assert.strictEqual(W.specNameToKey(cls, spec), key);
+        // WCL writes multi-word spec names without the space ("BeastMastery").
+        assert.strictEqual(W.specNameToKey(cls, spec.replace(/\s+/g, '')), key);
     });
 });
 
-// --- Task 2: medianPageTarget / shouldOverwrite ---
-test('medianPageTarget: small counts stay on page 1', () => {
-    assert.deepStrictEqual(W.medianPageTarget(1), { page: 1, index: 0 });
-    assert.deepStrictEqual(W.medianPageTarget(100), { page: 1, index: 49 });
-    assert.deepStrictEqual(W.medianPageTarget(7), { page: 1, index: 3 });
-});
-test('medianPageTarget: large counts land mid-population', () => {
-    // count 2500 -> median position 1249 (0-based) -> page 13, index 49
-    assert.deepStrictEqual(W.medianPageTarget(2500), { page: 13, index: 49 });
-    assert.deepStrictEqual(W.medianPageTarget(201), { page: 2, index: 0 });
-});
-test('medianPageTarget: zero or missing count gives null', () => {
-    assert.strictEqual(W.medianPageTarget(0), null);
-    assert.strictEqual(W.medianPageTarget(undefined), null);
-});
+// --- Task 2: shouldOverwrite ---
 test('shouldOverwrite: untouched meta is overwritable', () => {
     assert.strictEqual(W.shouldOverwrite(undefined), true);
     assert.strictEqual(W.shouldOverwrite({}), true);

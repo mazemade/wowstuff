@@ -4,8 +4,10 @@
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    // Verified live in Task 4 — 0 is a deliberate "not yet verified" placeholder.
-    const DEFAULT_ZONE = 0;
+    // Verified live 2026-08-14 against WCL API v2: zone 1056 is the Anniversary SSC/TK tier.
+    // 1010 is the 2021 TBC Classic tier and 1052 is Titan Reforged — both are wrong here, and
+    // worldData.zones is stale and never lists 1056, so it must be addressed by id.
+    const DEFAULT_ZONE = 1056;
 
     // WCL spec names, lowercased with non-letters stripped, per engine class.
     const WCL_SPEC_NAMES = {
@@ -27,27 +29,6 @@
         if (!table) return null;
         const spec = table[String(specName).toLowerCase().replace(/[^a-z]/g, '')];
         return spec ? cls + ':' + spec : null;
-    }
-
-    // Every spec with a nonzero engine baseline — what the medians sweep queries.
-    // className/specName are the forms WCL's GraphQL arguments expect.
-    const WCL_SPECS = [
-        ['Warrior', 'Arms'], ['Warrior', 'Fury'], ['Warrior', 'Protection'],
-        ['Paladin', 'Retribution'], ['Paladin', 'Protection'],
-        ['Hunter', 'BeastMastery'], ['Hunter', 'Marksmanship'], ['Hunter', 'Survival'],
-        ['Rogue', 'Assassination'], ['Rogue', 'Combat'], ['Rogue', 'Subtlety'],
-        ['Priest', 'Shadow'],
-        ['Shaman', 'Elemental'], ['Shaman', 'Enhancement'],
-        ['Mage', 'Arcane'], ['Mage', 'Fire'], ['Mage', 'Frost'],
-        ['Warlock', 'Affliction'], ['Warlock', 'Demonology'], ['Warlock', 'Destruction'],
-        ['Druid', 'Balance'], ['Druid', 'Feral'],
-    ].map(([className, specName]) => ({ className, specName, specKey: specNameToKey(className, specName) }));
-
-    function medianPageTarget(count, pageSize) {
-        if (!count || count < 1) return null;
-        const ps = pageSize || 100;
-        const pos = Math.floor((count - 1) / 2); // lower-middle, 0-based
-        return { page: Math.floor(pos / ps) + 1, index: pos % ps };
     }
 
     function shouldOverwrite(meta) {
@@ -84,5 +65,5 @@
         return { mult, bosses: ratios.length };
     }
 
-    return { DEFAULT_ZONE, specNameToKey, WCL_SPECS, medianPageTarget, shouldOverwrite, computeMult };
+    return { DEFAULT_ZONE, specNameToKey, shouldOverwrite, computeMult };
 }));
