@@ -381,7 +381,7 @@ git commit -m "feat: computeMult — 4-week same-spec median vs global spec medi
 - Consumes: nothing from code — this is an API reconnaissance task.
 - Produces: verified `DEFAULT_ZONE`, confirmed GraphQL field names that Tasks 5–6 rely on: `characterRankings` (`count`, `rankings[].amount`), `encounterRankings` (`ranks[].amount`, `ranks[].spec`, `ranks[].startTime`).
 
-**Prerequisite — credentials.** Check `.env` for `WCL_CLIENT_ID` and `WCL_CLIENT_SECRET`. If absent, STOP and ask the user for them (they are created free at the WCL site under "API Clients"). Do not invent values; do not commit them.
+**Prerequisite — credentials.** `WCL_CLIENT_ID` and `WCL_CLIENT_SECRET` are already present in the gitignored `.env` (added 2026-08-14, a V2 API client). Verify both keys exist with `grep -o '^[A-Z_]*' .env`; if they are somehow missing, STOP and ask the user. Never print their values, never commit them, never copy them into any tracked file. The account's rate limit is 3,600 points/hour — if the medians sweep 429s, wait and retry rather than shrinking the sweep.
 
 - [ ] **Step 1: Get a token**
 
