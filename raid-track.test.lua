@@ -1,0 +1,208 @@
+-- Tests for RaidAssign/Track.lua. Run from the repo root:
+--
+--     luajit raid-track.test.lua
+--
+-- Same approach as raid-assign.test.lua: stub the WoW globals, dofile the real file,
+-- and drive it through events the way the client does — ENCOUNTER_START, combat-log
+-- events via CombatLogGetCurrentEventInfo, OnUpdate ticks, ENCOUNTER_END. Time is a
+-- controllable clock (world.time) so uptime math is exact.
+
+local passed, failed = 0, 0
+local function test(name, fn)
+    local ok, err = pcall(fn)
+    if ok then passed = passed + 1; print('ok - ' .. name)
+    else failed = failed + 1; io.stderr:write('FAIL - ' .. name .. '\n    ' .. tostring(err) .. '\n') end
+end
+local function assertEqual(actual, expected)
+    if actual ~= expected then
+        error('\n    expected: ' .. tostring(expected) .. '\n    actual:   ' .. tostring(actual), 2)
+    end
+end
+local function assertClose(actual, expected)
+    if math.abs(actual - expected) > 1e-6 then
+        error('\n    expected ~' .. expected .. ', got ' .. tostring(actual), 2)
+    end
+end
+
+local world
+local function MockFrame()
+    local f = { scripts = {}, events = {} }
+    setmetatable(f, { __index = function() return function() return MockFrame() end end })
+    rawset(f, 'SetScript', function(self, k, fn) rawset(self.scripts, k, fn) end)
+    rawset(f, 'GetScript', function(self, k) return self.scripts[k] end)
+    rawset(f, 'RegisterEvent', function(self, e) self.events[e] = true end)
+    rawset(f, 'UnregisterEvent', function(self, e) self.events[e] = nil end)
+    return f
+end
+
+-- opts.raid: array of { name, subgroup, dead, buffs = {names…} }, index = raid index.
+local function BuildWorld(opts)
+    opts = opts or {}
+    world = { time = 0, raid = opts.raid or {}, tracking = opts.tracking,
+              frames = {}, messages = {} }
+    _G.RaidAssignDB = nil
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) world.messages[#world.messages + 1] = m end }
+    _G.UIParent = MockFrame()
+    _G.CreateFrame = function() local f = MockFrame(); world.frames[#world.frames + 1] = f; return f end
+    _G.GetTime = function() return world.time end
+    _G.date = function() return '2026-08-15 21:00' end
+    _G.IsInRaid = function() return #world.raid > 0 end
+    _G.GetNumGroupMembers = function() return #world.raid end
+    _G.GetRaidRosterInfo = function(i)
+        local m = world.raid[i]
+        if m then return m.name, nil, m.subgroup end
+    end
+    _G.UnitIsDeadOrGhost = function(unit)
+        local m = world.raid[tonumber(unit:match('^raid(%d+)$') or 0)]
+        return (m and m.dead) or false
+    end
+    _G.UnitAura = function(unit, j)
+        local m = world.raid[tonumber(unit:match('^raid(%d+)$') or 0)]
+        return m and m.buffs and m.buffs[j] or nil
+    end
+    _G.CombatLogGetCurrentEventInfo = function() return unpack(world.cleu) end
+    _G.RaidAssignAPI = { GetTracking = function() return world.tracking end }
+    dofile('RaidAssign/Track.lua')
+    world.tracker = world.frames[1]
+end
+
+local function Fire(event, ...)
+    world.tracker.scripts.OnEvent(world.tracker, event, ...)
+end
+local function Cleu(sub, srcName, destGUID, spellName)
+    world.cleu = { 0, sub, false, 'Player-1-AAAA', srcName, 0, 0,
+                   destGUID, 'Boss', 0, 0, 12345, spellName, 0, 'DEBUFF' }
+    Fire('COMBAT_LOG_EVENT_UNFILTERED')
+end
+local function Tick(dt)
+    world.time = world.time + dt
+    local h = world.tracker.scripts.OnUpdate
+    if h then h(world.tracker, dt) end
+end
+
+local COE = { id = 'coe', name = 'Curse of Elements', auras = 'Curse of the Elements', player = 'Zug' }
+
+test('debuff uptime accumulates with assignee attribution', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1-1-1-19044-000', 'Curse of the Elements')
+    world.time = 50
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-1-1-1-19044-000', 'Curse of the Elements')
+    world.time = 60
+    Cleu('SPELL_AURA_APPLIED', 'Mag', 'Creature-0-1-1-1-19044-000', 'Curse of the Elements')
+    world.time = 100
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    local p = RaidAssignDB.pulls[1]
+    assertEqual(p.encounter, 'Gruul')
+    assertEqual(p.ordinal, 1)
+    assertEqual(p.success, true)
+    assertClose(p.duration, 100)
+    assertClose(p.debuffs[1].uptime, 90)     -- 0..50 by Zug, 60..100 by Mag
+    assertClose(p.debuffs[1].byAssignee, 50)
+end)
+
+test('refresh reattributes the running segment', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 30
+    Cleu('SPELL_AURA_REFRESH', 'Mag', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 50
+    Cleu('SPELL_AURA_REMOVED', 'Mag', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 50
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 0)
+    local r = RaidAssignDB.pulls[1].debuffs[1]
+    assertClose(r.uptime, 50)
+    assertClose(r.byAssignee, 30)
+    assertEqual(RaidAssignDB.pulls[1].success, false)
+end)
+
+test('fight end closes an open segment', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 80
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertClose(RaidAssignDB.pulls[1].debuffs[1].uptime, 80)
+end)
+
+test('multi-target: the dest with the most uptime is reported', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 623, 'Vashj', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-BOSS', 'Curse of the Elements')
+    world.time = 10
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-ADD', 'Curse of the Elements')
+    world.time = 15
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-ADD', 'Curse of the Elements')
+    world.time = 90
+    Fire('ENCOUNTER_END', 623, 'Vashj', 173, 25, 0)
+    assertClose(RaidAssignDB.pulls[1].debuffs[1].uptime, 90) -- boss 0..90, not the add's 5
+end)
+
+test('friendly/player dest GUIDs are ignored', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Player-1-BBBB', 'Curse of the Elements')
+    world.time = 90
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertClose(RaidAssignDB.pulls[1].debuffs[1].uptime, 0)
+end)
+
+test('no tracking payload: nothing recorded', function()
+    BuildWorld({ raid = {}, tracking = nil })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    world.time = 100
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertEqual(RaidAssignDB and RaidAssignDB.pulls and #RaidAssignDB.pulls or 0, 0)
+    assertEqual(RaidAssignAPI.TrackLive(), nil)
+end)
+
+test('pull cap keeps the newest 20', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    for i = 1, 21 do
+        Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+        world.time = world.time + 60
+        Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 0)
+    end
+    assertEqual(#RaidAssignDB.pulls, 20)
+    assertEqual(RaidAssignDB.pulls[20].ordinal, 21)
+    assertEqual(RaidAssignDB.pulls[1].ordinal, 2)
+end)
+
+test('absent assignee is flagged, not accused', function()
+    BuildWorld({ raid = { { name = 'SomeoneElse', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    world.time = 10
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 0)
+    assertEqual(RaidAssignDB.pulls[1].debuffs[1].absent, true)
+end)
+
+test('TrackLive reports pct and down-time mid-fight', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 50
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 60
+    local rows = RaidAssignAPI.TrackLive()
+    assertEqual(rows[1].name, 'Curse of Elements')
+    assertClose(rows[1].pct, 50 / 60)
+    assertClose(rows[1].down, 10)
+end)
+
+test('LastPullInfo headline counts sub-90% rows', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 40
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 100
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertEqual(RaidAssignAPI.LastPullInfo(), 'Gruul #1 — 1 of 1 below 90%')
+end)
+
+print(string.format('\n%d passed, %d failed', passed, failed))
+if failed > 0 then os.exit(1) end
