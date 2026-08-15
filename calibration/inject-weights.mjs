@@ -19,7 +19,6 @@ for (const d of DURATIONS) {
 
 const START = /\/\/ === CALIBRATION START[^\n]*\n/;
 const END = '// === CALIBRATION END ===';
-const startMatch = engine.match(START);
 const startIdx = engine.search(START);
 const endIdx = engine.indexOf(END);
 if (startIdx === -1 || endIdx === -1) throw new Error('calibration markers not found');

@@ -133,9 +133,11 @@ const weights = {
     baselines,
     buffs,
 };
-writeFileSync(here(argOf('--out', './weights.json')), JSON.stringify(weights, null, 1));
+const weightsOut = argOf('--out', './weights.json');
+const floorsOut = `./floors-report-${DURATION}.md`;
+writeFileSync(here(weightsOut), JSON.stringify(weights, null, 1));
 
-writeFileSync(here(`./floors-report-${DURATION}.md`),
+writeFileSync(here(floorsOut),
     '# Tank threat and damage-taken, from the calibration baselines\n\n' +
     'Measured in the same fully-buffed single-player runs that produced the DPS baselines\n' +
     `(${DURATION}s single target, 10000 iterations). This is the evidence behind spec §2's floors:\n` +
@@ -148,8 +150,8 @@ writeFileSync(here(`./floors-report-${DURATION}.md`),
 
 const nBuffs = Object.keys(buffs).length;
 const nVals = Object.values(buffs).reduce((n, o) => n + Object.keys(o).length, 0);
-console.log(`weights.json: ${Object.keys(baselines).length} baselines, ${nBuffs} buffs, ${nVals} non-zero values`);
-console.log(`floors-report.md: ${floors.length} tank rows`);
+console.log(`${weightsOut}: ${Object.keys(baselines).length} baselines, ${nBuffs} buffs, ${nVals} non-zero values`);
+console.log(`${floorsOut}: ${floors.length} tank rows`);
 if (substituted.length) {
     console.log(`\nSUBSTITUTED ${substituted.length} specs wowsims does not model separately:`);
     substituted.forEach(s => console.log('  ' + s));
