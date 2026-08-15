@@ -509,11 +509,11 @@ test('parseRaidHelper: lowercase bench is still excluded, keeping the raw reason
     assert.deepStrictEqual(r.players, []);
 });
 
-// --- Addon whispers: RSW2 paste payload ---
-test('buildAddonWhispers: RSW2 header, then one Name=body line per player', () => {
+// --- Addon whispers: RSW3 paste payload ---
+test('buildAddonWhispers: RSW3 header, then one Name=body line per player', () => {
     const { roster, sheet } = sampleSheet();
     const lines = E.buildAddonWhispers(roster, sheet).split('\n');
-    assert.strictEqual(lines[0], 'RSW2');
+    assert.strictEqual(lines[0], 'RSW3');
     const bob = lines.filter(l => l.startsWith('Bob='));
     assert.strictEqual(bob.length, 1);
     assert.ok(bob[0].includes('Curse of Elements'));
@@ -522,6 +522,7 @@ test('buildAddonWhispers: RSW2 header, then one Name=body line per player', () =
 test('buildAddonWhispers: same recipients as the Whispers tab', () => {
     const { roster, sheet } = sampleSheet();
     const fromAddon = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
+        .filter(l => !l.startsWith('@'))
         .map(l => l.slice(0, l.indexOf('=')));
     const fromWhispers = E.buildWhispers(roster, sheet).map(l => l.split(' ')[1]);
     assert.deepStrictEqual(
@@ -531,6 +532,7 @@ test('buildAddonWhispers: same recipients as the Whispers tab', () => {
 test('buildAddonWhispers: players with no duties get no line', () => {
     const { roster, sheet } = sampleSheet();
     const names = E.buildAddonWhispers(roster, sheet).split('\n').slice(1)
+        .filter(l => !l.startsWith('@'))
         .map(l => l.slice(0, l.indexOf('=')));
     // Assert the rule, not one incidental name: an earlier version named the prot warrior, and
     // went stale the moment a new catalog entry gave him a duty.
@@ -610,7 +612,9 @@ test('buildAddonWhispers: @G lines come after every whisper line', () => {
     const lines = E.buildAddonWhispers(roster, sheet, E.proposeGroups(roster)).split('\n');
     const firstG = lines.findIndex(l => l.startsWith('@G'));
     assert.ok(firstG > 0);
-    lines.slice(firstG).forEach(l => assert.ok(l.startsWith('@G'), 'whisper line after groups: ' + l));
+    // Everything from the first directive on is a directive (@G, then @T) — the addon's
+    // whisper parser must never meet a Name=body line after the groups block.
+    lines.slice(firstG).forEach(l => assert.ok(l.startsWith('@'), 'whisper line after groups: ' + l));
 });
 test('buildAddonWhispers: unplaced players and empty groups produce no @G entries', () => {
     const { roster, sheet } = sampleSheet();
@@ -623,11 +627,46 @@ test('buildAddonWhispers: unplaced players and empty groups produce no @G entrie
     const gLines = E.buildAddonWhispers(roster, sheet, fake).split('\n').filter(l => l.startsWith('@G'));
     assert.deepStrictEqual(gLines, ['@G1=Aaa,Bbb']);
 });
-test('buildAddonWhispers: no groups argument still yields RSW2 with zero @G lines', () => {
+test('buildAddonWhispers: no groups argument still yields RSW3 with zero @G lines', () => {
     const { roster, sheet } = sampleSheet();
     const lines = E.buildAddonWhispers(roster, sheet).split('\n');
-    assert.strictEqual(lines[0], 'RSW2');
+    assert.strictEqual(lines[0], 'RSW3');
     assert.strictEqual(lines.filter(l => l.startsWith('@G')).length, 0);
+});
+
+// --- Compliance tracking payload (@T lines) ---
+test('buildAddonWhispers: RSW3 header', () => {
+    const roster = [{ name: 'Zug', class: 'WARLOCK', spec: 'Affliction', flags: [] }];
+    const sheet = E.autoAssign(roster);
+    assert.strictEqual(E.buildAddonWhispers(roster, sheet, null).split('\n')[0], 'RSW3');
+});
+test('buildAddonWhispers: assigned debuff gets a @T D line with its aura name', () => {
+    const roster = [
+        { name: 'Zug', class: 'WARLOCK', spec: 'Affliction', flags: [] },
+        { name: 'Twig', class: 'DRUID', spec: 'Balance', flags: [] },
+    ];
+    const sheet = E.autoAssign(roster);
+    const lines = E.buildAddonWhispers(roster, sheet, null).split('\n');
+    assert.ok(lines.includes('@T D|coe|Curse of Elements|Curse of the Elements|Zug'),
+        'missing CoE line in:\n' + lines.filter(l => l.startsWith('@T')).join('\n'));
+    assert.ok(lines.includes('@T D|ff|Faerie Fire|Faerie Fire,Faerie Fire (Feral)|Twig'));
+});
+test('buildAddonWhispers: noattrib flag rides on Sunder Armor', () => {
+    const roster = [{ name: 'Tank', class: 'WARRIOR', spec: 'Protection', flags: [] }];
+    const sheet = E.autoAssign(roster);
+    const lines = E.buildAddonWhispers(roster, sheet, null).split('\n');
+    assert.ok(lines.includes('@T D|armor|Sunder Armor|Sunder Armor|Tank|noattrib'));
+});
+test('buildAddonWhispers: unassigned/untrackable duties emit no @T line', () => {
+    // Personal curses ('Curse of Doom/Agony (personal)') and cooldowns must not appear.
+    const roster = [
+        { name: 'Zug', class: 'WARLOCK', spec: 'Affliction', flags: [] },
+        { name: 'Bob', class: 'WARLOCK', spec: 'Destruction', flags: [] },
+    ];
+    const sheet = E.autoAssign(roster);
+    const tLines = E.buildAddonWhispers(roster, sheet, null).split('\n').filter(l => l.startsWith('@T'));
+    assert.ok(!tLines.some(l => l.includes('personal')), tLines.join('\n'));
+    assert.ok(!tLines.some(l => l.includes('Soulstone')), tLines.join('\n'));
 });
 
 test('RSS1 regression: a full raid export parses to exactly this roster', () => {

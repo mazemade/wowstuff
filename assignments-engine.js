@@ -776,6 +776,46 @@
         return Object.keys(per).map(n => '/w ' + n + ' Your assignments: ' + per[n].join('; '));
     }
 
+    // In-game aura names for assigned boss debuffs, keyed by duty name (the provider name
+    // record() stores). Values are what COMBAT_LOG_EVENT_UNFILTERED reports as spellName —
+    // NOT always the ability name (Improved Scorch's debuff is 'Fire Vulnerability').
+    // Comma-separated alternatives are all matched by the addon; the in-game verification
+    // pass prunes wrong variants. noattrib marks rows where "applied by the assignee" is
+    // meaningless: every warrior stacks Sunder, and Screech comes from a pet.
+    const TRACK_AURAS = {
+        'Sunder Armor':              { auras: 'Sunder Armor', noattrib: true },
+        'Improved Expose Armor':     { auras: 'Expose Armor' },
+        'Curse of Elements':         { auras: 'Curse of the Elements' },
+        'Curse of Recklessness':     { auras: 'Curse of Recklessness' },
+        'Judgement of the Crusader': { auras: 'Judgement of the Crusader' },
+        'Judgement of Wisdom':       { auras: 'Judgement of Wisdom' },
+        'Faerie Fire':               { auras: 'Faerie Fire,Faerie Fire (Feral)' },
+        "Hunter's Mark":             { auras: "Hunter's Mark" },
+        'Improved Scorch':           { auras: 'Fire Vulnerability' },
+        "Winter's Chill":            { auras: "Winter's Chill" },
+        'Demoralizing Shout':        { auras: 'Demoralizing Shout' },
+        'Curse of Weakness':         { auras: 'Curse of Weakness' },
+        'Demoralizing Roar':         { auras: 'Demoralizing Roar' },
+        'Screech (pet)':             { auras: 'Screech', noattrib: true },
+        'Thunder Clap':              { auras: 'Thunder Clap' },
+        'Insect Swarm':              { auras: 'Insect Swarm' },
+        'Hemorrhage':                { auras: 'Hemorrhage' },
+    };
+
+    // @T tracking lines for the addon's compliance tracker: what to watch, who answers
+    // for it. Only assigned debuff duties with a known boss aura produce a line — personal
+    // curses, cooldowns and rotations have nothing uptime-shaped to check.
+    function buildTrackingLines(sheet, groupsResult) {
+        const lines = [];
+        (sheet.duties || []).filter(d => d.category === 'debuffs' && d.player).forEach(d => {
+            const t = TRACK_AURAS[d.name];
+            if (!t) return;
+            lines.push('@T D|' + d.id + '|' + d.name + '|' + t.auras + '|' + d.player
+                + (t.noattrib ? '|noattrib' : ''));
+        });
+        return lines;
+    }
+
     // Paste payload for the RaidAssign addon: one "Name=body" line per whisper, then the
     // optimizer's group layout as "@G<n>=name,name,..." lines ("@" can never start a WoW
     // character name, so the addon needs no escaping to tell the two apart).
@@ -788,7 +828,7 @@
     // to counting UTF-8 bytes to stay accurate.
     function buildAddonWhispers(roster, sheet, groupsResult) {
         const per = whisperMap(sheet);
-        const lines = ['RSW2'];
+        const lines = ['RSW3'];
         Object.keys(per).forEach(n => {
             packChat('Your assignments: ', per[n], '; ', 255).forEach(body => {
                 lines.push(n + '=' + body);
@@ -797,6 +837,7 @@
         ((groupsResult && groupsResult.groups) || []).forEach((g, i) => {
             if (g.players.length) lines.push('@G' + (i + 1) + '=' + g.players.map(p => p.name).join(','));
         });
+        buildTrackingLines(sheet, groupsResult).forEach(l => lines.push(l));
         return lines.join('\n');
     }
 
