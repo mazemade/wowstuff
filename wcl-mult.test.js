@@ -213,5 +213,44 @@ test('computeRosterMults: a player with no qualifying parses is absent', () => {
     assert.strictEqual(Object.keys(r).length, 3);
 });
 
+// --- rosterKillDurations ---
+test('rosterKillDurations: dedupes shared kills by startTime', () => {
+    const now = 1000000000000;
+    const rank = (st, dur) => ({ amount: 1000, spec: 'Arcane', startTime: st, duration: dur });
+    const res = W.rosterKillDurations({
+        nowMs: now,
+        players: [
+            { ranksByEncounter: { 733: [rank(now - 1000, 150000), rank(now - 2000, 170000)] } },
+            { ranksByEncounter: { 733: [rank(now - 1000, 150000)] } }, // same kill seen via a second player
+        ],
+    });
+    assert.strictEqual(res.perBoss[733].kills, 2);
+    assert.strictEqual(res.perBoss[733].medianSec, 160);
+});
+test('rosterKillDurations: splits farm and long at the 300s per-boss threshold', () => {
+    const now = 1000000000000;
+    const rank = (st, dur) => ({ startTime: st, duration: dur });
+    const res = W.rosterKillDurations({
+        nowMs: now,
+        players: [{ ranksByEncounter: {
+            1: [rank(now - 1, 170000), rank(now - 2, 190000)],  // farm boss, median 180s
+            2: [rank(now - 3, 210000)],                         // farm boss, 210s
+            3: [rank(now - 4, 500000), rank(now - 5, 540000)],  // long boss, median 520s
+        } }],
+    });
+    assert.strictEqual(res.farmMedianSec, 195); // median of the per-boss medians [180, 210]
+    assert.strictEqual(res.longMedianSec, 520);
+});
+test('rosterKillDurations: stale kills are ignored; an empty pool gives nulls', () => {
+    const now = 1000000000000;
+    const old = now - 29 * 24 * 3600 * 1000; // outside the 28-day window
+    const res = W.rosterKillDurations({
+        nowMs: now,
+        players: [{ ranksByEncounter: { 1: [{ startTime: old, duration: 200000 }] } }],
+    });
+    assert.strictEqual(res.farmMedianSec, null);
+    assert.strictEqual(res.longMedianSec, null);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

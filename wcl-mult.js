@@ -121,5 +121,44 @@
         return out;
     }
 
-    return { DEFAULT_ZONE, specNameToKey, shouldOverwrite, playerBossMedians, computeRosterMults };
+    // Per-boss kill durations from the same ranksByEncounter payload the multiplier pass
+    // already fetches (spec F5) — durations need zero extra API calls. Kills are shared
+    // events: every fetched player carries the same kill, so ranks dedupe by startTime
+    // before the median. Farm/long medians are medians of PER-BOSS medians, never of the
+    // raw pool — equal boss weighting, so attendance skew cannot tilt the number. The
+    // split exists because the guild's kill times are bimodal (spec F1): farm bosses sit
+    // at ~2m30s-3m30s while Vashj and Kael run ~8m, and one pooled median would
+    // misrepresent both.
+    const LONG_BOSS_SEC = 300;
+    function rosterKillDurations(opts) {
+        const windowMs = opts.windowMs || WINDOW_MS;
+        const byBoss = {};
+        (opts.players || []).forEach(function (p) {
+            const ranks = (p && p.ranksByEncounter) || {};
+            Object.keys(ranks).forEach(function (encId) {
+                (ranks[encId] || [])
+                    .filter(r => r && typeof r.duration === 'number' && typeof r.startTime === 'number')
+                    .filter(r => opts.nowMs - r.startTime <= windowMs)
+                    .forEach(function (r) {
+                        (byBoss[encId] = byBoss[encId] || {})[r.startTime] = r.duration;
+                    });
+            });
+        });
+        const perBoss = {};
+        Object.keys(byBoss).forEach(function (encId) {
+            const durs = Object.keys(byBoss[encId]).map(k => byBoss[encId][k]);
+            const m = median(durs);
+            if (m !== null) perBoss[encId] = { kills: durs.length, medianSec: Math.round(m / 1000) };
+        });
+        const meds = Object.keys(perBoss).map(b => perBoss[b].medianSec);
+        const farm = meds.filter(s => s <= LONG_BOSS_SEC);
+        const long = meds.filter(s => s > LONG_BOSS_SEC);
+        return {
+            farmMedianSec: farm.length ? Math.round(median(farm)) : null,
+            longMedianSec: long.length ? Math.round(median(long)) : null,
+            perBoss: perBoss,
+        };
+    }
+
+    return { DEFAULT_ZONE, specNameToKey, shouldOverwrite, playerBossMedians, computeRosterMults, rosterKillDurations };
 }));
