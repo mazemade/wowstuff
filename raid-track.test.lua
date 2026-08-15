@@ -233,6 +233,7 @@ test('TrackLive reports pct and down-time mid-fight', function()
     world.time = 60
     local rows = RaidAssignAPI.TrackLive()
     assertEqual(rows[1].name, 'Curse of Elements')
+    assertEqual(rows[1].who, 'Zug')   -- who to call out on voice
     assertClose(rows[1].pct, 50 / 60)
     assertClose(rows[1].down, 10)
 end)
@@ -297,6 +298,7 @@ test('TrackLive shows current buffed count per group', function()
     local rows = RaidAssignAPI.TrackLive()
     assertEqual(rows[1].kind, 'B')
     assertEqual(rows[1].name, 'Windfury Totem (G1)')
+    assertEqual(rows[1].who, 'Sham')
     assertEqual(rows[1].have, 1)
     assertEqual(rows[1].total, 2)
 end)
@@ -315,6 +317,7 @@ test('live view appears on pull, rows render, hides on end', function()
     assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'Curse of Elements')
     assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), '83%%')      -- 50/60
     assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'down 10s')
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'Zug')       -- callable on voice
     Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
     TickAll()
     assertEqual(RaidAssignLiveFrame:IsShown(), false)

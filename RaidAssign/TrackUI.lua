@@ -18,7 +18,7 @@ local function RowColor(pct)
 end
 
 local live = CreateFrame("Frame", "RaidAssignLiveFrame", UIParent, "BackdropTemplate")
-live:SetSize(280, 24 + ROWS_MAX * 14)
+live:SetSize(330, 24 + ROWS_MAX * 14) -- wide enough for "Strength of Earth (G2)  3/5  Name"
 live:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
     tile = true, tileSize = 32, edgeSize = 16,
@@ -49,11 +49,11 @@ end
 -- /racheck demo: sample rows so the frame can be positioned and eyeballed outside a boss
 -- pull. Real pull data always wins — the demo is only what shows when there is none.
 local DEMO_ROWS = {
-    { kind = "D", name = "Curse of Elements", pct = 0.97 },
-    { kind = "D", name = "Sunder Armor", pct = 0.62, down = 8 },
-    { kind = "D", name = "Faerie Fire", pct = 0.81 },
-    { kind = "B", name = "Windfury Totem (G1)", pct = 1.0, have = 5, total = 5 },
-    { kind = "B", name = "Strength of Earth (G2)", pct = 0.6, have = 3, total = 5 },
+    { kind = "D", name = "Curse of Elements", who = "Zugzug", pct = 0.97 },
+    { kind = "D", name = "Sunder Armor", who = "Thunderfist", pct = 0.62, down = 8 },
+    { kind = "D", name = "Faerie Fire", who = "Moonpie", pct = 0.81 },
+    { kind = "B", name = "Windfury Totem (G1)", who = "Thrallson", pct = 1.0, have = 5, total = 5 },
+    { kind = "B", name = "Strength of Earth (G2)", who = "Stormy", pct = 0.6, have = 3, total = 5 },
 }
 local demo = false
 
@@ -73,14 +73,20 @@ live:SetScript("OnUpdate", function(self, dt)
         local d = rows[i]
         if not d then
             self.rows[i]:SetText("")
-        elseif d.kind == "D" then
-            local txt = RowColor(d.pct) .. d.name .. "  " .. Pct(d.pct) .. "|r"
-            if d.down then
-                txt = txt .. " |cFFFF6B6B down " .. math.floor(d.down + 0.5) .. "s|r"
+        else
+            -- The owner's name is the point of the live view: it is what gets called out
+            -- on voice mid-fight. Grey, so the uptime still reads first at a glance.
+            local who = d.who and (" |cFF999999" .. d.who .. "|r") or ""
+            local txt
+            if d.kind == "D" then
+                txt = RowColor(d.pct) .. d.name .. "  " .. Pct(d.pct) .. "|r" .. who
+                if d.down then
+                    txt = txt .. " |cFFFF6B6Bdown " .. math.floor(d.down + 0.5) .. "s|r"
+                end
+            else
+                txt = RowColor(d.pct) .. d.name .. "  " .. d.have .. "/" .. d.total .. "|r" .. who
             end
             self.rows[i]:SetText(txt)
-        else
-            self.rows[i]:SetText(RowColor(d.pct) .. d.name .. "  " .. d.have .. "/" .. d.total .. "|r")
         end
     end
 end)

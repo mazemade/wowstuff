@@ -209,7 +209,9 @@ RaidAssignAPI.TrackLive = function()
         if not (s and s.since) then
             down = now - ((s and s.lastDrop) or active.startedAt)
         end
-        table.insert(rows, { kind = "D", name = d.name, pct = up / elapsed, down = down })
+        -- `who` rides along so the live view can name the person to call out on voice.
+        table.insert(rows, { kind = "D", name = d.name, who = d.player,
+            pct = up / elapsed, down = down })
     end
     for _, b in ipairs(active.buffs) do
         local have, total = 0, 0
@@ -224,6 +226,7 @@ RaidAssignAPI.TrackLive = function()
             end
         end
         table.insert(rows, { kind = "B", name = b.name .. " (G" .. b.group .. ")",
+            who = b.provider,
             have = have, total = total, pct = (total > 0) and (have / total) or 0 })
     end
     return rows
