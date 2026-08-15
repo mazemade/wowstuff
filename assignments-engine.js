@@ -813,6 +813,34 @@
             lines.push('@T D|' + d.id + '|' + d.name + '|' + t.auras + '|' + d.player
                 + (t.noattrib ? '|noattrib' : ''));
         });
+        // Group buffs: one line per maintainable party aura the layout expects in that
+        // group. Air rows follow airChoiceNamesOf so tracker and group notes can never
+        // disagree about which air totem a group runs. Aura-name variants ('X' vs
+        // 'X Totem') are listed until the in-game pass settles the real one. Mana Tide is
+        // a 5-minute cooldown, not an uptime buff — deliberately absent.
+        ((groupsResult && groupsResult.groups) || []).forEach((g, i) => {
+            if (!g.players.length) return;
+            const shamans = g.players.filter(p => p.class === 'SHAMAN');
+            const first = (list, pred) => { const p = list.find(pred); return p && p.name; };
+            const push = (id, name, auras, provider) => {
+                if (provider) lines.push('@T B|' + id + '|' + name + '|' + auras + '|' + (i + 1) + '|' + provider);
+            };
+            const air = shamans.length ? airChoiceNamesOf(g.players) : [];
+            if (air.indexOf('Windfury Totem') !== -1)
+                push('wf', 'Windfury Totem', 'Windfury Totem',
+                     first(shamans, p => p.spec === 'Enhancement') || shamans[0].name);
+            if (air.indexOf('Grace of Air') !== -1)
+                push('goa', 'Grace of Air', 'Grace of Air,Grace of Air Totem', shamans[0].name);
+            if (air.indexOf('Wrath of Air') !== -1)
+                push('woa', 'Wrath of Air', 'Wrath of Air,Wrath of Air Totem', shamans[0].name);
+            if (shamans.length) {
+                push('soe', 'Strength of Earth', 'Strength of Earth,Strength of Earth Totem', shamans[0].name);
+                push('spring', 'Mana Spring', 'Mana Spring,Mana Spring Totem', shamans[0].name);
+            }
+            push('tow', 'Totem of Wrath', 'Totem of Wrath',
+                 first(shamans, p => p.spec === 'Elemental'));
+            push('shout', 'Battle Shout', 'Battle Shout', first(g.players, p => p.class === 'WARRIOR'));
+        });
         return lines;
     }
 

@@ -668,6 +668,33 @@ test('buildAddonWhispers: unassigned/untrackable duties emit no @T line', () => 
     assert.ok(!tLines.some(l => l.includes('personal')), tLines.join('\n'));
     assert.ok(!tLines.some(l => l.includes('Soulstone')), tLines.join('\n'));
 });
+test('buildAddonWhispers: shaman group gets earth/water totem @T B lines', () => {
+    const sham = { name: 'Sham', class: 'SHAMAN', spec: 'Enhancement', flags: [] };
+    const warr = { name: 'Warr', class: 'WARRIOR', spec: 'Fury', flags: [] };
+    const roster = [sham, warr];
+    const sheet = E.autoAssign(roster);
+    const groupsResult = { groups: [{ players: [sham, warr] }] };
+    const lines = E.buildAddonWhispers(roster, sheet, groupsResult).split('\n');
+    assert.ok(lines.includes('@T B|soe|Strength of Earth|Strength of Earth,Strength of Earth Totem|1|Sham'));
+    assert.ok(lines.includes('@T B|spring|Mana Spring|Mana Spring,Mana Spring Totem|1|Sham'));
+    assert.ok(lines.includes('@T B|shout|Battle Shout|Battle Shout|1|Warr'));
+    // The air slot is the score model's choice — assert one air row exists rather than which.
+    assert.ok(lines.some(l => /^@T B\|(wf|goa|woa)\|/.test(l)),
+        lines.filter(l => l.startsWith('@T B')).join('\n'));
+});
+test('buildAddonWhispers: elemental shaman group tracks Totem of Wrath', () => {
+    const ele = { name: 'Zap', class: 'SHAMAN', spec: 'Elemental', flags: [] };
+    const groupsResult = { groups: [{ players: [ele] }] };
+    const lines = E.buildAddonWhispers([ele], E.autoAssign([ele]), groupsResult).split('\n');
+    assert.ok(lines.includes('@T B|tow|Totem of Wrath|Totem of Wrath|1|Zap'));
+});
+test('buildAddonWhispers: shamanless group gets no totem lines', () => {
+    const mage = { name: 'Ice', class: 'MAGE', spec: 'Frost', flags: [] };
+    const groupsResult = { groups: [{ players: [mage] }] };
+    const bLines = E.buildAddonWhispers([mage], E.autoAssign([mage]), groupsResult)
+        .split('\n').filter(l => l.startsWith('@T B'));
+    assert.deepStrictEqual(bLines, []);
+});
 
 test('RSS1 regression: a full raid export parses to exactly this roster', () => {
     const text = 'RSS1;Thunderfist:WARRIOR:5/6/50;Smashy:WARRIOR:33/28/0;' +
