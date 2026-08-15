@@ -451,6 +451,17 @@ function fmtPct(x) {
     return x.toFixed(3);
 }
 
+// Spec D5: which encounter duration the weights should assume. Farm is the default — most
+// pulls are farm pulls — and the fight-length control shows the measured medians once a
+// WCL fetch has run. The fallbacks are the engine's anchor durations.
+function activeDurationSec() {
+    const w = state.wcl || {};
+    const mode = (w.fightLen && w.fightLen.mode) || 'farm';
+    if (mode === 'custom') return (w.fightLen && w.fightLen.customSec) || 300;
+    if (mode === 'long') return (w.durations && w.durations.longSec) || 520;
+    return (w.durations && w.durations.farmSec) || 200;
+}
+
 // Every multiplier is relative to the rest of the roster (spec §2), so this fetches the whole
 // roster first and computes nothing until it is all in.
 async function fetchWclMults(btn, statusEl) {
@@ -481,6 +492,8 @@ async function fetchWclMults(btn, statusEl) {
         statusEl.textContent = 'Computing…';
         const results = WclMult.computeRosterMults({ players: fetched, nowMs: Date.now() });
         const fetchedAt = Date.now();
+        const kd = WclMult.rosterKillDurations({ players: fetched, nowMs: fetchedAt });
+        state.wcl.durations = { farmSec: kd.farmMedianSec, longSec: kd.longMedianSec, fetchedAt: fetchedAt };
         let filled = 0;
         eligible.forEach(p => {
             const result = results[p.name];
@@ -517,6 +530,7 @@ async function fetchWclMults(btn, statusEl) {
 }
 
 function renderGroups() {
+    E.setEncounterDuration(activeDurationSec());
     // A rendered AI review critiques one specific layout. If the layout changes underneath
     // it (import, remove, auto-assign) it must not outlive that layout, so clear and rehide
     // it here rather than leave stale advice on screen with nothing marking it stale.
@@ -562,6 +576,46 @@ function renderGroups() {
     fetchBtn.addEventListener('click', () => fetchWclMults(fetchBtn, status));
     wclRow.appendChild(srv); wclRow.appendChild(reg); wclRow.appendChild(fetchBtn); wclRow.appendChild(status);
     tune.appendChild(wclRow);
+
+    // Fight length: the weights are duration-interpolated (spec D1/D5). Farm by default;
+    // chips show the roster's measured medians once a WCL fetch has stored them.
+    const flRow = document.createElement('div');
+    flRow.className = 'tuning-row';
+    const flLabel = document.createElement('span');
+    flLabel.textContent = 'Fight length: ';
+    flRow.appendChild(flLabel);
+    const durs = state.wcl.durations || {};
+    const fmtSec = s => Math.floor(s / 60) + 'm' + String(Math.round(s % 60)).padStart(2, '0') + 's';
+    const flMode = (state.wcl.fightLen && state.wcl.fightLen.mode) || 'farm';
+    [['farm', 'Farm ' + (durs.farmSec ? '~' + fmtSec(durs.farmSec) : '(~3m)')],
+     ['long', 'Long ' + (durs.longSec ? '~' + fmtSec(durs.longSec) : '(Vashj/Kael)')],
+     ['custom', 'Custom']].forEach(([m, label]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        // btn-primary doubles as the "active" state — it is the app's existing accent
+        // (#4778eb) and needs no new CSS.
+        b.className = 'btn' + (flMode === m ? ' btn-primary' : '');
+        b.textContent = label;
+        b.title = 'Which kill duration the group weights should assume. Mana buffs (Vampiric Touch, mana totems) are worth far more on long fights.';
+        b.addEventListener('click', () => {
+            state.wcl.fightLen = Object.assign({}, state.wcl.fightLen, { mode: m });
+            saveState(); renderAll();
+        });
+        flRow.appendChild(b);
+    });
+    if (flMode === 'custom') {
+        const sec = document.createElement('input');
+        sec.type = 'number';
+        sec.min = '60'; sec.max = '900'; sec.step = '10';
+        sec.value = (state.wcl.fightLen && state.wcl.fightLen.customSec) || 300;
+        sec.title = 'Encounter duration in seconds (engine clamps to 200–520)';
+        sec.addEventListener('change', () => {
+            state.wcl.fightLen = Object.assign({}, state.wcl.fightLen, { customSec: parseInt(sec.value, 10) || 300 });
+            saveState(); renderAll();
+        });
+        flRow.appendChild(sec);
+    }
+    tune.appendChild(flRow);
     roster.forEach(p => {
         const m = state.playerMeta[p.name] || {};
         const row = document.createElement('div');
@@ -754,6 +808,7 @@ function renderOutput() {
     } else if (activeTab === 'whispers') {
         box.textContent = E.buildWhispers(roster, sheet).join('\n');
     } else if (activeTab === 'addon') {
+        E.setEncounterDuration(activeDurationSec());
         box.textContent = E.buildAddonWhispers(roster, sheet, E.proposeGroups(roster));
     } else if (activeTab === 'share') {
         box.textContent = buildShareLink();
@@ -792,6 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
         box.textContent = 'Asking for a second opinion…';
         btn.disabled = true;
+        E.setEncounterDuration(activeDurationSec());
         try {
             const payload = {
                 roster: roster.map(p => ({ name: p.name, class: p.class, spec: p.spec, race: p.race })),
@@ -800,6 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     players: g.players.map(p => p.name + ' (' + (p.spec || '?') + ' ' + p.class + ')'),
                     notes: g.notes,
                 })),
+                fightLengthSec: activeDurationSec(),
                 duties: sheet.duties,
                 uncovered: sheet.uncovered,
                 passives: sheet.passives,

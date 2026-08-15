@@ -188,6 +188,7 @@ const AI_SYSTEM_PROMPT = [
   '- Bloodlust/Heroism is RAID-wide (10-minute Sated-style debuff). It is never a reason to group anyone.',
   '- Everything else is party-scoped: all shaman totems, paladin auras, Battle Shout, Leader of the Pack, Moonkin Aura, Trueshot Aura, Ferocious Inspiration, Vampiric Touch, Mana Tide, Blood Pact, and draenei presences.',
   '- A shaman runs only ONE air totem at a time: Windfury, Grace of Air and Wrath of Air are all air totems.',
+  '- Party mana buffs (Vampiric Touch, Mana Spring, Mana Tide) scale strongly with fight length. The payload includes fightLengthSec, and the layout weights already assume it — do not suggest mana-motivated regrouping beyond what the sheet shows unless the actual fight is much longer than fightLengthSec.',
   '- Windfury Totem does not affect shapeshifted druids or hunters, and enhancement shamans use their own weapon imbues instead.',
   '- A non-enhancement shaman grouped with melee is expected to drop Windfury as baseline; the group notes say which totem each group gets.',
   'Critique the group layout, debuff assignments, blessings and uncovered list as an advisory second opinion.',
