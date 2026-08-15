@@ -93,3 +93,154 @@ loader:SetScript("OnEvent", function(_, event)
         live:Hide()
     end
 end)
+
+-- === /racheck scoreboard =====================================================
+local CHECK_ROWS = 20
+local view          -- built lazily
+local viewIndex     -- 1-based index into RaidAssignAPI.Pulls()
+
+local function PullRows(p)
+    -- Flatten a pull record into display rows. `who` is whoever a whisper would go to.
+    local rows = {}
+    for _, r in ipairs(p.debuffs) do
+        local pct = (p.duration > 0) and (r.uptime / p.duration) or 0
+        local share = (r.uptime > 0) and (r.byAssignee / r.uptime) or 0
+        local label = RowColor(pct) .. r.name .. "  " .. Pct(pct) .. "|r  — " .. (r.player or "?")
+        if r.absent then
+            label = label .. " |cFF999999(not in raid)|r"
+        elseif not r.noattrib then
+            label = label .. "  |cFF999999" .. Pct(share) .. " by them|r"
+        end
+        table.insert(rows, { label = label, who = (not r.absent) and r.player or nil,
+            body = string.format("%s pull %d: %s up %s — assigned to you",
+                p.encounter, p.ordinal, r.name, Pct(pct)),
+            summary = r.name .. " " .. Pct(pct), pct = pct })
+    end
+    for _, b in ipairs(p.buffs or {}) do
+        local pct = b.fraction or 0
+        table.insert(rows, { label = RowColor(pct) .. b.name .. " (G" .. b.group .. ")  "
+                .. Pct(pct) .. "|r  — " .. (b.provider or "?"),
+            who = b.provider,
+            body = string.format("%s pull %d: %s in group %d up %s — your totem/shout",
+                p.encounter, p.ordinal, b.name, b.group, Pct(pct)),
+            summary = b.name .. " G" .. b.group .. " " .. Pct(pct), pct = pct })
+    end
+    return rows
+end
+
+local function Render()
+    local pulls = RaidAssignAPI.Pulls()
+    local p = pulls[viewIndex]
+    if not p then view:Hide() return end
+    view.title:SetText(string.format("%s #%d — %s — %d:%02d",
+        p.encounter, p.ordinal, p.success and "kill" or "wipe",
+        math.floor(p.duration / 60), math.floor(p.duration % 60)))
+    local rows = PullRows(p)
+    for i = 1, CHECK_ROWS do
+        local w, r = view.rows[i], rows[i]
+        if r then
+            w.label:SetText(r.label)
+            w.entry = r
+            w.check:SetChecked(false)
+            if r.who then w.check:Show() else w.check:Hide() end
+            w.label:Show()
+        else
+            w.entry = nil
+            w.check:Hide()
+            w.label:Hide()
+        end
+    end
+    if viewIndex > 1 then view.prevBtn:Enable() else view.prevBtn:Disable() end
+    if viewIndex < #pulls then view.nextBtn:Enable() else view.nextBtn:Disable() end
+end
+
+local function BuildView()
+    local f = CreateFrame("Frame", "RaidAssignCheckFrame", UIParent, "BackdropTemplate")
+    f:SetSize(520, 90 + CHECK_ROWS * 18)
+    f:SetPoint("CENTER")
+    f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOP", 0, -18)
+
+    f.rows = {}
+    for i = 1, CHECK_ROWS do
+        local row = {}
+        row.check = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        row.check:SetSize(18, 18)
+        row.check:SetPoint("TOPLEFT", 20, -(40 + (i - 1) * 18))
+        row.label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.label:SetPoint("TOPLEFT", 44, -(42 + (i - 1) * 18))
+        row.label:SetJustifyH("LEFT")
+        f.rows[i] = row
+    end
+
+    local function Button(label, width, x)
+        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        b:SetSize(width, 22)
+        b:SetPoint("BOTTOMLEFT", x, 14)
+        b:SetText(label)
+        return b
+    end
+    f.prevBtn = Button("◀", 34, 20)
+    f.prevBtn:SetScript("OnClick", function() viewIndex = viewIndex - 1; Render() end)
+    f.nextBtn = Button("▶", 34, 58)
+    f.nextBtn:SetScript("OnClick", function() viewIndex = viewIndex + 1; Render() end)
+    f.whisperBtn = Button("Whisper selected", 130, 100)
+    f.whisperBtn:SetScript("OnClick", function()
+        -- Nothing here sends by itself: only the checked rows, only on this click.
+        local entries = {}
+        for i = 1, CHECK_ROWS do
+            local w = f.rows[i]
+            if w.entry and w.entry.who and w.check:GetChecked() then
+                table.insert(entries, { name = w.entry.who, body = w.entry.body })
+            end
+        end
+        if #entries == 0 then Print("Nothing selected.") return end
+        local ok, countOrReason = RaidAssignAPI.SendRaw(entries)
+        if ok then Print("Whispering " .. countOrReason .. " player(s).")
+        else Print(countOrReason) end
+    end)
+    f.postBtn = Button("Post summary", 110, 238)
+    f.postBtn:SetScript("OnClick", function()
+        local p = RaidAssignAPI.Pulls()[viewIndex]
+        if not p then return end
+        -- One header plus the sub-90% offenders; a full dump of green rows is noise.
+        SendChatMessage(string.format("%s pull %d (%s):", p.encounter, p.ordinal,
+            p.success and "kill" or "wipe"), "RAID")
+        for _, r in ipairs(PullRows(p)) do
+            if r.pct < 0.9 then SendChatMessage(r.summary, "RAID") end
+        end
+    end)
+    f.closeBtn = Button("Close", 70, 430)
+    f.closeBtn:SetScript("OnClick", function() f:Hide() end)
+    return f
+end
+
+SLASH_RACHECK1 = "/racheck"
+SlashCmdList["RACHECK"] = function(msg)
+    local arg = (msg or ""):match("^%s*(%S*)"):lower()
+    if arg == "live" then
+        RaidAssignDB = RaidAssignDB or {}
+        RaidAssignDB.liveView = (RaidAssignDB.liveView == false)
+        Print("Live view " .. (RaidAssignDB.liveView ~= false and "on" or "off") .. ".")
+        return
+    end
+    local pulls = RaidAssignAPI.Pulls()
+    if #pulls == 0 then
+        Print("No pulls recorded yet — load an RSW3 payload from the web tool, then pull a boss.")
+        return
+    end
+    viewIndex = #pulls
+    if not view then view = BuildView() end
+    Render()
+    view:Show()
+end

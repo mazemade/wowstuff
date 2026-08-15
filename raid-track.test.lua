@@ -49,6 +49,8 @@ local function MockFrame()
     rawset(f, 'Click', function(self)
         if self.scripts.OnClick then self.scripts.OnClick(self) end
     end)
+    rawset(f, 'SetChecked', function(self, v) self.checked = v end)
+    rawset(f, 'GetChecked', function(self) return self.checked end)
     return f
 end
 
@@ -56,9 +58,12 @@ end
 local function BuildWorld(opts)
     opts = opts or {}
     world = { time = 0, raid = opts.raid or {}, tracking = opts.tracking,
-              frames = {}, messages = {} }
+              frames = {}, messages = {}, sent = {}, raw = {} }
     _G.RaidAssignDB = nil
     _G.RaidAssignLiveFrame = nil
+    _G.RaidAssignCheckFrame = nil
+    _G.SlashCmdList = {}
+    _G.SendChatMessage = function(msg, chan) world.sent[#world.sent + 1] = chan .. ':' .. msg end
     _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) world.messages[#world.messages + 1] = m end }
     _G.UIParent = MockFrame()
     _G.ChatFontNormal = {}
@@ -85,7 +90,12 @@ local function BuildWorld(opts)
         return m and m.buffs and m.buffs[j] or nil
     end
     _G.CombatLogGetCurrentEventInfo = function() return unpack(world.cleu) end
-    _G.RaidAssignAPI = { GetTracking = function() return world.tracking end }
+    -- SendRaw is RaidAssign.lua's, which this harness does not load: capture the entries
+    -- TrackUI hands over instead, so the assertions are about what would be whispered.
+    _G.RaidAssignAPI = {
+        GetTracking = function() return world.tracking end,
+        SendRaw = function(entries) world.raw[#world.raw + 1] = entries; return true, #entries, {} end,
+    }
     dofile('RaidAssign/Track.lua')
     world.tracker = world.frames[1]
     dofile('RaidAssign/TrackUI.lua')
@@ -316,6 +326,97 @@ test('liveView=false keeps the frame hidden', function()
     Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
     TickAll()
     assertEqual(RaidAssignLiveFrame:IsShown(), false)
+end)
+
+-- --- /racheck scoreboard (TrackUI.lua) ---
+
+local function RecordPull(uptimeSecs)
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = world.time + uptimeSecs
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = world.time + (100 - uptimeSecs)
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 0)
+end
+
+test('/racheck renders the latest pull with uptime and assignee share', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    RecordPull(41)
+    SlashCmdList['RACHECK']('')
+    assertEqual(RaidAssignCheckFrame:IsShown(), true)
+    assertMatch(RaidAssignCheckFrame.title:GetText(), 'Gruul #1')
+    local row = RaidAssignCheckFrame.rows[1]
+    assertMatch(row.label:GetText(), 'Curse of Elements')
+    assertMatch(row.label:GetText(), '41%%')
+    assertMatch(row.label:GetText(), 'Zug')
+end)
+
+test('whisper selected sends through SendRaw with a factual body', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    RecordPull(41)
+    SlashCmdList['RACHECK']('')
+    RaidAssignCheckFrame.rows[1].check:SetChecked(true)
+    RaidAssignCheckFrame.whisperBtn:Click()
+    assertEqual(#world.raw, 1)
+    assertEqual(world.raw[1][1].name, 'Zug')
+    assertMatch(world.raw[1][1].body, 'Gruul pull 1')
+    assertMatch(world.raw[1][1].body, 'Curse of Elements up 41%%')
+end)
+
+test('nothing selected: whisper button sends nothing', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    RecordPull(41)
+    SlashCmdList['RACHECK']('')
+    RaidAssignCheckFrame.whisperBtn:Click()
+    assertEqual(#world.raw, 0)
+end)
+
+test('prev/next walk stored pulls', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    RecordPull(41)
+    RecordPull(95)
+    SlashCmdList['RACHECK']('')
+    assertMatch(RaidAssignCheckFrame.title:GetText(), '#2')
+    RaidAssignCheckFrame.prevBtn:Click()
+    assertMatch(RaidAssignCheckFrame.title:GetText(), '#1')
+    RaidAssignCheckFrame.nextBtn:Click()
+    assertMatch(RaidAssignCheckFrame.title:GetText(), '#2')
+end)
+
+test('/racheck with no pulls explains itself', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    SlashCmdList['RACHECK']('')
+    assertMatch(world.messages[#world.messages], 'No pulls recorded')
+end)
+
+test('/racheck live toggles the live view', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    SlashCmdList['RACHECK']('live')
+    assertEqual(RaidAssignDB.liveView, false)
+    SlashCmdList['RACHECK']('live')
+    assertEqual(RaidAssignDB.liveView, true)
+end)
+
+test('post summary goes to raid chat on click only', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } },
+                 tracking = { debuffs = { COE }, buffs = {} } })
+    RecordPull(41)
+    assertEqual(#world.sent, 0)
+    SlashCmdList['RACHECK']('')
+    RaidAssignCheckFrame.postBtn:Click()
+    assertEqual(world.sent[1] ~= nil, true)
+    assertMatch(world.sent[1], 'RAID:')
+    local found = false
+    for _, line in ipairs(world.sent) do
+        if line:find('Curse of Elements 41%%') then found = true end
+    end
+    assertEqual(found, true)
 end)
 
 print(string.format('\n%d passed, %d failed', passed, failed))
