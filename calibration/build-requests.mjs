@@ -11,6 +11,19 @@
 // one buff.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 
+const args = process.argv.slice(2);
+function argOf(flag, dflt) {
+    const i = args.indexOf(flag);
+    return i === -1 ? dflt : args[i + 1];
+}
+// Spec D1: anchors are simmed one duration at a time. Spec D2: the SP feeding Vampiric
+// Touch is a real raid member, not wowsims' 500-dps default — 1150 ≈ the measured Shadow
+// unbuffed baseline, which itself moves only ~3% across the anchor range. VT scales
+// SUB-linearly in this number (spec F4), which is exactly why it is set here at sim time
+// instead of scaled after the fact.
+const DURATION = parseInt(argOf('--duration', '200'), 10);
+const SP_DPS = parseInt(argOf('--sp-dps', '1150'), 10);
+
 // Verified against vendor/tbc-new/proto/common.proto at the pinned SHA:
 // enum TristateEffect { Missing = 0; Regular = 1; Improved = 2 } and
 // `int32 ferocious_inspiration` / `int32 totem_of_wrath` / `int32 mana_tide_totems`.
@@ -37,7 +50,7 @@ const BASE_PARTY = {
     // sim twisted too, each air totem's marginal value would be measured inside a twist and
     // the engine would then compound it a second time.
 };
-const BASE_INDIVIDUAL = { unleashedRage: true, shadowPriestDps: 500 };
+const BASE_INDIVIDUAL = { unleashedRage: true, shadowPriestDps: SP_DPS };
 
 // buffName (MUST match the engine's PARTY_BUFFS row names) -> [scope, field, offValue]
 const TOGGLES = {
@@ -103,7 +116,7 @@ function makeRequest(entry, partyOverrides, individualOverrides) {
             tanks: entry.isTank ? [{ type: 'Player', index: 0 }] : [],
         },
         encounter: {
-            duration: 180,
+            duration: DURATION,
             durationVariation: 0,
             targets: [{ level: 73, mobType: 'MobTypeDemon', stats: [], swingSpeed: 2, minBaseDamage: 4000 }],
         },
@@ -111,13 +124,13 @@ function makeRequest(entry, partyOverrides, individualOverrides) {
     };
 }
 
-mkdirSync(here('./out/requests/'), { recursive: true });
+mkdirSync(here(`./out/requests-${DURATION}/`), { recursive: true });
 let n = 0;
 for (const f of readdirSync(here('./out/profiles/')).filter(f => f.endsWith('.json')).sort()) {
     const specFile = f.replace('.json', '');
     const entry = JSON.parse(readFileSync(here('./out/profiles/' + f), 'utf8'));
     const w = (name, req) => {
-        writeFileSync(here(`./out/requests/${specFile}__${name}.json`), JSON.stringify(req, null, 1));
+        writeFileSync(here(`./out/requests-${DURATION}/${specFile}__${name}.json`), JSON.stringify(req, null, 1));
         n++;
     };
     w('BASELINE', makeRequest(entry, {}, {}));

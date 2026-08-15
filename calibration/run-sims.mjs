@@ -9,10 +9,16 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const here = p => new URL(p, import.meta.url);
 const cli = here('./vendor/wowsimcli').pathname;
-const outPath = here('./out/results.json');
+const args = process.argv.slice(2);
+function argOf(flag, dflt) {
+    const i = args.indexOf(flag);
+    return i === -1 ? dflt : args[i + 1];
+}
+const reqDir = argOf('--requests', './out/requests/').replace(/\/?$/, '/');
+const outPath = here(argOf('--out', './out/results.json'));
 
 const results = existsSync(outPath) ? JSON.parse(readFileSync(outPath, 'utf8')) : {};
-const files = readdirSync(here('./out/requests/')).filter(f => f.endsWith('.json')).sort();
+const files = readdirSync(here(reqDir)).filter(f => f.endsWith('.json')).sort();
 const resume = process.argv.includes('--resume');
 
 let done = 0;
@@ -20,7 +26,7 @@ for (const f of files) {
     const key = f.replace('.json', '');
     done++;
     if (resume && results[key]) continue;
-    const inPath = here('./out/requests/' + f).pathname;
+    const inPath = here(reqDir + f).pathname;
     let out;
     try {
         out = JSON.parse(execFileSync(cli, ['sim', '--infile', inPath], {
