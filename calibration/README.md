@@ -20,12 +20,35 @@ go build -tags with_db -o ../wowsimcli ./cmd/wowsimcli        # see the trap bel
 cd ../..
 node extract-presets.mjs                                     # ui/<spec>/presets.ts -> presets.json
 (cd dump-profiles && go run .)                               # + phase_2 gear/APLs -> out/profiles
-node build-requests.mjs                                      # -> out/requests (396 requests)
-node run-sims.mjs --resume                                   # ~35 min; writes out/results.json incrementally
-node make-weights.mjs 2026-08-13                             # -> weights.json, floors-report.md
+
+# Three duration anchors (spec 2026-08-15 D1). Each is a full 396-request pass.
+node build-requests.mjs --duration 200                       # -> out/requests-200 (396 requests)
+node build-requests.mjs --duration 300
+node build-requests.mjs --duration 520
+
+# ~35-60 min EACH; --resume skips keys already in the results file after a crash.
+node run-sims.mjs --requests ./out/requests-200/ --out ./out/results-200.json --resume
+node run-sims.mjs --requests ./out/requests-300/ --out ./out/results-300.json --resume
+node run-sims.mjs --requests ./out/requests-520/ --out ./out/results-520.json --resume
+
+# -> weights-<dur>.json + floors-report-<dur>.md
+node make-weights.mjs --date 2026-08-15 --duration 200 --results ./out/results-200.json --out ./weights-200.json
+node make-weights.mjs --date 2026-08-15 --duration 300 --results ./out/results-300.json --out ./weights-300.json
+node make-weights.mjs --date 2026-08-15 --duration 520 --results ./out/results-520.json --out ./weights-520.json
+
 node inject-weights.mjs                                      # rewrites the engine's calibration block
 node ../assignments-engine.test.js
+
+# Acceptance gates (spec D8) — both must pass before the weights ship.
+node measure-gap.mjs                                         # exact vs climb; blocks at >=1%
+node sim-verify.mjs ssc-roster.json 5000 200                 # sim must agree with the model's ranking
+node sim-verify.mjs ssc-roster.json 5000 520
 ```
+
+`inject-weights.mjs` writes `CAL_ANCHORS` plus EMPTY-SHAPED `BASELINE`/`BUFF_V`; the
+hand-written `setEncounterDuration()` immediately after the `CALIBRATION END` marker fills
+them by piecewise-linear interpolation. That code is NOT generated — do not delete it when
+regenerating, and keep it after the marker so `PARTY_BUFFS` binds live table references.
 
 **The trap:** without `-tags with_db` the binary builds fine and every sim then dies with
 `No item with id: 30141`. The item database is embedded behind that build tag
@@ -81,6 +104,16 @@ Each of these changes what the engine believes, so they are listed rather than b
    joint value). Getting this wrong is not a harmless constant: each spec's party-buff package
    is worth a different amount, from 1.09x for a shadow priest to 1.55x for a ret paladin, so
    using the fully-buffed number as the baseline inflates melee against casters by ~40%.
+7. **Three duration anchors (200/300/520s), linearly interpolated.** Kill-time data is
+   bimodal (farm ~2m30s–3m30s, Vashj/Kael ~8m), and mana-buff marginals ramp near-linearly
+   with duration from a ~180s foot while every physical buff stays flat — so the engine
+   interpolates between anchor tables instead of shipping one duration's truth
+   (spec 2026-08-15, §F1–F3, §D1). The old single 180s table sat at the exact duration
+   where mana barely matters yet, which understated Vampiric Touch by up to ~13pp.
+8. **`shadowPriestDps: 1150` at every anchor** — the measured Shadow unbuffed baseline
+   (moves only ~3% across anchors), replacing wowsims' 500 default that halved VT's value.
+   VT scales SUB-linearly in this number, so it is set at sim time; the engine does NOT
+   scale VT by the actual shadow priest's multiplier at runtime (known limitation, spec D2).
 
 ## What the measurement changed
 

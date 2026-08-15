@@ -2,7 +2,7 @@
 // Sims the model's chosen layout and its alternates as FULL raids, and reports whether the
 // sim agrees with the model's ranking.
 //
-// Usage: node sim-verify.mjs ssc-roster.json [iterations]
+// Usage: node sim-verify.mjs ssc-roster.json [iterations] [durationSec]
 //
 // The point is to check the surrogate, so the parties are built from real providers with the
 // proto buff flags zeroed: whatever a group "buys" has to come from the players actually
@@ -18,6 +18,8 @@ const here = p => new URL(p, import.meta.url);
 
 const roster = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const iterations = parseInt(process.argv[3] || '5000', 10);
+const duration = parseInt(process.argv[4] || '200', 10);
+E.setEncounterDuration(duration); // the model must be asked at the same duration the sim runs
 mkdirSync(here('./out/'), { recursive: true });
 
 const profileFor = p => {
@@ -52,7 +54,7 @@ function simLayout(groups, label) {
     const req = {
         raid: { parties, buffs: RAID_BUFFS, debuffs: DEBUFFS, tanks: [] },
         encounter: {
-            duration: 180, durationVariation: 0,
+            duration: duration, durationVariation: 0,
             targets: [{ level: 73, mobType: 'MobTypeDemon', stats: [], swingSpeed: 2, minBaseDamage: 4000 }],
         },
         simOptions: { iterations, randomSeed: '42' },
