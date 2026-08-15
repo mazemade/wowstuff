@@ -204,5 +204,58 @@ test('LastPullInfo headline counts sub-90% rows', function()
     assertEqual(RaidAssignAPI.LastPullInfo(), 'Gruul #1 — 1 of 1 below 90%')
 end)
 
+local WF = { id = 'wf', name = 'Windfury Totem', auras = 'Windfury Totem', group = 1, provider = 'Sham' }
+
+test('group buff fraction is the mean of member uptimes', function()
+    BuildWorld({ raid = {
+        { name = 'A', subgroup = 1, buffs = { 'Windfury Totem' } },
+        { name = 'B', subgroup = 1, buffs = {} },
+        { name = 'C', subgroup = 2, buffs = { 'Windfury Totem' } }, -- wrong group: ignored
+    }, tracking = { debuffs = {}, buffs = { WF } } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    for _ = 1, 10 do Tick(1.0) end
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    local b = RaidAssignDB.pulls[1].buffs[1]
+    assertEqual(b.id, 'wf')
+    assertEqual(b.group, 1)
+    assertClose(b.fraction, 0.5) -- A 100%, B 0%
+end)
+
+test('dead members do not count against the buff', function()
+    BuildWorld({ raid = {
+        { name = 'A', subgroup = 1, buffs = { 'Windfury Totem' } },
+        { name = 'B', subgroup = 1, buffs = {}, dead = true },
+    }, tracking = { debuffs = {}, buffs = { WF } } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    for _ = 1, 5 do Tick(1.0) end
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertClose(RaidAssignDB.pulls[1].buffs[1].fraction, 1.0) -- B never alive, excluded
+end)
+
+test('aura name variants match', function()
+    BuildWorld({ raid = { { name = 'A', subgroup = 1, buffs = { 'Strength of Earth Totem' } } },
+                 tracking = { debuffs = {}, buffs = {
+                     { id = 'soe', name = 'Strength of Earth',
+                       auras = 'Strength of Earth,Strength of Earth Totem', group = 1, provider = 'S' } } } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    for _ = 1, 4 do Tick(1.0) end
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    assertClose(RaidAssignDB.pulls[1].buffs[1].fraction, 1.0)
+end)
+
+test('TrackLive shows current buffed count per group', function()
+    BuildWorld({ raid = {
+        { name = 'A', subgroup = 1, buffs = { 'Windfury Totem' } },
+        { name = 'B', subgroup = 1, buffs = {} },
+    }, tracking = { debuffs = {}, buffs = { WF } } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Tick(1.0)
+    local rows = RaidAssignAPI.TrackLive()
+    assertEqual(rows[1].kind, 'B')
+    assertEqual(rows[1].name, 'Windfury Totem (G1)')
+    assertEqual(rows[1].have, 1)
+    assertEqual(rows[1].total, 2)
+end)
+
 print(string.format('\n%d passed, %d failed', passed, failed))
 if failed > 0 then os.exit(1) end

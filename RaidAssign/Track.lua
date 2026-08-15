@@ -83,6 +83,44 @@ local f = CreateFrame("Frame")
 f:RegisterEvent("ENCOUNTER_START")
 f:RegisterEvent("ENCOUNTER_END")
 
+local SCAN_INTERVAL = 1.0
+
+local function UnitHasAny(unit, set)
+    for j = 1, 40 do
+        local name = UnitAura(unit, j, "HELPFUL")
+        if not name then return false end
+        if set[name] then return true end
+    end
+    return false
+end
+
+-- Sampling, not events: totem auras flicker on range and UNIT_AURA fires constantly in
+-- a raid. One pass per second over 25 units is cheap and the error is bounded by the
+-- sample step. Dead time is excluded per member; a member never sampled alive drops out.
+local function ScanTick(_, dt)
+    if not active then return end
+    active.scanElapsed = active.scanElapsed + dt
+    if active.scanElapsed < SCAN_INTERVAL then return end
+    local step = active.scanElapsed
+    active.scanElapsed = 0
+    for i = 1, GetNumGroupMembers() do
+        local full, _, subgroup = GetRaidRosterInfo(i)
+        if full and subgroup then
+            local unit = "raid" .. i
+            if not UnitIsDeadOrGhost(unit) then
+                for _, b in ipairs(active.buffs) do
+                    if b.group == subgroup then
+                        local m = b.members[full] or { alive = 0, buffed = 0 }
+                        b.members[full] = m
+                        m.alive = m.alive + step
+                        if UnitHasAny(unit, b.set) then m.buffed = m.buffed + step end
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function StartPull(encounterID, name)
     local tracking = RaidAssignAPI and RaidAssignAPI.GetTracking and RaidAssignAPI.GetTracking()
     if not tracking then return end
@@ -95,7 +133,11 @@ local function StartPull(encounterID, name)
             player = t.player, noattrib = t.noattrib, dests = {},
             absent = (not inRaid[(t.player or ""):lower()]) or nil })
     end
-    -- Task 5 seeds active.buffs and starts the scan ticker here.
+    for _, t in ipairs(tracking.buffs or {}) do
+        table.insert(active.buffs, { id = t.id, name = t.name, set = AuraSet(t.auras),
+            group = t.group, provider = t.provider, members = {} })
+    end
+    if #active.buffs > 0 then f:SetScript("OnUpdate", ScanTick) end
     f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 end
 
@@ -112,13 +154,21 @@ local function EndPull(success)
             noattrib = d.noattrib, absent = d.absent,
             uptime = s.uptime, byAssignee = s.mine })
     end
-    -- Task 5 appends buff records here.
+    for _, b in ipairs(active.buffs) do
+        local sum, n = 0, 0
+        for _, m in pairs(b.members) do
+            if m.alive > 0 then sum = sum + m.buffed / m.alive; n = n + 1 end
+        end
+        table.insert(rec.buffs, { id = b.id, name = b.name, group = b.group,
+            provider = b.provider, fraction = (n > 0) and (sum / n) or 0 })
+    end
     RaidAssignDB = RaidAssignDB or {}
     RaidAssignDB.pulls = RaidAssignDB.pulls or {}
     table.insert(RaidAssignDB.pulls, rec)
     while #RaidAssignDB.pulls > PULL_CAP do table.remove(RaidAssignDB.pulls, 1) end
     active = nil
     f:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+    f:SetScript("OnUpdate", nil)
     Print(rec.encounter .. " pull " .. rec.ordinal .. " recorded — /racheck for the scoreboard.")
 end
 
@@ -161,7 +211,21 @@ RaidAssignAPI.TrackLive = function()
         end
         table.insert(rows, { kind = "D", name = d.name, pct = up / elapsed, down = down })
     end
-    -- Task 5 appends kind="B" rows.
+    for _, b in ipairs(active.buffs) do
+        local have, total = 0, 0
+        for i = 1, GetNumGroupMembers() do
+            local full, _, subgroup = GetRaidRosterInfo(i)
+            if full and subgroup == b.group then
+                local unit = "raid" .. i
+                if not UnitIsDeadOrGhost(unit) then
+                    total = total + 1
+                    if UnitHasAny(unit, b.set) then have = have + 1 end
+                end
+            end
+        end
+        table.insert(rows, { kind = "B", name = b.name .. " (G" .. b.group .. ")",
+            have = have, total = total, pct = (total > 0) and (have / total) or 0 })
+    end
     return rows
 end
 
