@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 // Turns raw sim results into the engine's tables: v = baseline/without − 1 per (spec, buff).
 //
-// Usage: node make-weights.mjs <date>   e.g. node make-weights.mjs 2026-08-13
+// Usage: node make-weights.mjs --date <d> --duration <sec> --results <path> --out <path>
+//   e.g. node make-weights.mjs --date 2026-08-15 --duration 200 --results ./out/results-200.json --out ./weights-200.json
 // The date is an argument rather than Date.now() so a rerun reproduces byte-identical output.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 const here = p => new URL(p, import.meta.url);
-const results = JSON.parse(readFileSync(here('./out/results.json'), 'utf8'));
+const args = process.argv.slice(2);
+function argOf(flag, dflt) {
+    const i = args.indexOf(flag);
+    return i === -1 ? dflt : args[i + 1];
+}
+const DURATION = parseInt(argOf('--duration', '200'), 10);
+const results = JSON.parse(readFileSync(here(argOf('--results', './out/results.json')), 'utf8'));
 
 // Sim noise floor. At 10000 iterations a true-zero buff still wanders a few tenths of a
 // percent, and a spurious 0.2% is enough to move a layout. Anything under this is recorded
@@ -117,21 +124,21 @@ if (!sha) {
 const weights = {
     meta: {
         wowsimsSha: sha,
-        encounter: '180s single target, level 73 demon',
+        encounter: `${DURATION}s single target, level 73 demon`,
         iterations: 10000,
-        date: process.argv[2] || 'set-me',
+        date: argOf('--date', 'set-me'),
         noiseFloor: NOISE,
         profileSource: 'ui/<spec>/presets.ts + phase_2 gear_sets, via calibration/dump-profiles',
     },
     baselines,
     buffs,
 };
-writeFileSync(here('./weights.json'), JSON.stringify(weights, null, 1));
+writeFileSync(here(argOf('--out', './weights.json')), JSON.stringify(weights, null, 1));
 
-writeFileSync(here('./floors-report.md'),
+writeFileSync(here(`./floors-report-${DURATION}.md`),
     '# Tank threat and damage-taken, from the calibration baselines\n\n' +
     'Measured in the same fully-buffed single-player runs that produced the DPS baselines\n' +
-    '(180s single target, 10000 iterations). This is the evidence behind spec §2\'s floors:\n' +
+    `(${DURATION}s single target, 10000 iterations). This is the evidence behind spec §2's floors:\n` +
     'the threat floor exists because a Protection paladin\'s TPS is driven by spell damage\n' +
     '(Improved Righteous Fury), and the survival floor because DTPS is what a missing shaman\n' +
     'costs a main tank.\n\n' +
