@@ -8,4 +8,5 @@
 Scan.lua
 RaidAssign.lua
 Track.lua
+TrackUI.lua
 Minimap.lua

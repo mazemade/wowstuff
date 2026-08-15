@@ -23,15 +23,32 @@ local function assertClose(actual, expected)
         error('\n    expected ~' .. expected .. ', got ' .. tostring(actual), 2)
     end
 end
+local function assertMatch(s, pattern)
+    if not tostring(s):find(pattern) then
+        error('\n    expected to match: ' .. pattern .. '\n    actual: ' .. tostring(s), 2)
+    end
+end
 
 local world
+-- shown starts true on purpose: TrackUI must hide the live frame explicitly at build
+-- time, or it would sit on screen at login. A default of false would hide that bug.
 local function MockFrame()
-    local f = { scripts = {}, events = {} }
+    local f = { scripts = {}, events = {}, text = '', shown = true, enabled = true }
     setmetatable(f, { __index = function() return function() return MockFrame() end end })
     rawset(f, 'SetScript', function(self, k, fn) rawset(self.scripts, k, fn) end)
     rawset(f, 'GetScript', function(self, k) return self.scripts[k] end)
     rawset(f, 'RegisterEvent', function(self, e) self.events[e] = true end)
     rawset(f, 'UnregisterEvent', function(self, e) self.events[e] = nil end)
+    rawset(f, 'SetText', function(self, t) self.text = t end)
+    rawset(f, 'GetText', function(self) return self.text end)
+    rawset(f, 'Show', function(self) self.shown = true end)
+    rawset(f, 'Hide', function(self) self.shown = false end)
+    rawset(f, 'IsShown', function(self) return self.shown end)
+    rawset(f, 'Enable', function(self) self.enabled = true end)
+    rawset(f, 'Disable', function(self) self.enabled = false end)
+    rawset(f, 'Click', function(self)
+        if self.scripts.OnClick then self.scripts.OnClick(self) end
+    end)
     return f
 end
 
@@ -41,9 +58,16 @@ local function BuildWorld(opts)
     world = { time = 0, raid = opts.raid or {}, tracking = opts.tracking,
               frames = {}, messages = {} }
     _G.RaidAssignDB = nil
+    _G.RaidAssignLiveFrame = nil
     _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) world.messages[#world.messages + 1] = m end }
     _G.UIParent = MockFrame()
-    _G.CreateFrame = function() local f = MockFrame(); world.frames[#world.frames + 1] = f; return f end
+    _G.ChatFontNormal = {}
+    _G.CreateFrame = function(_, name)
+        local f = MockFrame()
+        world.frames[#world.frames + 1] = f
+        if name then _G[name] = f end
+        return f
+    end
     _G.GetTime = function() return world.time end
     _G.date = function() return '2026-08-15 21:00' end
     _G.IsInRaid = function() return #world.raid > 0 end
@@ -64,6 +88,16 @@ local function BuildWorld(opts)
     _G.RaidAssignAPI = { GetTracking = function() return world.tracking end }
     dofile('RaidAssign/Track.lua')
     world.tracker = world.frames[1]
+    dofile('RaidAssign/TrackUI.lua')
+end
+
+-- Every frame's OnUpdate, the way the client drives them: the tracker's scan ticker and
+-- TrackUI's refresh poll both live on OnUpdate and neither knows about the other.
+local function TickAll(dt)
+    for _, fr in ipairs(world.frames) do
+        local h = fr.scripts.OnUpdate
+        if h then h(fr, dt or 1.0) end
+    end
 end
 
 local function Fire(event, ...)
@@ -255,6 +289,33 @@ test('TrackLive shows current buffed count per group', function()
     assertEqual(rows[1].name, 'Windfury Totem (G1)')
     assertEqual(rows[1].have, 1)
     assertEqual(rows[1].total, 2)
+end)
+
+-- --- Live view (TrackUI.lua) ---
+
+test('live view appears on pull, rows render, hides on end', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 50
+    Cleu('SPELL_AURA_REMOVED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 60
+    TickAll()
+    assertEqual(RaidAssignLiveFrame:IsShown(), true)
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'Curse of Elements')
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), '83%%')      -- 50/60
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'down 10s')
+    Fire('ENCOUNTER_END', 649, 'Gruul', 173, 25, 1)
+    TickAll()
+    assertEqual(RaidAssignLiveFrame:IsShown(), false)
+end)
+
+test('liveView=false keeps the frame hidden', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    RaidAssignDB = { liveView = false }
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    TickAll()
+    assertEqual(RaidAssignLiveFrame:IsShown(), false)
 end)
 
 print(string.format('\n%d passed, %d failed', passed, failed))
