@@ -23,23 +23,32 @@ Out of scope for v1: blessing checks at the pull, trash fights, any WCL integrat
 
 ## 1. Payload: RSW3 `@T` lines
 
+> **Revision 2026-08-15 (planning):** match keys are **aura names**, not spell IDs.
+> Both `COMBAT_LOG_EVENT_UNFILTERED` and `UnitAura` report the aura name; names are
+> stable across spell ranks, whereas per-rank ID lists and cast-ID-vs-aura-ID
+> mismatches are silent-failure territory. The client is English, so names are
+> unambiguous. A field may carry several comma-separated names where the in-game
+> aura name is uncertain or has variants (e.g. `Faerie Fire,Faerie Fire (Feral)`);
+> the manual gate verifies each name on a dummy/raid and prunes wrong variants.
+
 The Addon tab export bumps its version line to `RSW3`. The addon accepts RSW1/2/3;
 older payloads simply load with no tracking. New line type, one per tracked item:
 
 ```
-@T D|coe|Curse of Elements|27228,11722,11721,1490|Zugzug
-@T B|wf|Windfury Totem|25587,25505|3|Thrallson
+@T D|coe|Curse of Elements|Curse of the Elements|Zugzug
+@T D|scorch|Improved Scorch|Fire Vulnerability|Frostina
+@T B|wf|Windfury Totem|Windfury Totem|3|Thrallson
 ```
 
-- `D` (boss debuff): `id | display name | spellIDs, all ranks | assigned player`
-- `B` (group buff): `id | display name | spellIDs, all ranks | group number | provider`
+- `D` (boss debuff): `id | display name | aura names (comma-sep) | assigned player | flags`
+  — `flags` is optional; `noattrib` marks debuffs where per-player attribution is
+  meaningless (Sunder Armor: every warrior stacks it; Screech: applied by a pet).
+- `B` (group buff): `id | display name | aura names (comma-sep) | group number | provider`
 
-Web-tool side: `DEBUFF_CATALOG` entries and the totem tables in
-`assignments-engine.js` gain `spellIds` arrays (all TBC ranks — combat log events
-carry the rank actually cast). For `B` lines these are the **aura IDs seen on
-players**, not the totem cast IDs (e.g. Windfury Totem's cast and its party aura
-are different spells); every ID list must be verified against the Anniversary
-client during implementation — the examples above are illustrative. The export walks the same assignment results it
+Web-tool side: a duty-name → aura-name table in `assignments-engine.js` drives `D`
+lines from the assigned duties; `B` lines are derived per group from the same
+helpers the group notes use (air-totem choice, shaman/warrior presence).
+Assignments the engine marks unassigned/uncovered produce no `@T` line. The export walks the same assignment results it
 already renders, so the `@T` lines always match the sheet on screen. Assignments the
 engine marks unassigned/uncovered produce no `@T` line.
 
