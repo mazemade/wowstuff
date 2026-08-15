@@ -46,12 +46,24 @@ for i = 1, ROWS_MAX do
     live.rows[i] = r
 end
 
+-- /racheck demo: sample rows so the frame can be positioned and eyeballed outside a boss
+-- pull. Real pull data always wins — the demo is only what shows when there is none.
+local DEMO_ROWS = {
+    { kind = "D", name = "Curse of Elements", pct = 0.97 },
+    { kind = "D", name = "Sunder Armor", pct = 0.62, down = 8 },
+    { kind = "D", name = "Faerie Fire", pct = 0.81 },
+    { kind = "B", name = "Windfury Totem (G1)", pct = 1.0, have = 5, total = 5 },
+    { kind = "B", name = "Strength of Earth (G2)", pct = 0.6, have = 3, total = 5 },
+}
+local demo = false
+
 local elapsed = 0
 live:SetScript("OnUpdate", function(self, dt)
     elapsed = elapsed + dt
     if elapsed < REFRESH then return end
     elapsed = 0
     local rows = RaidAssignAPI.TrackLive and RaidAssignAPI.TrackLive()
+    if not rows and demo then rows = DEMO_ROWS end
     if not rows or (RaidAssignDB and RaidAssignDB.liveView == false) then
         if self:IsShown() then self:Hide() end
         return
@@ -232,6 +244,13 @@ SlashCmdList["RACHECK"] = function(msg)
         RaidAssignDB = RaidAssignDB or {}
         RaidAssignDB.liveView = (RaidAssignDB.liveView == false)
         Print("Live view " .. (RaidAssignDB.liveView ~= false and "on" or "off") .. ".")
+        return
+    end
+    if arg == "demo" then
+        demo = not demo
+        if demo then live:Show() else live:Hide() end
+        Print("Live view demo " .. (demo and "on — drag it where you want it, /racheck demo to stop."
+                                         or "off."))
         return
     end
     local pulls = RaidAssignAPI.Pulls()

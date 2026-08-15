@@ -411,7 +411,7 @@ test('clicking the minimap button opens a hub with the four actions', function()
     RaidAssignMinimapButton:Click()
     local texts = {}
     for _, item in ipairs(RaidAssignMinimapHub.items) do
-        texts[#texts + 1] = item.label.text
+        texts[#texts + 1] = item:GetText()
     end
     assertEqual(table.concat(texts, '|'), 'Scan raid|Assignments…|Apply groups|Check results')
 end)
@@ -457,7 +457,7 @@ test('minimap hub: four actions, status lines refresh on open', function()
     RaidAssignMinimapButton.scripts.OnClick(RaidAssignMinimapButton)
     assertEqual(RaidAssignMinimapHub:IsShown(), true)
     assertEqual(#RaidAssignMinimapHub.items, 4)
-    assertEqual(RaidAssignMinimapHub.items[4].label:GetText(), 'Check results')
+    assertEqual(RaidAssignMinimapHub.items[4]:GetText(), 'Check results')
     assertMatch(RaidAssignMinimapHub.status2:GetText(), 'Gruul #3')
     -- clicking an action hides the hub
     RaidAssignMinimapHub.items[4]:Click()

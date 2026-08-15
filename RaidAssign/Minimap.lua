@@ -86,14 +86,9 @@ local function BuildHub()
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         b:SetSize(HUB_W - 2 * PAD, BTN_H)
         b:SetPoint("TOPLEFT", PAD, -(PAD + 16 + 2 * 13 + 6 + (i - 1) * (BTN_H + 4)))
+        -- SetText only: UIPanelButtonTemplate draws its own centred font string, and an
+        -- extra one on top of it renders as doubled, slightly offset text in the client.
         b:SetText(action.text)
-        -- The template's own font string is not reachable from the test harness, so the
-        -- label mirrors the text: one hidden font string, and the button's name stays
-        -- assertable. The client draws both identically.
-        local label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("CENTER")
-        label:SetText(action.text)
-        b.label = label
         b:SetScript("OnClick", function()
             f:Hide()
             action.run()

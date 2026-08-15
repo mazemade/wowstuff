@@ -419,5 +419,28 @@ test('post summary goes to raid chat on click only', function()
     assertEqual(found, true)
 end)
 
+test('/racheck demo previews the live view outside a pull', function()
+    BuildWorld({ raid = {}, tracking = nil })
+    SlashCmdList['RACHECK']('demo')
+    TickAll()
+    assertEqual(RaidAssignLiveFrame:IsShown(), true)
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), 'Curse of Elements')
+    assertMatch(RaidAssignLiveFrame.rows[2]:GetText(), 'down ')
+    SlashCmdList['RACHECK']('demo')
+    TickAll()
+    assertEqual(RaidAssignLiveFrame:IsShown(), false)
+end)
+
+test('a real pull overrides the demo rows', function()
+    BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
+    SlashCmdList['RACHECK']('demo')
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    Cleu('SPELL_AURA_APPLIED', 'Zug', 'Creature-0-1', 'Curse of the Elements')
+    world.time = 20
+    TickAll()
+    assertMatch(RaidAssignLiveFrame.rows[1]:GetText(), '100%%')  -- live data, not the sample
+    assertEqual(RaidAssignLiveFrame.rows[2]:GetText(), '')
+end)
+
 print(string.format('\n%d passed, %d failed', passed, failed))
 if failed > 0 then os.exit(1) end
