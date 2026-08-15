@@ -2419,5 +2419,41 @@ test('v2: the climb result admits no improving 3-cycle', () => {
     assert.strictEqual(found, null, found || '');
 });
 
+test('duration: interpolation is monotone for VT and restores at anchors', () => {
+    E.setEncounterDuration(200);
+    const at200 = E.BUFF_V['Vampiric Touch']['SHAMAN:Elemental'] || 0;
+    E.setEncounterDuration(250);
+    const at250 = E.BUFF_V['Vampiric Touch']['SHAMAN:Elemental'] || 0;
+    E.setEncounterDuration(300);
+    const at300 = E.BUFF_V['Vampiric Touch']['SHAMAN:Elemental'] || 0;
+    E.setEncounterDuration(520);
+    const at520 = E.BUFF_V['Vampiric Touch']['SHAMAN:Elemental'] || 0;
+    assert.ok(at200 < at250 && at250 < at300 && at300 < at520,
+        'VT(ele) not monotone across durations: ' + [at200, at250, at300, at520].join(', '));
+    // returning to an anchor restores the exact anchor value (idempotence)
+    E.setEncounterDuration(200);
+    assert.strictEqual(E.BUFF_V['Vampiric Touch']['SHAMAN:Elemental'] || 0, at200);
+});
+test('duration: out-of-range clamps to the nearest anchor', () => {
+    E.setEncounterDuration(90);
+    const low = E.BUFF_V['Vampiric Touch']['MAGE:Arcane'] || 0;
+    E.setEncounterDuration(200);
+    assert.strictEqual(low, E.BUFF_V['Vampiric Touch']['MAGE:Arcane'] || 0);
+    E.setEncounterDuration(2000);
+    const hi = E.BUFF_V['Vampiric Touch']['MAGE:Arcane'] || 0;
+    E.setEncounterDuration(520);
+    assert.strictEqual(hi, E.BUFF_V['Vampiric Touch']['MAGE:Arcane'] || 0);
+    E.setEncounterDuration(200);
+});
+test('duration: PARTY_BUFFS rows see the change (captured references stay live)', () => {
+    const row = E.PARTY_BUFFS.filter(b => b.name === 'Vampiric Touch')[0];
+    E.setEncounterDuration(520);
+    const at520 = row.v['SHAMAN:Elemental'] || 0;
+    E.setEncounterDuration(200);
+    const at200 = row.v['SHAMAN:Elemental'] || 0;
+    assert.ok(at520 > at200,
+        'PARTY_BUFFS holds a stale VT table: 520s=' + at520 + ' vs 200s=' + at200);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
