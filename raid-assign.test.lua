@@ -106,8 +106,16 @@ local function BuildWorld(opts)
     _G.EasyMenu = nil
     _G.GetCursorPosition = function() return world.cursorX or 100, world.cursorY or 0 end
     _G.RaidAssignMinimapButton = nil
-    _G.RaidAssignMinimapMenu = nil
+    _G.RaidAssignMinimapHub = nil
+    -- Track.lua is loaded here too: the hub's status line asks it for the last pull, and a
+    -- stub would let the two drift. These are the globals it needs beyond the set above.
+    _G.GetTime = function() return world.time or 0 end
+    _G.date = function() return '2026-08-15 21:00' end
+    _G.UnitIsDeadOrGhost = function() return false end
+    _G.UnitAura = function() return nil end
+    _G.CombatLogGetCurrentEventInfo = function() return unpack(world.cleu or {}) end
     dofile('RaidAssign/RaidAssign.lua')
+    dofile('RaidAssign/Track.lua')
     dofile('RaidAssign/Minimap.lua')
 end
 
@@ -391,53 +399,76 @@ end)
 
 -- The bug this file exists to prevent: the shipped 2.5.6 client has no EasyMenu global, so
 -- the old menu threw on a nil call and the button looked dead. Nothing below may reach for it.
-test('the menu opens on a client with no EasyMenu global', function()
+test('the hub opens on a client with no EasyMenu global', function()
     BuildWorld({})
     assertEqual(EasyMenu, nil)
     RaidAssignMinimapButton:Click()
-    assertEqual(RaidAssignMinimapMenu.shown, true)
+    assertEqual(RaidAssignMinimapHub.shown, true)
 end)
 
-test('clicking the minimap button opens a menu with the three actions', function()
+test('clicking the minimap button opens a hub with the four actions', function()
     BuildWorld({})
     RaidAssignMinimapButton:Click()
     local texts = {}
-    for _, item in ipairs(RaidAssignMinimapMenu.items) do
+    for _, item in ipairs(RaidAssignMinimapHub.items) do
         texts[#texts + 1] = item.label.text
     end
-    assertEqual(table.concat(texts, '|'), 'Scan raid|Assignments…|Apply groups')
+    assertEqual(table.concat(texts, '|'), 'Scan raid|Assignments…|Apply groups|Check results')
 end)
 
-test('menu actions call the scan slash, the assignments slash, and ApplyGroups', function()
+test('hub actions call the scan slash, the assignments slash, and ApplyGroups', function()
     BuildWorld({})
     local scanCalled = false
     _G.SlashCmdList['RAIDSPECSCAN'] = function() scanCalled = true end
     RaidAssignMinimapButton:Click()
-    RaidAssignMinimapMenu.items[1]:Click()
+    RaidAssignMinimapHub.items[1]:Click()
     assertEqual(scanCalled, true)
     RaidAssignMinimapButton:Click()
-    RaidAssignMinimapMenu.items[2]:Click()
+    RaidAssignMinimapHub.items[2]:Click()
     assertEqual(RaidAssignFrame ~= nil, true)     -- assignments window built and shown
     assertEqual(RaidAssignFrame.shown, true)
     RaidAssignMinimapButton:Click()
-    RaidAssignMinimapMenu.items[3]:Click()
+    RaidAssignMinimapHub.items[3]:Click()
     assertMatch(LastMessage(), 'No layout loaded') -- ApplyGroups guard fired
 end)
 
-test('choosing an action closes the menu', function()
+test('choosing an action closes the hub', function()
     BuildWorld({})
     _G.SlashCmdList['RAIDSPECSCAN'] = function() end
     RaidAssignMinimapButton:Click()
-    RaidAssignMinimapMenu.items[1]:Click()
-    assertEqual(RaidAssignMinimapMenu.shown, false)
+    RaidAssignMinimapHub.items[1]:Click()
+    assertEqual(RaidAssignMinimapHub.shown, false)
 end)
 
-test('clicking the button again toggles the menu shut', function()
+test('clicking the button again toggles the hub shut', function()
     BuildWorld({})
     RaidAssignMinimapButton:Click()
-    assertEqual(RaidAssignMinimapMenu.shown, true)
+    assertEqual(RaidAssignMinimapHub.shown, true)
     RaidAssignMinimapButton:Click()
-    assertEqual(RaidAssignMinimapMenu.shown, false)
+    assertEqual(RaidAssignMinimapHub.shown, false)
+end)
+
+test('minimap hub: four actions, status lines refresh on open', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    _G.SlashCmdList['RACHECK'] = function() end
+    RaidAssignDB = { pulls = { { encounter = 'Gruul', ordinal = 3, duration = 100, success = false,
+        debuffs = { { id = 'coe', name = 'Curse of Elements', player = 'Zug', uptime = 41, byAssignee = 41 } },
+        buffs = {} } } }
+    RaidAssignMinimapButton.scripts.OnClick(RaidAssignMinimapButton)
+    assertEqual(RaidAssignMinimapHub:IsShown(), true)
+    assertEqual(#RaidAssignMinimapHub.items, 4)
+    assertEqual(RaidAssignMinimapHub.items[4].label:GetText(), 'Check results')
+    assertMatch(RaidAssignMinimapHub.status2:GetText(), 'Gruul #3')
+    -- clicking an action hides the hub
+    RaidAssignMinimapHub.items[4]:Click()
+    assertEqual(RaidAssignMinimapHub:IsShown(), false)
+end)
+
+test('minimap hub: status lines say so when nothing is loaded or recorded', function()
+    BuildWorld({})
+    RaidAssignMinimapButton:Click()
+    assertMatch(RaidAssignMinimapHub.status1:GetText(), 'No payload loaded%.')
+    assertMatch(RaidAssignMinimapHub.status2:GetText(), 'No pulls recorded%.')
 end)
 
 test('dragging the button saves the angle to RaidAssignDB', function()
