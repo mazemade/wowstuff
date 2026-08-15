@@ -12,43 +12,64 @@ end
 local sheet = nil        -- array of { name, body } from the last successful paste
 local malformed = {}     -- pasted lines the parser could not read
 local layout = nil       -- group layout from the last paste's @G lines, or nil
+local tracking = nil     -- compliance-tracking table from the last paste's @T lines, or nil
 local frame              -- built lazily on first /specsend
 
--- Returns { entries, malformed, layout }, or nil plus a human-readable reason.
+-- Returns { entries, malformed, layout, tracking }, or nil plus a human-readable reason.
 -- layout is nil when the payload has no @G lines; otherwise:
 --   byName      short lowered name -> group number 1..8 (how the engine matches the roster)
 --   groups      [n] -> display names in payload order (how messages name people)
 --   playerCount total distinct names placed
 --   duplicates  names that appeared a second time; first placement wins
+-- tracking is nil when the payload has no @T lines (every RSW1/RSW2 payload); otherwise
+-- { debuffs = { {id, name, auras, player, noattrib} … },
+--   buffs   = { {id, name, auras, group, provider} … } } — auras is the raw comma-separated
+-- string, split by Track.lua, because the addon matches by aura NAME, never spell id.
 local function ParsePayload(text)
-    local entries, bad, layout, sawHeader = {}, {}, nil, false
+    local entries, bad, layout, trk, sawHeader = {}, {}, nil, nil, false
     for line in (text or ""):gmatch("[^\r\n]+") do
         line = line:match("^%s*(.-)%s*$")
         if line ~= "" then
             if not sawHeader then
-                if line ~= "RSW1" and line ~= "RSW2" then
-                    return nil, "That is not an RSW1/RSW2 payload. Copy the Addon tab from the web tool."
+                if line ~= "RSW1" and line ~= "RSW2" and line ~= "RSW3" then
+                    return nil, "That is not an RSW1/RSW2/RSW3 payload. Copy the Addon tab from the web tool."
                 end
                 sawHeader = true
             elseif line:sub(1, 1) == "@" then
-                -- "@" cannot start a character name, so this is unambiguously a group line.
-                local n, names = line:match("^@G([1-8])=(.+)$")
-                if not n then
-                    table.insert(bad, line)
+                -- "@" cannot start a character name, so these are unambiguously directives.
+                local kind, rest = line:match("^@T ([DB])|(.+)$")
+                if kind then
+                    local f = {}
+                    for field in rest:gmatch("[^|]+") do table.insert(f, field) end
+                    trk = trk or { debuffs = {}, buffs = {} }
+                    if kind == "D" and #f >= 4 then
+                        table.insert(trk.debuffs, { id = f[1], name = f[2], auras = f[3],
+                            player = f[4], noattrib = (f[5] == "noattrib") or nil })
+                    elseif kind == "B" and #f >= 5 and tonumber(f[4]) then
+                        table.insert(trk.buffs, { id = f[1], name = f[2], auras = f[3],
+                            group = tonumber(f[4]), provider = f[5] })
+                    else
+                        table.insert(bad, line)
+                    end
                 else
-                    layout = layout or { byName = {}, groups = {}, playerCount = 0, duplicates = {} }
-                    n = tonumber(n)
-                    layout.groups[n] = layout.groups[n] or {}
-                    for name in names:gmatch("[^,]+") do
-                        name = name:match("^%s*(.-)%s*$")
-                        if name ~= "" then
-                            local key = (name:match("^([^-]+)") or name):lower()
-                            if layout.byName[key] then
-                                table.insert(layout.duplicates, name)
-                            else
-                                layout.byName[key] = n
-                                table.insert(layout.groups[n], name)
-                                layout.playerCount = layout.playerCount + 1
+                    local n, names = line:match("^@G([1-8])=(.+)$")
+                    if not n then
+                        table.insert(bad, line)
+                    else
+                        layout = layout or { byName = {}, groups = {}, playerCount = 0, duplicates = {} }
+                        n = tonumber(n)
+                        layout.groups[n] = layout.groups[n] or {}
+                        for name in names:gmatch("[^,]+") do
+                            name = name:match("^%s*(.-)%s*$")
+                            if name ~= "" then
+                                local key = (name:match("^([^-]+)") or name):lower()
+                                if layout.byName[key] then
+                                    table.insert(layout.duplicates, name)
+                                else
+                                    layout.byName[key] = n
+                                    table.insert(layout.groups[n], name)
+                                    layout.playerCount = layout.playerCount + 1
+                                end
                             end
                         end
                     end
@@ -65,7 +86,7 @@ local function ParsePayload(text)
     end
     if not sawHeader then return nil, "Nothing pasted." end
     if #entries == 0 and not layout then return nil, "No assignment or group lines in that payload." end
-    return { entries = entries, malformed = bad, layout = layout }
+    return { entries = entries, malformed = bad, layout = layout, tracking = trk }
 end
 
 -- Raid roster keyed by lowercased name without the realm suffix, mapping to the
@@ -160,22 +181,29 @@ local function SendTick(_, dt)
         return
     end
     SendChatMessage(item.body, "WHISPER", nil, item.target)
-    local last = History()
-    last[item.name] = last[item.name] and (last[item.name] .. "\n" .. item.body) or item.body
+    -- Only assignment sends write history. A compliance nag (SendRaw) must not, or the
+    -- next real assignment send would read the player as UNCHANGED and skip their duties.
+    if item.record then
+        local last = History()
+        last[item.name] = last[item.name] and (last[item.name] .. "\n" .. item.body) or item.body
+    end
     Print(qIndex .. "/" .. #queue .. " to " .. item.name)
 end
 
-local function StartSending(list)
+local function StartSending(list, record)
     queue, qIndex, sending = list, 0, true
     qElapsed = SEND_INTERVAL
+    for _, item in ipairs(list) do item.record = record end
     -- Do not write signatures up front: if the send is interrupted (disconnect,
     -- /reload, logout) partway through, anyone not yet whispered must NOT be
     -- recorded as sent, or they would read UNCHANGED next time and be skipped
     -- forever. Instead, clear their prior signature now — SendTick rebuilds it
     -- line-by-line as each whisper actually goes out, so an interrupted send
     -- leaves the un-whispered tail looking CHANGED (or NEW) and gets re-sent.
-    local last = History()
-    for name in pairs(Signatures(list)) do last[name] = nil end
+    if record then
+        local last = History()
+        for name in pairs(Signatures(list)) do last[name] = nil end
+    end
     Print("Sending " .. #list .. " whispers, one every " .. SEND_INTERVAL .. "s…")
     sendFrame:SetScript("OnUpdate", SendTick)
 end
@@ -365,7 +393,7 @@ local function OnLoadClicked()
         frame.status:SetText("|cFFFF6B6B" .. err .. "|r")
         return
     end
-    sheet, malformed, layout = result.entries, result.malformed, result.layout
+    sheet, malformed, layout, tracking = result.entries, result.malformed, result.layout, result.tracking
     ShowPreview()
 end
 
@@ -381,7 +409,7 @@ local function SendFiltered(entries)
     if #skipped > 0 then
         Print("Skipping " .. #skipped .. " not in raid: " .. table.concat(skipped, ", "))
     end
-    StartSending(sendable)
+    StartSending(sendable, true)
     frame:Hide()
 end
 
@@ -472,4 +500,15 @@ end
 RaidAssignAPI = {
     ApplyGroups = ApplyGroups,
     LayoutInfo = LayoutSummary,
+    GetTracking = function() return tracking end,
+    -- Compliance whispers (TrackUI): same queue and raid-target resolution as
+    -- assignment sends, but never recorded in lastSent — a scoreboard nag must not
+    -- make the next real assignment send think the player already got their duties.
+    SendRaw = function(entries)
+        if sending then return false, "Already sending" end
+        local sendable, skipped = Resolve(entries)
+        if #sendable == 0 then return false, "Nobody selected is in the raid" end
+        StartSending(sendable, false)
+        return true, #sendable, skipped
+    end,
 }

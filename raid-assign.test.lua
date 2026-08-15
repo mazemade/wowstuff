@@ -180,7 +180,53 @@ end)
 test('not an RSW payload is rejected with a reason', function()
     BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
     LoadPayload({ 'RSS3;Alice:ROGUE:15/41/5:1::' })
-    assertMatch(RaidAssignFrame.status.text, 'not an RSW1/RSW2 payload')
+    assertMatch(RaidAssignFrame.status.text, 'not an RSW1/RSW2/RSW3 payload')
+end)
+
+-- --- RSW3: @T compliance-tracking lines ---
+
+test('RSW3: @T lines land in GetTracking', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    LoadPayload({
+        'RSW3',
+        'Zug=Your assignments: Curse of Elements',
+        '@T D|coe|Curse of Elements|Curse of the Elements|Zug',
+        '@T D|armor|Sunder Armor|Sunder Armor|Tank|noattrib',
+        '@T B|wf|Windfury Totem|Windfury Totem|3|Thrallson',
+        '@G1=Zug',
+    })
+    local t = RaidAssignAPI.GetTracking()
+    assertEqual(#t.debuffs, 2)
+    assertEqual(t.debuffs[1].id, 'coe')
+    assertEqual(t.debuffs[1].player, 'Zug')
+    assertEqual(t.debuffs[1].auras, 'Curse of the Elements')
+    assertEqual(t.debuffs[2].noattrib, true)
+    assertEqual(t.buffs[1].group, 3)
+    assertEqual(t.buffs[1].provider, 'Thrallson')
+end)
+
+test('RSW3: malformed @T line is skipped, payload still loads', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    LoadPayload({ 'RSW3', 'Zug=Hi', '@T D|broken' })
+    assertEqual(#RaidAssignAPI.GetTracking().debuffs, 0)
+    assertMatch(RaidAssignFrame.editBox:GetText(), 'Skipped 1 unreadable')
+end)
+
+test('RSW1 payload leaves tracking nil', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    LoadPayload({ 'RSW1', 'Zug=Hi' })
+    assertEqual(RaidAssignAPI.GetTracking(), nil)
+end)
+
+test('SendRaw whispers without touching send history', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 }, { name = 'Bob', subgroup = 1 } } })
+    LoadPayload({ 'RSW3', 'Zug=Hi' }) -- initialise the addon UI path
+    local ok = RaidAssignAPI.SendRaw({ { name = 'Zug', body = 'Gruul pull 1: CoE up 41% - assigned to you' } })
+    assertEqual(ok, true)
+    Tick(2.0) -- one whisper per SEND_INTERVAL tick
+    assertEqual(#world.whispers, 1)
+    assertMatch(world.whispers[1].body, 'CoE up 41%%')
+    assertEqual((RaidAssignDB.lastSent or {})['Zug'], nil)
 end)
 
 -- --- Group apply engine ---
