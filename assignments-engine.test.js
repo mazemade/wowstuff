@@ -2372,5 +2372,13 @@ test('v2: proposeGroups returns score, violations, alternates, marginals', () =>
     Object.keys(res.marginals).forEach(n => assert.ok(res.marginals[n] >= 0));
 });
 
+test('v2: scoreLayout equals the sum of playerScore over every group', () => {
+    const res = E.proposeGroups(raid25());
+    const direct = res.groups.reduce((sum, g) =>
+        sum + g.players.reduce((s, p) => s + E.playerScore(p, g.players), 0), 0);
+    assert.ok(Math.abs(E.scoreLayout(res.groups) - direct) < 1e-6,
+        'scoreLayout ' + E.scoreLayout(res.groups) + ' != sum of playerScore ' + direct);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

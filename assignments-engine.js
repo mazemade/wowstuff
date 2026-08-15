@@ -1294,9 +1294,21 @@
     // Layout score = raid DPS in real units. No cohesion term: once weights are % DPS,
     // the old 0.25 nudge is a unit collision, not a tiebreak (brief §8 Q3). Readability
     // comes from the seed, the relabel pass and the deterministic enumeration order.
+    //
+    // groupBuffs is computed ONCE per group, not once per player: playerScore(p, players)
+    // would recompute the group's whole buff set for every member, and the climb scores
+    // thousands of candidate layouts. Must stay numerically identical to summing
+    // playerScore — the 'scoreLayout equals the sum of playerScore' test pins that.
     function scoreLayout(groups) {
-        return groups.reduce((sum, g) =>
-            sum + g.players.reduce((s, p) => s + playerScore(p, g.players), 0), 0);
+        return groups.reduce((sum, g) => {
+            const active = groupBuffs(g.players);
+            return sum + g.players.reduce((s, p) => {
+                const k = specKey(p);
+                const f = active.reduce((m, a) =>
+                    m * Math.pow(1 + (a.buff.v[k] || 0), a.count), 1);
+                return s + (BASELINE[k] || 0) * multOf(p) * f;
+            }, 0);
+        }, 0);
     }
 
     // The air totems a group runs. Plural: an enh-shaman group twists two.
