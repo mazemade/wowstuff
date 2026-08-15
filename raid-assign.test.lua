@@ -101,9 +101,12 @@ local function BuildWorld(opts)
     _G.Minimap.GetCenter = function() return 0, 0 end
     _G.UIParent.GetEffectiveScale = function() return 1 end
     _G.GameTooltip = MockFrame()
-    _G.EasyMenu = function(items) world.menu = items end
+    -- Deliberately absent, mirroring wow_anniversary 2.5.6.69110 where type(EasyMenu) is nil
+    -- even though UIDropDownMenuTemplate still resolves. The menu must not need it.
+    _G.EasyMenu = nil
     _G.GetCursorPosition = function() return world.cursorX or 100, world.cursorY or 0 end
     _G.RaidAssignMinimapButton = nil
+    _G.RaidAssignMinimapMenu = nil
     dofile('RaidAssign/RaidAssign.lua')
     dofile('RaidAssign/Minimap.lua')
 end
@@ -340,12 +343,23 @@ end)
 
 -- --- Minimap button ---
 
+-- The bug this file exists to prevent: the shipped 2.5.6 client has no EasyMenu global, so
+-- the old menu threw on a nil call and the button looked dead. Nothing below may reach for it.
+test('the menu opens on a client with no EasyMenu global', function()
+    BuildWorld({})
+    assertEqual(EasyMenu, nil)
+    RaidAssignMinimapButton:Click()
+    assertEqual(RaidAssignMinimapMenu.shown, true)
+end)
+
 test('clicking the minimap button opens a menu with the three actions', function()
     BuildWorld({})
     RaidAssignMinimapButton:Click()
     local texts = {}
-    for _, item in ipairs(world.menu) do texts[#texts + 1] = item.text end
-    assertEqual(table.concat(texts, '|'), 'RaidAssign|Scan raid|Assignments…|Apply groups')
+    for _, item in ipairs(RaidAssignMinimapMenu.items) do
+        texts[#texts + 1] = item.label.text
+    end
+    assertEqual(table.concat(texts, '|'), 'Scan raid|Assignments…|Apply groups')
 end)
 
 test('menu actions call the scan slash, the assignments slash, and ApplyGroups', function()
@@ -353,13 +367,31 @@ test('menu actions call the scan slash, the assignments slash, and ApplyGroups',
     local scanCalled = false
     _G.SlashCmdList['RAIDSPECSCAN'] = function() scanCalled = true end
     RaidAssignMinimapButton:Click()
-    world.menu[2].func()
+    RaidAssignMinimapMenu.items[1]:Click()
     assertEqual(scanCalled, true)
-    world.menu[3].func()
+    RaidAssignMinimapButton:Click()
+    RaidAssignMinimapMenu.items[2]:Click()
     assertEqual(RaidAssignFrame ~= nil, true)     -- assignments window built and shown
     assertEqual(RaidAssignFrame.shown, true)
-    world.menu[4].func()
+    RaidAssignMinimapButton:Click()
+    RaidAssignMinimapMenu.items[3]:Click()
     assertMatch(LastMessage(), 'No layout loaded') -- ApplyGroups guard fired
+end)
+
+test('choosing an action closes the menu', function()
+    BuildWorld({})
+    _G.SlashCmdList['RAIDSPECSCAN'] = function() end
+    RaidAssignMinimapButton:Click()
+    RaidAssignMinimapMenu.items[1]:Click()
+    assertEqual(RaidAssignMinimapMenu.shown, false)
+end)
+
+test('clicking the button again toggles the menu shut', function()
+    BuildWorld({})
+    RaidAssignMinimapButton:Click()
+    assertEqual(RaidAssignMinimapMenu.shown, true)
+    RaidAssignMinimapButton:Click()
+    assertEqual(RaidAssignMinimapMenu.shown, false)
 end)
 
 test('dragging the button saves the angle to RaidAssignDB', function()

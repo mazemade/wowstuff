@@ -41,18 +41,74 @@ end
 btn:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", OnDragUpdate) end)
 btn:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
 
-local menuFrame
+-- The menu is hand-rolled out of plain frames rather than built on EasyMenu /
+-- UIDropDownMenuTemplate. On wow_anniversary 2.5.6.69110 the template still resolves but the
+-- EasyMenu global is gone, so the wrapper call threw on a nil and the button looked dead —
+-- WoW swallows addon errors unless scriptErrors is on, so it failed silently. Nothing below
+-- touches the stock dropdown machinery, which also keeps the "no addon libraries" rule.
+local WHITE = "Interface\\Buttons\\WHITE8X8"
+local MENU_W, ROW_H, TITLE_H, PAD = 150, 18, 16, 6
+
+local ACTIONS = {
+    { text = "Scan raid",    run = function() SlashCmdList["RAIDSPECSCAN"]("") end },
+    { text = "Assignments…", run = function() SlashCmdList["RAIDASSIGN"]("") end },
+    { text = "Apply groups", run = function() RaidAssignAPI.ApplyGroups() end },
+}
+
+local menu
+
+local function BuildMenu()
+    local f = CreateFrame("Frame", "RaidAssignMinimapMenu", UIParent)
+    f:SetFrameStrata("DIALOG")
+    f:EnableMouse(true)
+    f:SetSize(MENU_W, PAD + TITLE_H + #ACTIONS * ROW_H + PAD)
+
+    local border = f:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints()
+    border:SetTexture(WHITE)
+    border:SetVertexColor(0.45, 0.45, 0.45, 0.95)
+
+    local bg = f:CreateTexture(nil, "BORDER")
+    bg:SetPoint("TOPLEFT", 1, -1)
+    bg:SetPoint("BOTTOMRIGHT", -1, 1)
+    bg:SetTexture(WHITE)
+    bg:SetVertexColor(0.05, 0.05, 0.05, 0.95)
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("TOPLEFT", PAD + 2, -PAD)
+    title:SetText("RaidAssign")
+
+    f.items = {}
+    for i, action in ipairs(ACTIONS) do
+        local b = CreateFrame("Button", nil, f)
+        b:SetSize(MENU_W - 2 * PAD, ROW_H)
+        b:SetPoint("TOPLEFT", PAD, -(PAD + TITLE_H + (i - 1) * ROW_H))
+        b:SetHighlightTexture(WHITE)
+        local hl = b:GetHighlightTexture()
+        if hl then hl:SetVertexColor(1, 1, 1, 0.18) end
+        local label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("LEFT", 2, 0)
+        label:SetText(action.text)
+        b.label = label
+        b:SetScript("OnClick", function()
+            f:Hide()
+            action.run()
+        end)
+        f.items[i] = b
+    end
+    f:Hide()
+    return f
+end
+
 btn:SetScript("OnClick", function()
-    menuFrame = menuFrame or CreateFrame("Frame", "RaidAssignMinimapMenu", UIParent, "UIDropDownMenuTemplate")
-    EasyMenu({
-        { text = "RaidAssign", isTitle = true, notCheckable = true },
-        { text = "Scan raid", notCheckable = true,
-          func = function() SlashCmdList["RAIDSPECSCAN"]("") end },
-        { text = "Assignments…", notCheckable = true,
-          func = function() SlashCmdList["RAIDASSIGN"]("") end },
-        { text = "Apply groups", notCheckable = true,
-          func = function() RaidAssignAPI.ApplyGroups() end },
-    }, menuFrame, "cursor", 0, 0, "MENU")
+    menu = menu or BuildMenu()
+    if menu:IsShown() then menu:Hide() return end
+    -- Anchor the top-left corner at the cursor, in UI (not screen) coordinates.
+    local cx, cy = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    menu:ClearAllPoints()
+    menu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+    menu:Show()
 end)
 
 btn:SetScript("OnEnter", function(self)
