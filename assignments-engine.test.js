@@ -994,10 +994,16 @@ test('proposeGroups: a real draenei swap conserves every group size and every pl
 });
 test('proposeGroups: each group explains what its composition buys', () => {
     const res = E.proposeGroups(raid25());
-    const melee = res.groups.find(g => g.role === 'melee');
-    assert.ok(melee.notes.some(t => /Windfury/.test(t)));
-    const casters = res.groups.find(g => g.role === 'casters');
-    assert.ok(casters.notes.some(t => /Totem of Wrath/.test(t)));
+    // Role labels are NOT unique (two groups can both relabel 'casters' — see the sibling
+    // test below), so key on the provider, never on the label: the group holding the
+    // Enhancement shaman claims Windfury, the one holding the Elemental shaman claims
+    // Totem of Wrath.
+    const enhGroup = res.groups.find(g =>
+        g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Enhancement'));
+    assert.ok(enhGroup.notes.some(t => /Windfury/.test(t)));
+    const eleGroup = res.groups.find(g =>
+        g.players.some(p => p.class === 'SHAMAN' && p.spec === 'Elemental'));
+    assert.ok(eleGroup.notes.some(t => /Totem of Wrath/.test(t)));
     res.groups.forEach(g => assert.ok(Array.isArray(g.notes)));
 });
 test('proposeGroups: every note rule fires for the group that actually has its provider', () => {
@@ -2378,6 +2384,39 @@ test('v2: scoreLayout equals the sum of playerScore over every group', () => {
         sum + g.players.reduce((s, p) => s + E.playerScore(p, g.players), 0), 0);
     assert.ok(Math.abs(E.scoreLayout(res.groups) - direct) < 1e-6,
         'scoreLayout ' + E.scoreLayout(res.groups) + ' != sum of playerScore ' + direct);
+});
+
+test('v2: the climb result admits no improving 3-cycle', () => {
+    const res = E.proposeGroups(raid25());
+    const groups = res.groups.map(g => ({ role: g.role, players: g.players.slice() }));
+    const v0 = E.layoutViolations(groups), s0 = E.scoreLayout(groups);
+    // rot() applied three times restores the original seats.
+    function rot(a, ia, b, ib, c, ic) {
+        const t = groups[a].players[ia];
+        groups[a].players[ia] = groups[c].players[ic];
+        groups[c].players[ic] = groups[b].players[ib];
+        groups[b].players[ib] = t;
+    }
+    let found = null;
+    for (let a = 0; a < groups.length; a++)
+    for (let ia = 0; ia < groups[a].players.length; ia++)
+    for (let b = 0; b < groups.length; b++) {
+        if (b === a) continue;
+        for (let ib = 0; ib < groups[b].players.length; ib++)
+        for (let c = 0; c < groups.length; c++) {
+            if (c === a || c === b) continue;
+            for (let ic = 0; ic < groups[c].players.length; ic++) {
+                rot(a, ia, b, ib, c, ic);
+                const v = E.layoutViolations(groups), s = E.scoreLayout(groups);
+                if (!found && (v < v0 || (v === v0 && s > s0 + 1e-6))) {
+                    found = 'a 3-cycle improves the converged layout by ' + (s - s0).toFixed(1)
+                        + ' dps (violations ' + v0 + ' -> ' + v + ')';
+                }
+                rot(a, ia, b, ib, c, ic); rot(a, ia, b, ib, c, ic);
+            }
+        }
+    }
+    assert.strictEqual(found, null, found || '');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

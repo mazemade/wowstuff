@@ -1436,6 +1436,19 @@
         function trySwap(gA, iA, gB, iB) {
             const t = gA.players[iA]; gA.players[iA] = gB.players[iB]; gB.players[iB] = t;
         }
+        // A 3-cycle: a's player moves to b's seat, b's to c's, c's back to a's. Two swaps
+        // cannot express this while every intermediate layout stays feasible, and with all
+        // groups full the move rule never fires — so without this the climb cannot reach
+        // layouts that need a three-way rotation. The known case: the profitable 2-swap
+        // route breaches the healer floor mid-path and the lexicographic comparison vetoes
+        // it, while the 3-cycle routes around the breach (spec §F6). Applying rotate()
+        // three times restores the seats, which is how candidates are undone.
+        function rotate(gA, iA, gB, iB, gC, iC) {
+            const t = gA.players[iA];
+            gA.players[iA] = gC.players[iC];
+            gC.players[iC] = gB.players[iB];
+            gB.players[iB] = t;
+        }
         // v2 (spec §5, brief §8 Q4): BOTH v1 guards are gone — relocatable() and the
         // under-full-endpoint requirement. They were written to keep role groups
         // recognizable, but they demonstrably blocked the model's own answers: a swap
@@ -1480,8 +1493,31 @@
                     }
                 }
             }
+            // Escape pass: only when no swap or move improves. 3-cycles are roughly an
+            // order of magnitude more candidates than the swap pass, so scanning them every
+            // iteration would be waste — at a 2-swap local optimum they are the cheapest
+            // neighbourhood that can still improve. Fixed enumeration order and first-found
+            // ties, so determinism is unchanged.
+            if (!best) {
+                for (let a = 0; a < groups.length; a++)
+                for (let ia = 0; ia < groups[a].players.length; ia++)
+                for (let b = 0; b < groups.length; b++) {
+                    if (b === a) continue;
+                    for (let ib = 0; ib < groups[b].players.length; ib++)
+                    for (let c = 0; c < groups.length; c++) {
+                        if (c === a || c === b) continue;
+                        for (let ic = 0; ic < groups[c].players.length; ic++) {
+                            rotate(groups[a], ia, groups[b], ib, groups[c], ic);
+                            consider({ kind: 'rotate', a, ia, b, ib, c, ic });
+                            rotate(groups[a], ia, groups[b], ib, groups[c], ic);
+                            rotate(groups[a], ia, groups[b], ib, groups[c], ic);
+                        }
+                    }
+                }
+            }
             if (!best) break;
             if (best.kind === 'swap') trySwap(groups[best.a], best.ia, groups[best.b], best.ib);
+            else if (best.kind === 'rotate') rotate(groups[best.a], best.ia, groups[best.b], best.ib, groups[best.c], best.ic);
             else groups[best.b].players.push(groups[best.a].players.splice(best.ia, 1)[0]);
         }
 
