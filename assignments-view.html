@@ -14,6 +14,7 @@
         <div class="cards">
             <div class="card"><h3>Boss Debuffs</h3><div id="debuffRows"></div><div id="passiveRows"></div></div>
             <div class="card"><h3>Cooldowns</h3><div id="cooldownRows"></div></div>
+            <div class="card"><h3>Healing</h3><div id="healingRows"></div></div>
             <div class="card"><h3>Crowd Control</h3><div id="ccRows"></div></div>
         </div>
         <div id="uncoveredBox" class="warn hidden"></div>
@@ -64,6 +65,10 @@
             const cds = document.getElementById('cooldownRows');
             sheet.duties.filter(d => d.category === 'cooldowns' && d.player)
                 .forEach(d => row(cds, d.name + ' — ' + d.player + (d.target ? ' → ' + target(d.target) : '')));
+            const healing = document.getElementById('healingRows');
+            sheet.duties.filter(d => d.category === 'healing' && d.players && d.players.length)
+                .forEach(d => row(healing, d.name + ' — ' + d.players.join(', ')
+                    + (d.targets && d.targets.length ? ' → ' + d.targets.join(', ') : '')));
             const cc = document.getElementById('ccRows');
             (sheet.cc || []).filter(c => c.player).forEach(c =>
                 ccRow(cc, c.mark, String(c.mark).charAt(0).toUpperCase() + String(c.mark).slice(1) + ' ' +
