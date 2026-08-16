@@ -713,6 +713,16 @@
             });
             lines.push('');
         });
+        const healing = sheet.duties.filter(d => d.category === 'healing' && d.players && d.players.length);
+        if (healing.length) {
+            lines.push('**Healing**');
+            healing.forEach(d => {
+                let s = '• **' + d.name + ':** ' + d.players.map(nm).join(', ');
+                if (d.targets && d.targets.length) s += ' → ' + d.targets.map(nm).join(', ');
+                lines.push(s);
+            });
+            lines.push('');
+        }
         const rotations = sheet.duties.filter(d => d.category === 'rotations');
         if (rotations.length) {
             lines.push('**Rotations**');
@@ -780,8 +790,13 @@
             if (d.target) s += ' -> ' + displayTarget(d.target);
             items.push(s);
         });
-        sheet.duties.filter(d => d.players).forEach(d => {
+        sheet.duties.filter(d => d.players && d.category !== 'healing').forEach(d => {
             items.push(d.name + ': ' + d.players.join(' > '));
+        });
+        sheet.duties.filter(d => d.category === 'healing' && d.players.length).forEach(d => {
+            let s = d.name + ': ' + d.players.join(', ');
+            if (d.targets && d.targets.length) s += ' on ' + d.targets.join(', ');
+            items.push(s);
         });
         (sheet.cc || []).filter(c => c.player).forEach(c => {
             items.push('{' + c.mark + '} ' + ccAbilityName(c.ability) + ': ' + c.player);
@@ -798,8 +813,17 @@
         });
         // A rotation has no single owner, so each member is told their own slot in the order —
         // knowing you are third is the whole point of a Fear Ward rotation.
-        sheet.duties.filter(d => d.players).forEach(d => {
+        sheet.duties.filter(d => d.players && d.category !== 'healing').forEach(d => {
             d.players.forEach((n, i) => add(n, d.name + ' (' + ordinal(i + 1) + ' of ' + d.players.length + ')'));
+        });
+        // Healing buckets are unordered; everyone in a bucket gets the same line, and tank
+        // healers are told their tanks by name so the whisper stands alone on voice-less
+        // pulls. ASCII only — this text feeds the addon whisper path.
+        sheet.duties.filter(d => d.category === 'healing').forEach(d => {
+            const txt = d.id === 'tankheal'
+                ? 'TANK HEALING' + (d.targets && d.targets.length ? ' - keep ' + d.targets.join(', ') + ' up' : '')
+                : 'RAID HEALING';
+            d.players.forEach(n => add(n, txt));
         });
         (sheet.cc || []).filter(c => c.player).forEach(c => {
             add(c.player, ccAbilityName(c.ability) + ' on {' + c.mark + '}');

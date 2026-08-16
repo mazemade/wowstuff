@@ -1328,7 +1328,10 @@ test('buildDiscord: a paladin with an all-null row (4th+) is skipped, not printe
     const sheet = E.autoAssign(roster, {});
     sheet.blessings = E.proposeBlessings(roster, {});
     const out = E.buildDiscord(roster, sheet, {});
-    assert.ok(!out.includes('Justice'));
+    // Justice is a prot paladin, so the healing section names him as a TANK HEALING target —
+    // his name appearing anywhere is no longer the signal. Assert the shape of the bug
+    // itself: an unguarded empty row emits "• Justice: " with nothing after the colon.
+    assert.ok(!out.includes('• Justice:'));
     assert.ok(out.includes('Retdin'));
     assert.ok(out.includes('Lightbringer'));
     assert.ok(out.includes('Bubbles'));
@@ -2608,6 +2611,52 @@ test('healing: no healers -> no healing duties at all', () => {
 });
 test('healing: deterministic across runs', () => {
     assert.deepStrictEqual(healBuckets(HEAL_ROSTER), healBuckets(HEAL_ROSTER));
+});
+
+function healSheet(roster, overrides) {
+    const r = roster || HEAL_ROSTER;
+    return Object.assign({}, E.autoAssign(r, overrides || {}), { cc: [] });
+}
+test('healing whispers: tank healers get tank names, raid healers get RAID HEALING', () => {
+    const w = E.buildWhispers(HEAL_ROSTER, healSheet());
+    const pala = w.find(l => l.startsWith('/w Palaheal '));
+    assert.ok(pala.includes('TANK HEALING - keep Bearford, Warrison up'), pala);
+    const chainz = w.find(l => l.startsWith('/w Chainz '));
+    assert.ok(chainz.includes('RAID HEALING'), chainz);
+    assert.ok(!chainz.includes('TANK HEALING'), chainz);
+});
+test('healing whispers: no ordinal slot text on healing rows', () => {
+    const w = E.buildWhispers(HEAL_ROSTER, healSheet()).join('\n');
+    // Case-insensitive on purpose: the bug this guards emitted title-case "Tank Healing
+    // (1st of 3)" from the rotation branch, so a case-sensitive regex would sail past it.
+    assert.ok(!/tank healing \(\d/i.test(w), w);
+    assert.ok(!/raid healing \(\d/i.test(w), w);
+});
+test('healing whisper text is ASCII only (addon length budget)', () => {
+    const w = E.buildWhispers(HEAL_ROSTER, healSheet()).join('\n');
+    // eslint-disable-next-line no-control-regex
+    assert.ok(/^[\x00-\x7F]*$/.test(w.split('TANK HEALING')[1] || ''), 'non-ASCII in healing whisper');
+});
+test('healing in Discord output as its own section', () => {
+    const out = E.buildDiscord(HEAL_ROSTER, healSheet(), {});
+    assert.ok(out.includes('**Healing**'), out);
+    assert.ok(out.includes('Tank Healing:'), out);
+    assert.ok(out.includes('Raid Healing:'), out);
+});
+test('healing: empty tank bucket is omitted from Discord', () => {
+    const healersOnly = HEAL_ROSTER.filter(p => !['Bearford', 'Warrison'].includes(p.name));
+    const out = E.buildDiscord(healersOnly, healSheet(healersOnly), {});
+    assert.ok(!out.includes('Tank Healing:'), out);
+    assert.ok(out.includes('Raid Healing:'), out);
+});
+test('healing in /raid lines without rotation arrows', () => {
+    const lines = E.buildRaidLines(HEAL_ROSTER, healSheet()).join('\n');
+    assert.ok(lines.includes('Tank Healing: Palaheal, Droodheal, Discy on Bearford, Warrison'), lines);
+    assert.ok(!lines.includes('Tank Healing: Palaheal >'), lines);
+});
+test('healing rides the addon payload via whisper lines', () => {
+    const payload = E.buildAddonWhispers(HEAL_ROSTER, healSheet(), null);
+    assert.ok(payload.split('\n').some(l => l.startsWith('Palaheal=') && l.includes('TANK HEALING')), payload);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
