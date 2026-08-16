@@ -537,13 +537,19 @@ function renderGroups() {
     const reviewBox = document.getElementById('aiReviewBox');
     if (reviewBox) { reviewBox.textContent = ''; reviewBox.classList.add('hidden'); }
     const box = document.getElementById('groupsBox');
+    // Every control inside the tuning panel calls renderAll(), which rebuilds this whole
+    // box — so the panel's open/closed state must be carried across the rebuild or each
+    // click inside it snaps it shut.
+    const prevTune = box.querySelector('details.player-tuning');
+    const tuneWasOpen = !!(prevTune && prevTune.open);
     box.innerHTML = '';
     if (!roster.length) { box.textContent = 'Import a roster first.'; return; }
 
-    // Collapsed by default: two rarely-touched dials that the optimizer genuinely needs —
+    // Collapsed on first render: two rarely-touched dials that the optimizer genuinely needs —
     // which tank is the MT (the survivability floor) and how a player rates against an
     // average one of their spec (the one case gear changes the structural answer).
     const tune = document.createElement('details');
+    tune.open = tuneWasOpen;
     tune.className = 'player-tuning';
     const sum = document.createElement('summary');
     sum.textContent = 'Player tuning (MT flag / DPS multiplier)';
