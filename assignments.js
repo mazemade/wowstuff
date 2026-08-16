@@ -69,6 +69,13 @@ function recompute() {
             else o.players = kept;
         }
     });
+    // overrides.healing is keyed by player name, not duty id, so the generic sweep above
+    // cannot see its stale names — sweep it the same way blessings cells are swept.
+    if (state.overrides.healing) {
+        Object.keys(state.overrides.healing).forEach(n => {
+            if (!names.has(n)) delete state.overrides.healing[n];
+        });
+    }
     // Drop cells belonging to a paladin who is no longer on the roster, the same way
     // override players are dropped — otherwise a re-import resurrects a stale grid.
     // Split on the LAST pipe: class tokens never contain one, but a hand-typed name might,
@@ -380,6 +387,38 @@ function rotationRow(d) {
 
         chip.appendChild(up);
         chip.appendChild(del);
+        list.appendChild(chip);
+    });
+    wrap.appendChild(list);
+    return wrap;
+}
+
+function healingRow(d) {
+    const wrap = document.createElement('div');
+    wrap.className = 'assign-row rotation';
+    const label = document.createElement('span');
+    label.className = 'duty-name';
+    label.textContent = d.name + (d.targets && d.targets.length ? ' (' + d.targets.join(', ') + ')' : '');
+    if (d.note) label.title = d.note;
+    wrap.appendChild(label);
+    const list = document.createElement('div');
+    list.className = 'rotation-list';
+    d.players.forEach(name => {
+        const chip = document.createElement('span');
+        chip.className = 'rotation-chip';
+        chip.textContent = name;
+        const move = document.createElement('button');
+        move.type = 'button';
+        move.className = 'chip-btn';
+        move.textContent = '⇄';
+        move.setAttribute('aria-label', 'Move ' + name + ' to ' + (d.id === 'tankheal' ? 'raid' : 'tank') + ' healing');
+        move.addEventListener('click', () => {
+            const map = Object.assign({}, state.overrides.healing);
+            map[name] = d.id === 'tankheal' ? 'raid' : 'tank';
+            state.overrides.healing = map;
+            renderAll();
+        });
+        chip.appendChild(move);
         list.appendChild(chip);
     });
     wrap.appendChild(list);
@@ -782,6 +821,17 @@ function renderAssignments() {
     const cdBox = document.getElementById('cooldownRows');
     cdBox.innerHTML = '';
     sheet.duties.filter(d => d.category === 'cooldowns').forEach(d => cdBox.appendChild(dutyRow(d)));
+
+    const healBox = document.getElementById('healingRows');
+    healBox.innerHTML = '';
+    const healingDuties = sheet.duties.filter(d => d.category === 'healing');
+    healingDuties.forEach(d => healBox.appendChild(healingRow(d)));
+    if (healingDuties.some(d => d.tanksAutoDetected)) {
+        const note = document.createElement('div');
+        note.className = 'assign-row passive';
+        note.textContent = 'No MTs flagged — using detected tanks. Flag MTs in the player tuning panel.';
+        healBox.appendChild(note);
+    }
 
     const ccBox = document.getElementById('ccRows');
     ccBox.innerHTML = '';
