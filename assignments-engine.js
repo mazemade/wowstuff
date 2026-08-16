@@ -633,10 +633,22 @@
                 const i = HEALING_TANK_AFFINITY.indexOf(p.class + ':' + p.spec);
                 return i === -1 ? HEALING_TANK_AFFINITY.length : i;
             };
-            // Target size: ~1.5 healers per tank, but never drain the raid bucket. The
-            // Math.max(…, 1) is defensive per spec — round(1.5*n) >= 2 for n >= 1, so it
-            // can only matter if the multiplier is ever tuned below 1.
-            let want = Math.min(Math.round(1.5 * tanks.length), healers.length - 1);
+            // Target size: one healer per tank, capped at half the healers.
+            //
+            // One-per-tank is the TBC convention (researched 2026-08-16): a dedicated healer
+            // per tank — paladin or priest, with a druid rolling HoTs — while Chain Heal
+            // shamans and CoH priests cover the raid. An earlier 1.5x multiplier put Chain
+            // Heal on tank duty and read wrong to raid leads.
+            //
+            // The cap is not about the ratio; it is about `tanks` being a GUESS. Unless MTs
+            // are flagged this counts every prot-specced player on the roster, including the
+            // one who is really DPSing, so an uncurated roster inflates it — and uncapped
+            // that starves raid healing to a single person (3 tanks + 4 healers gave 3/1).
+            // Halving also subsumes the old "leave at least one raid healer" clamp, since
+            // floor(h/2) <= h-1 for every h >= 1.
+            let want = Math.min(tanks.length, Math.floor(healers.length / 2));
+            // Cannot fire under the line above (floor(h/2) >= 1 once h >= 2), but it pins the
+            // invariant the ratio tests assert: a raid with tanks always has a tank healer.
             if (tanks.length > 0 && healers.length >= 2) want = Math.max(want, 1);
             const forced = (overrides && overrides.healing) || {};
             const tankBucket = healers.filter(p => forced[p.name] === 'tank');

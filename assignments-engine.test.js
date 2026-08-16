@@ -2539,10 +2539,10 @@ function healBuckets(roster, overrides) {
     const duties = E.autoAssign(roster, overrides || {}).duties;
     return { tank: duties.find(d => d.id === 'tankheal'), raid: duties.find(d => d.id === 'raidheal') };
 }
-test('healing: 2 detected tanks, 6 healers -> 3/3 split in affinity order', () => {
+test('healing: 2 detected tanks, 6 healers -> 2/4 split in affinity order', () => {
     const { tank, raid } = healBuckets(HEAL_ROSTER);
-    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal', 'Discy']);
-    assert.deepStrictEqual(raid.players, ['Holyp', 'Chainz', 'Chainzz']);
+    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal']);
+    assert.deepStrictEqual(raid.players, ['Discy', 'Holyp', 'Chainz', 'Chainzz']);
     assert.deepStrictEqual(tank.targets, ['Bearford', 'Warrison']);
     assert.strictEqual(tank.tanksAutoDetected, true);
     assert.strictEqual(tank.category, 'healing');
@@ -2551,8 +2551,46 @@ test('healing: MT flags beat detected tanks and shrink the bucket', () => {
     const roster = HEAL_ROSTER.map(p => Object.assign({}, p, p.name === 'Warrison' ? { mt: true } : {}));
     const { tank } = healBuckets(roster);
     assert.deepStrictEqual(tank.targets, ['Warrison']);
-    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal']); // round(1.5*1) = 2
+    assert.deepStrictEqual(tank.players, ['Palaheal']); // one tank -> one tank healer
     assert.strictEqual(tank.tanksAutoDetected, undefined);
+});
+// --- ratio: one healer per tank, never more than half the healers (research 2026-08-16) ---
+function ratio(nTanks, nHealers) {
+    const roster = [];
+    for (let i = 0; i < nTanks; i++) roster.push({ name: 'T' + i, class: 'WARRIOR', spec: 'Protection' });
+    const kinds = [['PALADIN', 'Holy'], ['DRUID', 'Restoration'], ['PRIEST', 'Discipline'],
+                   ['PRIEST', 'Holy'], ['SHAMAN', 'Restoration'], ['SHAMAN', 'Restoration'],
+                   ['PALADIN', 'Holy'], ['DRUID', 'Restoration']];
+    for (let i = 0; i < nHealers; i++) {
+        roster.push({ name: 'H' + i, class: kinds[i % kinds.length][0], spec: kinds[i % kinds.length][1] });
+    }
+    const { tank, raid } = healBuckets(roster);
+    return tank.players.length + '/' + raid.players.length;
+}
+test('healing ratio: one healer per tank on ordinary rosters', () => {
+    assert.strictEqual(ratio(1, 4), '1/3');
+    assert.strictEqual(ratio(2, 5), '2/3');   // the 25-man case this was retuned for
+    assert.strictEqual(ratio(2, 6), '2/4');
+    assert.strictEqual(ratio(3, 7), '3/4');   // standard 25-man: 3 tanks, 7 healers
+    assert.strictEqual(ratio(3, 6), '3/3');
+});
+test('healing ratio: tank bucket never exceeds half the healers', () => {
+    // Without the cap these would be 3/1, 4/1 and 4/3 — raid healing starved by a tank count
+    // that says how many tanks EXIST, not how many are taking sustained damage.
+    assert.strictEqual(ratio(3, 4), '2/2');
+    assert.strictEqual(ratio(4, 5), '2/3');
+    assert.strictEqual(ratio(4, 7), '3/4');
+    assert.strictEqual(ratio(2, 3), '1/2');   // cap bites on 10-man too: half of 3 is 1
+});
+test('healing ratio: raid healing is never emptied, whatever the tank count', () => {
+    for (let t = 1; t <= 6; t++) {
+        for (let h = 2; h <= 8; h++) {
+            const [tk, rd] = ratio(t, h).split('/').map(Number);
+            assert.ok(rd >= 1, t + ' tanks, ' + h + ' healers left no raid healer: ' + ratio(t, h));
+            assert.ok(tk >= 1, t + ' tanks, ' + h + ' healers left no tank healer: ' + ratio(t, h));
+            assert.strictEqual(tk + rd, h);
+        }
+    }
 });
 test('healing: zero tanks -> everyone raid-heals, tankheal row empty', () => {
     const healersOnly = HEAL_ROSTER.filter(p => !['Bearford', 'Warrison'].includes(p.name));
@@ -2593,8 +2631,8 @@ test('healing: overrides force buckets and the rest still fills to target', () =
     const { tank, raid } = healBuckets(HEAL_ROSTER, { healing: { Palaheal: 'raid', Chainz: 'tank' } });
     assert.ok(raid.players.includes('Palaheal'));
     assert.ok(tank.players.includes('Chainz'));
-    assert.strictEqual(tank.players.length, 3); // target size unchanged
-    assert.deepStrictEqual(tank.players, ['Chainz', 'Droodheal', 'Discy']);
+    assert.strictEqual(tank.players.length, 2); // target size unchanged by the override
+    assert.deepStrictEqual(tank.players, ['Chainz', 'Droodheal']);
 });
 test('healing: forced tanks beyond target size are all kept', () => {
     const { tank } = healBuckets(HEAL_ROSTER,
@@ -2603,7 +2641,7 @@ test('healing: forced tanks beyond target size are all kept', () => {
 });
 test('healing: override naming a departed player is ignored without crashing', () => {
     const { tank } = healBuckets(HEAL_ROSTER, { healing: { Ghost: 'tank' } });
-    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal', 'Discy']);
+    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal']);
 });
 test('healing: no healers -> no healing duties at all', () => {
     const duties = E.autoAssign([{ name: 'T1', class: 'WARRIOR', spec: 'Protection' }], {}).duties;
@@ -2651,7 +2689,7 @@ test('healing: empty tank bucket is omitted from Discord', () => {
 });
 test('healing in /raid lines without rotation arrows', () => {
     const lines = E.buildRaidLines(HEAL_ROSTER, healSheet()).join('\n');
-    assert.ok(lines.includes('Tank Healing: Palaheal, Droodheal, Discy on Bearford, Warrison'), lines);
+    assert.ok(lines.includes('Tank Healing: Palaheal, Droodheal on Bearford, Warrison'), lines);
     assert.ok(!lines.includes('Tank Healing: Palaheal >'), lines);
 });
 test('healing rides the addon payload via whisper lines', () => {
