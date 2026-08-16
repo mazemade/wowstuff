@@ -619,6 +619,42 @@
             duties.push({ id: rot.id, name: rot.name, category: 'rotations', players, note: rot.note });
         });
 
+        // Healer split: two buckets, tank vs raid (spec 2026-08-16-healer-split-design.md).
+        // Tank set = MT-flagged players if any are flagged, else detected tanks. Affinity
+        // order is the TBC meta: single-target/HoT healers (pally, druid lifebloom, disc)
+        // babysit tanks; Chain Heal and deep Holy cover the raid.
+        const HEALING_TANK_AFFINITY = ['PALADIN:Holy', 'DRUID:Restoration', 'PRIEST:Discipline',
+                                       'PRIEST:Holy', 'SHAMAN:Restoration'];
+        const healers = roster.filter(p => bucketOf(p) === 'healers' && !(p.flags || []).includes('spec-unknown'));
+        if (healers.length) {
+            const mtFlagged = roster.filter(p => p.mt);
+            const tanks = mtFlagged.length ? mtFlagged : roster.filter(p => bucketOf(p) === 'tanks');
+            const affinity = p => {
+                const i = HEALING_TANK_AFFINITY.indexOf(p.class + ':' + p.spec);
+                return i === -1 ? HEALING_TANK_AFFINITY.length : i;
+            };
+            // Target size: ~1.5 healers per tank, but never drain the raid bucket. The
+            // Math.max(…, 1) is defensive per spec — round(1.5*n) >= 2 for n >= 1, so it
+            // can only matter if the multiplier is ever tuned below 1.
+            let want = Math.min(Math.round(1.5 * tanks.length), healers.length - 1);
+            if (tanks.length > 0 && healers.length >= 2) want = Math.max(want, 1);
+            const forced = (overrides && overrides.healing) || {};
+            const tankBucket = healers.filter(p => forced[p.name] === 'tank');
+            const raidBucket = healers.filter(p => forced[p.name] === 'raid');
+            healers.filter(p => !forced[p.name])
+                .map((p, i) => ({ p, i }))                                  // decorate: ties break by roster order
+                .sort((a, b) => (affinity(a.p) - affinity(b.p)) || (a.i - b.i))
+                .forEach(x => { (tankBucket.length < want ? tankBucket : raidBucket).push(x.p); });
+            const tankRow = { id: 'tankheal', name: 'Tank Healing', category: 'healing',
+                              players: tankBucket.map(p => p.name), targets: tanks.map(t => t.name) };
+            if (!mtFlagged.length && tanks.length) tankRow.tanksAutoDetected = true;
+            duties.push(tankRow);
+            const raidRow = { id: 'raidheal', name: 'Raid Healing', category: 'healing',
+                              players: raidBucket.map(p => p.name) };
+            if (healers.length === 1 && tanks.length) raidRow.note = 'Solo healer covers tanks and raid.';
+            duties.push(raidRow);
+        }
+
         const passives = PASSIVES.map(ps => {
             const p = roster.find(x => x.class === ps.class
                 && (ps.specs ? ps.specs.indexOf(x.spec) !== -1 : (!ps.spec || x.spec === ps.spec)));

@@ -2521,5 +2521,94 @@ test('duration: PARTY_BUFFS rows see the change (captured references stay live)'
         'PARTY_BUFFS holds a stale VT table: 520s=' + at520 + ' vs 200s=' + at200);
 });
 
+// --- Healer split ---
+const HEAL_ROSTER = [
+    { name: 'Bearford', class: 'DRUID', spec: 'Guardian' },
+    { name: 'Warrison', class: 'WARRIOR', spec: 'Protection' },
+    { name: 'Palaheal', class: 'PALADIN', spec: 'Holy' },
+    { name: 'Droodheal', class: 'DRUID', spec: 'Restoration' },
+    { name: 'Discy', class: 'PRIEST', spec: 'Discipline' },
+    { name: 'Holyp', class: 'PRIEST', spec: 'Holy' },
+    { name: 'Chainz', class: 'SHAMAN', spec: 'Restoration' },
+    { name: 'Chainzz', class: 'SHAMAN', spec: 'Restoration' },
+];
+function healBuckets(roster, overrides) {
+    const duties = E.autoAssign(roster, overrides || {}).duties;
+    return { tank: duties.find(d => d.id === 'tankheal'), raid: duties.find(d => d.id === 'raidheal') };
+}
+test('healing: 2 detected tanks, 6 healers -> 3/3 split in affinity order', () => {
+    const { tank, raid } = healBuckets(HEAL_ROSTER);
+    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal', 'Discy']);
+    assert.deepStrictEqual(raid.players, ['Holyp', 'Chainz', 'Chainzz']);
+    assert.deepStrictEqual(tank.targets, ['Bearford', 'Warrison']);
+    assert.strictEqual(tank.tanksAutoDetected, true);
+    assert.strictEqual(tank.category, 'healing');
+});
+test('healing: MT flags beat detected tanks and shrink the bucket', () => {
+    const roster = HEAL_ROSTER.map(p => Object.assign({}, p, p.name === 'Warrison' ? { mt: true } : {}));
+    const { tank } = healBuckets(roster);
+    assert.deepStrictEqual(tank.targets, ['Warrison']);
+    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal']); // round(1.5*1) = 2
+    assert.strictEqual(tank.tanksAutoDetected, undefined);
+});
+test('healing: zero tanks -> everyone raid-heals, tankheal row empty', () => {
+    const healersOnly = HEAL_ROSTER.filter(p => !['Bearford', 'Warrison'].includes(p.name));
+    const { tank, raid } = healBuckets(healersOnly);
+    assert.deepStrictEqual(tank.players, []);
+    assert.strictEqual(raid.players.length, 6);
+});
+test('healing: solo healer goes to raid bucket with a note', () => {
+    const { tank, raid } = healBuckets([HEAL_ROSTER[0], HEAL_ROSTER[1], HEAL_ROSTER[2]]);
+    assert.deepStrictEqual(tank.players, []);
+    assert.deepStrictEqual(raid.players, ['Palaheal']);
+    assert.ok(raid.note && raid.note.includes('Solo healer'));
+});
+test('healing: bucket clamps to leave at least one raid healer', () => {
+    // 3 tanks would want round(4.5) = 5 tank healers; only 2 healers exist -> clamp to 1.
+    const roster = [
+        { name: 'T1', class: 'WARRIOR', spec: 'Protection' },
+        { name: 'T2', class: 'PALADIN', spec: 'Protection' },
+        { name: 'T3', class: 'DRUID', spec: 'Guardian' },
+        { name: 'Palaheal', class: 'PALADIN', spec: 'Holy' },
+        { name: 'Chainz', class: 'SHAMAN', spec: 'Restoration' },
+    ];
+    const { tank, raid } = healBuckets(roster);
+    assert.deepStrictEqual(tank.players, ['Palaheal']);
+    assert.deepStrictEqual(raid.players, ['Chainz']);
+});
+test('healing: spec-unknown and non-healer priests are excluded', () => {
+    const roster = HEAL_ROSTER.concat([
+        { name: 'Afk', class: 'PRIEST', spec: null, flags: ['spec-unknown'] },
+        { name: 'Shadowy', class: 'PRIEST', spec: 'Shadow' },
+    ]);
+    const { tank, raid } = healBuckets(roster);
+    const all = tank.players.concat(raid.players);
+    assert.ok(!all.includes('Afk'));
+    assert.ok(!all.includes('Shadowy'));
+});
+test('healing: overrides force buckets and the rest still fills to target', () => {
+    const { tank, raid } = healBuckets(HEAL_ROSTER, { healing: { Palaheal: 'raid', Chainz: 'tank' } });
+    assert.ok(raid.players.includes('Palaheal'));
+    assert.ok(tank.players.includes('Chainz'));
+    assert.strictEqual(tank.players.length, 3); // target size unchanged
+    assert.deepStrictEqual(tank.players, ['Chainz', 'Droodheal', 'Discy']);
+});
+test('healing: forced tanks beyond target size are all kept', () => {
+    const { tank } = healBuckets(HEAL_ROSTER,
+        { healing: { Palaheal: 'tank', Droodheal: 'tank', Discy: 'tank', Holyp: 'tank' } });
+    assert.strictEqual(tank.players.length, 4);
+});
+test('healing: override naming a departed player is ignored without crashing', () => {
+    const { tank } = healBuckets(HEAL_ROSTER, { healing: { Ghost: 'tank' } });
+    assert.deepStrictEqual(tank.players, ['Palaheal', 'Droodheal', 'Discy']);
+});
+test('healing: no healers -> no healing duties at all', () => {
+    const duties = E.autoAssign([{ name: 'T1', class: 'WARRIOR', spec: 'Protection' }], {}).duties;
+    assert.ok(!duties.some(d => d.category === 'healing'));
+});
+test('healing: deterministic across runs', () => {
+    assert.deepStrictEqual(healBuckets(HEAL_ROSTER), healBuckets(HEAL_ROSTER));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
