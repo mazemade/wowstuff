@@ -28,19 +28,8 @@ app.use((err, req, res, next) => {
   res.status(err.status || err.statusCode || 400).json({ error: 'Malformed request body' });
 });
 
-// The site is the raid assignments tool. The older fight pages still exist and still work
-// at their own URLs (/gruul.html, /magtheridon.html, /ssc.html, /index.html); they are just
-// no longer what you land on.
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'assignments.html'));
-});
-
-app.get('/gruul.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'gruul.html'));
-});
-
-app.get('/magtheridon.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'magtheridon.html'));
 });
 
 // Proxy for Raid-Helper event API (their CORS policy blocks direct browser calls)
