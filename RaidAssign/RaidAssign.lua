@@ -400,21 +400,53 @@ local function ShowPreview()
     frame.backBtn:Show()
 end
 
--- The only event this file listens to. Roster churn is the one thing that can invalidate
--- the preview screen without the leader touching it.
+-- The payload must outlive the session. It used to live in these locals only, so a
+-- /reload, relog or crash mid-raid dropped it and Track.lua recorded nothing for every
+-- later boss without ever saying so. What gets saved is the raw pasted text, not the
+-- parsed tables: one field, and ParsePayload stays the only thing that knows the format.
+local function Adopt(result)
+    sheet, malformed, layout, tracking = result.entries, result.malformed, result.layout, result.tracking
+end
+
+-- SavedVariables are only populated after this file has run, so the restore waits for
+-- PLAYER_LOGIN — which also fires on every /reload. A payload that no longer parses is
+-- dropped quietly; it can only be one the leader is about to paste again anyway.
+local function RestorePayload()
+    local text = RaidAssignDB and RaidAssignDB.payload
+    if not text then return end
+    local result = ParsePayload(text)
+    if not result then return end
+    Adopt(result)
+    local what = tracking
+        and (#(tracking.debuffs or {}) .. " debuffs and " .. #(tracking.buffs or {})
+             .. " group buffs tracked")
+        or "no tracking"
+    Print("Payload restored: " .. #sheet .. " whisper lines, " .. what .. ".")
+end
+
+-- Roster churn is the one thing that can invalidate the preview screen without the
+-- leader touching it; PLAYER_LOGIN is where the saved payload comes back.
 local rosterWatch = CreateFrame("Frame")
 rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
-rosterWatch:SetScript("OnEvent", function()
-    if frame and frame:IsShown() then RefreshLiveState() end
+rosterWatch:RegisterEvent("PLAYER_LOGIN")
+rosterWatch:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        RestorePayload()
+    elseif frame and frame:IsShown() then
+        RefreshLiveState()
+    end
 end)
 
 local function OnLoadClicked()
-    local result, err = ParsePayload(frame.editBox:GetText())
+    local text = frame.editBox:GetText()
+    local result, err = ParsePayload(text)
     if not result then
         frame.status:SetText("|cFFFF6B6B" .. err .. "|r")
         return
     end
-    sheet, malformed, layout, tracking = result.entries, result.malformed, result.layout, result.tracking
+    Adopt(result)
+    RaidAssignDB = RaidAssignDB or {}
+    RaidAssignDB.payload = text
     ShowPreview()
 end
 

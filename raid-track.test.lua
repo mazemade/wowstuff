@@ -203,6 +203,21 @@ test('no tracking payload: nothing recorded', function()
     assertEqual(RaidAssignAPI.TrackLive(), nil)
 end)
 
+-- The silence is what cost the Karazhan night: ten bosses started and none recorded.
+test('a boss pull with no tracking payload says so', function()
+    BuildWorld({ raid = {}, tracking = nil })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    assertMatch(world.messages[#world.messages] or '', 'No tracking payload')
+end)
+
+test('the no-payload warning does not repeat on the next pull', function()
+    BuildWorld({ raid = {}, tracking = nil })
+    Fire('ENCOUNTER_START', 649, 'Gruul', 173, 25)
+    assertEqual(#world.messages, 1)
+    Fire('ENCOUNTER_START', 650, 'Maulgar', 173, 25)
+    assertEqual(#world.messages, 1)
+end)
+
 test('pull cap keeps the newest 20', function()
     BuildWorld({ raid = {}, tracking = { debuffs = { COE }, buffs = {} } })
     for i = 1, 21 do

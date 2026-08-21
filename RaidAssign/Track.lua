@@ -121,9 +121,21 @@ local function ScanTick(_, dt)
     end
 end
 
+-- Returning quietly here is how a whole Karazhan night went unrecorded: the payload had
+-- been lost to a client restart and ten bosses came and went without a word. Say it once
+-- per session — every pull would be nagging at raids that never load a payload at all.
+local warned = false
+
 local function StartPull(encounterID, name)
     local tracking = RaidAssignAPI and RaidAssignAPI.GetTracking and RaidAssignAPI.GetTracking()
-    if not tracking then return end
+    if not tracking then
+        if not warned then
+            warned = true
+            Print("No tracking payload loaded — this pull will not be scored. "
+                  .. "/specsend and paste the Addon tab to fix it.")
+        end
+        return
+    end
     counters[name] = (counters[name] or 0) + 1
     local inRaid = RaidShortNames()
     active = { encounterID = encounterID, encounter = name, ordinal = counters[name],

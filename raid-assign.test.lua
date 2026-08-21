@@ -158,6 +158,16 @@ local function Subgroups()
     return out
 end
 
+-- A /reload or relog: every Lua local in the addon is gone and the files run again from
+-- scratch. Only RaidAssignDB survives, and the client hands it back after the files have
+-- run, just before PLAYER_LOGIN — so that is the order this reproduces.
+local function Reload(opts)
+    local db = _G.RaidAssignDB
+    BuildWorld(opts)
+    _G.RaidAssignDB = db
+    Fire('PLAYER_LOGIN')
+end
+
 -- --- ParsePayload: RSW1 / RSW2 ---
 
 test('RSW1 payload still loads and reports no layout', function()
@@ -238,6 +248,45 @@ test('RSW1 payload leaves tracking nil', function()
     BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
     LoadPayload({ 'RSW1', 'Zug=Hi' })
     assertEqual(RaidAssignAPI.GetTracking(), nil)
+end)
+
+-- Karazhan 2026-08-18: the client restarted between Maiden of Virtue and the Opera Hall
+-- and every one of the ten remaining bosses recorded nothing, silently, because the
+-- payload lived only in a local. StartPull's `if not tracking then return end` never
+-- fires again once the payload is gone.
+test('a reload keeps the tracking payload alive', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    LoadPayload({
+        'RSW3',
+        'Zug=Your assignments: Curse of Elements',
+        '@T D|coe|Curse of Elements|Curse of the Elements|Zug',
+        '@T B|soe|Strength of Earth|Strength of Earth|2|Slyvester',
+    })
+    Reload({ raid = { { name = 'Zug', subgroup = 1 } } })
+    local t = RaidAssignAPI.GetTracking()
+    assertEqual(t and t.debuffs[1].id, 'coe')
+    assertEqual(t and t.buffs[1].provider, 'Slyvester')
+end)
+
+-- The whole point of the restore: the next boss after the restart scores again.
+test('a boss pulled after a reload is scored against the restored payload', function()
+    BuildWorld({ raid = { { name = 'Zug', subgroup = 1 } } })
+    LoadPayload({
+        'RSW3',
+        'Zug=Your assignments: Curse of Elements',
+        '@T D|coe|Curse of Elements|Curse of the Elements|Zug',
+    })
+    Reload({ raid = { { name = 'Zug', subgroup = 1 } } })
+    world.time = 0
+    Fire('ENCOUNTER_START', 655, 'Opera Hall')
+    world.cleu = { 0, 'SPELL_AURA_APPLIED', false, 'Player-1-AAAA', 'Zug', 0, 0,
+                   'Creature-0-1-1-1-17535-000', 'Boss', 0, 0, 1, 'Curse of the Elements', 0, 'DEBUFF' }
+    Fire('COMBAT_LOG_EVENT_UNFILTERED')
+    world.time = 40
+    Fire('ENCOUNTER_END', 655, 'Opera Hall', 3, 10, 1)
+    local p = (RaidAssignDB.pulls or {})[1]
+    assertEqual(p and p.encounter, 'Opera Hall')
+    assertEqual(p and p.debuffs[1].uptime, 40)
 end)
 
 test('SendRaw whispers without touching send history', function()
