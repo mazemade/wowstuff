@@ -362,17 +362,22 @@ local function ShowPaste()
     frame.backBtn:Hide()
 end
 
-local function ShowPreview()
-    frame.title:SetText(#sheet .. " whispers ready — nothing is sent until you press Send")
-    local text, changed = PreviewText()
-    frame.editBox:SetText(text)
+-- Everything on the preview screen that depends on live raid state: which buttons are
+-- usable, and what the status line says. Split out of ShowPreview because the raid changes
+-- underneath an open frame — the invite lands late, someone disbands mid-planning — and
+-- GROUP_ROSTER_UPDATE must be able to re-run just this much without rebuilding the preview
+-- text under a leader who is reading it. Computed once at Load, this left the Apply button
+-- dead for the rest of the session, and a disabled button swallows the click in silence:
+-- ApplyGroups prints on all six of its exit paths, but none of them is ever reached.
+local function RefreshLiveState()
+    if not (frame and sheet) then return end
+    local _, changed = PreviewText()
     frame.changedBtn:SetText("Send " .. changed .. " changed")
-    if changed > 0 then frame.changedBtn:Enable() else frame.changedBtn:Disable() end
-    frame.editBox:ClearFocus()
     local bits = {}
     if layout then table.insert(bits, LayoutSummary()) end
     if IsInRaid() then
         frame.sendBtn:Enable()
+        if changed > 0 then frame.changedBtn:Enable() else frame.changedBtn:Disable() end
     else
         table.insert(bits, "Not in a raid — you can review, but not send.")
         frame.sendBtn:Disable()
@@ -380,12 +385,28 @@ local function ShowPreview()
     end
     frame.status:SetText(table.concat(bits, "  "))
     if layout and IsInRaid() then frame.applyBtn:Enable() else frame.applyBtn:Disable() end
+end
+
+local function ShowPreview()
+    frame.title:SetText(#sheet .. " whispers ready — nothing is sent until you press Send")
+    local text = PreviewText()
+    frame.editBox:SetText(text)
+    frame.editBox:ClearFocus()
+    RefreshLiveState()
     frame.loadBtn:Hide()
     frame.changedBtn:Show()
     frame.sendBtn:Show()
     frame.applyBtn:Show()
     frame.backBtn:Show()
 end
+
+-- The only event this file listens to. Roster churn is the one thing that can invalidate
+-- the preview screen without the leader touching it.
+local rosterWatch = CreateFrame("Frame")
+rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
+rosterWatch:SetScript("OnEvent", function()
+    if frame and frame:IsShown() then RefreshLiveState() end
+end)
 
 local function OnLoadClicked()
     local result, err = ParsePayload(frame.editBox:GetText())

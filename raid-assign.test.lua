@@ -34,12 +34,14 @@ local function assertMatch(s, pattern)
 end
 
 local function MockFrame()
-    local f = { scripts = {}, text = '', shown = true, enabled = true }
+    local f = { scripts = {}, events = {}, text = '', shown = true, enabled = true }
     setmetatable(f, { __index = function()
         return function() return MockFrame() end
     end })
     rawset(f, 'SetScript', function(self, key, fn) rawset(self.scripts, key, fn) end)
     rawset(f, 'GetScript', function(self, key) return self.scripts[key] end)
+    rawset(f, 'RegisterEvent', function(self, e) rawset(self.events, e, true) end)
+    rawset(f, 'UnregisterEvent', function(self, e) rawset(self.events, e, nil) end)
     rawset(f, 'SetText', function(self, t) self.text = t end)
     rawset(f, 'GetText', function(self) return self.text end)
     rawset(f, 'Show', function(self) self.shown = true end)
@@ -136,6 +138,18 @@ end
 
 local function LastMessage()
     return world.messages[#world.messages] or ''
+end
+
+-- Fires an event on every frame registered for it, like the client does.
+local function Fire(event, ...)
+    for _, f in ipairs(world.frames) do
+        if f.events[event] and f.scripts.OnEvent then f.scripts.OnEvent(f, event, ...) end
+    end
+end
+
+-- The raid roster changed under the addon: an invite landed, or the raid disbanded.
+local function Roster()
+    Fire('GROUP_ROSTER_UPDATE')
 end
 
 local function Subgroups()
@@ -386,6 +400,29 @@ test('RaidAssignAPI.ApplyGroups without a layout explains itself', function()
     BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
     RaidAssignAPI.ApplyGroups()
     assertMatch(LastMessage(), 'No layout loaded')
+end)
+
+-- Regression: the apply button's enabled state was computed once, in ShowPreview, and the
+-- addon registered no events — so a payload loaded before the raid invite left the button
+-- dead for the rest of the session. A disabled UIPanelButtonTemplate swallows clicks in the
+-- real client, so this is the one path in the file that prints nothing at all: ApplyGroups
+-- has a Print on every one of its exit paths, but it is never reached.
+test('apply button wakes up when you join the raid after loading the payload', function()
+    BuildWorld({ raid = {} })                       -- payload pasted while still solo
+    LoadPayload({ 'RSW2', 'Alice=Tank stuff', '@G2=Alice' })
+    assertEqual(RaidAssignFrame.applyBtn.enabled, false)
+    world.raid = { { name = 'Alice', subgroup = 1 } }  -- the invite lands
+    Roster()
+    assertEqual(RaidAssignFrame.applyBtn.enabled, true)
+end)
+
+test('apply button goes dead again when the raid disbands under it', function()
+    BuildWorld({ raid = { { name = 'Alice', subgroup = 1 } } })
+    LoadPayload({ 'RSW2', 'Alice=Tank stuff', '@G2=Alice' })
+    assertEqual(RaidAssignFrame.applyBtn.enabled, true)
+    world.raid = {}
+    Roster()
+    assertEqual(RaidAssignFrame.applyBtn.enabled, false)
 end)
 
 test('RaidAssignAPI.LayoutInfo mirrors the loaded layout', function()
