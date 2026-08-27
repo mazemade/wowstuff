@@ -45,5 +45,86 @@
         return d;
     }
 
-    return { ENCOUNTERS, slotAngles, angleToXY, circGap };
+    function roleOf(p) {
+        const b = E.bucketOf(p);
+        if (b === 'tanks') return 'tank';
+        if (b === 'healers') return 'healer';
+        if (b === 'melee') return 'melee';
+        return 'ranged'; // casters + hunters both live on the ring
+    }
+
+    function pickTanks(roster) {
+        // Flagged tanks lead (the raid leader's word beats the spec heuristic), but a partially
+        // flagged roster (e.g. only the MT checked, not the OT) must not drop the unflagged
+        // bucket tanks — every physical tank needs a marker somewhere.
+        const flagged = roster.filter(p => p.mt);
+        const bucketTanks = roster.filter(p => E.bucketOf(p) === 'tanks');
+        const tanks = flagged.concat(bucketTanks.filter(p => flagged.indexOf(p) === -1));
+        return { mt: tanks[0] || null, offtank: tanks[1] || null, spare: tanks.slice(2) };
+    }
+
+    function computePositions(roster, groupsResult, duties, opts) {
+        opts = opts || {};
+        const enc = ENCOUNTERS[opts.encounter || 'hyjal-b12'];
+        const bossMode = opts.boss || 'winterchill';
+        const bossDef = enc.bosses.find(b => b.id === bossMode) || enc.bosses[0];
+        const nudges = opts.nudges || {};
+        const markers = [];
+        const warnings = [];
+
+        const { mt, offtank, spare } = pickTanks(roster);
+        const tankNames = new Set([mt, offtank].concat(spare).filter(Boolean).map(p => p.name));
+        const melee = roster.filter(p => !tankNames.has(p.name) && roleOf(p) === 'melee');
+        const ringPeople = roster.filter(p => !tankNames.has(p.name) && (roleOf(p) === 'healer' || roleOf(p) === 'ranged'));
+
+        markers.push({ kind: 'boss', x: enc.anchors.boss.x, y: enc.anchors.boss.y, label: bossDef.name });
+        if (mt) markers.push(person(mt, 'mt', enc.anchors.mt, null, nudges));
+
+        const clumpNames = melee.map(p => p.name).concat(spare.map(p => p.name));
+        if (bossMode === 'anetheron' && offtank) {
+            markers.push({ kind: 'station', x: bossDef.station.x, y: bossDef.station.y, label: bossDef.station.label });
+            markers.push(person(offtank, 'offtank', bossDef.station, null, nudges));
+        } else if (offtank) {
+            clumpNames.push(offtank.name);
+        }
+        if (clumpNames.length) {
+            markers.push({ kind: 'clump', x: enc.anchors.clump.x, y: enc.anchors.clump.y, names: clumpNames });
+        }
+
+        // Party wedges: each group's ring members stay contiguous (totem range).
+        const groups = (groupsResult && groupsResult.groups) || [];
+        const onRing = new Set(ringPeople.map(p => p.name));
+        const wedges = groups
+            .map((g, i) => ({ party: i + 1, players: g.players.filter(p => onRing.has(p.name)) }))
+            .filter(w => w.players.length);
+        // Anyone not in a proposed group (groups cap at 25) still gets a slot. Real wedges carry
+        // their ORIGINAL group index as `party` (per the interface contract), which survives the
+        // filter above even when an earlier group had zero ring members — so `groups.length + 1`,
+        // not `wedges.length + 1`, is the only party number guaranteed not to collide with one.
+        const grouped = new Set(wedges.flatMap(w => w.players.map(p => p.name)));
+        const rest = ringPeople.filter(p => !grouped.has(p.name));
+        if (rest.length) wedges.push({ party: groups.length + 1, players: rest });
+
+        const ordered = wedges.flatMap(w => w.players.map(p => ({ p, party: w.party })));
+        const n = ordered.length;
+        const angles = slotAngles(n, enc.ring.startDeg);
+        ordered.forEach((o, i) => {
+            const r = enc.ring.rBase + (i % 2 ? enc.ring.rJitter : -enc.ring.rJitter);
+            const pos = angleToXY(enc.anchors.boss, r, angles[i], enc.aspect);
+            const m = person(o.p, 'ring', pos, angles[i], nudges);
+            m.party = o.party;
+            markers.push(m);
+        });
+
+        return { markers, warnings };
+    }
+
+    function person(p, kind, pos, angleDeg, nudges) {
+        const nudge = nudges[p.name] || { dx: 0, dy: 0 };
+        const m = { kind, name: p.name, class: p.class, role: roleOf(p), x: pos.x + nudge.dx, y: pos.y + nudge.dy, tags: [] };
+        if (angleDeg !== null) m.angleDeg = angleDeg;
+        return m;
+    }
+
+    return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions };
 }));
