@@ -17,6 +17,18 @@ function loadAll() {
     try { linkMap = JSON.parse(localStorage.getItem(LINK_KEY)) || {}; } catch (e) { /* fresh */ }
     try { Object.assign(posState, JSON.parse(localStorage.getItem(POS_KEY)) || {}); } catch (e) { /* fresh */ }
     roster = E.deriveRoster(sheetState, linkMap);
+
+    // Sweep stale nudges the same way the sheet sweeps stale cc/override references: a nudge
+    // keyed to a name that fell off the roster (rename, removal, re-import) is dead weight that
+    // would otherwise sit in storage forever, only ever surfacing again if the name is reused.
+    posState.nudges = posState.nudges || {};
+    const names = new Set(roster.map(p => p.name));
+    let sweepChanged = false;
+    Object.keys(posState.nudges).forEach(n => {
+        if (!names.has(n)) { delete posState.nudges[n]; sweepChanged = true; }
+    });
+    if (sweepChanged) savePos();
+
     return sheetState;
 }
 function savePos() { localStorage.setItem(POS_KEY, JSON.stringify(posState)); }

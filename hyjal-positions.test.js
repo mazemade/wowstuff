@@ -149,6 +149,27 @@ test('compute: warning when a party wedge spans more than 90 degrees', () => {
     if (overWide) assert.ok(r.warnings.some(w => w.includes('totem range')), JSON.stringify(r.warnings));
 });
 
+// --- playerMeta overlay (deriveRoster now applies it; this checks computePositions honors
+// whatever deriveRoster hands it, mirroring how the positions page consumes E.deriveRoster) ---
+test('compute: an mt-flagged second tank (via deriveRoster-shaped state) becomes the mt marker', () => {
+    const state = {
+        sources: { addon: [
+            { name: 'Firstank', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null },
+            { name: 'Secondtank', class: 'PALADIN', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null },
+            { name: 'Priest', class: 'PRIEST', spec: 'Holy', flags: [], source: 'addon', group: 1, race: null, talents: null },
+        ], rh: null },
+        manual: [], excluded: [],
+        // Only the SECOND tank is flagged MT — the case that used to only reach the roster
+        // through the sheet's inline overlay, not through E.deriveRoster alone.
+        playerMeta: { Secondtank: { mt: true } },
+    };
+    const roster = E.deriveRoster(state, {});
+    const r = compute(roster);
+    const mtMarker = r.markers.find(m => m.kind === 'mt');
+    assert.ok(mtMarker, 'no mt marker rendered');
+    assert.strictEqual(mtMarker.name, 'Secondtank');
+});
+
 // --- anetheron mode ---
 test('anetheron: offtank moves to the station and it renders', () => {
     const r = compute(fixtureRoster(), { boss: 'anetheron' });
@@ -167,10 +188,15 @@ test('anetheron: the raid healer nearest the station is tagged infernal-healer',
     assert.strictEqual(tagged.length, 1);   // fixture has < 4 raid healers -> exactly 1
     assert.ok(raidHealers.includes(tagged[0].name), 'tagged a tank healer instead of a raid healer');
 });
-test('anetheron: single-tank roster warns about the station', () => {
+test('anetheron: single-tank roster warns about the station but still renders it', () => {
     const roster = fixtureRoster().filter(p => p.name !== 'Ot');
     const r = compute(roster, { boss: 'anetheron' });
     assert.ok(r.warnings.some(w => w.includes('No second tank')), JSON.stringify(r.warnings));
+    // The station is a fixed map feature (the infernal spawn point), not something that should
+    // vanish just because there is no offtank to man it — only the offtank person-marker is
+    // conditional on having a second tank.
+    assert.ok(r.markers.some(m => m.kind === 'station'), 'station marker missing with no offtank');
+    assert.ok(!r.markers.some(m => m.kind === 'offtank'), 'no offtank should mean no offtank marker');
 });
 test('winterchill: no infernal-healer tags', () => {
     const r = compute(fixtureRoster(), { boss: 'winterchill' });
@@ -189,6 +215,14 @@ test('nudges: shift the named marker and only that marker', () => {
         const o2 = nudged.markers.find(m => m.name === o.name);
         assert.strictEqual(o2.x, o.x);
     });
+});
+test('nudges: an absurd nudge is clamped inside the map bounds', () => {
+    // A stored nudge from a previous, larger map (or just a stray drag) plus a base position
+    // change should never be able to push a marker off the image.
+    const r = compute(fixtureRoster(), { nudges: { Hunt: { dx: 5, dy: -5 } } });
+    const hunt = r.markers.find(m => m.name === 'Hunt');
+    assert.ok(hunt.x >= 0.01 && hunt.x <= 0.99, 'x out of bounds: ' + hunt.x);
+    assert.ok(hunt.y >= 0.01 && hunt.y <= 0.99, 'y out of bounds: ' + hunt.y);
 });
 
 console.log(passed + ' passed, ' + failed + ' failed');

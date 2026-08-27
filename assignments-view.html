@@ -111,14 +111,22 @@
                 u.textContent = '⚠ Uncovered: ' + missing.map(x => x.name).join(', ');
             }
             if (payload.positions && Array.isArray(payload.positions.markers)) {
-                document.getElementById('posSection').classList.remove('hidden');
-                document.getElementById('mapImg').src = payload.positions.map;
-                const warn = payload.positions.warnings || [];
-                const wbox = document.getElementById('posWarnings');
-                wbox.classList.toggle('hidden', !warn.length);
-                wbox.textContent = warn.join('\n');
-                const wrap = document.getElementById('mapWrap');
-                payload.positions.markers.forEach(m => wrap.appendChild(viewMarker(m)));
+                // Positions are additive on top of the cards above, which have already rendered
+                // successfully by this point. A malformed positions sub-payload must not throw
+                // into the outer catch and slap an error banner over otherwise-good cards — it
+                // should just leave the positioning section hidden.
+                try {
+                    document.getElementById('posSection').classList.remove('hidden');
+                    document.getElementById('mapImg').src = payload.positions.map;
+                    const warn = payload.positions.warnings || [];
+                    const wbox = document.getElementById('posWarnings');
+                    wbox.classList.toggle('hidden', !warn.length);
+                    wbox.textContent = warn.join('\n');
+                    const wrap = document.getElementById('mapWrap');
+                    payload.positions.markers.forEach(m => wrap.appendChild(viewMarker(m)));
+                } catch (posErr) {
+                    document.getElementById('posSection').classList.add('hidden');
+                }
             }
         } catch (e) {
             document.getElementById('viewError').classList.remove('hidden');

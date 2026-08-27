@@ -137,15 +137,22 @@
         if (mt) markers.push(person(mt, 'mt', enc.anchors.mt, null, nudges));
 
         const clumpNames = melee.map(p => p.name).concat(spare.map(p => p.name));
-        if (bossMode === 'anetheron' && offtank) {
+        if (bossMode === 'anetheron') {
+            // The station is a fixed map feature (the infernal spawn point) — it renders
+            // regardless of whether a second tank exists to man it. Only the offtank
+            // person-marker below is conditional; the "No second tank" warning already covers
+            // the missing-offtank case.
             markers.push({ kind: 'station', x: bossDef.station.x, y: bossDef.station.y, label: bossDef.station.label });
-            // Offset the offtank's own marker a small deterministic distance below the station
-            // anchor. The tank stands at the station, but rendering the person-marker at the
-            // exact same x,y as the static station marker stacks both labels ("Infernals →
-            // Jaina" and the tank's name) on one point, garbling into unreadable text (task 6
-            // review finding). The nudge system still applies on top of this offset.
-            const otPos = { x: bossDef.station.x, y: bossDef.station.y + 0.05 };
-            markers.push(person(offtank, 'offtank', otPos, null, nudges));
+            if (offtank) {
+                // Offset the offtank's own marker a small deterministic distance below the
+                // station anchor. The tank stands at the station, but rendering the
+                // person-marker at the exact same x,y as the static station marker stacks both
+                // labels ("Infernals → Jaina" and the tank's name) on one point, garbling into
+                // unreadable text (task 6 review finding). The nudge system still applies on
+                // top of this offset.
+                const otPos = { x: bossDef.station.x, y: bossDef.station.y + 0.05 };
+                markers.push(person(offtank, 'offtank', otPos, null, nudges));
+            }
         } else if (offtank) {
             clumpNames.push(offtank.name);
         }
@@ -229,9 +236,17 @@
         return { markers, warnings };
     }
 
+    function clamp01(v) { return Math.min(0.99, Math.max(0.01, v)); }
+
     function person(p, kind, pos, angleDeg, nudges) {
         const nudge = nudges[p.name] || { dx: 0, dy: 0 };
-        const m = { kind, name: p.name, class: p.class, role: roleOf(p), x: pos.x + nudge.dx, y: pos.y + nudge.dy, tags: [] };
+        // A stored nudge is a delta on top of whatever base position this run computes. If the
+        // base shifts (roster/group changes) or the nudge itself is out of proportion, the sum
+        // can land off the map — clamp the final coordinate, not just the raw nudge, so a
+        // persisted offset can never strand a marker outside the image.
+        const x = clamp01(pos.x + nudge.dx);
+        const y = clamp01(pos.y + nudge.dy);
+        const m = { kind, name: p.name, class: p.class, role: roleOf(p), x, y, tags: [] };
         if (angleDeg !== null) m.angleDeg = angleDeg;
         return m;
     }
