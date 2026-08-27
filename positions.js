@@ -124,7 +124,11 @@ function drawMarkers(ctx, W, H, markers) {
         ctx.font = 'bold 15px sans-serif';
         ctx.shadowColor = '#000'; ctx.shadowBlur = 6;
         const lines = m.kind === 'clump' ? m.names : [(m.name || m.label || '')];
-        lines.forEach((ln, i) => ctx.fillText(ln, x, y + R + 16 + i * 16));
+        if (m.kind === 'station') {
+            lines.forEach((ln, i) => ctx.fillText(ln, x, y - R - 8 - (lines.length - 1 - i) * 16));
+        } else {
+            lines.forEach((ln, i) => ctx.fillText(ln, x, y + R + 16 + i * 16));
+        }
         if ((m.tags || []).includes('infernal-healer')) {
             ctx.fillStyle = '#ffd166';
             ctx.fillText('→ infernal station', x, y + R + 16 + lines.length * 16);
@@ -144,6 +148,11 @@ async function copyImage() {
     drawMarkers(ctx, canvas.width, canvas.height, lastResult.markers);
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
     const btn = document.getElementById('copyImageBtn');
+    if (!blob) {
+        btn.textContent = '⚠ Export failed';
+        setTimeout(() => { btn.textContent = '📋 Copy as image'; }, 1500);
+        return;
+    }
     try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         btn.textContent = '✅ Copied';
