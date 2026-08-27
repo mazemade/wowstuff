@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raid Positioning</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="assignments.css">
+    <link rel="stylesheet" href="positions.css">
+</head>
+<body>
+    <div class="container">
+        <nav class="page-tabs">
+            <a href="./" class="page-tab">Assignments</a>
+            <a href="positions.html" class="page-tab active">Positioning</a>
+        </nav>
+        <header>
+            <h1>Raid Positioning</h1>
+            <p id="encounterName"></p>
+        </header>
+        <section class="panel">
+            <div class="tabbar">
+                <button class="tab active" id="bossWinterchill">Rage Winterchill</button>
+                <button class="tab" id="bossAnetheron">Anetheron</button>
+                <span class="spacer"></span>
+                <button id="resetNudges" class="btn">Reset nudges</button>
+                <button id="copyImageBtn" class="btn">📋 Copy as image</button>
+            </div>
+            <div id="posWarnings" class="warn hidden"></div>
+            <div id="emptyState" class="status hidden">Import a roster on the Assignments page first.</div>
+            <div id="mapWrap"><img id="mapImg" alt="Hyjal ballista area"></div>
+        </section>
+    </div>
+    <script src="assignments-engine.js"></script>
+    <script src="hyjal-positions.js"></script>
+    <script src="positions.js"></script>
+</body>
+</html>

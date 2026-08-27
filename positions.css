@@ -1,0 +1,20 @@
+/* Raid Positioning page — extends style.css + assignments.css */
+#mapWrap { position: relative; width: 100%; margin-top: 12px; user-select: none; }
+#mapWrap img { display: block; width: 100%; height: auto; border-radius: 8px; }
+
+.pos-marker { position: absolute; transform: translate(-50%, -50%); text-align: center;
+              cursor: grab; touch-action: none; z-index: 2; }
+.pos-marker.static { cursor: default; }
+.pos-dot { width: 28px; height: 28px; border-radius: 50%; margin: 0 auto;
+           display: flex; align-items: center; justify-content: center;
+           font-size: 15px; color: #fff; border: 2px solid rgba(255,255,255,.85);
+           box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.pos-role-healer .pos-dot { background: #1d5c46; }
+.pos-role-ranged .pos-dot { background: #7a1f24; }
+.pos-role-melee .pos-dot, .pos-kind-clump .pos-dot { background: #7a1f24; }
+.pos-kind-mt .pos-dot, .pos-kind-offtank .pos-dot { background: #1d3557; }
+.pos-kind-boss .pos-dot { background: #3a2b4d; width: 34px; height: 34px; }
+.pos-kind-station .pos-dot { background: #274156; }
+.pos-label { margin-top: 2px; font-size: 11px; line-height: 1.25; color: #fff;
+             text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: pre; }
+.pos-marker .pos-tag { display: block; font-size: 10px; color: #ffd166; }

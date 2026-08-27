@@ -1,4 +1,9 @@
 /* Raid Assignments page — extends style.css */
+.page-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.page-tab { padding: 8px 16px; border-radius: 8px 8px 0 0; text-decoration: none;
+            color: inherit; opacity: .65; background: rgba(255,255,255,.06); }
+.page-tab.active { opacity: 1; background: rgba(255,255,255,.14); font-weight: 600; }
+
 .panel { background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
 .panel h2 { color: #ffd700; font-size: 1.2em; margin-bottom: 12px; }
 .import-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; align-items: flex-start; }

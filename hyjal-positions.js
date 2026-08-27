@@ -15,14 +15,27 @@
             aspect: 1698 / 926,
             bosses: [
                 { id: 'winterchill', name: 'Rage Winterchill' },
+                // x=0.65 put the station marker's own label right where the ring's second
+                // slot (index 1, ~-69deg off boss) always lands — every offtank+station
+                // label collided with that ring member's label regardless of roster. Nudged
+                // right to a collision-free pocket found the same way as the clump anchor
+                // below. Verified in a CDP screenshot (task 6 step 5).
                 { id: 'anetheron', name: 'Anetheron',
-                  station: { x: 0.65, y: 0.12, label: 'Infernals → Jaina' } },
+                  station: { x: 0.69, y: 0.12, label: 'Infernals → Jaina' } },
             ],
-            // Digitized from maps/reference-winterchill-annotated.png (same viewport).
+            // Digitized from maps/reference-winterchill-annotated.png (same viewport). The
+            // clump anchor sits further from boss/mt than the reference's bare melee dots do:
+            // a text clump can stack 6-7 names (a busy 25-man's melee group), and at the
+            // reference's tighter spacing that stacked label collides with either the boss
+            // marker's own label or the ring (which fully encircles the boss at ring.rBase).
+            // x=0.375/y=0.435 is a collision-free pocket just outside the ring's radius,
+            // to the boss's left — found by scoring candidate anchors against a realistic
+            // 25-player fixture's marker footprints and picking the nearest clear one.
+            // Verified in a CDP screenshot (task 6 step 5).
             anchors: {
                 boss: { x: 0.56, y: 0.40 },
                 mt: { x: 0.60, y: 0.37 },
-                clump: { x: 0.53, y: 0.46 },
+                clump: { x: 0.375, y: 0.435 },
             },
             ring: { rBase: 0.145, rJitter: 0.018, startDeg: -90 },
         },
