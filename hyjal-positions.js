@@ -139,7 +139,13 @@
         const clumpNames = melee.map(p => p.name).concat(spare.map(p => p.name));
         if (bossMode === 'anetheron' && offtank) {
             markers.push({ kind: 'station', x: bossDef.station.x, y: bossDef.station.y, label: bossDef.station.label });
-            markers.push(person(offtank, 'offtank', bossDef.station, null, nudges));
+            // Offset the offtank's own marker a small deterministic distance below the station
+            // anchor. The tank stands at the station, but rendering the person-marker at the
+            // exact same x,y as the static station marker stacks both labels ("Infernals →
+            // Jaina" and the tank's name) on one point, garbling into unreadable text (task 6
+            // review finding). The nudge system still applies on top of this offset.
+            const otPos = { x: bossDef.station.x, y: bossDef.station.y + 0.05 };
+            markers.push(person(offtank, 'offtank', otPos, null, nudges));
         } else if (offtank) {
             clumpNames.push(offtank.name);
         }
