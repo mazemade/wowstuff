@@ -188,6 +188,25 @@
             if (span > 90) warnings.push('Party ' + pi + ' stretches over ' + Math.round(span) + '° of the ring — totem range may not cover it.');
         });
 
+        if (bossMode === 'anetheron') {
+            if (!offtank) warnings.push('No second tank for the infernal station.');
+            const raidHealRow = (duties || []).find(d => d.id === 'raidheal');
+            const raidHealerNames = raidHealRow ? raidHealRow.players : [];
+            const candidates = ringMarkers.filter(m => raidHealerNames.includes(m.name));
+            if (!candidates.length) {
+                warnings.push('No raid healer available for the infernal station.');
+            } else {
+                const st = bossDef.station;
+                const stAngle = Math.atan2((st.y - enc.anchors.boss.y) / enc.aspect, st.x - enc.anchors.boss.x) * 180 / Math.PI;
+                const want = raidHealerNames.length >= 4 ? 2 : 1;
+                candidates
+                    .slice()
+                    .sort((a, b) => circGap(a.angleDeg, stAngle) - circGap(b.angleDeg, stAngle))
+                    .slice(0, want)
+                    .forEach(m => m.tags.push('infernal-healer'));
+            }
+        }
+
         return { markers, warnings };
     }
 

@@ -149,5 +149,47 @@ test('compute: warning when a party wedge spans more than 90 degrees', () => {
     if (overWide) assert.ok(r.warnings.some(w => w.includes('totem range')), JSON.stringify(r.warnings));
 });
 
+// --- anetheron mode ---
+test('anetheron: offtank moves to the station and it renders', () => {
+    const r = compute(fixtureRoster(), { boss: 'anetheron' });
+    const station = r.markers.find(m => m.kind === 'station');
+    const ot = r.markers.find(m => m.kind === 'offtank');
+    assert.ok(station && ot);
+    assert.strictEqual(ot.name, 'Ot');
+    assert.ok(!r.markers.find(m => m.kind === 'clump').names.includes('Ot'));
+});
+test('anetheron: the raid healer nearest the station is tagged infernal-healer', () => {
+    const roster = fixtureRoster();
+    const duties = E.autoAssign(roster, {}).duties;
+    const raidHealers = duties.find(d => d.id === 'raidheal').players;
+    const r = HP.computePositions(roster, E.proposeGroups(roster), duties, { boss: 'anetheron' });
+    const tagged = r.markers.filter(m => (m.tags || []).includes('infernal-healer'));
+    assert.strictEqual(tagged.length, 1);   // fixture has < 4 raid healers -> exactly 1
+    assert.ok(raidHealers.includes(tagged[0].name), 'tagged a tank healer instead of a raid healer');
+});
+test('anetheron: single-tank roster warns about the station', () => {
+    const roster = fixtureRoster().filter(p => p.name !== 'Ot');
+    const r = compute(roster, { boss: 'anetheron' });
+    assert.ok(r.warnings.some(w => w.includes('No second tank')), JSON.stringify(r.warnings));
+});
+test('winterchill: no infernal-healer tags', () => {
+    const r = compute(fixtureRoster(), { boss: 'winterchill' });
+    assert.ok(!r.markers.some(m => (m.tags || []).includes('infernal-healer')));
+});
+
+// --- nudges ---
+test('nudges: shift the named marker and only that marker', () => {
+    const base = compute(fixtureRoster());
+    const nudged = compute(fixtureRoster(), { nudges: { Hunt: { dx: 0.05, dy: -0.02 } } });
+    const b = base.markers.find(m => m.name === 'Hunt');
+    const v = nudged.markers.find(m => m.name === 'Hunt');
+    assert.ok(Math.abs(v.x - (b.x + 0.05)) < 1e-9 && Math.abs(v.y - (b.y - 0.02)) < 1e-9);
+    const others = base.markers.filter(m => m.name && m.name !== 'Hunt');
+    others.forEach(o => {
+        const o2 = nudged.markers.find(m => m.name === o.name);
+        assert.strictEqual(o2.x, o.x);
+    });
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed) process.exit(1);
