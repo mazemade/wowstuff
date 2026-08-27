@@ -328,7 +328,21 @@
                 talents: src && src.talents != null ? src.talents : m.talents,
             });
         });
-        return base.concat(manual);
+        const roster = base.concat(manual);
+
+        // Per-player tuning overlay (spec §6): MT flag and DPS multiplier, keyed by name like
+        // state.overrides so it survives a re-import. Mirrors the overlay that used to live only
+        // in the sheet's recompute() — folded in here so every deriveRoster caller (sheet,
+        // positions page, share payload) sees the same mt/mult, not just the sheet. mt is always
+        // set to a boolean when a meta entry exists (even false, to let a lead un-flag someone);
+        // mult only overwrites when it is a valid positive number, otherwise the player keeps
+        // whatever mult deriveRoster already gave them (the engine's mt:false/mult:1 defaults).
+        const playerMeta = state.playerMeta || {};
+        roster.forEach(p => {
+            const m = playerMeta[p.name];
+            if (m) { p.mt = !!m.mt; if (typeof m.mult === 'number' && m.mult > 0) p.mult = m.mult; }
+        });
+        return roster;
     }
 
     const DEBUFF_CATALOG = [

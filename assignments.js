@@ -67,13 +67,12 @@ function recompute() {
         if (!names.has(k.slice(0, k.lastIndexOf('|')))) delete state.blessings[k];
     });
 
-    // Per-player tuning the optimizer reads (spec §6). Keyed by name like state.overrides, so
-    // it survives a re-import; the engine treats missing fields as mt:false / mult:1.
+    // Per-player tuning the optimizer reads (spec §6), keyed by name like state.overrides so it
+    // survives a re-import. E.deriveRoster (above) already overlays state.playerMeta onto the
+    // roster it returns, so this no longer applies mt/mult itself — it just guarantees the
+    // object exists, since the player-tuning panel below reads/writes state.playerMeta[name]
+    // directly and would throw on a fresh state.
     if (!state.playerMeta) state.playerMeta = {};
-    roster.forEach(p => {
-        const m = state.playerMeta[p.name];
-        if (m) { p.mt = !!m.mt; if (typeof m.mult === 'number' && m.mult > 0) p.mult = m.mult; }
-    });
 
     const result = E.autoAssign(roster, state.overrides);
     sheet = Object.assign({}, result, {

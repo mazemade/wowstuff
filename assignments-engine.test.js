@@ -2726,6 +2726,34 @@ test('deriveRoster: manual entry overrides scanned player but keeps addon-only f
 test('deriveRoster: tolerates empty state', () => {
     assert.deepStrictEqual(E.deriveRoster({}, {}), []);
 });
+test('deriveRoster: overlays state.playerMeta mt/mult onto the merged roster', () => {
+    const state = {
+        sources: { addon: [
+            { name: 'Tanka', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null },
+            { name: 'Otter', class: 'PALADIN', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null },
+        ], rh: null },
+        manual: [], excluded: [],
+        // Otter is the SECOND tank, not the first — this is the case the sheet's inline overlay
+        // handled but the positions page (which called E.deriveRoster alone) used to miss.
+        playerMeta: { Otter: { mt: true, mult: 1.15 } },
+    };
+    const r = E.deriveRoster(state, {});
+    const tanka = r.find(p => p.name === 'Tanka');
+    const otter = r.find(p => p.name === 'Otter');
+    assert.strictEqual(otter.mt, true);
+    assert.strictEqual(otter.mult, 1.15);
+    assert.ok(!tanka.mt);
+});
+test('deriveRoster: playerMeta.mult is ignored when not a positive number', () => {
+    const state = {
+        sources: { addon: [{ name: 'Tanka', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null }], rh: null },
+        manual: [], excluded: [],
+        playerMeta: { Tanka: { mt: true, mult: 0 } },
+    };
+    const r = E.deriveRoster(state, {});
+    assert.strictEqual(r[0].mt, true);
+    assert.strictEqual(r[0].mult, undefined);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
