@@ -106,9 +106,62 @@ function renderWarnings(warnings) {
     box.textContent = warnings.join('\n');
 }
 
+function drawMarkers(ctx, W, H, markers) {
+    markers.forEach(m => {
+        const x = m.x * W, y = m.y * H;
+        const R = m.kind === 'boss' ? 26 : 20;
+        ctx.beginPath();
+        ctx.arc(x, y, R, 0, Math.PI * 2);
+        ctx.fillStyle = { healer: '#1d5c46', ranged: '#7a1f24', melee: '#7a1f24' }[m.role]
+            || { boss: '#3a2b4d', station: '#274156', clump: '#7a1f24', mt: '#1d3557', offtank: '#1d3557' }[m.kind]
+            || '#444';
+        ctx.fill();
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold ' + R + 'px sans-serif';
+        ctx.fillText(GLYPHS[m.kind === 'ring' ? m.role : m.kind] || '●', x, y + R * 0.35);
+        ctx.font = 'bold 15px sans-serif';
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 6;
+        const lines = m.kind === 'clump' ? m.names : [(m.name || m.label || '')];
+        lines.forEach((ln, i) => ctx.fillText(ln, x, y + R + 16 + i * 16));
+        if ((m.tags || []).includes('infernal-healer')) {
+            ctx.fillStyle = '#ffd166';
+            ctx.fillText('→ infernal station', x, y + R + 16 + lines.length * 16);
+            ctx.fillStyle = '#fff';
+        }
+        ctx.shadowBlur = 0;
+    });
+}
+
+async function copyImage() {
+    if (!lastResult) return;
+    const img = document.getElementById('mapImg');
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    drawMarkers(ctx, canvas.width, canvas.height, lastResult.markers);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const btn = document.getElementById('copyImageBtn');
+    try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✅ Copied';
+    } catch (e) {
+        // clipboard is unavailable (permissions, headless): fall back to a download
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'hyjal-positions.png';
+        a.click();
+        btn.textContent = '⬇ Saved';
+    }
+    setTimeout(() => { btn.textContent = '📋 Copy as image'; }, 1500);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bossWinterchill').addEventListener('click', () => { posState.boss = 'winterchill'; savePos(); renderAll(); });
     document.getElementById('bossAnetheron').addEventListener('click', () => { posState.boss = 'anetheron'; savePos(); renderAll(); });
     document.getElementById('resetNudges').addEventListener('click', () => { posState.nudges = {}; savePos(); renderAll(); });
+    document.getElementById('copyImageBtn').addEventListener('click', copyImage);
     renderAll();
 });
