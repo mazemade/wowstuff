@@ -23,19 +23,13 @@
                 { id: 'anetheron', name: 'Anetheron',
                   station: { x: 0.69, y: 0.12, label: 'Infernals → Jaina' } },
             ],
-            // Digitized from maps/reference-winterchill-annotated.png (same viewport). The
-            // clump anchor sits further from boss/mt than the reference's bare melee dots do:
-            // a text clump can stack 6-7 names (a busy 25-man's melee group), and at the
-            // reference's tighter spacing that stacked label collides with either the boss
-            // marker's own label or the ring (which fully encircles the boss at ring.rBase).
-            // x=0.375/y=0.435 is a collision-free pocket just outside the ring's radius,
-            // to the boss's left — found by scoring candidate anchors against a realistic
-            // 25-player fixture's marker footprints and picking the nearest clear one.
-            // Verified in a CDP screenshot (task 6 step 5).
+            // Digitized from maps/reference-winterchill-annotated.png (same viewport).
+            // The melee clump has no anchor: melee stand behind the boss (opposite the
+            // tank), so its position is derived by mirroring the mt anchor through the
+            // boss in computePositions.
             anchors: {
                 boss: { x: 0.56, y: 0.40 },
                 mt: { x: 0.60, y: 0.37 },
-                clump: { x: 0.375, y: 0.435 },
             },
             ring: { rBase: 0.145, rJitter: 0.018, startDeg: -90 },
         },
@@ -157,7 +151,18 @@
             clumpNames.push(offtank.name);
         }
         if (clumpNames.length) {
-            markers.push({ kind: 'clump', x: enc.anchors.clump.x, y: enc.anchors.clump.y, names: clumpNames });
+            // Melee stack behind the boss: mirror the mt anchor through the boss in
+            // isotropic space, so "behind" is a screen direction, not a skewed fraction.
+            const u = enc.anchors.mt.x - enc.anchors.boss.x;
+            const v = (enc.anchors.mt.y - enc.anchors.boss.y) / enc.aspect;
+            const mtDist = Math.hypot(u, v) || 1;
+            const CLUMP_DIST = 0.06; // clear of the boss dot, well inside the ring
+            markers.push({
+                kind: 'clump',
+                x: enc.anchors.boss.x - CLUMP_DIST * u / mtDist,
+                y: enc.anchors.boss.y - CLUMP_DIST * (v / mtDist) * enc.aspect,
+                names: clumpNames,
+            });
         }
 
         // Party wedges: each group's ring members stay contiguous (totem range).

@@ -66,6 +66,20 @@ test('compute: mt at the boss anchor side, melee in one clump with names', () =>
     const clump = r.markers.find(m => m.kind === 'clump');
     assert.ok(clump.names.includes('Rog') && clump.names.includes('Warr'));
 });
+test('compute: melee clump sits behind the boss, opposite the main tank', () => {
+    const r = compute(fixtureRoster());
+    const enc = HP.ENCOUNTERS['hyjal-b12'];
+    const clump = r.markers.find(m => m.kind === 'clump');
+    // Work in isotropic (aspect-corrected) space so "behind" is a screen direction.
+    const boss = enc.anchors.boss, mt = enc.anchors.mt;
+    const toMt = { u: mt.x - boss.x, v: (mt.y - boss.y) / enc.aspect };
+    const toClump = { u: clump.x - boss.x, v: (clump.y - boss.y) / enc.aspect };
+    const len = w => Math.hypot(w.u, w.v);
+    const cos = (toMt.u * toClump.u + toMt.v * toClump.v) / (len(toMt) * len(toClump));
+    assert.ok(cos < -0.9, 'clump is not opposite the MT (cos=' + cos.toFixed(2) + ')');
+    assert.ok(len(toClump) > 0.02 && len(toClump) < 0.09,
+        'clump is not in melee range of the boss (dist=' + len(toClump).toFixed(3) + ')');
+});
 test('compute: winterchill puts the offtank in the clump, not a station', () => {
     const r = compute(fixtureRoster(), { boss: 'winterchill' });
     assert.ok(!r.markers.some(m => m.kind === 'station'));
