@@ -2697,5 +2697,35 @@ test('healing rides the addon payload via whisper lines', () => {
     assert.ok(payload.split('\n').some(l => l.startsWith('Palaheal=') && l.includes('TANK HEALING')), payload);
 });
 
+// --- deriveRoster ---
+test('deriveRoster: merges sources minus excluded plus manual', () => {
+    const state = {
+        sources: { addon: [
+            { name: 'Tanka', class: 'WARRIOR', spec: 'Protection', flags: [], source: 'addon', group: 1, race: null, talents: null },
+            { name: 'Gone', class: 'ROGUE', spec: 'Combat', flags: [], source: 'addon', group: 2, race: null, talents: null },
+        ], rh: null },
+        manual: [{ name: 'Handy', class: 'MAGE', spec: 'Frost', flags: [], source: 'manual' }],
+        excluded: ['Gone'],
+    };
+    const r = E.deriveRoster(state, {});
+    assert.deepStrictEqual(r.map(p => p.name).sort(), ['Handy', 'Tanka']);
+});
+test('deriveRoster: manual entry overrides scanned player but keeps addon-only fields', () => {
+    const state = {
+        sources: { addon: [{ name: 'Resp', class: 'PRIEST', spec: 'Shadow', flags: [], source: 'addon', group: 3, race: 'Dwarf', talents: [14, 0, 47] }], rh: null },
+        manual: [{ name: 'Resp', class: 'PRIEST', spec: 'Holy', flags: [], source: 'manual', group: null, race: null, talents: null }],
+        excluded: [],
+    };
+    const r = E.deriveRoster(state, {});
+    assert.strictEqual(r.length, 1);
+    assert.strictEqual(r[0].spec, 'Holy');       // manual form wins
+    assert.strictEqual(r[0].group, 3);            // addon-supplied fields survive
+    assert.strictEqual(r[0].race, 'Dwarf');
+    assert.deepStrictEqual(r[0].talents, [14, 0, 47]);
+});
+test('deriveRoster: tolerates empty state', () => {
+    assert.deepStrictEqual(E.deriveRoster({}, {}), []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

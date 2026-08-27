@@ -304,6 +304,33 @@
         return { roster, unmatched, mismatches };
     }
 
+    // Pure roster derivation shared by the sheet and the positioning page: merged sources,
+    // minus excluded names, with manual entries overlaid. Stale-reference sweeping of
+    // overrides/cc stays with the sheet — it mutates state, this must not.
+    function deriveRoster(state, linkMap) {
+        const sources = state.sources || {};
+        const merged = mergeRosters(sources.addon || [], sources.rh || [], linkMap || {}).roster;
+        const excluded = state.excluded || [];
+        const manualIn = state.manual || [];
+        const base = merged.filter(p => !excluded.includes(p.name) && !manualIn.some(m => m.name === p.name));
+        const manual = manualIn.filter(m => !excluded.includes(m.name)).map(m => {
+            const src = merged.find(p => p.name === m.name);
+            // A manual edit rebuilds the player from the form, so anything the form does not
+            // collect has to be re-attached from the scanned player behind it — discordId, and
+            // now the subgroup, race and talents the addon supplies. INVARIANT: this field list
+            // must be kept in step with every field a scanned player carries, or a manual edit
+            // silently drops it. This has already been missed twice — once for group/race, once
+            // for talents — so look here first when a new addon-supplied field goes missing.
+            return Object.assign({}, m, {
+                discordId: src ? src.discordId : m.discordId,
+                group: src && src.group != null ? src.group : m.group,
+                race: src && src.race != null ? src.race : m.race,
+                talents: src && src.talents != null ? src.talents : m.talents,
+            });
+        });
+        return base.concat(manual);
+    }
+
     const DEBUFF_CATALOG = [
         // Expose blocks Sunder outright ("A more powerful spell is already active"), so this
         // is one row with two providers, not two rows that cancel. Improved Expose Armor is
@@ -2487,7 +2514,7 @@
     return {
         SPEC_TREES, SELECTABLE_SPECS, isFeralSpec, CLASS_COLORS, CLASS_ABBREV,
         TALENTS, talentRank, talentDrift, gateAllows,
-        inferSpec, parseAddonExport, parseRaidHelper, mergeRosters,
+        inferSpec, parseAddonExport, parseRaidHelper, mergeRosters, deriveRoster,
         DEBUFF_CATALOG, ROTATIONS, PASSIVES, autoAssign, missingList, providersOf,
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,

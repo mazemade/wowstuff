@@ -34,24 +34,7 @@ function saveState() {
 
 function recompute() {
     mergeInfo = E.mergeRosters(state.sources.addon || [], state.sources.rh || [], linkMap);
-    const base = mergeInfo.roster.filter(p =>
-        !state.excluded.includes(p.name) && !state.manual.some(m => m.name === p.name));
-    const manual = state.manual.filter(m => !state.excluded.includes(m.name)).map(m => {
-        const src = mergeInfo.roster.find(p => p.name === m.name);
-        // A manual edit rebuilds the player from the form, so anything the form does not
-        // collect has to be re-attached from the scanned player behind it — discordId, and
-        // now the subgroup, race and talents the addon supplies. INVARIANT: this field list
-        // must be kept in step with every field a scanned player carries, or a manual edit
-        // silently drops it. This has already been missed twice — once for group/race, once
-        // for talents — so look here first when a new addon-supplied field goes missing.
-        return Object.assign({}, m, {
-            discordId: src ? src.discordId : m.discordId,
-            group: src && src.group != null ? src.group : m.group,
-            race: src && src.race != null ? src.race : m.race,
-            talents: src && src.talents != null ? src.talents : m.talents,
-        });
-    });
-    roster = base.concat(manual);
+    roster = E.deriveRoster(state, linkMap);
 
     // Reconcile stale references left behind by renames, removals or re-imports:
     // any CC/override entry pointing at a name no longer on the roster is cleared here,
