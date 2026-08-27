@@ -53,6 +53,49 @@
         return 'ranged'; // casters + hunters both live on the ring
     }
 
+    function interleaveHealers(players, isHealer) {
+        const healers = players.filter(isHealer);
+        const others = players.filter(p => !isHealer(p));
+        if (!healers.length || !others.length) return players.slice();
+        const len = players.length;
+        const out = new Array(len).fill(null);
+        healers.forEach((h, j) => {
+            let idx = Math.floor((j + 0.5) * len / healers.length) % len;
+            while (out[idx]) idx = (idx + 1) % len;
+            out[idx] = h;
+        });
+        let k = 0;
+        for (let i = 0; i < len; i++) if (!out[i]) out[i] = others[k++];
+        return out;
+    }
+
+    function permutations(arr) {
+        if (arr.length <= 1) return [arr.slice()];
+        const out = [];
+        arr.forEach((x, i) => {
+            permutations(arr.slice(0, i).concat(arr.slice(i + 1)))
+                .forEach(rest => out.push([x].concat(rest)));
+        });
+        return out;
+    }
+
+    // Angular evenness of healers plus tank-healer opposition. Higher is better.
+    function scoreArrangement(ordered, isHealer, tankHealerNames, startDeg) {
+        const n = ordered.length;
+        const angles = slotAngles(n, startDeg);
+        const healerAngles = [], thAngles = [];
+        ordered.forEach((p, i) => {
+            if (isHealer(p)) healerAngles.push(angles[i]);
+            if (tankHealerNames.includes(p.name)) thAngles.push(angles[i]);
+        });
+        let minGap = 360;
+        for (let i = 0; i < healerAngles.length; i++)
+            for (let j = i + 1; j < healerAngles.length; j++)
+                minGap = Math.min(minGap, circGap(healerAngles[i], healerAngles[j]));
+        const thSep = thAngles.length === 2 ? circGap(thAngles[0], thAngles[1]) : 180;
+        return 2 * minGap + thSep;
+    }
+
     function pickTanks(roster) {
         // Flagged tanks lead (the raid leader's word beats the spec heuristic), but a partially
         // flagged roster (e.g. only the MT checked, not the OT) must not drop the unflagged
@@ -105,7 +148,17 @@
         const rest = ringPeople.filter(p => !grouped.has(p.name));
         if (rest.length) wedges.push({ party: groups.length + 1, players: rest });
 
-        const ordered = wedges.flatMap(w => w.players.map(p => ({ p, party: w.party })));
+        const isHealer = p => roleOf(p) === 'healer';
+        const tankHealRow = (duties || []).find(d => d.id === 'tankheal');
+        const tankHealerNames = tankHealRow ? tankHealRow.players : [];
+        const interleaved = wedges.map(w => ({ party: w.party, players: interleaveHealers(w.players, isHealer) }));
+        let best = null, bestScore = -Infinity;
+        permutations(interleaved).forEach(perm => {
+            const flat = perm.flatMap(w => w.players);
+            const s = scoreArrangement(flat, isHealer, tankHealerNames, enc.ring.startDeg);
+            if (s > bestScore) { bestScore = s; best = perm; }
+        });
+        const ordered = (best || []).flatMap(w => w.players.map(p => ({ p, party: w.party })));
         const n = ordered.length;
         const angles = slotAngles(n, enc.ring.startDeg);
         ordered.forEach((o, i) => {
@@ -114,6 +167,25 @@
             const m = person(o.p, 'ring', pos, angles[i], nudges);
             m.party = o.party;
             markers.push(m);
+        });
+
+        const ringMarkers = markers.filter(m => m.kind === 'ring');
+        const healerMarks = ringMarkers.filter(m => m.role === 'healer');
+        if (healerMarks.length >= 2) {
+            let minGap = 360;
+            for (let i = 0; i < healerMarks.length; i++)
+                for (let j = i + 1; j < healerMarks.length; j++)
+                    minGap = Math.min(minGap, circGap(healerMarks[i].angleDeg, healerMarks[j].angleDeg));
+            if (minGap < 30) warnings.push('Healers are bunched: two healers stand within 30° of each other.');
+        }
+        const thMarks = ringMarkers.filter(m => tankHealerNames.includes(m.name));
+        if (thMarks.length === 2 && circGap(thMarks[0].angleDeg, thMarks[1].angleDeg) < 90)
+            warnings.push('Tank healers are on the same side of the boss — one Carrion Swarm can hit both.');
+        const byParty = {};
+        ringMarkers.forEach(m => { (byParty[m.party] = byParty[m.party] || []).push(m); });
+        Object.keys(byParty).forEach(pi => {
+            const span = (byParty[pi].length - 1) * 360 / ringMarkers.length;
+            if (span > 90) warnings.push('Party ' + pi + ' stretches over ' + Math.round(span) + '° of the ring — totem range may not cover it.');
         });
 
         return { markers, warnings };
@@ -126,5 +198,5 @@
         return m;
     }
 
-    return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions };
+    return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions, interleaveHealers, scoreArrangement };
 }));

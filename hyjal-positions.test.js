@@ -94,5 +94,60 @@ test('compute: deterministic', () => {
     assert.deepStrictEqual(compute(fixtureRoster()), compute(fixtureRoster()));
 });
 
+// --- healer spread ---
+test('interleaveHealers: healers land evenly inside the wedge', () => {
+    const w = [mk('H1','PRIEST','Holy'), mk('H2','PRIEST','Holy'), mk('D1','MAGE','Frost'),
+               mk('D2','MAGE','Frost'), mk('D3','MAGE','Frost'), mk('D4','MAGE','Frost')];
+    const out = HP.interleaveHealers(w, p => p.class === 'PRIEST');
+    const idxs = out.map((p, i) => p.class === 'PRIEST' ? i : -1).filter(i => i !== -1);
+    assert.strictEqual(idxs[1] - idxs[0], 3, 'healers should be 3 slots apart in a 6-wedge');
+});
+test('compute: healers are never on adjacent slots when avoidable', () => {
+    // 3 healers, 6 dps on the ring: worst legal gap is 120deg with 9 slots (=40deg each) -> min gap >= 80deg
+    const roster = [
+        mk('Mt','WARRIOR','Protection',{mt:true}),
+        mk('H1','PRIEST','Holy'), mk('H2','SHAMAN','Restoration'), mk('H3','PALADIN','Holy'),
+        mk('D1','MAGE','Frost'), mk('D2','MAGE','Fire'), mk('D3','WARLOCK','Destruction'),
+        mk('D4','HUNTER','Marksmanship'), mk('D5','HUNTER','Survival'), mk('D6','PRIEST','Shadow'),
+    ];
+    const r = compute(roster);
+    const ring = r.markers.filter(m => m.kind === 'ring');
+    const healerAngles = ring.filter(m => m.role === 'healer').map(m => m.angleDeg);
+    let minGap = 360;
+    for (let i = 0; i < healerAngles.length; i++)
+        for (let j = i + 1; j < healerAngles.length; j++)
+            minGap = Math.min(minGap, HP.circGap(healerAngles[i], healerAngles[j]));
+    assert.ok(minGap >= 80, 'healer min gap was ' + minGap);
+});
+test('compute: the two tank healers end up on opposite sides', () => {
+    const roster = fixtureRoster();
+    const duties = E.autoAssign(roster, {}).duties;
+    const tankHealers = duties.find(d => d.id === 'tankheal').players;
+    const r = HP.computePositions(roster, E.proposeGroups(roster), duties, {});
+    const ring = r.markers.filter(m => m.kind === 'ring');
+    const angles = tankHealers.map(nm => ring.find(m => m.name === nm)).filter(Boolean).map(m => m.angleDeg);
+    if (angles.length === 2) assert.ok(HP.circGap(angles[0], angles[1]) >= 120, 'tank healers ' + HP.circGap(angles[0], angles[1]) + 'deg apart');
+});
+test('compute: warning when healers are forced into a bunch', () => {
+    // 18 ring slots (20° apart); the healers group is a 5-healer wedge, so adjacent
+    // healers are unavoidable and the absolute 30° bunching threshold must fire.
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true })];
+    for (let i = 0; i < 6; i++) roster.push(mk('H' + i, 'PRIEST', 'Holy'));
+    for (let i = 0; i < 12; i++) roster.push(mk('D' + i, 'MAGE', 'Frost'));
+    const r = compute(roster);
+    assert.ok(r.warnings.some(w => w.includes('bunched')), JSON.stringify(r.warnings));
+});
+test('compute: warning when a party wedge spans more than 90 degrees', () => {
+    const roster = [];
+    for (let i = 0; i < 8; i++) roster.push(mk('M' + i, 'MAGE', 'Frost'));  // one 8-man caster party impossible: cap 5/group
+    roster.push(mk('H1','PRIEST','Holy'));
+    const r = compute(roster);
+    const ring = r.markers.filter(m => m.kind === 'ring');
+    const byParty = {};
+    ring.forEach(m => { (byParty[m.party] = byParty[m.party] || []).push(m); });
+    const overWide = Object.values(byParty).some(list => (list.length - 1) * 360 / ring.length > 90);
+    if (overWide) assert.ok(r.warnings.some(w => w.includes('totem range')), JSON.stringify(r.warnings));
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed) process.exit(1);
