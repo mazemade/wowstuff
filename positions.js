@@ -64,7 +64,40 @@ function markerEl(m) {
         tag.textContent = '→ infernal station';
         label.appendChild(tag);
     }
+    if (isPerson) wireDrag(el, m);
     return el;
+}
+
+function wireDrag(el, m) {
+    el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        const wrap = document.getElementById('mapWrap').getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const baseX = m.x, baseY = m.y;
+        let moved = false;
+        const onMove = ev => {
+            const fx = baseX + (ev.clientX - startX) / wrap.width;
+            const fy = baseY + (ev.clientY - startY) / wrap.height;
+            moved = true;
+            el.style.left = (Math.min(0.99, Math.max(0.01, fx)) * 100) + '%';
+            el.style.top = (Math.min(0.99, Math.max(0.01, fy)) * 100) + '%';
+        };
+        const onUp = ev => {
+            el.removeEventListener('pointermove', onMove);
+            el.removeEventListener('pointerup', onUp);
+            if (!moved) return;
+            const fx = Math.min(0.99, Math.max(0.01, baseX + (ev.clientX - startX) / wrap.width));
+            const fy = Math.min(0.99, Math.max(0.01, baseY + (ev.clientY - startY) / wrap.height));
+            const prev = posState.nudges[m.name] || { dx: 0, dy: 0 };
+            // computed base already includes prev nudge; the new nudge is prev + this drag's delta
+            posState.nudges[m.name] = { dx: prev.dx + (fx - baseX), dy: prev.dy + (fy - baseY) };
+            savePos();
+            renderAll();
+        };
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+    });
 }
 
 function renderWarnings(warnings) {
