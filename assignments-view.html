@@ -6,6 +6,7 @@
     <title>Raid Assignments — View</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="assignments.css">
+    <link rel="stylesheet" href="positions.css">
 </head>
 <body>
     <div class="container">
@@ -18,6 +19,11 @@
             <div class="card"><h3>Crowd Control</h3><div id="ccRows"></div></div>
         </div>
         <div id="uncoveredBox" class="warn hidden"></div>
+        <div id="posSection" class="hidden">
+            <h3>Positioning</h3>
+            <div id="posWarnings" class="warn hidden"></div>
+            <div id="mapWrap"><img id="mapImg" alt="Positioning map"></div>
+        </div>
     </div>
     <script src="assignments-engine.js"></script>
     <script>
@@ -44,6 +50,31 @@
             }
             div.appendChild(document.createTextNode(text));
             parent.appendChild(div);
+        }
+        // Mirrors markerEl() in positions.js: same DOM shape (.pos-marker/.pos-dot/.pos-label,
+        // pos-role-*/pos-kind-* classes, GLYPHS, clump multi-line labels, infernal tag), minus
+        // drag wiring and the data-name hook drag needs — the view is always read-only.
+        const GLYPHS = { boss: '💀', station: '🔥', clump: '⚔', mt: '🛡', offtank: '🛡', healer: '✚', ranged: '➹', melee: '⚔', tank: '🛡' };
+        function viewMarker(m) {
+            const el = document.createElement('div');
+            el.className = 'pos-marker pos-kind-' + m.kind + (m.role ? ' pos-role-' + m.role : '') + ' static';
+            el.style.left = (m.x * 100) + '%';
+            el.style.top = (m.y * 100) + '%';
+            const dot = document.createElement('div');
+            dot.className = 'pos-dot';
+            dot.textContent = GLYPHS[m.kind === 'ring' ? m.role : m.kind] || '●';
+            el.appendChild(dot);
+            const label = document.createElement('div');
+            label.className = 'pos-label';
+            label.textContent = m.kind === 'clump' ? m.names.join('\n') : (m.name || m.label || '');
+            el.appendChild(label);
+            if ((m.tags || []).includes('infernal-healer')) {
+                const tag = document.createElement('span');
+                tag.className = 'pos-tag';
+                tag.textContent = '→ infernal station';
+                label.appendChild(tag);
+            }
+            return el;
         }
         function isValidPayload(payload) {
             return !!payload && typeof payload === 'object' &&
@@ -78,6 +109,16 @@
                 const u = document.getElementById('uncoveredBox');
                 u.classList.remove('hidden');
                 u.textContent = '⚠ Uncovered: ' + missing.map(x => x.name).join(', ');
+            }
+            if (payload.positions && Array.isArray(payload.positions.markers)) {
+                document.getElementById('posSection').classList.remove('hidden');
+                document.getElementById('mapImg').src = payload.positions.map;
+                const warn = payload.positions.warnings || [];
+                const wbox = document.getElementById('posWarnings');
+                wbox.classList.toggle('hidden', !warn.length);
+                wbox.textContent = warn.join('\n');
+                const wrap = document.getElementById('mapWrap');
+                payload.positions.markers.forEach(m => wrap.appendChild(viewMarker(m)));
             }
         } catch (e) {
             document.getElementById('viewError').classList.remove('hidden');

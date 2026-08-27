@@ -1,4 +1,4 @@
-/* global AssignmentsEngine, WclMult */
+/* global AssignmentsEngine, WclMult, HyjalPositions */
 'use strict';
 const E = AssignmentsEngine;
 const STORAGE_KEY = 'raidAssignmentsState';
@@ -826,8 +826,23 @@ function renderAssignments() {
 }
 
 // --- Output tabs / share link ---
+// Positions are precomputed here (rather than shipping the engine to the view page) so the
+// view can render markers with zero grouping/placement logic of its own.
+function buildPositionsPayload() {
+    if (!roster.length || typeof HyjalPositions === 'undefined') return null;
+    let pos = { boss: 'winterchill', nudges: {} };
+    try { Object.assign(pos, JSON.parse(localStorage.getItem('raidPositionsState')) || {}); } catch (e) { /* defaults */ }
+    const enc = HyjalPositions.ENCOUNTERS['hyjal-b12'];
+    const r = HyjalPositions.computePositions(roster, E.proposeGroups(roster), sheet.duties, {
+        boss: pos.boss, nudges: pos.nudges, encounter: enc.id,
+    });
+    return { encounter: enc.id, map: enc.map, boss: pos.boss, markers: r.markers, warnings: r.warnings };
+}
+
 function buildShareLink() {
     const payload = { title: state.title, sheet };
+    const positions = buildPositionsPayload();
+    if (positions) payload.positions = positions;
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     // Resolve against the directory we are served from rather than swapping a filename:
     // this page is the site root now, so a pathname of "/" contains nothing to replace and
