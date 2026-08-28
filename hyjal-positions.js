@@ -199,7 +199,7 @@
         const ringPeople = roster.filter(p => !tankNames.has(p.name) && (roleOf(p) === 'healer' || roleOf(p) === 'ranged'));
 
         markers.push({ kind: 'boss', x: bossPos.x, y: bossPos.y, label: bossDef.name, icon: bossDef.icon });
-        if (mt) markers.push(person(mt, 'mt', mtAnchor, null, nudges));
+        if (mt) markers.push(person(mt, 'mt', mtAnchor, nudges));
 
         const clumpNames = melee.map(p => p.name).concat(spare.map(p => p.name));
         if (bossMode === 'anetheron') {
@@ -219,7 +219,7 @@
                 // unreadable text (task 6 review finding). The nudge system still applies on
                 // top of this offset.
                 const otPos = { x: stationPos.x, y: stationPos.y + 0.05 };
-                markers.push(person(offtank, 'offtank', otPos, null, nudges));
+                markers.push(person(offtank, 'offtank', otPos, nudges));
             }
         } else if (offtank) {
             clumpNames.push(offtank.name);
@@ -296,8 +296,12 @@
         ordered.forEach((o, i) => {
             const r = enc.ring.rBase + (i % 2 ? enc.ring.rJitter : -enc.ring.rJitter);
             const pos = angleToXY(bossPos, r, angles[i], enc.aspect);
-            const m = person(o.p, 'ring', pos, angles[i], nudges);
+            const m = person(o.p, 'ring', pos, nudges);
             m.party = o.party;
+            // angleDeg is where the player stands as rendered — drag-nudges included — not
+            // the slot the optimizer chose. The angular warnings below must judge the map
+            // the raid actually sees, so a healer dragged to the far side stops warning.
+            m.angleDeg = Math.atan2((m.y - bossPos.y) / enc.aspect, m.x - bossPos.x) * 180 / Math.PI;
             markers.push(m);
         });
 
@@ -343,7 +347,7 @@
 
         markers.push({ kind: 'boss', x: bossPos.x, y: bossPos.y, label: bossDef.name, icon: bossDef.icon });
         const { mt } = pickTanks(roster);
-        if (mt) markers.push(person(mt, 'mt', mtAnchor, null, nudges));
+        if (mt) markers.push(person(mt, 'mt', mtAnchor, nudges));
 
         // The MT stands at the boss; everyone else — offtanks included — stays with their
         // group's stack, because that is where their Tremor Totem and heals are.
@@ -378,7 +382,7 @@
                 const col = j % COLS, row = Math.floor(j / COLS);
                 const rowLen = Math.min(COLS, s.players.length - row * COLS);
                 const pos = { x: ax + (col - (rowLen - 1) / 2) * SX, y: ay + row * SY };
-                const m = person(p, 'stack', pos, null, nudges);
+                const m = person(p, 'stack', pos, nudges);
                 m.party = s.party;
                 if (p.class === 'SHAMAN') m.tags.push('shaman');
                 markers.push(m);
@@ -411,7 +415,7 @@
         return out;
     }
 
-    function person(p, kind, pos, angleDeg, nudges) {
+    function person(p, kind, pos, nudges) {
         const nudge = nudges[p.name] || { dx: 0, dy: 0 };
         // A stored nudge is a delta on top of whatever base position this run computes. If the
         // base shifts (roster/group changes) or the nudge itself is out of proportion, the sum
@@ -419,9 +423,7 @@
         // persisted offset can never strand a marker outside the image.
         const x = clamp01(pos.x + nudge.dx);
         const y = clamp01(pos.y + nudge.dy);
-        const m = { kind, name: p.name, class: p.class, role: roleOf(p), x, y, tags: [] };
-        if (angleDeg !== null) m.angleDeg = angleDeg;
-        return m;
+        return { kind, name: p.name, class: p.class, role: roleOf(p), x, y, tags: [] };
     }
 
     return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions, interleaveHealers, scoreArrangement, combineNudges };

@@ -169,6 +169,73 @@ test('compute: warning when a party wedge spans more than 90 degrees', () => {
     if (overWide) assert.ok(r.warnings.some(w => w.includes('totem range')), JSON.stringify(r.warnings));
 });
 
+// --- warnings follow drags (nudges), not the original slot assignment ---
+// A dragged marker renders at its nudged position, so the angular warnings must judge
+// that position: dragging a tank healer to the far side clears the Carrion warning,
+// dragging it next to the other one raises it.
+function mirrorNudge(result, name) {
+    // A nudge that reflects the named ring marker through the boss.
+    const boss = result.markers.find(m => m.kind === 'boss');
+    const m = result.markers.find(x => x.name === name);
+    return { [name]: { dx: 2 * (boss.x - m.x), dy: 2 * (boss.y - m.y) } };
+}
+test('warnings: dragging a tank healer to the opposite side clears the Carrion warning', () => {
+    // Both tank healers share one 3-slot wedge on a 12-slot ring: at best 60° apart,
+    // so the same-side warning fires on the un-nudged layout.
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
+        mk('H1', 'PRIEST', 'Holy'), mk('H2', 'PALADIN', 'Holy'), mk('D1', 'MAGE', 'Frost')];
+    for (let i = 2; i <= 11; i++) roster.push(mk('D' + i, 'MAGE', 'Frost'));
+    const byName = {};
+    roster.forEach(p => { byName[p.name] = p; });
+    const groups = { groups: [
+        { players: ['Mt', 'H1', 'H2', 'D1'].map(n => byName[n]) },
+        { players: ['D2', 'D3', 'D4', 'D5', 'D6'].map(n => byName[n]) },
+        { players: ['D7', 'D8', 'D9', 'D10', 'D11'].map(n => byName[n]) },
+    ] };
+    const duties = [{ id: 'tankheal', players: ['H1', 'H2'] }];
+    const base = HP.computePositions(roster, groups, duties, {});
+    assert.ok(base.warnings.some(w => w.includes('Carrion')), 'fixture broke: ' + JSON.stringify(base.warnings));
+    const dragged = HP.computePositions(roster, groups, duties, { nudges: mirrorNudge(base, 'H2') });
+    assert.ok(!dragged.warnings.some(w => w.includes('Carrion')),
+        'warning survived the drag: ' + JSON.stringify(dragged.warnings));
+});
+test('warnings: dragging the tank healers together raises the Carrion warning', () => {
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
+        mk('H1', 'PRIEST', 'Holy'), mk('D1', 'MAGE', 'Frost'), mk('D2', 'MAGE', 'Frost'), mk('D3', 'MAGE', 'Frost'),
+        mk('H2', 'PALADIN', 'Holy'), mk('D4', 'MAGE', 'Frost'), mk('D5', 'MAGE', 'Frost'), mk('D6', 'MAGE', 'Frost'),
+        mk('D7', 'MAGE', 'Frost'), mk('D8', 'MAGE', 'Frost'), mk('D9', 'MAGE', 'Frost'), mk('D10', 'MAGE', 'Frost')];
+    const duties = [{ id: 'tankheal', players: ['H1', 'H2'] }];
+    const groups = E.proposeGroups(roster);
+    const base = HP.computePositions(roster, groups, duties, {});
+    assert.ok(!base.warnings.some(w => w.includes('Carrion')), 'fixture broke: ' + JSON.stringify(base.warnings));
+    const h1 = base.markers.find(m => m.name === 'H1');
+    const h2 = base.markers.find(m => m.name === 'H2');
+    const dragged = HP.computePositions(roster, groups, duties, {
+        nudges: { H2: { dx: h1.x + 0.01 - h2.x, dy: h1.y - h2.y } },
+    });
+    assert.ok(dragged.warnings.some(w => w.includes('Carrion')),
+        'no warning after dragging the tank healers together: ' + JSON.stringify(dragged.warnings));
+});
+test('warnings: dragging a bunched healer away clears the bunching warning', () => {
+    // The only two healers share a 2-slot wedge on a 13-slot ring (27.7° apart): bunched.
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
+        mk('H1', 'PRIEST', 'Holy'), mk('H2', 'PALADIN', 'Holy')];
+    for (let i = 1; i <= 11; i++) roster.push(mk('D' + i, 'MAGE', 'Frost'));
+    const byName = {};
+    roster.forEach(p => { byName[p.name] = p; });
+    const groups = { groups: [
+        { players: ['Mt', 'H1', 'H2'].map(n => byName[n]) },
+        { players: ['D1', 'D2', 'D3', 'D4', 'D5'].map(n => byName[n]) },
+        { players: ['D6', 'D7', 'D8', 'D9', 'D10'].map(n => byName[n]) },
+        { players: ['D11'].map(n => byName[n]) },
+    ] };
+    const base = HP.computePositions(roster, groups, [], {});
+    assert.ok(base.warnings.some(w => w.includes('bunched')), 'fixture broke: ' + JSON.stringify(base.warnings));
+    const dragged = HP.computePositions(roster, groups, [], { nudges: mirrorNudge(base, 'H2') });
+    assert.ok(!dragged.warnings.some(w => w.includes('bunched')),
+        'bunching warning survived the drag: ' + JSON.stringify(dragged.warnings));
+});
+
 // --- playerMeta overlay (deriveRoster now applies it; this checks computePositions honors
 // whatever deriveRoster hands it, mirroring how the positions page consumes E.deriveRoster) ---
 test('compute: an mt-flagged second tank (via deriveRoster-shaped state) becomes the mt marker', () => {
