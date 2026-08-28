@@ -4,6 +4,7 @@
 
 .pos-marker { position: absolute; transform: translate(-50%, -50%); text-align: center;
               cursor: grab; touch-action: none; z-index: 2; }
+/* the read-only share view marks its markers static — no grab affordance there */
 .pos-marker.static { cursor: default; }
 .pos-dot { width: 28px; height: 28px; border-radius: 50%; margin: 0 auto;
            display: flex; align-items: center; justify-content: center;
@@ -15,6 +16,17 @@
 .pos-kind-mt .pos-dot, .pos-kind-offtank .pos-dot { background: #1d3557; }
 .pos-kind-boss .pos-dot { background: #3a2b4d; width: 34px; height: 34px; }
 .pos-kind-station .pos-dot { background: #274156; }
+.pos-role-tank .pos-dot { background: #1d3557; }
+
+/* Archimonde stack layout */
+.pos-dot { position: relative; }
+.pos-kind-boss .pos-dot img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.pos-kind-boss.pos-has-icon .pos-dot { width: 48px; height: 48px; padding: 0; overflow: hidden; }
+.pos-kind-stack .pos-dot { width: 24px; height: 24px; font-size: 13px; }
+.pos-kind-stack .pos-label { font-size: 10px; max-width: 50px; overflow: hidden; text-overflow: ellipsis; }
+.pos-kind-stackhandle .pos-dot { width: auto; height: 20px; border-radius: 10px; padding: 0 8px;
+                                 font-size: 11px; background: #444c56; }
+.pos-badge { position: absolute; top: -7px; right: -9px; font-size: 11px;
+             filter: drop-shadow(0 1px 2px #000); }
 .pos-label { margin-top: 2px; font-size: 11px; line-height: 1.25; color: #fff;
              text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: pre; }
-.pos-marker .pos-tag { display: block; font-size: 10px; color: #ffd166; }

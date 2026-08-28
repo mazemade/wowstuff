@@ -57,23 +57,37 @@
         const GLYPHS = { boss: '💀', station: '🔥', clump: '⚔', mt: '🛡', offtank: '🛡', healer: '✚', ranged: '➹', melee: '⚔', tank: '🛡' };
         function viewMarker(m) {
             const el = document.createElement('div');
-            el.className = 'pos-marker pos-kind-' + m.kind + (m.role ? ' pos-role-' + m.role : '') + ' static';
+            el.className = 'pos-marker pos-kind-' + m.kind + (m.role ? ' pos-role-' + m.role : '')
+                + (m.icon ? ' pos-has-icon' : '') + ' static';
             el.style.left = (m.x * 100) + '%';
             el.style.top = (m.y * 100) + '%';
             const dot = document.createElement('div');
             dot.className = 'pos-dot';
-            dot.textContent = GLYPHS[m.kind === 'ring' ? m.role : m.kind] || '●';
+            if (m.icon) {
+                const img = document.createElement('img');
+                // The payload is attacker-controllable (it arrives in the URL), so only ever
+                // load an icon path the registry itself declares — never a raw payload value.
+                img.src = /^maps\/[\w-]+\.png$/.test(String(m.icon)) ? m.icon : '';
+                img.alt = m.label || '';
+                dot.appendChild(img);
+            } else if (m.kind === 'stackhandle') {
+                dot.textContent = m.label || '';
+            } else {
+                dot.textContent = GLYPHS[m.kind === 'ring' || m.kind === 'stack' ? m.role : m.kind] || '●';
+            }
+            if ((m.tags || []).includes('shaman')) {
+                const badge = document.createElement('span');
+                badge.className = 'pos-badge';
+                badge.textContent = '⚡';
+                badge.title = 'Shaman — Tremor Totem';
+                dot.appendChild(badge);
+            }
             el.appendChild(dot);
             const label = document.createElement('div');
             label.className = 'pos-label';
-            label.textContent = m.kind === 'clump' ? m.names.join('\n') : (m.name || m.label || '');
+            label.textContent = m.kind === 'clump' ? m.names.join('\n')
+                : (m.kind === 'stackhandle' ? '' : (m.name || m.label || ''));
             el.appendChild(label);
-            if ((m.tags || []).includes('infernal-healer')) {
-                const tag = document.createElement('span');
-                tag.className = 'pos-tag';
-                tag.textContent = '→ infernal station';
-                label.appendChild(tag);
-            }
             return el;
         }
         function isValidPayload(payload) {

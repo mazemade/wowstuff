@@ -14,13 +14,13 @@
             map: 'maps/hyjal-ballista.png',
             aspect: 1698 / 926,
             bosses: [
-                { id: 'winterchill', name: 'Rage Winterchill' },
+                { id: 'winterchill', name: 'Rage Winterchill', icon: 'maps/rage-winterchill-icon.png' },
                 // x=0.65 put the station marker's own label right where the ring's second
                 // slot (index 1, ~-69deg off boss) always lands — every offtank+station
                 // label collided with that ring member's label regardless of roster. Nudged
                 // right to a collision-free pocket found the same way as the clump anchor
                 // below. Verified in a CDP screenshot (task 6 step 5).
-                { id: 'anetheron', name: 'Anetheron',
+                { id: 'anetheron', name: 'Anetheron', icon: 'maps/anetheron-icon.png',
                   station: { x: 0.69, y: 0.12, label: 'Infernals → Jaina' } },
             ],
             // Digitized from maps/reference-winterchill-annotated.png (same viewport).
@@ -32,6 +32,32 @@
                 mt: { x: 0.60, y: 0.37 },
             },
             ring: { rBase: 0.145, rJitter: 0.018, startDeg: -90 },
+        },
+        'hyjal-archimonde': {
+            id: 'hyjal-archimonde',
+            name: 'Hyjal · Archimonde',
+            map: 'maps/hyjal-archimonde.png',
+            aspect: 1681 / 936,
+            // Parties stand STACKED (Tremor Totem / chain-heal range), spread apart from
+            // each other for Doomfire and Air Burst — no ring. Anchors digitized from the
+            // user's annotated reference (2026-08-28).
+            layout: 'stacks',
+            // The portrait is cropped out of the map screenshot itself (the background is
+            // patched with neighbouring texture where it used to be baked in).
+            bosses: [{ id: 'archimonde', name: 'Archimonde', icon: 'maps/archimonde-icon.png' }],
+            anchors: {
+                boss: { x: 0.4896, y: 0.4989 },
+                mt: { x: 0.4296, y: 0.5329 },
+            },
+            // Offsets from the boss anchor. Melee-majority groups take the boss-side slots,
+            // everyone else spreads; extra groups past the listed slots step down-right.
+            stackAnchors: {
+                melee: [{ dx: 0.052, dy: -0.024 }, { dx: 0.060, dy: 0.058 }],
+                spread: [
+                    { dx: -0.110, dy: -0.172 }, { dx: 0.140, dy: -0.222 },
+                    { dx: 0.193, dy: 0.128 }, { dx: -0.130, dy: 0.100 },
+                ],
+            },
         },
     };
 
@@ -73,6 +99,35 @@
         });
         let k = 0;
         for (let i = 0; i < len; i++) if (!out[i]) out[i] = others[k++];
+        return out;
+    }
+
+    // Every way to seat this wedge's healers inside the wedge. Party contiguity is
+    // untouched — only slots WITHIN the wedge are chosen, so healers can reach the wedge
+    // edges when the neighbouring wedges are healer-poor (the centered interleave cannot).
+    // Enumeration is lexicographic for determinism. A wedge whose combination count blows
+    // past `cap` (the leftover "rest" wedge can be arbitrarily large) falls back to the
+    // single interleaved arrangement rather than exploding.
+    function healerPlacements(players, isHealer, cap) {
+        const healers = players.filter(isHealer);
+        const others = players.filter(p => !isHealer(p));
+        if (!healers.length || !others.length) return [players.slice()];
+        const L = players.length, h = healers.length;
+        let count = 1;
+        for (let i = 0; i < h; i++) count = count * (L - i) / (i + 1);
+        if (count > cap) return [interleaveHealers(players, isHealer)];
+        const out = [], idx = [];
+        (function rec(start) {
+            if (idx.length === h) {
+                const arr = new Array(L).fill(null);
+                idx.forEach((slot, j) => { arr[slot] = healers[j]; });
+                let k = 0;
+                for (let i = 0; i < L; i++) if (!arr[i]) arr[i] = others[k++];
+                out.push(arr);
+                return;
+            }
+            for (let s = start; s <= L - (h - idx.length); s++) { idx.push(s); rec(s + 1); idx.pop(); }
+        })(0);
         return out;
     }
 
@@ -118,17 +173,33 @@
         const enc = ENCOUNTERS[opts.encounter || 'hyjal-b12'];
         const bossMode = opts.boss || 'winterchill';
         const bossDef = enc.bosses.find(b => b.id === bossMode) || enc.bosses[0];
+        if (enc.layout === 'stacks') return computeStackPositions(roster, groupsResult, opts, enc, bossDef);
         const nudges = opts.nudges || {};
+        const anchorNudges = opts.anchorNudges || {};
         const markers = [];
         const warnings = [];
 
-        const { mt, offtank, spare } = pickTanks(roster);
+        // The boss nudge is a rigid translation of the whole formation: it shifts the boss
+        // AND the mt anchor by the same (clamped) delta, so the ring, the tank, and the
+        // mirrored melee clump all follow. Clamping the delta (not each anchor separately)
+        // keeps the translation rigid at the map edge instead of squashing the formation.
+        const rawBossN = anchorNudges.boss || { dx: 0, dy: 0 };
+        const bossPos = { x: clamp01(enc.anchors.boss.x + rawBossN.dx), y: clamp01(enc.anchors.boss.y + rawBossN.dy) };
+        const bossDelta = { dx: bossPos.x - enc.anchors.boss.x, dy: bossPos.y - enc.anchors.boss.y };
+        const mtAnchor = { x: enc.anchors.mt.x + bossDelta.dx, y: enc.anchors.mt.y + bossDelta.dy };
+        const clumpN = anchorNudges.clump || { dx: 0, dy: 0 };
+        const stationN = anchorNudges.station || { dx: 0, dy: 0 };
+
+        let { mt, offtank, spare } = pickTanks(roster);
+        // The raid leader's per-boss override: who tanks the boss and who takes the other
+        // duty (the infernal station on Anetheron, the melee clump on Winterchill).
+        if (opts.swapTanks && mt && offtank) { const t = mt; mt = offtank; offtank = t; }
         const tankNames = new Set([mt, offtank].concat(spare).filter(Boolean).map(p => p.name));
         const melee = roster.filter(p => !tankNames.has(p.name) && roleOf(p) === 'melee');
         const ringPeople = roster.filter(p => !tankNames.has(p.name) && (roleOf(p) === 'healer' || roleOf(p) === 'ranged'));
 
-        markers.push({ kind: 'boss', x: enc.anchors.boss.x, y: enc.anchors.boss.y, label: bossDef.name });
-        if (mt) markers.push(person(mt, 'mt', enc.anchors.mt, null, nudges));
+        markers.push({ kind: 'boss', x: bossPos.x, y: bossPos.y, label: bossDef.name, icon: bossDef.icon });
+        if (mt) markers.push(person(mt, 'mt', mtAnchor, null, nudges));
 
         const clumpNames = melee.map(p => p.name).concat(spare.map(p => p.name));
         if (bossMode === 'anetheron') {
@@ -136,7 +207,10 @@
             // regardless of whether a second tank exists to man it. Only the offtank
             // person-marker below is conditional; the "No second tank" warning already covers
             // the missing-offtank case.
-            markers.push({ kind: 'station', x: bossDef.station.x, y: bossDef.station.y, label: bossDef.station.label });
+            // The station follows only its own nudge, never the boss: it marks a fixed map
+            // feature (the infernal spawn point), not part of the boss formation.
+            const stationPos = { x: clamp01(bossDef.station.x + stationN.dx), y: clamp01(bossDef.station.y + stationN.dy) };
+            markers.push({ kind: 'station', x: stationPos.x, y: stationPos.y, label: bossDef.station.label });
             if (offtank) {
                 // Offset the offtank's own marker a small deterministic distance below the
                 // station anchor. The tank stands at the station, but rendering the
@@ -144,7 +218,7 @@
                 // labels ("Infernals → Jaina" and the tank's name) on one point, garbling into
                 // unreadable text (task 6 review finding). The nudge system still applies on
                 // top of this offset.
-                const otPos = { x: bossDef.station.x, y: bossDef.station.y + 0.05 };
+                const otPos = { x: stationPos.x, y: stationPos.y + 0.05 };
                 markers.push(person(offtank, 'offtank', otPos, null, nudges));
             }
         } else if (offtank) {
@@ -153,14 +227,14 @@
         if (clumpNames.length) {
             // Melee stack behind the boss: mirror the mt anchor through the boss in
             // isotropic space, so "behind" is a screen direction, not a skewed fraction.
-            const u = enc.anchors.mt.x - enc.anchors.boss.x;
-            const v = (enc.anchors.mt.y - enc.anchors.boss.y) / enc.aspect;
+            const u = mtAnchor.x - bossPos.x;
+            const v = (mtAnchor.y - bossPos.y) / enc.aspect;
             const mtDist = Math.hypot(u, v) || 1;
             const CLUMP_DIST = 0.06; // clear of the boss dot, well inside the ring
             markers.push({
                 kind: 'clump',
-                x: enc.anchors.boss.x - CLUMP_DIST * u / mtDist,
-                y: enc.anchors.boss.y - CLUMP_DIST * (v / mtDist) * enc.aspect,
+                x: clamp01(bossPos.x - CLUMP_DIST * u / mtDist + clumpN.dx),
+                y: clamp01(bossPos.y - CLUMP_DIST * (v / mtDist) * enc.aspect + clumpN.dy),
                 names: clumpNames,
             });
         }
@@ -182,19 +256,46 @@
         const isHealer = p => roleOf(p) === 'healer';
         const tankHealRow = (duties || []).find(d => d.id === 'tankheal');
         const tankHealerNames = tankHealRow ? tankHealRow.players : [];
-        const interleaved = wedges.map(w => ({ party: w.party, players: interleaveHealers(w.players, isHealer) }));
+        // Per-wedge seat candidates, seeded from the interleave so the search can only
+        // match or beat the old fixed placement.
+        const sig = arr => arr.map(p => isHealer(p) ? 1 : 0).join('');
+        const wedgeCands = wedges.map(w => {
+            const cands = healerPlacements(w.players, isHealer, 128);
+            const seedSig = sig(interleaveHealers(w.players, isHealer));
+            const seed = Math.max(0, cands.findIndex(c => sig(c) === seedSig));
+            return { party: w.party, cands, seed };
+        });
         let best = null, bestScore = -Infinity;
-        permutations(interleaved).forEach(perm => {
-            const flat = perm.flatMap(w => w.players);
-            const s = scoreArrangement(flat, isHealer, tankHealerNames, enc.ring.startDeg);
-            if (s > bestScore) { bestScore = s; best = perm; }
+        permutations(wedgeCands).forEach(perm => {
+            const choice = perm.map(w => w.seed);
+            const flatten = () => perm.flatMap((w, i) => w.cands[choice[i]]);
+            const score = () => scoreArrangement(flatten(), isHealer, tankHealerNames, enc.ring.startDeg);
+            // Coordinate ascent over the per-wedge seat choices: try each wedge's
+            // alternatives one at a time, keep strict improvements, stop at a fixed point.
+            // Not exhaustive (the joint space can be huge) but deterministic.
+            let cur = score();
+            let improved = true, guard = 0;
+            while (improved && guard++ < 20) {
+                improved = false;
+                perm.forEach((w, i) => {
+                    for (let c = 0; c < w.cands.length; c++) {
+                        if (c === choice[i]) continue;
+                        const prev = choice[i];
+                        choice[i] = c;
+                        const s = score();
+                        if (s > cur + 1e-9) { cur = s; improved = true; }
+                        else choice[i] = prev;
+                    }
+                });
+            }
+            if (cur > bestScore) { bestScore = cur; best = perm.map((w, i) => ({ party: w.party, players: w.cands[choice[i]] })); }
         });
         const ordered = (best || []).flatMap(w => w.players.map(p => ({ p, party: w.party })));
         const n = ordered.length;
         const angles = slotAngles(n, enc.ring.startDeg);
         ordered.forEach((o, i) => {
             const r = enc.ring.rBase + (i % 2 ? enc.ring.rJitter : -enc.ring.rJitter);
-            const pos = angleToXY(enc.anchors.boss, r, angles[i], enc.aspect);
+            const pos = angleToXY(bossPos, r, angles[i], enc.aspect);
             const m = person(o.p, 'ring', pos, angles[i], nudges);
             m.party = o.party;
             markers.push(m);
@@ -219,29 +320,96 @@
             if (span > 90) warnings.push('Party ' + pi + ' stretches over ' + Math.round(span) + '° of the ring — totem range may not cover it.');
         });
 
-        if (bossMode === 'anetheron') {
-            if (!offtank) warnings.push('No second tank for the infernal station.');
-            const raidHealRow = (duties || []).find(d => d.id === 'raidheal');
-            const raidHealerNames = raidHealRow ? raidHealRow.players : [];
-            const candidates = ringMarkers.filter(m => raidHealerNames.includes(m.name));
-            if (!candidates.length) {
-                warnings.push('No raid healer available for the infernal station.');
-            } else {
-                const st = bossDef.station;
-                const stAngle = Math.atan2((st.y - enc.anchors.boss.y) / enc.aspect, st.x - enc.anchors.boss.x) * 180 / Math.PI;
-                const want = raidHealerNames.length >= 4 ? 2 : 1;
-                candidates
-                    .slice()
-                    .sort((a, b) => circGap(a.angleDeg, stAngle) - circGap(b.angleDeg, stAngle))
-                    .slice(0, want)
-                    .forEach(m => m.tags.push('infernal-healer'));
-            }
-        }
+        if (bossMode === 'anetheron' && !offtank) warnings.push('No second tank for the infernal station.');
+
+        return { markers, warnings };
+    }
+
+    // Archimonde-style layout: each party stands as one tight stack (Tremor Totem and
+    // chain-heal range), stacks spread apart from each other, melee-majority groups next
+    // to the boss. The boss nudge is the same rigid whole-scene translation as the ring
+    // layout; each stack additionally follows its own 'party-N' anchor nudge, and every
+    // member still takes their personal name-keyed nudge on top.
+    function computeStackPositions(roster, groupsResult, opts, enc, bossDef) {
+        const nudges = opts.nudges || {};
+        const anchorNudges = opts.anchorNudges || {};
+        const markers = [];
+        const warnings = [];
+
+        const rawBossN = anchorNudges.boss || { dx: 0, dy: 0 };
+        const bossPos = { x: clamp01(enc.anchors.boss.x + rawBossN.dx), y: clamp01(enc.anchors.boss.y + rawBossN.dy) };
+        const bossDelta = { dx: bossPos.x - enc.anchors.boss.x, dy: bossPos.y - enc.anchors.boss.y };
+        const mtAnchor = { x: enc.anchors.mt.x + bossDelta.dx, y: enc.anchors.mt.y + bossDelta.dy };
+
+        markers.push({ kind: 'boss', x: bossPos.x, y: bossPos.y, label: bossDef.name, icon: bossDef.icon });
+        const { mt } = pickTanks(roster);
+        if (mt) markers.push(person(mt, 'mt', mtAnchor, null, nudges));
+
+        // The MT stands at the boss; everyone else — offtanks included — stays with their
+        // group's stack, because that is where their Tremor Totem and heals are.
+        const mtName = mt ? mt.name : null;
+        const inRoster = new Set(roster.map(p => p.name).filter(n => n !== mtName));
+        const groups = (groupsResult && groupsResult.groups) || [];
+        const stacks = groups
+            .map((g, i) => ({ party: i + 1, players: g.players.filter(p => inRoster.has(p.name)) }))
+            .filter(s => s.players.length);
+        const grouped = new Set(stacks.flatMap(s => s.players.map(p => p.name)));
+        const rest = roster.filter(p => p.name !== mtName && !grouped.has(p.name));
+        if (rest.length) stacks.push({ party: groups.length + 1, players: rest });
+
+        const isMeleeStack = s =>
+            s.players.filter(p => { const r = roleOf(p); return r === 'melee' || r === 'tank'; }).length * 2 > s.players.length;
+        const COLS = 3;
+        // Equal on-screen spacing in both axes; wide enough that a member's name label
+        // clears the row of dots beneath it (verified in a CDP screenshot).
+        const SX = 0.030, SY = 0.030 * enc.aspect;
+        const EXTRA = 0.06; // step for groups past the digitized anchor slots
+        let meleeIdx = 0, spreadIdx = 0;
+        stacks.forEach(s => {
+            const list = isMeleeStack(s) ? enc.stackAnchors.melee : enc.stackAnchors.spread;
+            const idx = isMeleeStack(s) ? meleeIdx++ : spreadIdx++;
+            const off = list[Math.min(idx, list.length - 1)];
+            const overflow = Math.max(0, idx - (list.length - 1));
+            const pN = anchorNudges['party-' + s.party] || { dx: 0, dy: 0 };
+            const ax = bossPos.x + off.dx + overflow * EXTRA + pN.dx;
+            const ay = bossPos.y + off.dy + overflow * EXTRA * enc.aspect + pN.dy;
+            markers.push({ kind: 'stackhandle', party: s.party, x: clamp01(ax), y: clamp01(ay - SY), label: 'G' + s.party });
+            s.players.forEach((p, j) => {
+                const col = j % COLS, row = Math.floor(j / COLS);
+                const rowLen = Math.min(COLS, s.players.length - row * COLS);
+                const pos = { x: ax + (col - (rowLen - 1) / 2) * SX, y: ay + row * SY };
+                const m = person(p, 'stack', pos, null, nudges);
+                m.party = s.party;
+                if (p.class === 'SHAMAN') m.tags.push('shaman');
+                markers.push(m);
+            });
+            if (s.players.length >= 2 && !s.players.some(p => p.class === 'SHAMAN'))
+                warnings.push('Group ' + s.party + ' has no shaman — no Tremor Totem for fears.');
+        });
+
+        // Decursing is raid-wide (Remove Curse reaches 40yd across parties), so this is a
+        // roster check, not a per-group one.
+        if (!roster.some(p => p.class === 'MAGE' || p.class === 'DRUID'))
+            warnings.push('No decursers (mage or druid) in the raid for Grip of the Legion.');
 
         return { markers, warnings };
     }
 
     function clamp01(v) { return Math.min(0.99, Math.max(0.01, v)); }
+
+    // Sum nudge layers per key: the saved template underneath, live drags on top. Used by
+    // the page to feed computePositions one effective offset per marker.
+    function combineNudges(saved, live) {
+        const out = {};
+        [saved || {}, live || {}].forEach(layer => {
+            Object.keys(layer).forEach(k => {
+                const n = layer[k] || { dx: 0, dy: 0 };
+                const cur = out[k] || { dx: 0, dy: 0 };
+                out[k] = { dx: cur.dx + n.dx, dy: cur.dy + n.dy };
+            });
+        });
+        return out;
+    }
 
     function person(p, kind, pos, angleDeg, nudges) {
         const nudge = nudges[p.name] || { dx: 0, dy: 0 };
@@ -256,5 +424,5 @@
         return m;
     }
 
-    return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions, interleaveHealers, scoreArrangement };
+    return { ENCOUNTERS, slotAngles, angleToXY, circGap, computePositions, interleaveHealers, scoreArrangement, combineNudges };
 }));

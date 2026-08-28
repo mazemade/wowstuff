@@ -60,6 +60,12 @@ test('compute: every non-melee non-tank player gets exactly one ring marker', ()
     const ring = r.markers.filter(m => m.kind === 'ring');
     assert.deepStrictEqual(ring.map(m => m.name).sort(), ['Cpriest', 'Hpal', 'Hunt', 'Lock', 'Mage', 'Rsham']);
 });
+test('compute: boss marker carries the per-boss portrait icon', () => {
+    const rw = compute(fixtureRoster());
+    assert.strictEqual(rw.markers.find(m => m.kind === 'boss').icon, 'maps/rage-winterchill-icon.png');
+    const an = compute(fixtureRoster(), { boss: 'anetheron' });
+    assert.strictEqual(an.markers.find(m => m.kind === 'boss').icon, 'maps/anetheron-icon.png');
+});
 test('compute: mt at the boss anchor side, melee in one clump with names', () => {
     const r = compute(fixtureRoster());
     assert.strictEqual(r.markers.filter(m => m.kind === 'mt').length, 1);
@@ -193,14 +199,27 @@ test('anetheron: offtank moves to the station and it renders', () => {
     assert.strictEqual(ot.name, 'Ot');
     assert.ok(!r.markers.find(m => m.kind === 'clump').names.includes('Ot'));
 });
-test('anetheron: the raid healer nearest the station is tagged infernal-healer', () => {
-    const roster = fixtureRoster();
-    const duties = E.autoAssign(roster, {}).duties;
-    const raidHealers = duties.find(d => d.id === 'raidheal').players;
-    const r = HP.computePositions(roster, E.proposeGroups(roster), duties, { boss: 'anetheron' });
-    const tagged = r.markers.filter(m => (m.tags || []).includes('infernal-healer'));
-    assert.strictEqual(tagged.length, 1);   // fixture has < 4 raid healers -> exactly 1
-    assert.ok(raidHealers.includes(tagged[0].name), 'tagged a tank healer instead of a raid healer');
+test('compute: swapTanks exchanges the boss tank and the station offtank', () => {
+    const base = compute(fixtureRoster(), { boss: 'anetheron' });
+    const swapped = compute(fixtureRoster(), { boss: 'anetheron', swapTanks: true });
+    assert.strictEqual(base.markers.find(m => m.kind === 'mt').name, 'Mt');
+    assert.strictEqual(base.markers.find(m => m.kind === 'offtank').name, 'Ot');
+    assert.strictEqual(swapped.markers.find(m => m.kind === 'mt').name, 'Ot');
+    assert.strictEqual(swapped.markers.find(m => m.kind === 'offtank').name, 'Mt');
+});
+test('compute: swapTanks on winterchill sends the old MT into the clump', () => {
+    const r = compute(fixtureRoster(), { boss: 'winterchill', swapTanks: true });
+    assert.strictEqual(r.markers.find(m => m.kind === 'mt').name, 'Ot');
+    assert.ok(r.markers.find(m => m.kind === 'clump').names.includes('Mt'));
+});
+test('compute: swapTanks with a single tank is a no-op', () => {
+    const roster = fixtureRoster().filter(p => p.name !== 'Ot');
+    const r = compute(roster, { boss: 'anetheron', swapTanks: true });
+    assert.strictEqual(r.markers.find(m => m.kind === 'mt').name, 'Mt');
+});
+test('anetheron: no marker carries the retired infernal-healer tag', () => {
+    const r = compute(fixtureRoster(), { boss: 'anetheron' });
+    assert.ok(!r.markers.some(m => (m.tags || []).includes('infernal-healer')));
 });
 test('anetheron: single-tank roster warns about the station but still renders it', () => {
     const roster = fixtureRoster().filter(p => p.name !== 'Ot');
@@ -211,10 +230,6 @@ test('anetheron: single-tank roster warns about the station but still renders it
     // conditional on having a second tank.
     assert.ok(r.markers.some(m => m.kind === 'station'), 'station marker missing with no offtank');
     assert.ok(!r.markers.some(m => m.kind === 'offtank'), 'no offtank should mean no offtank marker');
-});
-test('winterchill: no infernal-healer tags', () => {
-    const r = compute(fixtureRoster(), { boss: 'winterchill' });
-    assert.ok(!r.markers.some(m => (m.tags || []).includes('infernal-healer')));
 });
 
 // --- nudges ---
@@ -237,6 +252,254 @@ test('nudges: an absurd nudge is clamped inside the map bounds', () => {
     const hunt = r.markers.find(m => m.name === 'Hunt');
     assert.ok(hunt.x >= 0.01 && hunt.x <= 0.99, 'x out of bounds: ' + hunt.x);
     assert.ok(hunt.y >= 0.01 && hunt.y <= 0.99, 'y out of bounds: ' + hunt.y);
+});
+
+// --- anchor nudges ---
+test('anchorNudges: boss nudge translates the whole formation rigidly', () => {
+    const base = compute(fixtureRoster());
+    const moved = compute(fixtureRoster(), { anchorNudges: { boss: { dx: 0.03, dy: -0.02 } } });
+    base.markers.forEach(b => {
+        const m = moved.markers.find(x => (x.name || x.kind) === (b.name || b.kind));
+        assert.ok(Math.abs(m.x - (b.x + 0.03)) < 1e-9, (b.name || b.kind) + ' did not follow in x');
+        assert.ok(Math.abs(m.y - (b.y - 0.02)) < 1e-9, (b.name || b.kind) + ' did not follow in y');
+    });
+});
+test('anchorNudges: clump nudge moves only the clump', () => {
+    const base = compute(fixtureRoster());
+    const moved = compute(fixtureRoster(), { anchorNudges: { clump: { dx: 0.04, dy: 0.01 } } });
+    const bc = base.markers.find(m => m.kind === 'clump');
+    const mc = moved.markers.find(m => m.kind === 'clump');
+    assert.ok(Math.abs(mc.x - (bc.x + 0.04)) < 1e-9 && Math.abs(mc.y - (bc.y + 0.01)) < 1e-9);
+    base.markers.filter(m => m.kind !== 'clump').forEach(b => {
+        const m = moved.markers.find(x => (x.name || x.kind) === (b.name || b.kind));
+        assert.strictEqual(m.x, b.x, (b.name || b.kind) + ' moved');
+        assert.strictEqual(m.y, b.y, (b.name || b.kind) + ' moved');
+    });
+});
+test('anchorNudges: station nudge carries the station and the offtank standing at it', () => {
+    const base = compute(fixtureRoster(), { boss: 'anetheron' });
+    const moved = compute(fixtureRoster(), { boss: 'anetheron', anchorNudges: { station: { dx: -0.03, dy: 0.05 } } });
+    ['station', 'offtank'].forEach(kind => {
+        const b = base.markers.find(m => m.kind === kind);
+        const m = moved.markers.find(x => x.kind === kind);
+        assert.ok(Math.abs(m.x - (b.x - 0.03)) < 1e-9 && Math.abs(m.y - (b.y + 0.05)) < 1e-9, kind + ' did not follow');
+    });
+    const bb = base.markers.find(m => m.kind === 'boss');
+    const mb = moved.markers.find(m => m.kind === 'boss');
+    assert.strictEqual(mb.x, bb.x, 'boss moved with the station');
+});
+test('anchorNudges: boss nudge leaves the station (a fixed map feature) in place', () => {
+    const base = compute(fixtureRoster(), { boss: 'anetheron' });
+    const moved = compute(fixtureRoster(), { boss: 'anetheron', anchorNudges: { boss: { dx: 0.03, dy: -0.02 } } });
+    ['station', 'offtank'].forEach(kind => {
+        const b = base.markers.find(m => m.kind === kind);
+        const m = moved.markers.find(x => x.kind === kind);
+        assert.strictEqual(m.x, b.x, kind + ' followed the boss');
+        assert.strictEqual(m.y, b.y, kind + ' followed the boss');
+    });
+});
+test('anchorNudges: an absurd boss nudge keeps every marker on the map', () => {
+    const r = compute(fixtureRoster(), { anchorNudges: { boss: { dx: 5, dy: 5 }, clump: { dx: -9, dy: 0 } } });
+    r.markers.forEach(m => {
+        assert.ok(m.x >= 0.01 && m.x <= 0.99, (m.name || m.kind) + ' x out of bounds: ' + m.x);
+        assert.ok(m.y >= 0.01 && m.y <= 0.99, (m.name || m.kind) + ' y out of bounds: ' + m.y);
+    });
+});
+
+// --- nudge layering (save-as-template) ---
+test('combineNudges: sums saved and live offsets per key', () => {
+    const out = HP.combineNudges(
+        { A: { dx: 0.1, dy: 0 }, B: { dx: 0, dy: 0.2 } },
+        { B: { dx: 0.05, dy: -0.1 }, C: { dx: 1, dy: 2 } });
+    assert.deepStrictEqual(out, {
+        A: { dx: 0.1, dy: 0 },
+        B: { dx: 0.05, dy: 0.2 + -0.1 },
+        C: { dx: 1, dy: 2 },
+    });
+});
+test('combineNudges: tolerates missing layers', () => {
+    assert.deepStrictEqual(HP.combineNudges(null, { A: { dx: 1, dy: 1 } }), { A: { dx: 1, dy: 1 } });
+    assert.deepStrictEqual(HP.combineNudges({ A: { dx: 1, dy: 1 } }, undefined), { A: { dx: 1, dy: 1 } });
+});
+
+// --- healer spread: slot choice inside wedges ---
+test('compute: a healer-heavy wedge pushes its healers to the wedge edges', () => {
+    // 12 ring slots (30 degrees apart). Both healers live in one 4-slot wedge: the old
+    // centered interleave fixes them at wedge slots 1 and 3 (60 degrees apart); choosing
+    // slots inside the wedge lets them stand at the edges, 90 degrees apart.
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
+        mk('H1', 'PRIEST', 'Holy'), mk('H2', 'PALADIN', 'Holy'),
+        mk('D1', 'MAGE', 'Frost'), mk('D2', 'MAGE', 'Frost')];
+    for (let i = 3; i <= 10; i++) roster.push(mk('D' + i, 'WARLOCK', 'Destruction'));
+    const byName = {};
+    roster.forEach(p => { byName[p.name] = p; });
+    const groups = { groups: [
+        { players: ['Mt', 'H1', 'H2', 'D1', 'D2'].map(n => byName[n]) },
+        { players: ['D3', 'D4', 'D5', 'D6'].map(n => byName[n]) },
+        { players: ['D7', 'D8', 'D9', 'D10'].map(n => byName[n]) },
+    ] };
+    const r = HP.computePositions(roster, groups, [], {});
+    const healerAngles = r.markers.filter(m => m.kind === 'ring' && m.role === 'healer').map(m => m.angleDeg);
+    assert.strictEqual(healerAngles.length, 2);
+    assert.ok(HP.circGap(healerAngles[0], healerAngles[1]) >= 90 - 1e-6,
+        'healer gap was ' + HP.circGap(healerAngles[0], healerAngles[1]));
+});
+test('compute: healer slot choice never breaks party contiguity', () => {
+    const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
+        mk('H1', 'PRIEST', 'Holy'), mk('H2', 'PALADIN', 'Holy'), mk('H3', 'SHAMAN', 'Restoration'),
+        mk('D1', 'MAGE', 'Frost'), mk('D2', 'MAGE', 'Fire')];
+    for (let i = 3; i <= 9; i++) roster.push(mk('D' + i, 'WARLOCK', 'Destruction'));
+    const groups = E.proposeGroups(roster);
+    const r = HP.computePositions(roster, groups, E.autoAssign(roster, {}).duties, {});
+    const ring = r.markers.filter(m => m.kind === 'ring');
+    [...new Set(ring.map(m => m.party))].forEach(pi => {
+        const idxs = ring.map((m, i) => m.party === pi ? i : -1).filter(i => i !== -1);
+        assert.strictEqual(idxs[idxs.length - 1] - idxs[0], idxs.length - 1, 'party ' + pi + ' not contiguous');
+    });
+});
+
+// --- archimonde stack layout ---
+function archCompute(roster, opts) {
+    return HP.computePositions(roster, E.proposeGroups(roster), E.autoAssign(roster, {}).duties,
+        Object.assign({ encounter: 'hyjal-archimonde', boss: 'archimonde' }, opts || {}));
+}
+function archRoster() {
+    // 2 tanks, shamans of all three specs, healers, melee, ranged — enough for 3+ groups
+    return [
+        mk('Mt', 'WARRIOR', 'Protection', { mt: true }), mk('Ot', 'PALADIN', 'Protection'),
+        mk('Rsham', 'SHAMAN', 'Restoration'), mk('Esham', 'SHAMAN', 'Enhancement'), mk('Csham', 'SHAMAN', 'Elemental'),
+        mk('Hpal', 'PALADIN', 'Holy'), mk('Cpriest', 'PRIEST', 'Holy'), mk('Rdruid', 'DRUID', 'Restoration'),
+        mk('Rog', 'ROGUE', 'Combat'), mk('Warr', 'WARRIOR', 'Fury'), mk('Kitty', 'DRUID', 'Feral'),
+        mk('Hunt', 'HUNTER', 'Beast Mastery'), mk('Lock', 'WARLOCK', 'Destruction'), mk('Mage', 'MAGE', 'Frost'),
+        mk('Spriest', 'PRIEST', 'Shadow'),
+    ];
+}
+test('registry: hyjal-archimonde exists as a stacks-layout encounter with its own map and boss icon', () => {
+    const enc = HP.ENCOUNTERS['hyjal-archimonde'];
+    assert.ok(enc);
+    assert.strictEqual(enc.layout, 'stacks');
+    assert.strictEqual(enc.map, 'maps/hyjal-archimonde.png');
+    assert.ok(enc.bosses[0].icon, 'boss icon path missing');
+    assert.deepStrictEqual(enc.bosses.map(b => b.id), ['archimonde']);
+});
+test('stacks: every player renders exactly once — mt at the boss, everyone else in a party stack', () => {
+    const roster = archRoster();
+    const r = archCompute(roster);
+    const names = r.markers.filter(m => m.name).map(m => m.name).sort();
+    assert.deepStrictEqual(names, roster.map(p => p.name).sort());
+    assert.strictEqual(r.markers.filter(m => m.kind === 'mt').length, 1);
+    assert.ok(!r.markers.some(m => m.kind === 'ring' || m.kind === 'clump'), 'ring-layout markers leaked into stacks');
+    const stackNames = r.markers.filter(m => m.kind === 'stack').map(m => m.name).sort();
+    assert.deepStrictEqual(stackNames, roster.filter(p => p.name !== 'Mt').map(p => p.name).sort());
+});
+test('stacks: boss marker carries the portrait icon', () => {
+    const r = archCompute(archRoster());
+    const boss = r.markers.find(m => m.kind === 'boss');
+    assert.strictEqual(boss.icon, HP.ENCOUNTERS['hyjal-archimonde'].bosses[0].icon);
+});
+test('stacks: each group clusters tightly and groups sit apart, one handle per group', () => {
+    const enc = HP.ENCOUNTERS['hyjal-archimonde'];
+    const r = archCompute(archRoster());
+    const stackMarks = r.markers.filter(m => m.kind === 'stack');
+    const parties = [...new Set(stackMarks.map(m => m.party))];
+    const iso = m => ({ u: m.x, v: m.y / enc.aspect });
+    const centroids = {};
+    parties.forEach(pi => {
+        const ms = stackMarks.filter(m => m.party === pi);
+        ms.forEach(a => ms.forEach(b => {
+            const d = Math.hypot(iso(a).u - iso(b).u, iso(a).v - iso(b).v);
+            assert.ok(d < 0.09, 'party ' + pi + ' members ' + a.name + '/' + b.name + ' are ' + d.toFixed(3) + ' apart');
+        }));
+        centroids[pi] = {
+            u: ms.reduce((s, m) => s + iso(m).u, 0) / ms.length,
+            v: ms.reduce((s, m) => s + iso(m).v, 0) / ms.length,
+        };
+        const handles = r.markers.filter(m => m.kind === 'stackhandle' && m.party === pi);
+        assert.strictEqual(handles.length, 1, 'party ' + pi + ' has ' + handles.length + ' handles');
+    });
+    for (let i = 0; i < parties.length; i++)
+        for (let j = i + 1; j < parties.length; j++) {
+            const a = centroids[parties[i]], b = centroids[parties[j]];
+            const d = Math.hypot(a.u - b.u, a.v - b.v);
+            assert.ok(d > 0.05, 'parties ' + parties[i] + ' and ' + parties[j] + ' overlap (' + d.toFixed(3) + ')');
+        }
+});
+test('stacks: a melee-majority group stands near the boss, ranged groups at range', () => {
+    const enc = HP.ENCOUNTERS['hyjal-archimonde'];
+    const r = archCompute(archRoster());
+    const boss = r.markers.find(m => m.kind === 'boss');
+    const iso = m => ({ u: m.x, v: m.y / enc.aspect });
+    const bossIso = iso(boss);
+    const stackMarks = r.markers.filter(m => m.kind === 'stack');
+    const parties = [...new Set(stackMarks.map(m => m.party))];
+    const dists = {}, meleeish = {};
+    parties.forEach(pi => {
+        const ms = stackMarks.filter(m => m.party === pi);
+        const cu = ms.reduce((s, m) => s + iso(m).u, 0) / ms.length;
+        const cv = ms.reduce((s, m) => s + iso(m).v, 0) / ms.length;
+        dists[pi] = Math.hypot(cu - bossIso.u, cv - bossIso.v);
+        meleeish[pi] = ms.filter(m => m.role === 'melee' || m.role === 'tank').length * 2 > ms.length;
+    });
+    parties.forEach(pi => {
+        if (meleeish[pi]) assert.ok(dists[pi] < 0.11, 'melee group ' + pi + ' is ' + dists[pi].toFixed(3) + ' from the boss');
+        else assert.ok(dists[pi] > 0.09, 'ranged group ' + pi + ' is only ' + dists[pi].toFixed(3) + ' from the boss');
+    });
+    assert.ok(Object.values(meleeish).some(Boolean), 'fixture produced no melee-majority group');
+});
+test('stacks: shamans are tagged so the renderer can badge them', () => {
+    const r = archCompute(archRoster());
+    const tagged = r.markers.filter(m => (m.tags || []).includes('shaman')).map(m => m.name).sort();
+    assert.deepStrictEqual(tagged, ['Csham', 'Esham', 'Rsham']);
+});
+test('stacks: a shamanless group warns about Tremor Totem', () => {
+    // No shamans at all: every real group must warn.
+    const roster = archRoster().filter(p => p.class !== 'SHAMAN');
+    const r = archCompute(roster);
+    assert.ok(r.warnings.some(w => /shaman/i.test(w) && /tremor/i.test(w)), JSON.stringify(r.warnings));
+});
+test('stacks: a raid with no mage or druid warns about decursers', () => {
+    const roster = archRoster().filter(p => p.class !== 'MAGE' && p.class !== 'DRUID');
+    const r = archCompute(roster);
+    assert.ok(r.warnings.some(w => /decurs/i.test(w)), JSON.stringify(r.warnings));
+    const full = archCompute(archRoster());
+    assert.ok(!full.warnings.some(w => /decurs/i.test(w)), 'decurser warning fired with mages present');
+});
+test('stacks: boss nudge translates the whole scene rigidly', () => {
+    const base = archCompute(archRoster());
+    const moved = archCompute(archRoster(), { anchorNudges: { boss: { dx: 0.03, dy: -0.02 } } });
+    base.markers.forEach(b => {
+        const key = b.name || (b.kind + (b.party || ''));
+        const m = moved.markers.find(x => (x.name || (x.kind + (x.party || ''))) === key);
+        assert.ok(Math.abs(m.x - (b.x + 0.03)) < 1e-9 && Math.abs(m.y - (b.y - 0.02)) < 1e-9, key + ' did not follow');
+    });
+});
+test('stacks: a party anchor nudge moves that stack and its handle, nothing else', () => {
+    const base = archCompute(archRoster());
+    const someParty = base.markers.find(m => m.kind === 'stack').party;
+    const moved = archCompute(archRoster(), { anchorNudges: { ['party-' + someParty]: { dx: 0.05, dy: 0.04 } } });
+    base.markers.forEach(b => {
+        const key = b.name || (b.kind + (b.party || ''));
+        const m = moved.markers.find(x => (x.name || (x.kind + (x.party || ''))) === key);
+        const inParty = (b.kind === 'stack' || b.kind === 'stackhandle') && b.party === someParty;
+        if (inParty) {
+            assert.ok(Math.abs(m.x - (b.x + 0.05)) < 1e-9 && Math.abs(m.y - (b.y + 0.04)) < 1e-9, key + ' did not follow its handle');
+        } else {
+            assert.strictEqual(m.x, b.x, key + ' moved');
+        }
+    });
+});
+test('stacks: person nudges still land on individual stack members', () => {
+    const base = archCompute(archRoster());
+    const moved = archCompute(archRoster(), { nudges: { Mage: { dx: 0.04, dy: 0.03 } } });
+    const b = base.markers.find(m => m.name === 'Mage');
+    const m = moved.markers.find(x => x.name === 'Mage');
+    assert.ok(Math.abs(m.x - (b.x + 0.04)) < 1e-9 && Math.abs(m.y - (b.y + 0.03)) < 1e-9);
+});
+test('stacks: all coordinates stay inside the image even under absurd nudges', () => {
+    const r = archCompute(archRoster(), { anchorNudges: { boss: { dx: 9, dy: 9 }, 'party-1': { dx: -9, dy: 0 } } });
+    r.markers.forEach(m => {
+        assert.ok(m.x >= 0.01 && m.x <= 0.99 && m.y >= 0.01 && m.y <= 0.99, (m.name || m.kind) + ' escaped');
+    });
 });
 
 console.log(passed + ' passed, ' + failed + ' failed');

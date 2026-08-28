@@ -829,11 +829,21 @@ function renderAssignments() {
 // view can render markers with zero grouping/placement logic of its own.
 function buildPositionsPayload() {
     if (!roster.length || typeof HyjalPositions === 'undefined') return null;
-    let pos = { boss: 'winterchill', nudges: {} };
+    const HP = HyjalPositions;
+    let pos = { boss: 'winterchill' };
     try { Object.assign(pos, JSON.parse(localStorage.getItem('raidPositionsState')) || {}); } catch (e) { /* defaults */ }
-    const enc = HyjalPositions.ENCOUNTERS['hyjal-b12'];
-    const r = HyjalPositions.computePositions(roster, E.proposeGroups(roster), sheet.duties, {
-        boss: pos.boss, nudges: pos.nudges, encounter: enc.id,
+    const BOSS_TO_ENC = { winterchill: 'hyjal-b12', anetheron: 'hyjal-b12', archimonde: 'hyjal-archimonde' };
+    const encSel = BOSS_TO_ENC[pos.boss] || 'hyjal-b12';
+    const enc = HP.ENCOUNTERS[encSel];
+    // Nudges live per encounter with a saved-template layer under the live drags
+    // (positions.js owns that shape); a pre-scoping legacy state still has them flat.
+    const sc = (pos.encounters && pos.encounters[encSel])
+        || { nudges: pos.nudges, anchorNudges: pos.anchorNudges, saved: pos.saved };
+    const saved = sc.saved || {};
+    const r = HP.computePositions(roster, E.proposeGroups(roster), sheet.duties, {
+        boss: pos.boss, encounter: enc.id, swapTanks: !!(pos.swapTanks || {})[pos.boss],
+        nudges: HP.combineNudges(saved.nudges, sc.nudges),
+        anchorNudges: HP.combineNudges(saved.anchorNudges, sc.anchorNudges),
     });
     return { encounter: enc.id, map: enc.map, boss: pos.boss, markers: r.markers, warnings: r.warnings };
 }
