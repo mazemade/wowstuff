@@ -12,6 +12,7 @@ const BOSS_TABS = {
     winterchill: { enc: 'hyjal-b12' },
     anetheron: { enc: 'hyjal-b12' },
     archimonde: { enc: 'hyjal-archimonde' },
+    najentus: { enc: 'bt-najentus' },
 };
 
 // Per encounter, two nudge layers per store: `saved` is the template baseline, the
@@ -84,11 +85,12 @@ function renderAll() {
     document.getElementById('bossWinterchill').classList.toggle('active', posState.boss === 'winterchill');
     document.getElementById('bossAnetheron').classList.toggle('active', posState.boss === 'anetheron');
     document.getElementById('bossArchimonde').classList.toggle('active', posState.boss === 'archimonde');
-    // Swap is per boss (not per encounter scope — Winterchill and Anetheron share one) and
-    // only meaningful on ring layouts, where a second tank has its own duty to trade.
+    document.getElementById('bossNajentus').classList.toggle('active', posState.boss === 'najentus');
+    // Swap is per boss (not per encounter scope — Winterchill and Anetheron share one).
+    // On ring layouts the tanks trade duties; on stacks layouts the second tank takes the
+    // boss and the old MT rejoins their group's stack.
     const swapped = !!(posState.swapTanks || {})[posState.boss];
     const swapBtn = document.getElementById('swapTanks');
-    swapBtn.classList.toggle('hidden', posState.boss === 'archimonde');
     swapBtn.classList.toggle('active', swapped);
     const empty = document.getElementById('emptyState');
     document.querySelectorAll('.pos-marker').forEach(el => el.remove());
@@ -293,6 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bossWinterchill').addEventListener('click', () => { posState.boss = 'winterchill'; savePos(); renderAll(); });
     document.getElementById('bossAnetheron').addEventListener('click', () => { posState.boss = 'anetheron'; savePos(); renderAll(); });
     document.getElementById('bossArchimonde').addEventListener('click', () => { posState.boss = 'archimonde'; savePos(); renderAll(); });
+    document.getElementById('bossNajentus').addEventListener('click', () => { posState.boss = 'najentus'; savePos(); renderAll(); });
     // The template buttons act on the CURRENT tab's encounter scope only: saving an
     // Archimonde layout leaves the Winterchill/Anetheron template alone, and vice versa.
     document.getElementById('saveTemplate').addEventListener('click', () => {

@@ -569,5 +569,94 @@ test('stacks: all coordinates stay inside the image even under absurd nudges', (
     });
 });
 
+// --- black temple: najentus spread-stacks encounter ---
+function najCompute(roster, opts) {
+    return HP.computePositions(roster, E.proposeGroups(roster), E.autoAssign(roster, {}).duties,
+        Object.assign({ encounter: 'bt-najentus', boss: 'najentus' }, opts || {}));
+}
+test('registry: bt-najentus exists as a stacks-layout encounter with its own map and boss icon', () => {
+    const enc = HP.ENCOUNTERS['bt-najentus'];
+    assert.ok(enc);
+    assert.strictEqual(enc.layout, 'stacks');
+    assert.strictEqual(enc.map, 'maps/bt-najentus.png');
+    assert.deepStrictEqual(enc.bosses.map(b => b.id), ['najentus']);
+    assert.ok(enc.bosses[0].icon, 'boss icon path missing');
+});
+test('najentus: stack members spread for Impaling Spine — looser than the Archimonde default', () => {
+    // Same roster on both encounters: every within-stack neighbour gap on Naj'entus must
+    // beat Archimonde's 0.030 grid pitch, in isotropic (aspect-corrected) space.
+    const roster = archRoster();
+    const minNeighbourGap = (r, encId) => {
+        const enc = HP.ENCOUNTERS[encId];
+        const iso = m => ({ u: m.x, v: m.y / enc.aspect });
+        const stacks = {};
+        r.markers.filter(m => m.kind === 'stack').forEach(m => { (stacks[m.party] = stacks[m.party] || []).push(m); });
+        let min = Infinity;
+        Object.values(stacks).forEach(ms => {
+            for (let i = 0; i < ms.length; i++)
+                for (let j = i + 1; j < ms.length; j++)
+                    min = Math.min(min, Math.hypot(iso(ms[i]).u - iso(ms[j]).u, iso(ms[i]).v - iso(ms[j]).v));
+        });
+        return min;
+    };
+    const naj = minNeighbourGap(najCompute(roster), 'bt-najentus');
+    const arch = minNeighbourGap(archCompute(roster), 'hyjal-archimonde');
+    assert.ok(naj > 0.045, 'najentus min member gap ' + naj.toFixed(3) + ' is not spine-spread');
+    assert.ok(Math.abs(arch - 0.030) < 1e-6, 'archimonde grid pitch changed: ' + arch.toFixed(3));
+});
+test('najentus: no tremor or decurser warnings — those are Archimonde mechanics', () => {
+    // A roster with no shamans and no mage/druid trips both warnings on Archimonde;
+    // Naj’entus has no fear and no curse, so neither may fire there.
+    const roster = archRoster().filter(p => p.class !== 'SHAMAN' && p.class !== 'MAGE' && p.class !== 'DRUID');
+    const naj = najCompute(roster);
+    assert.ok(!naj.warnings.some(w => /tremor/i.test(w)), JSON.stringify(naj.warnings));
+    assert.ok(!naj.warnings.some(w => /decurs/i.test(w)), JSON.stringify(naj.warnings));
+    const arch = archCompute(roster);
+    assert.ok(arch.warnings.some(w => /tremor/i.test(w)) && arch.warnings.some(w => /decurs/i.test(w)),
+        'archimonde lost its warnings: ' + JSON.stringify(arch.warnings));
+});
+test('stacks: swapTanks sends the second tank to the boss and the old MT to a stack', () => {
+    const base = archCompute(archRoster());
+    assert.strictEqual(base.markers.find(m => m.kind === 'mt').name, 'Mt');
+    const swapped = archCompute(archRoster(), { swapTanks: true });
+    assert.strictEqual(swapped.markers.find(m => m.kind === 'mt').name, 'Ot');
+    assert.ok(swapped.markers.some(m => m.kind === 'stack' && m.name === 'Mt'),
+        'old MT did not fall back to a group stack');
+});
+test('stacks: swapTanks with a single tank is a no-op', () => {
+    const roster = archRoster().filter(p => p.name !== 'Ot');
+    const r = archCompute(roster, { swapTanks: true });
+    assert.strictEqual(r.markers.find(m => m.kind === 'mt').name, 'Mt');
+});
+test('najentus: no stack handle lands on the boss portrait', () => {
+    // Loose spacing must not push a melee group's handle (one row above its stack) onto
+    // the boss icon at the center of the formation.
+    const enc = HP.ENCOUNTERS['bt-najentus'];
+    const r = najCompute(archRoster());
+    const boss = r.markers.find(m => m.kind === 'boss');
+    const iso = m => ({ u: m.x, v: m.y / enc.aspect });
+    r.markers.filter(m => m.kind === 'stackhandle').forEach(h => {
+        const d = Math.hypot(iso(h).u - iso(boss).u, iso(h).v - iso(boss).v);
+        assert.ok(d > 0.05, 'handle G' + h.party + ' is ' + d.toFixed(3) + ' from the boss icon');
+    });
+});
+test('najentus: melee-majority group stands at the boss, ranged groups spread at range', () => {
+    const enc = HP.ENCOUNTERS['bt-najentus'];
+    const r = najCompute(archRoster());
+    const boss = r.markers.find(m => m.kind === 'boss');
+    const iso = m => ({ u: m.x, v: m.y / enc.aspect });
+    const stacks = {};
+    r.markers.filter(m => m.kind === 'stack').forEach(m => { (stacks[m.party] = stacks[m.party] || []).push(m); });
+    Object.keys(stacks).forEach(pi => {
+        const ms = stacks[pi];
+        const cu = ms.reduce((s, m) => s + iso(m).u, 0) / ms.length;
+        const cv = ms.reduce((s, m) => s + iso(m).v, 0) / ms.length;
+        const d = Math.hypot(cu - iso(boss).u, cv - iso(boss).v);
+        const meleeish = ms.filter(m => m.role === 'melee' || m.role === 'tank').length * 2 > ms.length;
+        if (meleeish) assert.ok(d < 0.13, 'melee group ' + pi + ' is ' + d.toFixed(3) + ' from the boss');
+        else assert.ok(d > 0.15, 'ranged group ' + pi + ' is only ' + d.toFixed(3) + ' from the boss');
+    });
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 if (failed) process.exit(1);

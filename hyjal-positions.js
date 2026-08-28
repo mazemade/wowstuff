@@ -38,6 +38,9 @@
             name: 'Hyjal · Archimonde',
             map: 'maps/hyjal-archimonde.png',
             aspect: 1681 / 936,
+            // Fights with fears need Tremor coverage per group; fights with curses need a
+            // decurser in the raid. Both are per-encounter facts, not stack-layout facts.
+            mechanics: { fears: true, curses: true },
             // Parties stand STACKED (Tremor Totem / chain-heal range), spread apart from
             // each other for Doomfire and Air Burst — no ring. Anchors digitized from the
             // user's annotated reference (2026-08-28).
@@ -56,6 +59,36 @@
                 spread: [
                     { dx: -0.110, dy: -0.172 }, { dx: 0.140, dy: -0.222 },
                     { dx: 0.193, dy: 0.128 }, { dx: -0.130, dy: 0.100 },
+                ],
+            },
+        },
+        'bt-najentus': {
+            id: 'bt-najentus',
+            name: 'Black Temple · High Warlord Naj\'entus',
+            map: 'maps/bt-najentus.png',
+            aspect: 2088 / 1146,
+            // Same stacks layout as Archimonde, but LOOSE: each group holds a region
+            // (buff/totem range) while members fan out inside it for Impaling Spine —
+            // stackSpacing widens the member grid. No fears, no curses on this fight.
+            layout: 'stacks',
+            stackSpacing: 0.055,
+            // The portrait is patched out of the map screenshot (water composited over
+            // it); the icon is the portrait circle cropped from the same capture.
+            bosses: [{ id: 'najentus', name: 'High Warlord Naj\'entus', icon: 'maps/najentus-icon.png' }],
+            // Digitized from the user's annotated reference (2026-08-28): tank between
+            // the boss and the temple steps, melee just behind the boss, ranged/healer
+            // groups fanned across the room at the three world-marker spots.
+            anchors: {
+                boss: { x: 0.490, y: 0.288 },
+                mt: { x: 0.487, y: 0.190 },
+            },
+            stackAnchors: {
+                // Melee flank the boss below-left/below-right (the reference's sword
+                // pair), far enough out that the wide grid clears the boss portrait.
+                melee: [{ dx: -0.070, dy: 0.095 }, { dx: 0.070, dy: 0.090 }],
+                spread: [
+                    { dx: -0.251, dy: 0.307 }, { dx: 0.215, dy: 0.342 },
+                    { dx: -0.023, dy: 0.468 }, { dx: -0.165, dy: 0.522 },
                 ],
             },
         },
@@ -346,7 +379,10 @@
         const mtAnchor = { x: enc.anchors.mt.x + bossDelta.dx, y: enc.anchors.mt.y + bossDelta.dy };
 
         markers.push({ kind: 'boss', x: bossPos.x, y: bossPos.y, label: bossDef.name, icon: bossDef.icon });
-        const { mt } = pickTanks(roster);
+        // Same per-boss swap as the ring layout: the raid leader's override for who tanks
+        // the boss. The displaced tank simply rejoins their group's stack below.
+        let { mt, offtank } = pickTanks(roster);
+        if (opts.swapTanks && mt && offtank) mt = offtank;
         if (mt) markers.push(person(mt, 'mt', mtAnchor, nudges));
 
         // The MT stands at the boss; everyone else — offtanks included — stays with their
@@ -365,8 +401,11 @@
             s.players.filter(p => { const r = roleOf(p); return r === 'melee' || r === 'tank'; }).length * 2 > s.players.length;
         const COLS = 3;
         // Equal on-screen spacing in both axes; wide enough that a member's name label
-        // clears the row of dots beneath it (verified in a CDP screenshot).
-        const SX = 0.030, SY = 0.030 * enc.aspect;
+        // clears the row of dots beneath it (verified in a CDP screenshot). An encounter
+        // can widen the grid (Naj'entus: members spread inside their group's region for
+        // Impaling Spine); the 0.030 default is Archimonde's tight Tremor/chain-heal stack.
+        const S = enc.stackSpacing || 0.030;
+        const SX = S, SY = S * enc.aspect;
         const EXTRA = 0.06; // step for groups past the digitized anchor slots
         let meleeIdx = 0, spreadIdx = 0;
         stacks.forEach(s => {
@@ -377,7 +416,10 @@
             const pN = anchorNudges['party-' + s.party] || { dx: 0, dy: 0 };
             const ax = bossPos.x + off.dx + overflow * EXTRA + pN.dx;
             const ay = bossPos.y + off.dy + overflow * EXTRA * enc.aspect + pN.dy;
-            markers.push({ kind: 'stackhandle', party: s.party, x: clamp01(ax), y: clamp01(ay - SY), label: 'G' + s.party });
+            // The handle hangs a fixed distance above the stack, NOT one grid row: with a
+            // loose grid (Naj'entus) a full SY above the melee anchor lands on the boss icon.
+            // For the 0.030 default this is exactly the old one-row offset.
+            markers.push({ kind: 'stackhandle', party: s.party, x: clamp01(ax), y: clamp01(ay - 0.030 * enc.aspect), label: 'G' + s.party });
             s.players.forEach((p, j) => {
                 const col = j % COLS, row = Math.floor(j / COLS);
                 const rowLen = Math.min(COLS, s.players.length - row * COLS);
@@ -387,13 +429,13 @@
                 if (p.class === 'SHAMAN') m.tags.push('shaman');
                 markers.push(m);
             });
-            if (s.players.length >= 2 && !s.players.some(p => p.class === 'SHAMAN'))
+            if ((enc.mechanics || {}).fears && s.players.length >= 2 && !s.players.some(p => p.class === 'SHAMAN'))
                 warnings.push('Group ' + s.party + ' has no shaman — no Tremor Totem for fears.');
         });
 
         // Decursing is raid-wide (Remove Curse reaches 40yd across parties), so this is a
         // roster check, not a per-group one.
-        if (!roster.some(p => p.class === 'MAGE' || p.class === 'DRUID'))
+        if ((enc.mechanics || {}).curses && !roster.some(p => p.class === 'MAGE' || p.class === 'DRUID'))
             warnings.push('No decursers (mage or druid) in the raid for Grip of the Legion.');
 
         return { markers, warnings };

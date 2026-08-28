@@ -832,7 +832,7 @@ function buildPositionsPayload() {
     const HP = HyjalPositions;
     let pos = { boss: 'winterchill' };
     try { Object.assign(pos, JSON.parse(localStorage.getItem('raidPositionsState')) || {}); } catch (e) { /* defaults */ }
-    const BOSS_TO_ENC = { winterchill: 'hyjal-b12', anetheron: 'hyjal-b12', archimonde: 'hyjal-archimonde' };
+    const BOSS_TO_ENC = { winterchill: 'hyjal-b12', anetheron: 'hyjal-b12', archimonde: 'hyjal-archimonde', najentus: 'bt-najentus' };
     const encSel = BOSS_TO_ENC[pos.boss] || 'hyjal-b12';
     const enc = HP.ENCOUNTERS[encSel];
     // Nudges live per encounter with a saved-template layer under the live drags
