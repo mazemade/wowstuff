@@ -94,7 +94,9 @@ local function BuildWorld(opts)
         world.ops[#world.ops + 1] = 'set:' .. world.raid[i].name .. '->' .. g
         world.raid[i].subgroup = g
     end
-    _G.SwapRaidSubgroups = function(i, j)
+    -- Singular, as in the live client — the plural SwapRaidSubgroups does not exist
+    -- there, and stubbing it under the wrong name let a nil-call bug pass the suite.
+    _G.SwapRaidSubgroup = function(i, j)
         world.ops[#world.ops + 1] = 'swap:' .. world.raid[i].name .. '<->' .. world.raid[j].name
         world.raid[i].subgroup, world.raid[j].subgroup =
             world.raid[j].subgroup, world.raid[i].subgroup

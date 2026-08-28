@@ -290,7 +290,7 @@ local function ApplyTick(_, dt)
     if not kind then FinishApply(nil, a) return end -- a = stuck names when kind is nil
     if applyOps >= MAX_APPLY_OPS then FinishApply("hit the " .. MAX_APPLY_OPS .. "-move cap") return end
     applyOps = applyOps + 1
-    if kind == "set" then SetRaidSubgroup(a, b) else SwapRaidSubgroups(a, b) end
+    if kind == "set" then SetRaidSubgroup(a, b) else SwapRaidSubgroup(a, b) end
 end
 
 local function ApplyGroups()
