@@ -19,7 +19,9 @@ groups, and checks live whether assignments were actually done.
   Warcraft Logs.
 - Player vetting page (`vetting.html`): type a character name or load the roster, and get gear,
   hit and other stats, enchants, sockets and parses from Warcraft Logs with a pass / warn /
-  fail / unverified verdict against editable thresholds. Needs the WCL credentials below.
+  fail / unverified verdict against editable thresholds. Gear is scored primarily with GearScore
+  (the same TacoTip formula TBC players run), with average item level shown alongside it. Needs
+  the WCL credentials below.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 

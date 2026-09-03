@@ -38,6 +38,7 @@ function load() {
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
 const THRESH_LABELS = [
+    ['gs', 'GearScore ≥'],
     ['ilvl', 'Avg item level ≥'], ['meleeHit', 'Melee/ranged hit ≥'], ['spellHit', 'Spell hit ≥'],
     ['expertise', 'Expertise (skill) ≥'], ['defense', 'Defense ≥'], ['parse', 'Median parse ≥'],
     ['enchantWarn', 'Enchants missing: warn at'], ['enchantFail', 'fail at'],
@@ -163,7 +164,7 @@ function ruleCell(r) {
     else if (r.key === 'enchants' || r.key === 'sockets') td.textContent = String(r.value);
     else {
         const cap = r.key === 'hit' ? r.effective : r.threshold;
-        td.textContent = r.value + ' / ' + cap + (r.value < cap ? ' (−' + (cap - r.value) + ')' : '');
+        td.textContent = r.value + ' / ' + cap + (r.value < cap ? ' (−' + (Math.round((cap - r.value) * 100) / 100) + ')' : '');
     }
     td.title = r.note || '';
     return td;
@@ -188,7 +189,7 @@ function renderTable() {
         if (r.profile && r.profile.identity.class) specTd.style.color = (AssignmentsEngine.CLASS_COLORS || {})[r.profile.identity.class] || '';
         tr.appendChild(specTd);
         const byKey = Object.fromEntries(r.rules.map(x => [x.key, x]));
-        ['ilvl', 'hit', 'expertise', 'defense', 'parse', 'enchants', 'sockets', 'stale'].forEach(k => {
+        ['gs', 'ilvl', 'hit', 'expertise', 'defense', 'parse', 'enchants', 'sockets', 'stale'].forEach(k => {
             const td = ruleCell(byKey[k]);
             if (k === 'parse' && r.profile && r.profile.parses && r.profile.parses.fallback) td.textContent += ' (SSC/TK)';
             tr.appendChild(td);
@@ -235,13 +236,18 @@ function detailRow(r) {
     const tr = document.createElement('tr');
     tr.className = 'detail-row';
     const td = document.createElement('td');
-    td.colSpan = 12;
+    td.colSpan = 13;
     const grid = document.createElement('div');
     grid.className = 'detail-grid';
 
     // Gear
     const gearBox = document.createElement('div');
-    gearBox.innerHTML = '<h4>Gear' + (p.gearSummary ? ' — avg ' + p.gearSummary.avgItemLevel + (p.gearSummary.setBonusesApplied ? '' : ' (set bonuses not included)') : '') + '</h4>';
+    const gsSummary = p.gearSummary;
+    const gsHeadingParts = gsSummary ? [
+        typeof gsSummary.gearScore === 'number' ? 'GearScore ' + gsSummary.gearScore : null,
+        'avg ilvl ' + gsSummary.avgItemLevel,
+    ].filter(Boolean).join(' · ') : '';
+    gearBox.innerHTML = '<h4>Gear' + (gsSummary ? ' — ' + gsHeadingParts + (gsSummary.setBonusesApplied ? '' : ' (set bonuses not included)') : '') + '</h4>';
     if (p.gear) {
         const t = document.createElement('table');
         p.gear.forEach(s => {
