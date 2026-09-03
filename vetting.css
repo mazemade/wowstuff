@@ -1,0 +1,28 @@
+/* Vetting page — extends style.css + assignments.css */
+.thresh-strip { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+.thresh-strip label { display: flex; flex-direction: column; font-size: 0.8em; color: #b0b0b0; gap: 3px; }
+.thresh-strip input { width: 70px; background: rgba(0,0,0,0.3); border: 1px solid #555; border-radius: 6px; color: #e0e0e0; padding: 5px 6px; }
+.table-wrap { overflow-x: auto; }
+#vetTable { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+#vetTable th, #vetTable td { padding: 6px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
+#vetTable th { color: #ffd700; font-weight: 600; }
+#vetTable tbody tr { cursor: pointer; }
+#vetTable tbody tr:hover { background: rgba(255,255,255,0.04); }
+.cell-pass { color: #8fe38f; }
+.cell-warn { color: #ffd166; }
+.cell-fail { color: #ff6b6b; font-weight: 600; }
+.cell-unknown, .cell-na { color: #777; }
+.verdict { font-weight: 700; text-transform: uppercase; font-size: 0.85em; }
+.verdict.pass { color: #8fe38f; } .verdict.warn { color: #ffd166; } .verdict.fail { color: #ff6b6b; }
+.verdict.unverified { color: #9ab; } .verdict.error { color: #c77; }
+.reasons { display: block; font-size: 0.8em; color: #b0b0b0; font-weight: 400; text-transform: none; }
+.remove-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 1em; }
+.remove-btn:hover { color: #ff6b6b; }
+.detail-row td { white-space: normal; background: rgba(0,0,0,0.25); }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.detail-grid h4 { color: #ffd700; margin: 0 0 6px; font-size: 0.95em; }
+.detail-grid table { width: 100%; font-size: 0.85em; }
+.detail-grid td { padding: 2px 6px; border: none; }
+.slot-missing { color: #ff6b6b; }
+.slot-ok { color: #8fe38f; }
+@media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } }
