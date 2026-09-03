@@ -91,11 +91,23 @@ Validation mirrors `/api/wcl/player`. Steps:
    `computed` are null and `missing` says so.
 2. Detect spec and role from `talents` (§5). Role decides the rankings metric: `hps` for
    healers, `dps` otherwise.
-3. `zoneRankings(zoneID, metric)` for the requested zone. If the result has no encounter
-   with a kill (a player who has not logged the current tier yet), query the **previous tier**
-   (zone 1056, SSC/TK) and use that instead. The profile records which zone the parses came
-   from, and the table labels the parse cell with the tier ("SSC/TK") so a previous-tier
-   number is never mistaken for a current one. If neither tier has parses, `parses` is null.
+3. `zoneRankings(zoneID, metric)` for the requested zone **and** for the previous tier
+   (zone 1056, SSC/TK), always. Whichever tier has kills and the higher median percentile is
+   the **gating tier**: its numbers fill the top level of `parses`, and the other tier (when it
+   has kills) is carried in `parses.other` so both are visible. The profile records which zone
+   gated, and the table labels the parse cell with both tiers ("52 / 20 (SSC · BT 17)") so a
+   previous-tier number is never mistaken for a current one. If neither tier has parses,
+   `parses` is null.
+
+   Why the higher of the two, rather than a fixed preference: percentiles on a progression tier
+   are earned against the early-clearing population and while the raid is still learning, so
+   the same player parses lower there than on farm content. Preferring the current tier
+   penalised exactly the raiders doing the harder content (measured: Xavamros BT/Hyjal 17,
+   SSC/TK 52 — failed). But preferring the farm tier merely moves the unfairness: Pepasexa
+   (BT 39, SSC 17) and Svartneon (BT 46, SSC 18) parse better on progression and would have
+   failed instead. Best-of-both produced no wrong verdict on the roster, and every player it
+   still fails is low on both tiers. It also self-adjusts as a tier moves from progression to
+   farm — no "which tier is progression" setting to maintain.
 4. Join gear with the wowsims tables (§4).
 5. Return the profile (§3.2). Cache the response in memory per `region/server/name/zone`
    for 15 minutes so a roster refresh does not re-hit WCL.
@@ -119,8 +131,9 @@ enchant `effectId`. Load failure is a 500 with a clear message.
               defenseRating, defenseSkill, mp5, spellHit, meleeHit, expertise, spellCrit,
               meleeCrit, … , setBonusesApplied: bool, socketBonusesApplied: bool } | null,
   parses: { zone, zoneName, fallback: bool, metric, medianPercent, bestPercent,
-            bosses: [ { encounterId, name, medianPercent, bestPercent, kills, fastestKillMs } ] }
-          | null,
+            bosses: [ { encounterId, name, medianPercent, bestPercent, kills, fastestKillMs } ],
+            other: { zone, zoneName, medianPercent, bestPercent, kills, bosses } | null }
+          | null,   // top level = the gating tier; other = the non-gating tier when it has kills
   missing: [ "no combatant data in last 3 reports", … ]
 }
 ```
@@ -156,16 +169,45 @@ Uses `data/tbc-item-db.json`, extracted from the wowsims `db.json` (`items[]` wi
 `type`, `stats` (sparse). Sparse means `{ statIndex: value }` with zeros dropped. Stat
 indices follow the `Stat` enum in wowsims `proto/common.proto`
 (0 strength … 4 healing, 5 spell damage, 12 spell hit, 17 attack power, 20 melee hit,
-24 expertise, 25 defense rating, 31 armor, 35 mp5). Items below item level 60 are dropped to
-keep the file small; anything a level-70 raider wears is above that.
+24 expertise, 25 defense rating, 31 armor, 35 mp5).
 
 - Sum item base stats, enchant stats and gem stats over the 17 slots.
 - Socket bonus: applied when every socket on the item holds a gem whose colour matches
   (prismatic and meta rules per wowsims). `socketBonusesApplied` records that this was done.
-- Derived: `avgItemLevel` over the 17 slots (empty slot counts as 0 and is flagged);
-  `defenseSkill = 350 + floor(defenseRating / 2.37)`; `expertiseSkill = floor(rating / 3.94)`;
-  percentages from ratings use the level-70 constants (15.77 rating per 1% melee/ranged hit,
-  12.62 per 1% spell hit).
+- Derived: `avgItemLevel` over the 17 slots. A two-handed weapon counts for **both** weapon
+  slots, because it occupies both; without that, every two-hander user is docked roughly 8 item
+  levels for their weapon choice alone (measured on the real roster: 16 of 44 players, e.g.
+  111.41 -> 119.71). A genuinely empty slot still counts as 0 and is flagged, so the divisor
+  stays 17. `defenseSkill = 350 + floor(defenseRating / 2.37)`;
+  `expertiseSkill = floor(rating / 3.94)`; percentages from ratings use the level-70 constants
+  (15.77 rating per 1% melee/ranged hit, 12.62 per 1% spell hit).
+- **GearScore**, using the TacoTip algorithm (`anzz1/TacoTip` `gearscore.lua`) — the GearScore
+  variant TBC players actually run, and the primary gear gate (§6). Per item:
+  `floor(((ilvl - A) / B) * SlotMOD * 1.8618 * QualityScale)`, summed over the 17 slots.
+  `QualityScale` is 1.3 for legendary (rarity then treated as epic) and 0.005 for common/poor
+  (treated as uncommon), else 1. The `A`/`B` bracket is selected as TacoTip does it:
+
+  | condition | bracket | epic A/B |
+  |---|---|---|
+  | ilvl < 100 and epic | C | 0.25 / 1.6275 |
+  | ilvl < 168 and epic | B | 26 / 1.2 |
+  | ilvl < 148 and rare | B | rare 0.75 / 1.8 |
+  | ilvl < 138 and uncommon | B | uncommon 8 / 2 |
+  | ilvl <= 120 | B | |
+  | otherwise | A | 91.45 / 0.65 |
+
+  Keeping epics in bracket B up to ilvl 167 is the load-bearing difference from the original
+  WotLK GearScore, whose bracket switch at ilvl 120 sits dead centre of the TBC gear range and
+  inverts there: an ilvl 121 epic scores 42% *lower* than an ilvl 120 epic and does not recover
+  until ilvl 143. Under TacoTip's brackets the score is monotonic across the whole TBC range.
+  `SlotMOD` is 1.0 for head, chest, legs, one-hand/main-hand/off-hand weapons, shields and
+  held-in-off-hand items; **2.0 for a two-handed weapon**; 0.75 for shoulder, waist, hands,
+  feet; 0.5625 for neck, wrist, back, rings, trinkets; 0.3164 for ranged, thrown and relics.
+  Hunters are re-weighted as TacoTip does: weapon-slot scores multiplied by 0.3164 and the
+  ranged slot by 5.3224, since the bow is a hunter's primary weapon.
+- GearScore is why the two-hander correction above does not also need to be a gate: SlotMOD 2.0
+  with no off-hand entry already handles a two-hander correctly. The corrected `avgItemLevel`
+  is still surfaced, because a displayed number should be right even when it is not the gate.
 - Set bonuses: `db.json` carries `setId` per item but no set-bonus table, so they are not
   applied and `setBonusesApplied` is always `false`. Socket bonuses are applied (colour rules
   above), `socketBonusesApplied: true`.
@@ -197,13 +239,14 @@ Defaults, all editable in the threshold strip:
 
 | Rule | Default | Applies to |
 |---|---|---|
-| Average item level | ≥ 125 | everyone |
+| GearScore | ≥ 1700 | everyone — the primary gear gate |
+| Average item level | ≥ 110 | everyone — a sanity floor, not the gate |
 | Melee / ranged hit rating | ≥ 142 (9%) | melee dps, hunters |
 | Spell hit rating | ≥ 202 (16%) | caster dps |
-| Expertise (skill points) | ≥ 26 (6.5%) — warn only | melee dps, plate tanks |
+| Expertise (skill points) | ≥ 0, i.e. off by default | melee dps, plate tanks |
 | Defense skill | ≥ 490 | tanks except druids |
-| Median parse percentile | ≥ 40 | everyone with parses, current tier or the previous one as fallback |
-| Missing enchants | warn at 1, fail at 3 | enchantable slots |
+| Median parse percentile | ≥ 20 | everyone with parses — the higher median of the current tier and the previous one (§3.1) |
+| Missing enchants | warn at 2, fail at 4 | enchantable slots |
 | Empty sockets | warn at 1, fail at 3 | everyone |
 | Data age | warn past 28 days | everyone |
 
@@ -211,21 +254,33 @@ Defaults, all editable in the threshold strip:
 every standard build takes, and the effective cap is the role threshold minus that allowance.
 Initial table (percent → rating at level 70):
 
-| Spec | Talent | Allowance |
-|---|---|---|
-| Warrior Arms/Fury | Precision 3% | 47 |
-| Rogue (all) | Precision 5% | 79 |
-| Shaman Enhancement | Dual Wield Specialization 6% | 95 |
-| Hunter (all) | Surefooted 3% | 47 |
-| Mage Fire/Frost | Elemental Precision 3% | 38 |
-| Mage Arcane | Arcane Focus 10% (arcane spells only) | 126 |
-| Warlock Affliction | Suppression 10% (affliction spells only) | 126 |
-| Priest Shadow | Shadow Focus 10% | 126 |
-| Druid Balance | Balance of Power 4% | 50 |
-| Shaman Elemental | Elemental Precision 6% | 76 |
+| Spec | Talent | Allowance | Granted only when the player's tree total reaches |
+|---|---|---|---|
+| Warrior Arms/Fury | Precision 3% (Fury row 7) | 47 | 33 Fury |
+| Rogue (all) | Precision 5% (Combat row 2) | 79 | 10 Combat |
+| Shaman Enhancement | Dual Wield Specialization 6% (Enh row 7) | 95 | 33 Enhancement |
+| Hunter (all) | Surefooted 3% (Survival row 4) | 47 | 18 Survival |
+| Mage Fire/Frost | Elemental Precision 3% (Frost row 1) | 38 | 3 Frost |
+| Mage Arcane | Arcane Focus 10% (arcane spells only, row 1) | 126 | 5 Arcane |
+| Warlock Affliction | Suppression 10% (affliction spells only, row 1) | 126 | 5 Affliction |
+| Priest Shadow | Shadow Focus 10% (Shadow row 2) | 126 | 10 Shadow |
+| Druid Balance | Balance of Power 4% (Balance row 6) | 50 | 27 Balance |
+| Shaman Elemental | Elemental Precision 6% (Ele row 6) | 76 | 28 Elemental |
+| Paladin Retribution | Precision 3% (Protection row 2) | 47 | 8 Protection |
+
+**The allowance is gated on the talent split, not assumed from the spec.** Warcraft Logs reports
+only the three-tree point totals, but every hit talent sits at a known row in a known tree, so
+"could this build hold that talent at full rank" is decidable: the tree total must be at least
+`5 × (row − 1) + maxRank`. Row and rank come from the wowsims talent trees
+(`ui/core/talents/trees/*.json`, `location.rowIdx` and `maxPoints`). This matters on the real
+roster: a `41/20/0` Beast Mastery hunter has no Survival points and therefore no Surefooted, and
+a `33/28/0` Arms warrior stops 5 short of Fury row 7 and has no Precision — both were previously
+credited 47 rating they do not have. Retribution's `0/15/46` and `5/11/45` builds do reach
+Protection row 2, so Ret's Precision, missing from the first version of this table, is granted.
 
 Raid-provided hit (Misery, Improved Faerie Fire, Draenei aura) is not assumed. The cell
-tooltip shows threshold, allowance, effective cap, and the player's value.
+tooltip shows threshold, allowance, effective cap, and the player's value; when the split does
+not reach the talent, the tooltip says so instead of showing an allowance.
 
 **Units.** Expertise is compared in skill points: `floor(rating / 3.94)`. WCL's `expertise`
 field and the item-table stat 24 are both ratings, so both are converted before the compare.
@@ -240,9 +295,43 @@ enchants and empty sockets warn at the first count and fail at the second. Stale
 gear is `unverified` for gear rules and the parse rule still evaluates. Unverified is not a
 failure: the row says exactly what is missing.
 
-**Calibration pass.** The defaults above are provisional. The implementation plan ends with a
-step that runs the real roster through the page, compares the verdicts to the raid leader's
-own judgement, adjusts the defaults, and records the outcome in this spec.
+**Calibration pass — outcome (2026-09-03).** 45 rostered characters (Spineshatter-EU) were run
+through `/api/vet/player` and scored against the original provisional defaults, which returned
+2 pass / 2 warn / 40 fail / 1 not-on-WCL — a failure rate that indicted the thresholds, not the
+raid. Each rule was then measured for discriminating power across the 44 profiled players:
+
+| Rule | Fired on | Finding |
+|---|---|---|
+| Expertise ≥ 26 | 15 of 15 it applied to | No signal at all — nobody in the raid gears expertise. Median melee expertise is 3 skill points. Turned off (threshold 0). Still displayed. |
+| Average item level ≥ 125 | 29 of 44 failed | Mostly the two-hander artefact of §4. Demoted to a 110 floor once GearScore became the gate. |
+| Median parse ≥ 40 | 24 of 44 failed | 40 means "better than 60% of all logged players" — an aspirational bar, not a vetting bar. Roster median is 28, p25 is 18. Lowered to 20. |
+| Missing enchants warn 1 / fail 3 | 24 of 44 warned or failed | Roster median missing is 1, so it warned the median player. Moved to warn 2 / fail 4. |
+| Defense ≥ 490 | 2 of 3 failed | Kept — correctly caught two tanks at 478 and 471, both genuinely crittable. |
+| Empty sockets, data age | 5 each | Kept — real signal, including one player with 13 empty sockets and no enchants. |
+
+Gear metrics were compared against each player's current-tier median parse percentile (n=25),
+since ranking gear is the rule's whole job:
+
+| Metric | Spearman rho vs median parse |
+|---|---|
+| TacoTip GearScore | **0.417** |
+| Average item level, two-hander-aware | 0.371 |
+| Average item level over filled slots only | 0.349 |
+| Average item level over 17 slots (as first shipped) | 0.172 |
+| Original WotLK GearScore | −0.133 |
+
+GearScore was adopted as the gate on that basis. Its distribution over the roster is
+754–2018 with a median of 1826 and p25 of 1718, so the 1700 default sits just under p25. The
+raid leader confirmed the resulting ranking matches their own knowledge of the players' gear.
+The recalibrated set returns **17 pass / 6 warn / 21 fail**, and every remaining failure is
+explicable: three Retribution paladins genuinely under hit cap (one at 52 of 142), two tanks not
+uncrittable, one player with no gems and a Classic-era weapon enchant, and two long-inactive
+alts.
+
+Not changed, deliberately: spell hit stays at the true 202 cap even though this roster fields
+three shadow priests and two balance druids, so Misery and Improved Faerie Fire (76 rating
+between them) are in practice always up. §6 does not assume raid-provided hit, so the leader
+lowers it in the threshold strip when they want that assumption rather than having it baked in.
 
 ## 7. Testing
 

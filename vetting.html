@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Player Vetting</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="assignments.css">
+    <link rel="stylesheet" href="vetting.css">
+</head>
+<body>
+    <div class="container">
+        <nav class="page-tabs">
+            <a href="./" class="page-tab">Assignments</a>
+            <a href="positions.html" class="page-tab">Positioning</a>
+            <a href="vetting.html" class="page-tab active">Vetting</a>
+        </nav>
+        <header>
+            <h1>Player Vetting</h1>
+            <p>Gear, hit, enchants and parses from Warcraft Logs — before you invite</p>
+        </header>
+        <section class="panel" id="inputs">
+            <div class="import-row">
+                <input id="nameInput" type="text" placeholder="Character name" autocomplete="off">
+                <button id="addBtn" class="btn btn-primary">Add</button>
+                <button id="loadRosterBtn" class="btn">Load roster</button>
+                <button id="refreshBtn" class="btn">Refresh all</button>
+                <button id="removeAllBtn" class="btn">Remove all</button>
+            </div>
+            <div class="status" id="realmLine"></div>
+        </section>
+        <section class="panel" id="thresholds">
+            <h2>Thresholds</h2>
+            <div class="thresh-strip" id="threshStrip"></div>
+        </section>
+        <section class="panel" id="results">
+            <div class="status" id="summary">No players yet — add a name or load the roster.</div>
+            <div class="warn hidden" id="rateLimit"></div>
+            <div class="table-wrap">
+                <table id="vetTable">
+                    <thead><tr>
+                        <th>Verdict</th><th>Name</th><th>Spec</th><th>GS</th><th>iLvl</th><th>Hit</th><th>Expertise</th>
+                        <th>Defense</th><th>Parse</th><th>Enchants</th><th>Sockets</th><th>Last seen</th><th></th>
+                    </tr></thead>
+                    <tbody id="vetBody"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <script src="assignments-engine.js"></script>
+    <script src="vet-engine.js"></script>
+    <script src="vetting.js"></script>
+</body>
+</html>
