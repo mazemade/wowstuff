@@ -15,6 +15,10 @@ let inFlight = 0;
 const inFlightKeys = new Set();
 let pausedUntil = 0;
 let expanded = null; // name (lower) whose detail row is open
+// Set by loadRoster's confirmation/errors, appended by renderSummary so the very next
+// renderTable() (e.g. from an in-flight fetch completing) does not silently overwrite it.
+// Cleared whenever the player list next changes (add/remove).
+let rosterNotice = null;
 
 function load() {
     let raw = {};
@@ -112,7 +116,10 @@ async function fetchOne(key) {
         if (!res.ok) { state.errors[key] = body.error || ('HTTP ' + res.status); }
         else { state.profiles[key] = body; }
     } catch (err) { state.errors[key] = 'Network error: ' + err.message; }
-    save(); renderTable();
+    // save() can throw (e.g. QuotaExceededError). It must not skip renderTable() below, or the
+    // row is stuck on "fetching…" forever with no error state — every failure is a row state.
+    try { save(); } catch (err) { if (!state.errors[key]) state.errors[key] = 'Could not save locally: ' + err.message; }
+    renderTable();
 }
 function pause() {
     pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
@@ -128,11 +135,25 @@ function pause() {
 }
 
 // --- players ---
-function addPlayer(name) {
+// Sanitizes and de-dupes a name into state.players without saving/rendering/enqueueing, so
+// loadRoster can add many players and pay for one save+render instead of one per player.
+// Returns { name, added } (added: false when the sanitized name already existed) or null when
+// the name was rejected by the sanitizer.
+function insertPlayer(name) {
     const clean = String(name || '').trim().replace(/[^\p{L}\p{M}'-]/gu, '');
-    if (clean.length < 2) return false;
-    if (!state.players.some(p => p.name.toLowerCase() === clean.toLowerCase())) state.players.push({ name: clean });
-    save(); renderTable(); enqueue(clean, false);
+    if (clean.length < 2) return null;
+    const existed = state.players.some(p => p.name.toLowerCase() === clean.toLowerCase());
+    if (!existed) state.players.push({ name: clean });
+    return { name: clean, added: !existed };
+}
+function addPlayer(name) {
+    const r = insertPlayer(name);
+    if (!r) return false;
+    rosterNotice = null;
+    // save() can throw (e.g. QuotaExceededError); it must not skip renderTable()/enqueue() below.
+    try { save(); } catch (err) { state.errors[r.name.toLowerCase()] = 'Could not save locally: ' + err.message; }
+    renderTable();
+    enqueue(r.name, false);
     return true;
 }
 function removePlayer(name) {
@@ -140,6 +161,7 @@ function removePlayer(name) {
     state.players = state.players.filter(p => p.name.toLowerCase() !== key);
     delete state.profiles[key]; delete state.errors[key];
     queue = queue.filter(k => k !== key);
+    rosterNotice = null;
     save(); renderTable();
 }
 
@@ -191,7 +213,7 @@ function renderTable() {
         const byKey = Object.fromEntries(r.rules.map(x => [x.key, x]));
         ['gs', 'ilvl', 'hit', 'expertise', 'defense', 'parse', 'enchants', 'sockets', 'stale'].forEach(k => {
             const td = ruleCell(byKey[k]);
-            if (k === 'parse' && r.profile && r.profile.parses && r.profile.parses.fallback) td.textContent += ' (SSC/TK)';
+            if (k === 'parse' && r.profile && r.profile.parses && r.profile.parses.fallback) td.textContent += ' (' + escapeHtml(r.profile.parses.zoneName) + ')';
             tr.appendChild(td);
         });
         const rm = document.createElement('td');
@@ -209,15 +231,22 @@ function renderTable() {
 function renderSummary() {
     const el = document.getElementById('summary');
     const rs = rows();
-    if (!rs.length) { el.textContent = 'No players yet — add a name or load the roster.'; return; }
-    const count = v => rs.filter(r => r.verdict === v).length;
-    const pending = rs.filter(r => r.pending).length;
-    el.textContent = count('pass') + ' pass · ' + count('warn') + ' warn · ' + count('fail') + ' fail · ' +
-        count('unverified') + ' unverified · ' + count('error') + ' error' + (pending ? ' · ' + pending + ' fetching' : '');
+    let text;
+    if (!rs.length) { text = 'No players yet — add a name or load the roster.'; }
+    else {
+        const count = v => rs.filter(r => r.verdict === v).length;
+        const pending = rs.filter(r => r.pending).length;
+        text = count('pass') + ' pass · ' + count('warn') + ' warn · ' + count('fail') + ' fail · ' +
+            count('unverified') + ' unverified · ' + count('error') + ' error' + (pending ? ' · ' + pending + ' fetching' : '');
+    }
+    el.textContent = rosterNotice ? text + ' — ' + rosterNotice : text;
 }
 function toggleDetail(key) { expanded = expanded === key ? null : key; renderTable(); }
 function statRows(p) {
-    const c = p.computed || {}, r = p.reported || {};
+    // computedFromGear is gear-only (never backfilled by what WCL reported), so the left column
+    // can actually disagree with the right one. Older profiles cached before this field existed
+    // fall back to today's (tautological) behaviour rather than throwing.
+    const c = p.computedFromGear || p.computed || {}, r = p.reported || {};
     const line = (label, comp, rep) => [label, comp == null ? '—' : comp, rep == null ? '—' : rep];
     return [
         line('Spell damage', c.spellDamage, null), line('Healing', c.healing, null),
@@ -227,8 +256,9 @@ function statRows(p) {
         line('Melee crit', c.meleeCrit, r.critMelee), line('Spell crit', c.spellCrit, r.critSpell),
         line('Melee haste', c.meleeHaste, r.hasteMelee), line('Spell haste', c.spellHaste, r.hasteSpell),
         line('Defense', c.defenseSkill + ' (' + c.defenseRating + ' rating)', null), line('MP5', c.mp5, null),
-        line('Dodge / parry / block', null, [r.dodge, r.parry, r.block].join(' / ')), line('Armor', null, r.armor),
-        line('Str / Agi / Sta / Int / Spi', null, [r.strength, r.agility, r.stamina, r.intellect, r.spirit].join(' / ')),
+        line('Dodge / parry / block', null, [r.dodge, r.parry, r.block].join(' / ')), line('Armor', c.armor, r.armor),
+        line('Str / Agi / Sta / Int / Spi', [c.strength, c.agility, c.stamina, c.intellect, c.spirit].join(' / '),
+             [r.strength, r.agility, r.stamina, r.intellect, r.spirit].join(' / ')),
     ];
 }
 function detailRow(r) {
@@ -317,13 +347,22 @@ function loadRoster() {
     let a = null, link = {};
     try { a = JSON.parse(localStorage.getItem(ASSIGN_KEY)); } catch (e) { /* none */ }
     try { link = JSON.parse(localStorage.getItem(ASSIGN_LINK_KEY)) || {}; } catch (e) { link = {}; }
-    const el = document.getElementById('summary');
-    if (!a || !a.sources) { el.textContent = 'No roster found — import one on the Assignments page first.'; return; }
+    if (!a || !a.sources) { rosterNotice = 'No roster found — import one on the Assignments page first.'; renderSummary(); return; }
     const roster = AssignmentsEngine.deriveRoster(a, link);
-    if (!roster.length) { el.textContent = 'The Assignments roster is empty.'; return; }
+    if (!roster.length) { rosterNotice = 'The Assignments roster is empty.'; renderSummary(); return; }
+    // Add every player first, then save and render once — addPlayer's own save()+renderTable()
+    // per player is O(n) full localStorage writes and full re-renders for a large roster.
+    // enqueue is still called per player so each fetch starts immediately.
     let added = 0;
-    roster.forEach(p => { if (!state.players.some(x => x.name.toLowerCase() === p.name.toLowerCase())) added++; addPlayer(p.name); });
-    el.textContent = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
+    roster.forEach(p => {
+        const r = insertPlayer(p.name);
+        if (!r) return;
+        if (r.added) added++;
+        enqueue(r.name, false);
+    });
+    try { save(); } catch (err) { /* surfaced via rosterNotice below; state stays correct in memory */ }
+    rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
+    renderTable();
 }
 
 // Exposed for the headless smoke test.

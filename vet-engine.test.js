@@ -276,6 +276,20 @@ test('evaluate: hit note flags a gear-vs-reported disagreement over 5% of the th
     const disagree = V.evaluate(profile({ gearOnly: { meleeHit: 120, spellHit: 0 } }), V.DEFAULT_THRESHOLDS, NOW);
     assert.ok(disagree.rules.find(x => x.key === 'hit').note.indexOf('gear sums to 120, WCL reported 171') !== -1);
 });
+test('evaluate: countRule reports unknown, not pass, when gearSummary exists but the count field is missing', () => {
+    // An older profile cached in local storage by a previous version of the page can have a
+    // gearSummary without missingEnchants/emptySockets. undefined >= failAt/warnAt is false, so
+    // the naive comparison silently reports 'pass' instead of 'unknown'.
+    const r = V.evaluate(profile({ gearSummary: { gearScore: 1800 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.rules.find(x => x.key === 'enchants').status, 'unknown');
+    assert.strictEqual(r.rules.find(x => x.key === 'sockets').status, 'unknown');
+});
+test('evaluate: DEFAULT_THRESHOLDS expertise (off, 0) never warns a melee player with 0 expertise skill', () => {
+    // Both existing expertise tests override the threshold back to 26 to exercise the warn
+    // mechanic; this pins the actually-shipped calibrated default (expertise off) instead.
+    const r = V.evaluate(profile(), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.rules.find(x => x.key === 'expertise').status, 'pass');
+});
 test('sortRows: fail, warn, unverified, pass, then by name', () => {
     const rows = [{ name: 'b', verdict: 'pass' }, { name: 'a', verdict: 'pass' }, { name: 'z', verdict: 'fail' }, { name: 'u', verdict: 'unverified' }, { name: 'w', verdict: 'warn' }];
     assert.deepStrictEqual(V.sortRows(rows).map(r => r.name), ['z', 'w', 'u', 'a', 'b']);

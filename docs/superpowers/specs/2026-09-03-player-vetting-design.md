@@ -156,8 +156,7 @@ Uses `data/tbc-item-db.json`, extracted from the wowsims `db.json` (`items[]` wi
 `type`, `stats` (sparse). Sparse means `{ statIndex: value }` with zeros dropped. Stat
 indices follow the `Stat` enum in wowsims `proto/common.proto`
 (0 strength … 4 healing, 5 spell damage, 12 spell hit, 17 attack power, 20 melee hit,
-24 expertise, 25 defense rating, 31 armor, 35 mp5). Items below item level 60 are dropped to
-keep the file small; anything a level-70 raider wears is above that.
+24 expertise, 25 defense rating, 31 armor, 35 mp5).
 
 - Sum item base stats, enchant stats and gem stats over the 17 slots.
 - Socket bonus: applied when every socket on the item holds a gem whose colour matches

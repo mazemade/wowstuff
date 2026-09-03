@@ -359,6 +359,7 @@
 
         function countRule(key, label, value, warnAt, failAt) {
             if (!g) return rule(key, label, true, 'unknown', null, warnAt, warnAt, 'no gear data');
+            if (typeof value !== 'number' || !Number.isFinite(value)) return rule(key, label, true, 'unknown', null, warnAt, warnAt, 'no gear data');
             const status = value >= failAt ? 'fail' : value >= warnAt ? 'warn' : 'pass';
             return rule(key, label, true, status, value, warnAt, failAt, 'warn at ' + warnAt + ', fail at ' + failAt);
         }

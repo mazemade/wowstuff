@@ -49,7 +49,7 @@ function buildProfile(a) {
     const specRow = rankRows.find(r => r && r.totalKills > 0) || rankRows[0] || null;
     const wclSpec = specRow ? (specRow.bestSpec || specRow.spec) : null;
     const det = V.detectSpec(a.classToken, talentSplit, wclSpec);
-    let gear = null, gearSummary = null, gearOnly = null, reported = null, computed = null, lastSeen = null;
+    let gear = null, gearSummary = null, gearOnly = null, reported = null, computed = null, computedFromGear = null, lastSeen = null;
     if (a.combatant) {
         const s = V.summarizeGear(a.combatant.gear, a.dbIndex, a.classToken);
         gear = s.slots;
@@ -60,18 +60,21 @@ function buildProfile(a) {
         reported = {};
         REPORTED_FIELDS.forEach(k => { reported[k] = typeof a.combatant[k] === 'number' ? a.combatant[k] : null; });
         computed = Object.assign(V.derivedStats(s.stats, reported), { avgItemLevel: s.avgItemLevel });
+        // Gear-only, never backfilled by what WCL reported — so the detail panel's "gear" column
+        // can actually differ from the "WCL" column instead of being the same object by construction.
+        computedFromGear = Object.assign(V.derivedStats(s.stats, null), { avgItemLevel: s.avgItemLevel });
         if (s.unknownItems.length) missing.push('items not in the table: ' + s.unknownItems.join(', '));
         lastSeen = { reportCode: a.report.code, fightName: a.report.fightName, timestamp: a.report.startTime };
     } else {
         missing.push('no combatant data in last ' + RECENT_REPORTS + ' reports');
     }
     const parses = buildParses(a.rankings, a.rankingsZone, a.fallback, a.metric);
-    if (!parses) missing.push('no parses in ' + ZONE_NAMES[a.zone] + (PREVIOUS_ZONE[a.zone] ? ' or ' + ZONE_NAMES[PREVIOUS_ZONE[a.zone]] : ''));
+    if (!parses) missing.push('no parses in ' + (ZONE_NAMES[a.zone] || a.zone) + (PREVIOUS_ZONE[a.zone] ? ' or ' + ZONE_NAMES[PREVIOUS_ZONE[a.zone]] : ''));
     if (!det.spec) missing.push('spec could not be determined');
     return {
         name: a.name, server: a.server, region: a.region, zone: a.zone,
         identity: { class: a.classToken || null, spec: det.spec, role: det.role, talentSplit, detectedFrom: det.detectedFrom },
-        lastSeen, gear, gearSummary, gearOnly, reported, computed, parses, missing,
+        lastSeen, gear, gearSummary, gearOnly, reported, computed, computedFromGear, parses, missing,
     };
 }
 

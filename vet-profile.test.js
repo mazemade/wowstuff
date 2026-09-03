@@ -125,6 +125,31 @@ test('fetchProfile: a healer is ranked by hps', async () => {
     assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['hps']);
 });
 
+test('fetchProfile: no combatant row, and a healer bestSpec from rankings re-queries dps then hps', async () => {
+    // No combatant means talentSplit is null, so spec detection can only come from WCL's
+    // bestSpec on the zoneRankings row. Force that label to a healer spec and confirm the
+    // dps -> hps re-query branch actually runs (it is unreachable from the talent-based
+    // healer test, since that one already has metric 'hps' on the first call).
+    const s = stubQuery({ combatant: false });
+    const orig = s.query;
+    s.query = async (q, vars) => {
+        const d = await orig(q, vars);
+        if (q === P.RANK_QUERY) {
+            const zr = d.characterData.character.zoneRankings;
+            if (zr && Array.isArray(zr.rankings)) {
+                zr.rankings.forEach(r => { if (r.totalKills > 0) { r.bestSpec = 'Restoration'; r.spec = 'Restoration'; } });
+            }
+        }
+        return d;
+    };
+    const p = await P.fetchProfile(s.query, PARAMS, db, NOW);
+    assert.strictEqual(p.identity.spec, 'Restoration');
+    assert.strictEqual(p.identity.role, 'healer');
+    assert.strictEqual(p.identity.detectedFrom, 'wcl');
+    assert.strictEqual(p.parses.metric, 'hps');
+    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['dps', 'hps']);
+});
+
 test('buildProfile: is pure and does not need the network', () => {
     const p = P.buildProfile({ name: 'X', server: 's', region: 'eu', zone: 1060, classToken: 'SHAMAN',
         combatant: FX.report.combatant, report: { code: FX.report.code, startTime: FX.report.startTime, fightName: FX.report.fight.name },
