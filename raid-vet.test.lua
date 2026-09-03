@@ -66,6 +66,28 @@ local function BuildWorld(opts)
     -- The stock handler the addon wraps. Whatever it is not interested in must reach this.
     _G.SetItemRef = function(...) originalRefs[#originalRefs + 1] = { ... } end
 
+    -- Group browser. Blizzard loads it on demand, so opts.browserLoaded = false models a client
+    -- where the row click handler does not exist yet when the addon loads.
+    _G.hooksecurefunc = function(name, fn)
+        local stock = _G[name]
+        _G[name] = function(...) stock(...) fn(...) end
+    end
+    _G.LFGBrowseSearchEntry_OnClick = nil
+    if opts.browserLoaded ~= false then _G.LFGBrowseSearchEntry_OnClick = function() end end
+    local listings = opts.listings or {}
+    _G.C_LFGList = {
+        GetSearchResultInfo = function(id)
+            local l = listings[id]
+            return l and { leaderName = l.leader, numMembers = #l.members + 1 }
+        end,
+        GetSearchResultPlayerInfo = function(id, i)
+            local l = listings[id]
+            if not l then return nil end
+            if i == 1 then return { name = l.leader, isLeader = true } end
+            return l.members[i - 1] and { name = l.members[i - 1] }
+        end,
+    }
+
     dofile('RaidAssign/Vet.lua')
 end
 
@@ -146,6 +168,57 @@ test('/vet <name> copies that name', function()
     BuildWorld()
     _G.SlashCmdList['RAIDVET']('  Pepasexa-Spineshatter ')
     assertEqual(LastLink(), BASE .. 'Pepasexa')
+end)
+
+local LISTINGS = {
+    [7] = { leader = 'Brinkhammer', members = {} },
+    [9] = { leader = 'Jovelluit-Spineshatter', members = { 'Pepasexa', 'Náme', 'Jovelluit' } },
+}
+
+test('ctrl+click on a solo group-browser row copies that player', function()
+    BuildWorld({ ctrl = true, listings = LISTINGS })
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 7 }, 'LeftButton')
+    assertEqual(LastLink(), BASE .. 'Brinkhammer')
+end)
+
+test('ctrl+click on a group row copies the leader first, then every member, without repeats', function()
+    BuildWorld({ ctrl = true, listings = LISTINGS })
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 9 }, 'LeftButton')
+    assertEqual(LastLink(), BASE .. 'Jovelluit,Pepasexa,N%C3%A1me')
+end)
+
+test('a plain click on a group-browser row copies nothing', function()
+    BuildWorld({ ctrl = false, listings = LISTINGS })
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 7 }, 'LeftButton')
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 7 }, 'RightButton')
+    assertEqual(#captured, 0)
+end)
+
+test('a row whose listing has gone copies nothing and does not error', function()
+    BuildWorld({ ctrl = true, listings = LISTINGS })
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 99 }, 'LeftButton')
+    assertEqual(#captured, 0)
+end)
+
+test('group browser loaded on demand after the addon is hooked when it arrives', function()
+    BuildWorld({ ctrl = true, listings = LISTINGS, browserLoaded = false })
+    assertEqual(_G.LFGBrowseSearchEntry_OnClick, nil)
+    _G.LFGBrowseSearchEntry_OnClick = function() end -- Blizzard's module loads now
+    local f = EventFrame()
+    f.scripts.OnEvent(f, 'ADDON_LOADED', 'Blizzard_GroupFinder_VanillaStyle')
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 7 }, 'LeftButton')
+    assertEqual(LastLink(), BASE .. 'Brinkhammer')
+end)
+
+test('other addons loading do not install the hook twice', function()
+    BuildWorld({ ctrl = true, listings = LISTINGS })
+    local f = EventFrame()
+    f.scripts.OnEvent(f, 'ADDON_LOADED', 'Blizzard_GroupFinder_VanillaStyle')
+    f.scripts.OnEvent(f, 'ADDON_LOADED', 'SomethingElse')
+    _G.LFGBrowseSearchEntry_OnClick({ resultID = 7 }, 'LeftButton')
+    local links = 0
+    for _, t in ipairs(captured) do if t:sub(1, #BASE) == BASE then links = links + 1 end end
+    assertEqual(links, 1) -- one link put in the box, not one per hook
 end)
 
 print(string.format('\n%d passed, %d failed', passed, failed))

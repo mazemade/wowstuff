@@ -6,8 +6,9 @@
 -- adds the player without a reload and without anyone having to aim for the name field.
 -- Accented names come along untyped, which is the whole point.
 --
--- Three ways in:
+-- Four ways in:
 --   Ctrl+click a player name in chat   → link for that one player
+--   Ctrl+click a Looking for Group row → link for that player, or the whole listed group
 --   /vet                               → link for the current target
 --   /vet list                          → one link for everyone who whispered since login
 --   /vet <name>                        → link for a typed name
@@ -101,16 +102,66 @@ end
 -- request is only interesting tonight.
 local whisperers, seen = {}, {}
 
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("CHAT_MSG_WHISPER")
-frame:SetScript("OnEvent", function(_, event, _, sender)
-    if event ~= "CHAT_MSG_WHISPER" or not sender or sender == "" then return end
+local function RememberWhisperer(sender)
+    if not sender or sender == "" then return end
     local name = StripRealm(sender)
     if seen[name] then return end
     if #whisperers >= MAX_WHISPERERS then return end
     seen[name] = true
     whisperers[#whisperers + 1] = name
+end
+
+-- Looking for Group browser (Blizzard_GroupFinder_VanillaStyle). A row knows its listing id;
+-- the listing knows its leader and, for a group, each member. Leader first, then members,
+-- no repeats — one link vets the whole group.
+local function ListingNames(resultID)
+    local api = C_LFGList
+    if not (api and api.GetSearchResultInfo) then return nil end
+    local info = api.GetSearchResultInfo(resultID)
+    if not info then return nil end
+    local names, have = {}, {}
+    local function add(n)
+        if not n or n == "" then return end
+        n = StripRealm(n)
+        if have[n] then return end
+        have[n] = true
+        names[#names + 1] = n
+    end
+    add(info.leaderName)
+    if api.GetSearchResultPlayerInfo then
+        for i = 1, (info.numMembers or 1) do
+            local member = api.GetSearchResultPlayerInfo(resultID, i)
+            if member then add(member.name) end
+        end
+    end
+    return names
+end
+
+-- The browser is load-on-demand, so its click handler may not exist when this file runs.
+-- Hook it now if it does, otherwise when ADDON_LOADED says the Blizzard module arrived.
+local BROWSER_ADDON = "Blizzard_GroupFinder_VanillaStyle"
+local browserHooked = false
+local function HookGroupBrowser()
+    if browserHooked or type(LFGBrowseSearchEntry_OnClick) ~= "function" then return end
+    browserHooked = true
+    hooksecurefunc("LFGBrowseSearchEntry_OnClick", function(row, button)
+        if button ~= "LeftButton" or not IsControlKeyDown() then return end
+        local names = row and row.resultID and ListingNames(row.resultID)
+        if names and #names > 0 then ShowLink(names) end
+    end)
+end
+
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("CHAT_MSG_WHISPER")
+frame:RegisterEvent("ADDON_LOADED")
+frame:SetScript("OnEvent", function(_, event, arg1, arg2)
+    if event == "CHAT_MSG_WHISPER" then
+        RememberWhisperer(arg2)
+    elseif event == "ADDON_LOADED" and arg1 == BROWSER_ADDON then
+        HookGroupBrowser()
+    end
 end)
+HookGroupBrowser()
 
 -- Wrap the stock hyperlink handler: a Ctrl+left-click on a player name is ours, everything else
 -- (shift-click to insert, right-click menu, plain click to whisper, item links) passes through

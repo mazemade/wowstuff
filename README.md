@@ -28,8 +28,8 @@ groups, and checks live whether assignments were actually done.
 **In-game addon** (`RaidAssign/`)
 
 - `/specscan` — scan raid specs and talents, export for the web tool.
-- `/vet` — copy a link that adds a player to the vetting page: Ctrl+click a name in chat,
-  `/vet` for your target, `/vet <name>`, or `/vet list` for everyone who whispered since login.
+- `/vet` — copy a link that adds a player to the vetting page: Ctrl+click a name in chat or a
+  row in the Looking for Group browser (a group row carries every member), `/vet` for your target, `/vet <name>`, or `/vet list` for everyone who whispered since login.
   Paste it into the address bar of the open vetting tab; the page adds the player there.
 - `/specsend` — import the RSW3 payload; whisper each player their assignments, apply the
   optimizer's group layout with one click.
