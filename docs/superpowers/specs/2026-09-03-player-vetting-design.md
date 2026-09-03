@@ -84,7 +84,11 @@ Validation mirrors `/api/wcl/player`. Steps:
    `computed` are null and `missing` says so.
 2. Detect spec and role from `talents` (§5). Role decides the rankings metric: `hps` for
    healers, `dps` otherwise.
-3. `zoneRankings(zoneID, metric)` for the requested zone.
+3. `zoneRankings(zoneID, metric)` for the requested zone. If the result has no encounter
+   with a kill (a player who has not logged the current tier yet), query the **previous tier**
+   (zone 1056, SSC/TK) and use that instead. The profile records which zone the parses came
+   from, and the table labels the parse cell with the tier ("SSC/TK") so a previous-tier
+   number is never mistaken for a current one. If neither tier has parses, `parses` is null.
 4. Join gear with the wowsims tables (§4).
 5. Return the profile (§3.2). Cache the response in memory per `region/server/name/zone`
    for 15 minutes so a roster refresh does not re-hit WCL.
@@ -107,7 +111,7 @@ Validation mirrors `/api/wcl/player`. Steps:
   computed: { avgItemLevel, spellDamage, healing, attackPower, rangedAttackPower,
               defenseRating, defenseSkill, mp5, spellHit, meleeHit, expertise, spellCrit,
               meleeCrit, … , setBonusesApplied: bool, socketBonusesApplied: bool } | null,
-  parses: { metric, medianPercent, bestPercent,
+  parses: { zone, zoneName, fallback: bool, metric, medianPercent, bestPercent,
             bosses: [ { encounterId, name, medianPercent, bestPercent, kills, fastestKillMs } ] }
           | null,
   missing: [ "no combatant data in last 3 reports", … ]
@@ -182,7 +186,7 @@ Defaults, all editable in the threshold strip:
 | Spell hit rating | ≥ 202 (16%) | caster dps |
 | Expertise rating | ≥ 26 (6.5%) | melee dps, plate tanks |
 | Defense skill | ≥ 490 | tanks except druids |
-| Median parse percentile | ≥ 40 | everyone with parses |
+| Median parse percentile | ≥ 40 | everyone with parses, current tier or the previous one as fallback |
 | Missing enchants | warn at 1, fail at 3 | enchantable slots |
 | Empty sockets | warn at 1, fail at 3 | everyone |
 | Data age | warn past 28 days | everyone |
