@@ -56,7 +56,12 @@ function buildParses(rankings, zone, fallback, metric, otherRankings, otherZone)
 function buildProfile(a) {
     const missing = [];
     const talentSplit = a.combatant && Array.isArray(a.combatant.talents) ? a.combatant.talents.map(t => t.id) : null;
-    const rankRows = (a.rankings && Array.isArray(a.rankings.rankings)) ? a.rankings.rankings : [];
+    // Spec detection is independent of which tier gates the parse rule: it reads the requested
+    // zone's own WCL label (the freshest evidence of what the player currently plays) when that
+    // zone has kills, and only falls back to the other tier's label otherwise. Older call shapes
+    // that don't pass specRankings keep today's behaviour (the gating tier's rankings).
+    const specSource = a.specRankings || a.rankings;
+    const rankRows = (specSource && Array.isArray(specSource.rankings)) ? specSource.rankings : [];
     const specRow = rankRows.find(r => r && r.totalKills > 0) || rankRows[0] || null;
     const wclSpec = specRow ? (specRow.bestSpec || specRow.spec) : null;
     const det = V.detectSpec(a.classToken, talentSplit, wclSpec);
@@ -119,32 +124,35 @@ async function fetchProfile(query, params, dbIndex) {
     }
     // Always ranks both the requested zone and its previous tier, then gates on whichever has
     // kills and the higher median — a tie favours the requested zone. The non-gating tier
-    // (when it has kills) is returned as the "other" tier so both stay visible.
+    // (when it has kills) is returned as the "other" tier so both stay visible. specRankings is
+    // separate from gating: it's the requested zone's own blob when it has kills (the freshest
+    // evidence of what the player currently plays), else the previous tier's — spec detection
+    // must not follow whichever tier happens to gate the parse rule.
     async function selectGating(z, m) {
         const cur = await rank(z, m);
         const prevZone = PREVIOUS_ZONE[z];
-        if (!prevZone) return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: null, otherZone: null };
-        const prev = await rank(prevZone, m);
+        const prev = prevZone ? await rank(prevZone, m) : null;
         const curHas = hasKills(cur), prevHas = hasKills(prev);
-        if (prevHas && (!curHas || prev.medianPerformanceAverage > cur.medianPerformanceAverage)) {
-            return { rankings: prev, rankingsZone: prevZone, fallback: true, otherRankings: cur, otherZone: z };
+        const specRankings = curHas ? cur : (prevHas ? prev : null);
+        if (prevZone && prevHas && (!curHas || prev.medianPerformanceAverage > cur.medianPerformanceAverage)) {
+            return { rankings: prev, rankingsZone: prevZone, fallback: true, otherRankings: cur, otherZone: z, specRankings };
         }
-        return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: prev, otherZone: prevZone };
+        return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: prevZone ? prev : null, otherZone: prevZone || null, specRankings };
     }
     let g = await selectGating(zone, metric);
-    let { rankings, rankingsZone, fallback, otherRankings, otherZone } = g;
-    if (!det.spec && hasKills(rankings)) {
-        const first = rankings.rankings.find(r => r.totalKills > 0);
+    let { rankings, rankingsZone, fallback, otherRankings, otherZone, specRankings } = g;
+    if (!det.spec && hasKills(specRankings)) {
+        const first = specRankings.rankings.find(r => r.totalKills > 0);
         det = V.detectSpec(classToken, talentSplit, first.bestSpec || first.spec);
         if (det.role === 'healer' && metric === 'dps') {
             // A healer's medians differ from their dps medians, so re-rank and re-gate both
-            // tiers rather than reusing the dps-based selection.
+            // tiers (and re-derive specRankings) rather than reusing the dps-based selection.
             metric = 'hps';
             g = await selectGating(zone, metric);
-            ({ rankings, rankingsZone, fallback, otherRankings, otherZone } = g);
+            ({ rankings, rankingsZone, fallback, otherRankings, otherZone, specRankings } = g);
         }
     }
-    return buildProfile({ name, server, region, zone, classToken, combatant, report, rankings, rankingsZone, fallback, metric, otherRankings, otherZone, dbIndex });
+    return buildProfile({ name, server, region, zone, classToken, combatant, report, rankings, rankingsZone, fallback, metric, otherRankings, otherZone, specRankings, dbIndex });
 }
 
 module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, REPORT_QUERY, RANK_QUERY, buildProfile, fetchProfile };

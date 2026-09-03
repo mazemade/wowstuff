@@ -120,6 +120,40 @@ test('fetchProfile: both tiers have kills and the previous tier medians higher �
     assert.strictEqual(Math.round(p.parses.other.medianPercent), 83);
 });
 
+test('fetchProfile: spec detection reads the requested zone\'s WCL label even when the other tier gates (Nooze)', async () => {
+    // Nooze: a druid who tanks BT/Hyjal (that zone's bestSpec is "Guardian") but dps'd
+    // SSC/TK (bestSpec "Feral"). Talents alone ([0, 44, 17]) unambiguously infer Feral — bear
+    // and cat share a tree, so only the WCL kill-classification fold (Feral + WCL "Guardian"
+    // -> Guardian) can tell them apart. SSC/TK's median is raised above BT/Hyjal's so SSC
+    // gates the parse rule. Spec detection must still use 1060's own label (the requested
+    // zone, and the freshest evidence of what the player is currently playing), not whichever
+    // tier happens to gate — otherwise the role flips tank -> melee and the hit rule fires.
+    const s = stubQuery();
+    const orig = s.query;
+    s.query = async (q, vars) => {
+        const d = await orig(q, vars);
+        if (q === P.CHAR_QUERY && d.characterData.character) d.characterData.character.classID = 2; // DRUID
+        if (q === P.REPORT_QUERY && d.reportData.report.events.data.length) {
+            const row = JSON.parse(JSON.stringify(d.reportData.report.events.data[0]));
+            row.talents = [{ id: 0 }, { id: 44 }, { id: 17 }];
+            d.reportData.report.events.data = [row];
+        }
+        if (q === P.RANK_QUERY) {
+            const zr = d.characterData.character.zoneRankings;
+            if (zr && Array.isArray(zr.rankings)) {
+                const label = vars.zone === 1060 ? 'Guardian' : 'Feral';
+                zr.rankings.forEach(r => { if (r.totalKills > 0) { r.bestSpec = label; r.spec = label; } });
+                if (vars.zone === 1056) zr.medianPerformanceAverage = 90; // above 1060's 82.888, so SSC gates
+            }
+        }
+        return d;
+    };
+    const p = await P.fetchProfile(s.query, PARAMS, db, NOW);
+    assert.strictEqual(p.parses.zone, 1056, 'SSC/TK gates the parse rule on the higher median');
+    assert.strictEqual(p.identity.spec, 'Guardian', 'spec label must come from 1060 (requested zone), not the gating tier');
+    assert.strictEqual(p.identity.role, 'tank');
+});
+
 test('fetchProfile: no kills anywhere → parses null and a missing entry', async () => {
     const s = stubQuery({ kills1060: false, kills1056: false });
     const p = await P.fetchProfile(s.query, PARAMS, db, NOW);
@@ -164,6 +198,11 @@ test('fetchProfile: no combatant row, and a healer bestSpec from rankings re-que
             const zr = d.characterData.character.zoneRankings;
             if (zr && Array.isArray(zr.rankings)) {
                 zr.rankings.forEach(r => { if (r.totalKills > 0) { r.bestSpec = 'Restoration'; r.spec = 'Restoration'; } });
+                // Push the 1056 hps median above the (stub-forced) 47.5 every other hps blob
+                // gets, so the post-requery gate has a real answer to pin: if the re-query
+                // reused the stale dps-era gating instead of re-selecting under hps, this would
+                // still show 1060 gating and no 1056-vs-1060 comparison would be exercised.
+                if (vars.metric === 'hps' && vars.zone === 1056) zr.medianPerformanceAverage = 60;
             }
         }
         return d;
@@ -174,6 +213,14 @@ test('fetchProfile: no combatant row, and a healer bestSpec from rankings re-que
     assert.strictEqual(p.identity.detectedFrom, 'wcl');
     assert.strictEqual(p.parses.metric, 'hps');
     assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['dps', 'dps', 'hps', 'hps']);
+    // The hps re-query must re-gate under hps, not reuse the stale dps-era selection: 1056's
+    // hps median (60) now beats 1060's (47.5), so 1056 gates and 1060 is carried as other.
+    assert.strictEqual(p.parses.zone, 1056);
+    assert.strictEqual(p.parses.fallback, true);
+    assert.strictEqual(p.parses.medianPercent, 60);
+    assert.ok(p.parses.other, 'the non-gating hps tier is still carried as other after the requery');
+    assert.strictEqual(p.parses.other.zone, 1060);
+    assert.strictEqual(p.parses.other.medianPercent, 47.5);
 });
 
 test('buildProfile: is pure and does not need the network', () => {
