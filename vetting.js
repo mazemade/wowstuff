@@ -12,12 +12,24 @@ const state = { players: [], thresholds: Object.assign({}, V.DEFAULT_THRESHOLDS)
 const wcl = { server: '', region: 'eu' };
 let queue = [];
 let inFlight = 0;
+const inFlightKeys = new Set();
 let pausedUntil = 0;
 let expanded = null; // name (lower) whose detail row is open
 
 function load() {
-    try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}); } catch (e) { /* fresh */ }
-    state.thresholds = V.parseThresholds(state.thresholds);
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { raw = {}; }
+    const parsed = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+    if (Array.isArray(parsed.players)) {
+        state.players = parsed.players.filter(p => p && typeof p === 'object' && typeof p.name === 'string');
+    }
+    if (parsed.profiles && typeof parsed.profiles === 'object' && !Array.isArray(parsed.profiles)) {
+        state.profiles = parsed.profiles;
+    }
+    if (parsed.errors && typeof parsed.errors === 'object' && !Array.isArray(parsed.errors)) {
+        state.errors = parsed.errors;
+    }
+    state.thresholds = V.parseThresholds(parsed.thresholds);
     try {
         const a = JSON.parse(localStorage.getItem(ASSIGN_KEY)) || {};
         if (a.wcl) { wcl.server = a.wcl.server || ''; wcl.region = a.wcl.region || 'eu'; }
@@ -71,6 +83,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp
 function enqueue(name, force) {
     const key = name.toLowerCase();
     if (!force && state.profiles[key]) return;
+    if (inFlightKeys.has(key)) return;
     if (queue.indexOf(key) === -1) queue.push(key);
     pump();
 }
@@ -79,7 +92,8 @@ function pump() {
     while (inFlight < CONCURRENCY && queue.length) {
         const key = queue.shift();
         inFlight++;
-        fetchOne(key).finally(() => { inFlight--; pump(); });
+        inFlightKeys.add(key);
+        fetchOne(key).finally(() => { inFlight--; inFlightKeys.delete(key); pump(); });
     }
     renderSummary();
 }
