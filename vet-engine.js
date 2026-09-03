@@ -50,6 +50,8 @@
     const GS_SCALE = 1.8618;
     const GS_FORMULA = {
         A: { 4: { A: 91.45, B: 0.65 }, 3: { A: 81.375, B: 0.8125 }, 2: { A: 73, B: 1 } },
+        // B[1] (common) can never be selected: itemGearScore remaps rarity 0/1 to 2 before any
+        // table lookup. Kept anyway because it mirrors the TacoTip source table verbatim.
         B: { 4: { A: 26, B: 1.2 }, 3: { A: 0.75, B: 1.8 }, 2: { A: 8, B: 2 }, 1: { A: 0, B: 2.25 } },
         C: { 4: { A: 0.25, B: 1.6275 } },
     };

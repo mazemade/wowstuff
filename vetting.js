@@ -360,8 +360,15 @@ function loadRoster() {
         if (r.added) added++;
         enqueue(r.name, false);
     });
-    try { save(); } catch (err) { /* surfaced via rosterNotice below; state stays correct in memory */ }
-    rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
+    // The players are already in state.players regardless of whether this save succeeds — a
+    // failure here must not report a false "Loaded" success; the notice has to say the roster
+    // could not be persisted, or the next reload silently reverts it with no error anywhere.
+    try {
+        save();
+        rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
+    } catch (err) {
+        rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new), but could not save locally: ' + err.message;
+    }
     renderTable();
 }
 
