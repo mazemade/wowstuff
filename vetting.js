@@ -343,6 +343,8 @@ function statRows(p) {
     // fall back to today's (tautological) behaviour rather than throwing.
     const c = p.computedFromGear || p.computed || {}, r = p.reported || {};
     const line = (label, comp, rep) => [label, comp == null ? '—' : comp, rep == null ? '—' : rep];
+    const id = p.identity || {};
+    const defTalent = V.defenseAllowanceSkill(id.class, id.spec, id.talentSplit);
     return [
         line('Spell damage', c.spellDamage, null), line('Healing', c.healing, null),
         line('Attack power', c.attackPower, null), line('Ranged AP', c.rangedAttackPower, null),
@@ -350,7 +352,7 @@ function statRows(p) {
         line('Expertise', c.expertiseSkill + ' (' + c.expertiseRating + ' rating)', r.expertise),
         line('Melee crit', c.meleeCrit, r.critMelee), line('Spell crit', c.spellCrit, r.critSpell),
         line('Melee haste', c.meleeHaste, r.hasteMelee), line('Spell haste', c.spellHaste, r.hasteSpell),
-        line('Defense', c.defenseSkill + ' (' + c.defenseRating + ' rating)', null), line('MP5', c.mp5, null),
+        line('Defense', c.defenseSkill + ' (' + c.defenseRating + ' rating)' + (defTalent ? ' + ' + defTalent + ' Anticipation' : ''), null), line('MP5', c.mp5, null),
         line('Dodge / parry / block', null, [r.dodge, r.parry, r.block].join(' / ')), line('Armor', c.armor, r.armor),
         line('Str / Agi / Sta / Int / Spi', [c.strength, c.agility, c.stamina, c.intellect, c.spirit].join(' / '),
              [r.strength, r.agility, r.stamina, r.intellect, r.spirit].join(' / ')),

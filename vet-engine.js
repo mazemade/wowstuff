@@ -307,6 +307,24 @@
         return Math.round(entry.pct * per);
     }
 
+    // Defense skill granted by Anticipation (5 ranks, +4 each), the talent every plate tank
+    // takes. Same gating as the hit table: the tree total must reach 5 * rowIdx + maxPoints.
+    // Without this, every prot warrior and paladin reads 20 skill under their character sheet —
+    // the 2026-09-03 calibration's "two crittable tanks at 478 and 471" were 498 and 491.
+    const TALENT_DEFENSE_ALLOWANCE = {
+        'PALADIN:Protection': { skill: 20, tree: 1, minPoints: 20, talent: 'Anticipation' },  // Protection row 4
+        'WARRIOR:Protection': { skill: 20, tree: 2, minPoints: 5,  talent: 'Anticipation' },  // Protection row 1
+    };
+
+    function defenseAllowanceSkill(classToken, spec, talentSplit) {
+        const entry = TALENT_DEFENSE_ALLOWANCE[String(classToken).toUpperCase() + ':' + spec];
+        if (!entry) return 0;
+        if (!Array.isArray(talentSplit) || talentSplit.length !== 3) return 0;
+        const points = talentSplit[entry.tree];
+        if (typeof points !== 'number' || !Number.isFinite(points) || points < entry.minPoints) return 0;
+        return entry.skill;
+    }
+
     // Calibrated 2026-09-03 against a real 45-character roster; see spec §6 "Calibration pass".
     const DEFAULT_THRESHOLDS = {
         gs: 1700, ilvl: 110, meleeHit: 142, spellHit: 202, expertise: 0, defense: 490, parse: 20,
@@ -373,8 +391,19 @@
 
         const defApplies = role === 'tank' && cls !== 'DRUID';
         if (!defApplies) rules.push(rule('defense', 'defense', false, 'pass', null, null, null));
-        else rules.push(c ? rule('defense', 'defense', true, c.defenseSkill < t.defense ? 'fail' : 'pass', c.defenseSkill, t.defense, t.defense)
-                          : rule('defense', 'defense', true, 'unknown', null, t.defense, t.defense, 'no gear data'));
+        else if (!c) rules.push(rule('defense', 'defense', true, 'unknown', null, t.defense, t.defense, 'no gear data'));
+        else {
+            // Talent defense is added to the value (not subtracted from the cap, as hit does) so the
+            // cell shows the same number as the character sheet.
+            const allowance = defenseAllowanceSkill(cls, id.spec, id.talentSplit);
+            const value = c.defenseSkill + allowance;
+            let note = allowance ? c.defenseSkill + ' + ' + allowance + ' from ' + TALENT_DEFENSE_ALLOWANCE[cls + ':' + id.spec].talent + ' = ' + value : '';
+            if (!allowance) {
+                const entry = TALENT_DEFENSE_ALLOWANCE[cls + ':' + id.spec];
+                if (entry) note = entry.talent + ' not reachable with ' + (Array.isArray(id.talentSplit) ? id.talentSplit[entry.tree] : 0) + ' ' + (E.SPEC_TREES[cls] || [])[entry.tree] + ' (needs ' + entry.minPoints + ') — no allowance';
+            }
+            rules.push(rule('defense', 'defense', true, value < t.defense ? 'fail' : 'pass', value, t.defense, t.defense, note));
+        }
 
         const p = profile.parses;
         let parseNote = '';
@@ -453,10 +482,10 @@
     }
 
     return {
-        STAT, RATING, SLOTS, GEM_FITS, WCL_CLASS_IDS, TALENT_HIT_ALLOWANCE, DEFAULT_THRESHOLDS, VERDICT_ORDER,
+        STAT, RATING, SLOTS, GEM_FITS, WCL_CLASS_IDS, TALENT_HIT_ALLOWANCE, TALENT_DEFENSE_ALLOWANCE, DEFAULT_THRESHOLDS, VERDICT_ORDER,
         GS_SCALE, GS_FORMULA, GS_SLOTMOD, gsInvType, itemGearScore,
         indexDb, summarizeGear, derivedStats,
-        normalizeWclSpec, roleOf, detectSpec, hitAllowanceRating, parseThresholds, evaluate, sortRows,
+        normalizeWclSpec, roleOf, detectSpec, hitAllowanceRating, defenseAllowanceSkill, parseThresholds, evaluate, sortRows,
         parseNameList, namesFromHash,
     };
 }));

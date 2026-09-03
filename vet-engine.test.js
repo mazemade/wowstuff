@@ -439,6 +439,33 @@ test('namesFromHash: anything else is an empty list', () => {
     assert.deepStrictEqual(V.namesFromHash('#add=%E0%A4%A'), [], 'a malformed escape must not throw');
 });
 
+test('defenseAllowanceSkill: Anticipation grants 20 defense skill, gated on the Protection tree total', () => {
+    assert.strictEqual(V.defenseAllowanceSkill('PALADIN', 'Protection', [0, 40, 21]), 20, 'Sylvanor-style 0/40/21 holds 5/5 Anticipation (Protection row 4)');
+    assert.strictEqual(V.defenseAllowanceSkill('PALADIN', 'Protection', [0, 19, 42]), 0, 'row 4 + 5 ranks needs 20 Protection points');
+    assert.strictEqual(V.defenseAllowanceSkill('WARRIOR', 'Protection', [8, 5, 48]), 20, 'warrior Anticipation is Protection row 1');
+    assert.strictEqual(V.defenseAllowanceSkill('WARRIOR', 'Protection', [33, 24, 4]), 0);
+    assert.strictEqual(V.defenseAllowanceSkill('DRUID', 'Guardian', [0, 46, 15]), 0, 'no such talent for bears');
+    assert.strictEqual(V.defenseAllowanceSkill('PALADIN', 'Protection', null), 0, 'no split, no allowance');
+});
+test('evaluate: a prot paladin at 471 from gear passes 490 once Anticipation is counted, and the note says so', () => {
+    const r = V.evaluate(profile({ identity: { class: 'PALADIN', spec: 'Protection', role: 'tank', talentSplit: [0, 40, 21] },
+        computed: { avgItemLevel: 123.35, meleeHit: 21, expertiseSkill: 0, defenseSkill: 471 } }), V.DEFAULT_THRESHOLDS, NOW);
+    const d = r.rules.find(x => x.key === 'defense');
+    assert.strictEqual(d.status, 'pass');
+    assert.strictEqual(d.value, 491);
+    assert.strictEqual(d.note, '471 + 20 from Anticipation = 491');
+    assert.strictEqual(r.verdict, 'pass');
+});
+test('evaluate: a prot warrior whose split cannot hold Anticipation gets no allowance and the note explains why', () => {
+    const r = V.evaluate(profile({ identity: { class: 'WARRIOR', spec: 'Protection', role: 'tank', talentSplit: [33, 24, 4] },
+        computed: { avgItemLevel: 130, meleeHit: 0, expertiseSkill: 0, defenseSkill: 480 } }), V.DEFAULT_THRESHOLDS, NOW);
+    const d = r.rules.find(x => x.key === 'defense');
+    assert.strictEqual(d.status, 'fail');
+    assert.strictEqual(d.value, 480);
+    assert.strictEqual(d.note, 'Anticipation not reachable with 4 Protection (needs 5) — no allowance');
+    assert.ok(r.reasons.indexOf('defense 480/490') !== -1, r.reasons.join(','));
+});
+
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

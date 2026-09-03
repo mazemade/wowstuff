@@ -282,6 +282,15 @@ Raid-provided hit (Misery, Improved Faerie Fire, Draenei aura) is not assumed. T
 tooltip shows threshold, allowance, effective cap, and the player's value; when the split does
 not reach the talent, the tooltip says so instead of showing an allowance.
 
+**Defense allowance.** Anticipation (5 ranks, +4 defense skill each) is held by every plate tank
+build: Paladin Protection row 4 (granted at 20 Protection points) and Warrior Protection row 1
+(granted at 5 Protection points). The 20 skill is *added to the player's value* rather than
+subtracted from the cap, so the cell shows the same number as the character sheet; the tooltip
+reads `471 + 20 from Anticipation = 491`, or says the split does not reach the talent. Gear-only
+defense stays visible in the detail panel. Found 2026-09-04 when a 0/40/21 paladin at 513 in-game
+read 471 on the page: 289 rating from the logged (threat) set gives 350 + 121 = 471, plus 20 talent
+= 491, which passes; the in-game 513 was a separate mitigation set the logs had not seen.
+
 **Units.** Expertise is compared in skill points: `floor(rating / 3.94)`. WCL's `expertise`
 field and the item-table stat 24 are both ratings, so both are converted before the compare.
 Hit and defense compare in rating and skill respectively, as listed.
@@ -306,7 +315,7 @@ raid. Each rule was then measured for discriminating power across the 44 profile
 | Average item level ≥ 125 | 29 of 44 failed | Mostly the two-hander artefact of §4. Demoted to a 110 floor once GearScore became the gate. |
 | Median parse ≥ 40 | 24 of 44 failed | 40 means "better than 60% of all logged players" — an aspirational bar, not a vetting bar. Roster median is 28, p25 is 18. Lowered to 20. |
 | Missing enchants warn 1 / fail 3 | 24 of 44 warned or failed | Roster median missing is 1, so it warned the median player. Moved to warn 2 / fail 4. |
-| Defense ≥ 490 | 2 of 3 failed | Kept — correctly caught two tanks at 478 and 471, both genuinely crittable. |
+| Defense ≥ 490 | 2 of 3 failed | Kept — but the two "crittable" tanks at 478 and 471 were counted without Anticipation; with it they are 498 and 491, both uncrittable (fixed 2026-09-04, see defense allowance above). |
 | Empty sockets, data age | 5 each | Kept — real signal, including one player with 13 empty sockets and no enchants. |
 
 Gear metrics were compared against each player's current-tier median parse percentile (n=25),
