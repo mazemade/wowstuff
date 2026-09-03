@@ -254,21 +254,33 @@ Defaults, all editable in the threshold strip:
 every standard build takes, and the effective cap is the role threshold minus that allowance.
 Initial table (percent → rating at level 70):
 
-| Spec | Talent | Allowance |
-|---|---|---|
-| Warrior Arms/Fury | Precision 3% | 47 |
-| Rogue (all) | Precision 5% | 79 |
-| Shaman Enhancement | Dual Wield Specialization 6% | 95 |
-| Hunter (all) | Surefooted 3% | 47 |
-| Mage Fire/Frost | Elemental Precision 3% | 38 |
-| Mage Arcane | Arcane Focus 10% (arcane spells only) | 126 |
-| Warlock Affliction | Suppression 10% (affliction spells only) | 126 |
-| Priest Shadow | Shadow Focus 10% | 126 |
-| Druid Balance | Balance of Power 4% | 50 |
-| Shaman Elemental | Elemental Precision 6% | 76 |
+| Spec | Talent | Allowance | Granted only when the player's tree total reaches |
+|---|---|---|---|
+| Warrior Arms/Fury | Precision 3% (Fury row 7) | 47 | 33 Fury |
+| Rogue (all) | Precision 5% (Combat row 2) | 79 | 10 Combat |
+| Shaman Enhancement | Dual Wield Specialization 6% (Enh row 7) | 95 | 33 Enhancement |
+| Hunter (all) | Surefooted 3% (Survival row 4) | 47 | 18 Survival |
+| Mage Fire/Frost | Elemental Precision 3% (Frost row 1) | 38 | 3 Frost |
+| Mage Arcane | Arcane Focus 10% (arcane spells only, row 1) | 126 | 5 Arcane |
+| Warlock Affliction | Suppression 10% (affliction spells only, row 1) | 126 | 5 Affliction |
+| Priest Shadow | Shadow Focus 10% (Shadow row 2) | 126 | 10 Shadow |
+| Druid Balance | Balance of Power 4% (Balance row 6) | 50 | 27 Balance |
+| Shaman Elemental | Elemental Precision 6% (Ele row 6) | 76 | 28 Elemental |
+| Paladin Retribution | Precision 3% (Protection row 2) | 47 | 8 Protection |
+
+**The allowance is gated on the talent split, not assumed from the spec.** Warcraft Logs reports
+only the three-tree point totals, but every hit talent sits at a known row in a known tree, so
+"could this build hold that talent at full rank" is decidable: the tree total must be at least
+`5 × (row − 1) + maxRank`. Row and rank come from the wowsims talent trees
+(`ui/core/talents/trees/*.json`, `location.rowIdx` and `maxPoints`). This matters on the real
+roster: a `41/20/0` Beast Mastery hunter has no Survival points and therefore no Surefooted, and
+a `33/28/0` Arms warrior stops 5 short of Fury row 7 and has no Precision — both were previously
+credited 47 rating they do not have. Retribution's `0/15/46` and `5/11/45` builds do reach
+Protection row 2, so Ret's Precision, missing from the first version of this table, is granted.
 
 Raid-provided hit (Misery, Improved Faerie Fire, Draenei aura) is not assumed. The cell
-tooltip shows threshold, allowance, effective cap, and the player's value.
+tooltip shows threshold, allowance, effective cap, and the player's value; when the split does
+not reach the talent, the tooltip says so instead of showing an allowance.
 
 **Units.** Expertise is compared in skill points: `floor(rating / 3.94)`. WCL's `expertise`
 field and the item-table stat 24 are both ratings, so both are converted before the compare.
