@@ -11,7 +11,12 @@ const CHAR_QUERY = 'query($name:String!,$server:String!,$region:String!){charact
     'id classID recentReports(limit:' + RECENT_REPORTS + '){data{code startTime fights(killType:Encounters){id name}}}}}}';
 const REPORT_QUERY = 'query($code:String!,$fights:[Int]!){reportData{report(code:$code){' +
     'masterData{actors(type:"Player"){id name server subType}} events(dataType:CombatantInfo,fightIDs:$fights,limit:100){data}}}}';
-const RANK_QUERY = 'query($name:String!,$server:String!,$region:String!,$zone:Int!,$metric:CharacterRankingMetricType!){characterData{' +
+// Live schema check (2026-09-03): WCL's classic API rejects $metric typed as
+// CharacterRankingMetricType! ("used in position expecting type CharacterPageRankingMetricType")
+// for zoneRankings on characterData.character. Verified live that CharacterPageRankingMetricType!
+// is accepted for both dps and hps. Kept as a real GraphQL variable (not string-inlined) so a
+// single RANK_QUERY constant still matches every call's query text, dps and hps alike.
+const RANK_QUERY = 'query($name:String!,$server:String!,$region:String!,$zone:Int!,$metric:CharacterPageRankingMetricType!){characterData{' +
     'character(name:$name,serverSlug:$server,serverRegion:$region){zoneRankings(zoneID:$zone,metric:$metric)}}}';
 
 const REPORTED_FIELDS = ['hitMelee', 'hitRanged', 'hitSpell', 'expertise', 'critMelee', 'critRanged', 'critSpell',

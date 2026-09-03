@@ -167,6 +167,44 @@ app.get('/api/wcl/player', async (req, res) => {
   } catch (err) { wclErrorResponse(res, err, 'WCL player lookup'); }
 });
 
+// --- Player vetting: one profile per character from Warcraft Logs plus the committed item table.
+const VetEngine = require('./vet-engine.js');
+const VetProfile = require('./vet-profile.js');
+
+let vetDbIndex = null;
+function getVetDbIndex() {
+  if (vetDbIndex) return vetDbIndex;
+  const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'tbc-item-db.json'), 'utf8'));
+  vetDbIndex = VetEngine.indexDb(raw);
+  return vetDbIndex;
+}
+
+const VET_CACHE_MS = 15 * 60 * 1000;
+const vetCache = new Map(); // key -> { at, profile }
+
+app.get('/api/vet/player', async (req, res) => {
+  const name = String(req.query.name || '');
+  const server = String(req.query.server || '').toLowerCase();
+  const region = String(req.query.region || '').toLowerCase();
+  const zone = parseInt(req.query.zone, 10) || 1060;
+  if (!/^[^\s\/\\"]{2,24}$/.test(name)) return res.status(400).json({ error: 'Invalid character name' });
+  if (!/^[a-z0-9-]{2,40}$/.test(server)) return res.status(400).json({ error: 'Invalid server slug' });
+  if (!/^(eu|us|kr|tw|cn)$/.test(region)) return res.status(400).json({ error: 'Invalid region' });
+  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone;
+  const hit = vetCache.get(key);
+  if (hit && Date.now() - hit.at < VET_CACHE_MS) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.profile); }
+  let db;
+  try { db = getVetDbIndex(); }
+  catch (err) { console.error('item table load failed:', err); return res.status(500).json({ error: 'Item table data/tbc-item-db.json is missing or unreadable' }); }
+  try {
+    const profile = await VetProfile.fetchProfile(wclQuery, { name, server, region, zone }, db);
+    if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
+    vetCache.set(key, { at: Date.now(), profile });
+    res.set('X-Vet-Cache', 'miss');
+    res.json(profile);
+  } catch (err) { wclErrorResponse(res, err, 'WCL vetting lookup'); }
+});
+
 // Advisory AI second opinion on the whole assignment sheet. The client sends its live
 // state; we wrap it in a system prompt that states the Anniversary rules so the model
 // cannot repeat the rule-ignorant critiques a bare ChatGPT produces. Display-only:
