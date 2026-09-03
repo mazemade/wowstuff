@@ -2533,7 +2533,7 @@
         CC_ABILITIES, MARKS, MARK_EMOJI, defaultCC,
         buildDiscord, buildRaidLines, buildWhispers, buildAddonWhispers,
         bucketOf, proposeGroups, playerBuffScore, playerScore, scoreLayout,
-        specKey, BASELINE, BUFF_V, PARTY_BUFFS, groupBuffs, layoutViolations,
+        specKey, BASELINE, BUFF_V, PARTY_BUFFS, SPECS_BY_ARCHETYPE, groupBuffs, layoutViolations,
         setEncounterDuration, getEncounterDuration,
         GREATER_BLESSINGS, proposeBlessings,
     };
