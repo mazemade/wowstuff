@@ -68,8 +68,15 @@ vetting.html / vetting.js / vetting.css   page: inputs, thresholds, table, detai
 vet-engine.js (+ vet-engine.test.js)      pure UMD module: spec/role detection, stat sums,
                                           cap arithmetic, rule evaluation, sorting
 server.js  GET /api/vet/player            three WCL queries + gear join, in-memory cache
-calibration/vendor/tbc-new/assets/database/db.json   items / gems / enchants (read-only)
+data/tbc-item-db.json                     committed, trimmed items / gems / enchants
+calibration/extract-item-db.mjs           regenerates data/tbc-item-db.json from the
+                                          gitignored wowsims checkout under calibration/vendor
 ```
+
+`calibration/vendor/` is gitignored (see `.gitignore`), so the server never reads the wowsims
+`db.json` directly: a fresh checkout and the Railway deploy would not have it. The extractor
+runs once per wowsims update, the same way `calibration/inject-weights.mjs` bakes weights into
+the engine, and the trimmed output is committed.
 
 ### 3.1 Server route
 
@@ -93,8 +100,8 @@ Validation mirrors `/api/wcl/player`. Steps:
 5. Return the profile (§3.2). Cache the response in memory per `region/server/name/zone`
    for 15 minutes so a roster refresh does not re-hit WCL.
 
-`db.json` is loaded lazily on first request and indexed by item id, gem id and enchant
-`effectId`. Load failure is a 500 with a clear message; the file is a checked-in vendor asset.
+`data/tbc-item-db.json` is loaded lazily on first request and indexed by item id, gem id and
+enchant `effectId`. Load failure is a 500 with a clear message.
 
 ### 3.2 Profile object
 
@@ -141,11 +148,16 @@ Every failure is a row state. No alerts.
 
 ## 4. Gear stat computation
 
-Uses `db.json`: `items[]` (`scalingOptions["0"].stats`, `gemSockets`, `socketBonus`,
-`setId`), `gems[]` (`stats`, `color`), `enchants[]` (`effectId`, `stats`). Stat arrays are
-indexed by the `Stat` enum in `calibration/vendor/tbc-new/proto/common.proto`
+Uses `data/tbc-item-db.json`, extracted from the wowsims `db.json` (`items[]` with
+`scalingOptions["0"].stats`, `gemSockets`, `socketBonus`; `gems[]` with `stats`, `color`;
+`enchants[]` with `effectId`, `stats`). The trimmed file keeps, per item: `id`, `name`,
+`type`, `handType`, `ilvl`, `quality`, `gemSockets`, `socketBonus` (sparse), `stats`
+(sparse); per gem: `id`, `name`, `color`, `stats` (sparse); per enchant: `effectId`, `name`,
+`type`, `stats` (sparse). Sparse means `{ statIndex: value }` with zeros dropped. Stat
+indices follow the `Stat` enum in wowsims `proto/common.proto`
 (0 strength … 4 healing, 5 spell damage, 12 spell hit, 17 attack power, 20 melee hit,
-24 expertise, 25 defense rating, 31 armor, and so on).
+24 expertise, 25 defense rating, 31 armor, 35 mp5). Items below item level 60 are dropped to
+keep the file small; anything a level-70 raider wears is above that.
 
 - Sum item base stats, enchant stats and gem stats over the 17 slots.
 - Socket bonus: applied when every socket on the item holds a gem whose colour matches
