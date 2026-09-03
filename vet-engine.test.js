@@ -165,5 +165,113 @@ test('fixture: average item level 131.82, no missing enchants, no empty sockets'
     assert.strictEqual(s.slots.find(x => x.key === 'mainHand').enchant.name, 'Enchant Weapon - Mongoose');
 });
 
+// --- Task 3: spec/role, allowances, rules ---
+test('normalizeWclSpec: WCL labels map onto engine spec names, role labels fold or drop', () => {
+    assert.strictEqual(V.normalizeWclSpec('SHAMAN', 'Enhancement'), 'Enhancement');
+    assert.strictEqual(V.normalizeWclSpec('HUNTER', 'BeastMastery'), 'Beast Mastery');
+    assert.strictEqual(V.normalizeWclSpec('PALADIN', 'Justicar'), 'Protection');
+    assert.strictEqual(V.normalizeWclSpec('WARRIOR', 'Gladiator'), 'Protection');
+    assert.strictEqual(V.normalizeWclSpec('DRUID', 'Guardian'), 'Guardian');
+    assert.strictEqual(V.normalizeWclSpec('DRUID', 'Warden'), null);
+    assert.strictEqual(V.normalizeWclSpec('MAGE', 'Holy'), null);
+});
+test('roleOf: every engine spec lands on one of five roles', () => {
+    assert.strictEqual(V.roleOf('WARRIOR', 'Protection'), 'tank');
+    assert.strictEqual(V.roleOf('DRUID', 'Guardian'), 'tank');
+    assert.strictEqual(V.roleOf('PRIEST', 'Holy'), 'healer');
+    assert.strictEqual(V.roleOf('HUNTER', 'Survival'), 'ranged');
+    assert.strictEqual(V.roleOf('MAGE', 'Fire'), 'caster');
+    assert.strictEqual(V.roleOf('SHAMAN', 'Enhancement'), 'melee');
+    assert.strictEqual(V.roleOf('DRUID', 'Feral'), 'melee');
+    assert.strictEqual(V.roleOf('DRUID', 'Nope'), null);
+});
+test('detectSpec: talents decide when unambiguous; WCL label fills in when not', () => {
+    assert.deepStrictEqual(V.detectSpec('SHAMAN', [2, 45, 14], null), { spec: 'Enhancement', role: 'melee', detectedFrom: 'talents', ambiguous: false });
+    assert.deepStrictEqual(V.detectSpec('PRIEST', [20, 20, 21], 'Holy'), { spec: 'Holy', role: 'healer', detectedFrom: 'wcl', ambiguous: true });
+    assert.deepStrictEqual(V.detectSpec('DRUID', [0, 45, 16], 'Guardian'), { spec: 'Guardian', role: 'tank', detectedFrom: 'talents', ambiguous: false });
+    assert.deepStrictEqual(V.detectSpec('MAGE', null, null), { spec: null, role: null, detectedFrom: null, ambiguous: true });
+});
+test('hitAllowanceRating: percent to rating with the right constant per role', () => {
+    assert.strictEqual(V.hitAllowanceRating('SHAMAN', 'Enhancement', 'melee'), 95);
+    assert.strictEqual(V.hitAllowanceRating('ROGUE', 'Combat', 'melee'), 79);
+    assert.strictEqual(V.hitAllowanceRating('PRIEST', 'Shadow', 'caster'), 126);
+    assert.strictEqual(V.hitAllowanceRating('MAGE', 'Frost', 'caster'), 38);
+    assert.strictEqual(V.hitAllowanceRating('PALADIN', 'Retribution', 'melee'), 0);
+});
+test('parseThresholds: finite numbers override, junk falls back to defaults', () => {
+    const t = V.parseThresholds({ ilvl: '130', parse: 'abc', staleDays: null, bogus: 1 });
+    assert.strictEqual(t.ilvl, 130);
+    assert.strictEqual(t.parse, 40);
+    assert.strictEqual(t.staleDays, 28);
+    assert.strictEqual(t.bogus, undefined);
+});
+
+const NOW = Date.parse('2026-09-03T12:00:00Z');
+function profile(over) {
+    return Object.assign({
+        identity: { class: 'SHAMAN', spec: 'Enhancement', role: 'melee' },
+        computed: { avgItemLevel: 131.82, meleeHit: 171, rangedHit: 171, spellHit: 0, expertiseSkill: 0, defenseSkill: 350 },
+        gearSummary: { missingEnchants: 0, emptySockets: 0 },
+        parses: { medianPercent: 82.9, zone: 1060 },
+        lastSeen: { timestamp: NOW - 2 * 86400e3 },
+    }, over);
+}
+test('evaluate: the fixture-like enhancement shaman is a warn (expertise 0/26), nothing fails', () => {
+    const r = V.evaluate(profile(), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.verdict, 'warn');
+    const hit = r.rules.find(x => x.key === 'hit');
+    assert.strictEqual(hit.effective, 142 - 95);
+    assert.strictEqual(hit.status, 'pass');
+    assert.strictEqual(r.rules.find(x => x.key === 'expertise').status, 'warn');
+    assert.strictEqual(r.rules.find(x => x.key === 'defense').applies, false);
+    assert.deepStrictEqual(r.reasons, ['expertise 0/26']);
+});
+test('evaluate: under hit cap fails and the reason shows the shortfall against the effective cap', () => {
+    const r = V.evaluate(profile({ computed: { avgItemLevel: 131.82, meleeHit: 30, expertiseSkill: 26, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.verdict, 'fail');
+    assert.ok(r.reasons.indexOf('hit 30/47 (−17)') !== -1, r.reasons.join(','));
+});
+test('evaluate: casters use spell hit, healers and tanks have no hit rule, tanks get defense', () => {
+    const mage = V.evaluate(profile({ identity: { class: 'MAGE', spec: 'Frost', role: 'caster' }, computed: { avgItemLevel: 130, spellHit: 164, expertiseSkill: 0, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(mage.rules.find(x => x.key === 'hit').status, 'pass');       // 164 >= 202-38
+    assert.strictEqual(mage.rules.find(x => x.key === 'expertise').applies, false);
+    const healer = V.evaluate(profile({ identity: { class: 'PRIEST', spec: 'Holy', role: 'healer' } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(healer.rules.find(x => x.key === 'hit').applies, false);
+    const tank = V.evaluate(profile({ identity: { class: 'WARRIOR', spec: 'Protection', role: 'tank' }, computed: { avgItemLevel: 130, meleeHit: 0, expertiseSkill: 10, defenseSkill: 480 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(tank.verdict, 'fail');
+    assert.strictEqual(tank.rules.find(x => x.key === 'defense').status, 'fail');
+    assert.strictEqual(tank.rules.find(x => x.key === 'expertise').status, 'warn');
+    const bear = V.evaluate(profile({ identity: { class: 'DRUID', spec: 'Guardian', role: 'tank' }, computed: { avgItemLevel: 130, defenseSkill: 350, expertiseSkill: 0 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(bear.rules.find(x => x.key === 'defense').applies, false);
+    assert.strictEqual(bear.rules.find(x => x.key === 'expertise').applies, false);
+});
+test('evaluate: enchants and sockets warn at 1 and fail at 3; parse below threshold fails', () => {
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 1, emptySockets: 0 }, computed: profile().computed, }), V.DEFAULT_THRESHOLDS, NOW).rules.find(x => x.key === 'enchants').status, 'warn');
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 3, emptySockets: 0 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 0, emptySockets: 4 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
+    assert.strictEqual(V.evaluate(profile({ parses: { medianPercent: 12, zone: 1060 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
+});
+test('evaluate: stale data warns; no data at all is unverified, not fail', () => {
+    const stale = V.evaluate(profile({ lastSeen: { timestamp: NOW - 40 * 86400e3 }, computed: Object.assign({}, profile().computed, { expertiseSkill: 26 }) }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(stale.verdict, 'warn');
+    assert.strictEqual(stale.rules.find(x => x.key === 'stale').value, 40);
+    const nothing = V.evaluate({ identity: { class: 'MAGE', spec: null, role: null }, computed: null, gearSummary: null, parses: null, lastSeen: null }, V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(nothing.verdict, 'unverified');
+    assert.ok(nothing.rules.every(x => !x.applies || x.status === 'unknown'));
+    // Parses but no gear: parse rule still evaluates and can fail.
+    const parsesOnly = V.evaluate({ identity: { class: 'MAGE', spec: 'Frost', role: 'caster' }, computed: null, gearSummary: null, parses: { medianPercent: 5, zone: 1056 }, lastSeen: null }, V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(parsesOnly.verdict, 'fail');
+});
+test('evaluate: hit note flags a gear-vs-reported disagreement over 5% of the threshold', () => {
+    const agree = V.evaluate(profile({ gearOnly: { meleeHit: 171, spellHit: 0 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.ok(agree.rules.find(x => x.key === 'hit').note.indexOf('gear sums') === -1);
+    const disagree = V.evaluate(profile({ gearOnly: { meleeHit: 120, spellHit: 0 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.ok(disagree.rules.find(x => x.key === 'hit').note.indexOf('gear sums to 120, WCL reported 171') !== -1);
+});
+test('sortRows: fail, warn, unverified, pass, then by name', () => {
+    const rows = [{ name: 'b', verdict: 'pass' }, { name: 'a', verdict: 'pass' }, { name: 'z', verdict: 'fail' }, { name: 'u', verdict: 'unverified' }, { name: 'w', verdict: 'warn' }];
+    assert.deepStrictEqual(V.sortRows(rows).map(r => r.name), ['z', 'w', 'u', 'a', 'b']);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
