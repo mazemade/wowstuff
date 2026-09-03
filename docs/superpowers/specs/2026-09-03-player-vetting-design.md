@@ -150,13 +150,17 @@ indexed by the `Stat` enum in `calibration/vendor/tbc-new/proto/common.proto`
 - Sum item base stats, enchant stats and gem stats over the 17 slots.
 - Socket bonus: applied when every socket on the item holds a gem whose colour matches
   (prismatic and meta rules per wowsims). `socketBonusesApplied` records that this was done.
-- Set bonuses: applied only if the wowsims tables expose them in a usable form; otherwise
-  `setBonusesApplied: false` and the stat sheet says "set bonuses not included". Decided at
-  implementation time, not silently.
 - Derived: `avgItemLevel` over the 17 slots (empty slot counts as 0 and is flagged);
-  `defenseSkill = 350 + floor(defenseRating / 2.37)`; percentages from ratings use the
-  level-70 constants (15.77 rating per 1% melee/ranged hit, 12.62 per 1% spell hit,
-  3.94 per expertise point).
+  `defenseSkill = 350 + floor(defenseRating / 2.37)`; `expertiseSkill = floor(rating / 3.94)`;
+  percentages from ratings use the level-70 constants (15.77 rating per 1% melee/ranged hit,
+  12.62 per 1% spell hit).
+- Set bonuses: `db.json` carries `setId` per item but no set-bonus table, so they are not
+  applied and `setBonusesApplied` is always `false`. Socket bonuses are applied (colour rules
+  above), `socketBonusesApplied: true`.
+- Validated on the captured fixture (`fixtures/wcl-vet-nottomwro.json`): the computed melee
+  hit (171) and haste (65) equal what WCL reported, which confirms the item, gem and enchant
+  join. Computed crit was 20 rating under the reported value and base attributes and armor
+  differ by the character's base stats, which is why reported values win where present.
 - Enchantable slots for the missing-enchant rule: head, shoulder, back, chest, wrist, hands,
   legs, feet, main hand, off hand (weapon or shield), ranged (hunters only). Rings only for
   enchanters — detected from an existing ring enchant, otherwise rings are not counted.
@@ -184,7 +188,7 @@ Defaults, all editable in the threshold strip:
 | Average item level | ≥ 125 | everyone |
 | Melee / ranged hit rating | ≥ 142 (9%) | melee dps, hunters |
 | Spell hit rating | ≥ 202 (16%) | caster dps |
-| Expertise rating | ≥ 26 (6.5%) | melee dps, plate tanks |
+| Expertise (skill points) | ≥ 26 (6.5%) — warn only | melee dps, plate tanks |
 | Defense skill | ≥ 490 | tanks except druids |
 | Median parse percentile | ≥ 40 | everyone with parses, current tier or the previous one as fallback |
 | Missing enchants | warn at 1, fail at 3 | enchantable slots |
@@ -210,6 +214,14 @@ Initial table (percent → rating at level 70):
 
 Raid-provided hit (Misery, Improved Faerie Fire, Draenei aura) is not assumed. The cell
 tooltip shows threshold, allowance, effective cap, and the player's value.
+
+**Units.** Expertise is compared in skill points: `floor(rating / 3.94)`. WCL's `expertise`
+field and the item-table stat 24 are both ratings, so both are converted before the compare.
+Hit and defense compare in rating and skill respectively, as listed.
+
+**Severity.** Item level, hit, defense and median parse fail when under threshold. Expertise
+only warns: the dodge cap is a refinement, not a gate, and few TBC melee reach it. Missing
+enchants and empty sockets warn at the first count and fail at the second. Staleness warns.
 
 **Verdict.** `fail` if any rule fails; else `warn` if any rule warns; else `pass`.
 `unverified` when there is no gear data or no parse data at all; a player with parses but no
