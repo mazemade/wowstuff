@@ -38,7 +38,88 @@
 
     const ALWAYS_ENCHANTABLE = { head: 1, shoulder: 1, back: 1, chest: 1, wrist: 1, hands: 1, legs: 1, feet: 1, mainHand: 1 };
     const WEAPON_TYPE_HELD = 5;
+    const HAND_TYPE_TWO_HAND = 4;
     const RANGED_ENCHANTABLE = { 1: true, 2: true, 3: true }; // bow, crossbow, gun (scopes)
+
+    // GearScore, using the TacoTip algorithm (anzz1/TacoTip gearscore.lua) — the GearScore
+    // variant TBC players actually run. The load-bearing difference from the original WotLK
+    // GearScore is the bracket selection below: epics stay in bracket B up to item level 167.
+    // The WotLK original switches to bracket A above 120, which sits dead centre of the TBC gear
+    // range and inverts there — an ilvl 121 epic scores 42% LOWER than an ilvl 120 one and does
+    // not recover until ilvl 143. Under these brackets the score is monotonic across TBC.
+    const GS_SCALE = 1.8618;
+    const GS_FORMULA = {
+        A: { 4: { A: 91.45, B: 0.65 }, 3: { A: 81.375, B: 0.8125 }, 2: { A: 73, B: 1 } },
+        B: { 4: { A: 26, B: 1.2 }, 3: { A: 0.75, B: 1.8 }, 2: { A: 8, B: 2 }, 1: { A: 0, B: 2.25 } },
+        C: { 4: { A: 0.25, B: 1.6275 } },
+    };
+    const GS_SLOTMOD = {
+        INVTYPE_HEAD: 1.0, INVTYPE_NECK: 0.5625, INVTYPE_SHOULDER: 0.75, INVTYPE_CLOAK: 0.5625,
+        INVTYPE_CHEST: 1.0, INVTYPE_WAIST: 0.75, INVTYPE_LEGS: 1.0, INVTYPE_FEET: 0.75,
+        INVTYPE_WRIST: 0.5625, INVTYPE_HAND: 0.75, INVTYPE_FINGER: 0.5625, INVTYPE_TRINKET: 0.5625,
+        INVTYPE_2HWEAPON: 2.0, INVTYPE_WEAPONMAINHAND: 1.0, INVTYPE_WEAPONOFFHAND: 1.0,
+        INVTYPE_WEAPON: 1.0, INVTYPE_SHIELD: 1.0, INVTYPE_HOLDABLE: 1.0,
+        INVTYPE_RANGED: 0.3164, INVTYPE_RANGEDRIGHT: 0.3164, INVTYPE_THROWN: 0.3164,
+        INVTYPE_RELIC: 0.3164,
+    };
+    // Hunters: TacoTip discounts the weapon slots and heavily weights the ranged slot, since a
+    // hunter's bow is their primary weapon.
+    const GS_HUNTER_WEAPON = 0.3164;
+    const GS_HUNTER_RANGED = 5.3224;
+    const GS_IS_WEAPON_INV = {
+        INVTYPE_2HWEAPON: 1, INVTYPE_WEAPONMAINHAND: 1, INVTYPE_WEAPONOFFHAND: 1,
+        INVTYPE_WEAPON: 1, INVTYPE_HOLDABLE: 1,
+    };
+
+    // Our slot key plus the item-table row -> TacoTip's INVTYPE. The item table's `type` is
+    // already implied by the slot key, so only the weapon and ranged slots need the item.
+    const GS_INV_BY_SLOT = {
+        head: 'INVTYPE_HEAD', neck: 'INVTYPE_NECK', shoulder: 'INVTYPE_SHOULDER',
+        back: 'INVTYPE_CLOAK', chest: 'INVTYPE_CHEST', waist: 'INVTYPE_WAIST',
+        legs: 'INVTYPE_LEGS', feet: 'INVTYPE_FEET', wrist: 'INVTYPE_WRIST', hands: 'INVTYPE_HAND',
+        finger1: 'INVTYPE_FINGER', finger2: 'INVTYPE_FINGER',
+        trinket1: 'INVTYPE_TRINKET', trinket2: 'INVTYPE_TRINKET',
+    };
+    const WEAPON_TYPE_SHIELD = 7;
+
+    function gsInvType(slotKey, item) {
+        if (GS_INV_BY_SLOT[slotKey]) return GS_INV_BY_SLOT[slotKey];
+        if (slotKey === 'ranged') {
+            if (!item) return 'INVTYPE_RANGEDRIGHT';
+            if (item.rangedWeaponType >= 6) return 'INVTYPE_RELIC';
+            if (item.rangedWeaponType === 4) return 'INVTYPE_THROWN';
+            return 'INVTYPE_RANGEDRIGHT';
+        }
+        if (slotKey === 'mainHand' || slotKey === 'offHand') {
+            if (!item) return 'INVTYPE_WEAPON';
+            if (item.handType === HAND_TYPE_TWO_HAND) return 'INVTYPE_2HWEAPON';
+            if (slotKey === 'offHand') {
+                if (item.weaponType === WEAPON_TYPE_SHIELD) return 'INVTYPE_SHIELD';
+                if (item.weaponType === WEAPON_TYPE_HELD) return 'INVTYPE_HOLDABLE';
+                return 'INVTYPE_WEAPONOFFHAND';
+            }
+            return item.handType === 1 ? 'INVTYPE_WEAPONMAINHAND' : 'INVTYPE_WEAPON';
+        }
+        return null;
+    }
+
+    function itemGearScore(itemLevel, quality, invType) {
+        const mod = GS_SLOTMOD[invType];
+        if (!mod) return 0;
+        let rarity = quality, qualityScale = 1;
+        if (rarity === 5) { qualityScale = 1.3; rarity = 4; }
+        else if (rarity === 1 || rarity === 0) { qualityScale = 0.005; rarity = 2; }
+        let table;
+        if (itemLevel < 100 && rarity === 4) table = GS_FORMULA.C;
+        else if (itemLevel < 168 && rarity === 4) table = GS_FORMULA.B;
+        else if (itemLevel < 148 && rarity === 3) table = GS_FORMULA.B;
+        else if (itemLevel < 138 && rarity === 2) table = GS_FORMULA.B;
+        else if (itemLevel <= 120) table = GS_FORMULA.B;
+        else table = GS_FORMULA.A;
+        const t = table[rarity];
+        if (!t) return 0;
+        return Math.max(0, Math.floor(((itemLevel - t.A) / t.B) * mod * GS_SCALE * qualityScale));
+    }
 
     function indexDb(db) {
         return {
@@ -68,14 +149,26 @@
         const unknownItems = [];
         // An enchanted ring means the player is an enchanter, so both rings count as enchantable.
         const ringEnchanter = [10, 11].some(i => gear[i] && gear[i].id && gear[i].permanentEnchant);
-        let ilvlSum = 0, missingEnchants = 0, emptySockets = 0;
+        const hunter = String(classToken).toUpperCase() === 'HUNTER';
+        let ilvlWeighted = 0, ilvlWeight = 0, gearScore = 0, missingEnchants = 0, emptySockets = 0;
         const slots = SLOTS.map(slot => {
             const g = gear[slot.wclIndex];
             if (!g || !g.id) return { key: slot.key, label: slot.label, id: 0, empty: true };
             const item = db.items.get(g.id);
             if (!item) unknownItems.push(g.id);
             const itemLevel = g.itemLevel || (item && item.ilvl) || 0;
-            ilvlSum += itemLevel;
+            const twoHanded = !!(item && item.handType === HAND_TYPE_TWO_HAND);
+            // A two-hander occupies both weapon slots, so it counts for both in the average.
+            ilvlWeighted += itemLevel * (twoHanded ? 2 : 1);
+            ilvlWeight += (twoHanded ? 2 : 1);
+            const invType = gsInvType(slot.key, item);
+            const quality = g.quality != null ? g.quality : (item ? item.quality : 0);
+            let slotScore = itemGearScore(itemLevel, quality, invType);
+            if (hunter) {
+                if (GS_IS_WEAPON_INV[invType]) slotScore = Math.floor(slotScore * GS_HUNTER_WEAPON);
+                else if (invType === 'INVTYPE_RANGEDRIGHT' || invType === 'INVTYPE_RANGED') slotScore = Math.floor(slotScore * GS_HUNTER_RANGED);
+            }
+            gearScore += slotScore;
             addStats(stats, item && item.stats);
             let enchant = null;
             if (g.permanentEnchant) {
@@ -104,8 +197,8 @@
             };
         });
         return {
-            slots, avgItemLevel: Math.round(ilvlSum / SLOTS.length * 100) / 100, stats,
-            missingEnchants, emptySockets, unknownItems,
+            slots, avgItemLevel: Math.round(ilvlWeighted / Math.max(ilvlWeight, SLOTS.length) * 100) / 100, stats,
+            missingEnchants, emptySockets, unknownItems, gearScore,
             socketBonusesApplied: true, setBonusesApplied: false,
         };
     }
@@ -194,9 +287,10 @@
         return Math.round(pct * per);
     }
 
+    // Calibrated 2026-09-03 against a real 45-character roster; see spec §6 "Calibration pass".
     const DEFAULT_THRESHOLDS = {
-        ilvl: 125, meleeHit: 142, spellHit: 202, expertise: 26, defense: 490, parse: 40,
-        enchantWarn: 1, enchantFail: 3, socketWarn: 1, socketFail: 3, staleDays: 28,
+        gs: 1700, ilvl: 110, meleeHit: 142, spellHit: 202, expertise: 0, defense: 490, parse: 20,
+        enchantWarn: 2, enchantFail: 4, socketWarn: 1, socketFail: 3, staleDays: 28,
     };
 
     function parseThresholds(obj) {
@@ -220,6 +314,11 @@
         const c = profile.computed || null;
         const g = profile.gearSummary || null;
         const rules = [];
+
+        const gsValue = g && typeof g.gearScore === 'number' ? g.gearScore : null;
+        rules.push(gsValue !== null
+            ? rule('gs', 'gearscore', true, gsValue < t.gs ? 'fail' : 'pass', gsValue, t.gs, t.gs)
+            : rule('gs', 'gearscore', true, 'unknown', null, t.gs, t.gs, 'no gear data'));
 
         rules.push(c ? rule('ilvl', 'item level', true, c.avgItemLevel < t.ilvl ? 'fail' : 'pass', c.avgItemLevel, t.ilvl, t.ilvl)
                      : rule('ilvl', 'item level', true, 'unknown', null, t.ilvl, t.ilvl, 'no gear data'));
@@ -277,8 +376,11 @@
             : live.some(r => r.status === 'warn') ? 'warn'
             : live.some(r => r.status === 'unknown') ? 'unverified' : 'pass';
 
+        const short = n => Math.round(n * 100) / 100;
         const reasons = live.filter(r => r.status === 'fail' || r.status === 'warn').map(r => {
-            if (r.key === 'hit') return 'hit ' + r.value + '/' + r.effective + ' (−' + (r.effective - r.value) + ')';
+            if (r.key === 'hit') return 'hit ' + r.value + '/' + r.effective + ' (−' + short(r.effective - r.value) + ')';
+            if (r.key === 'gs') return 'gearscore ' + r.value + '/' + r.threshold + ' (−' + short(r.threshold - r.value) + ')';
+            if (r.key === 'ilvl') return 'item level ' + r.value + '/' + r.threshold + ' (−' + short(r.threshold - r.value) + ')';
             if (r.key === 'enchants' || r.key === 'sockets') return r.label + ' ' + r.value;
             if (r.key === 'stale') return 'last seen ' + r.value + 'd ago';
             return r.label + ' ' + r.value + '/' + r.threshold;
@@ -294,6 +396,7 @@
 
     return {
         STAT, RATING, SLOTS, GEM_FITS, WCL_CLASS_IDS, TALENT_HIT_ALLOWANCE, DEFAULT_THRESHOLDS, VERDICT_ORDER,
+        GS_SCALE, GS_FORMULA, GS_SLOTMOD, gsInvType, itemGearScore,
         indexDb, summarizeGear, derivedStats,
         normalizeWclSpec, roleOf, detectSpec, hitAllowanceRating, parseThresholds, evaluate, sortRows,
     };

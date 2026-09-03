@@ -201,7 +201,7 @@ test('hitAllowanceRating: percent to rating with the right constant per role', (
 test('parseThresholds: finite numbers override, junk falls back to defaults', () => {
     const t = V.parseThresholds({ ilvl: '130', parse: 'abc', staleDays: null, bogus: 1 });
     assert.strictEqual(t.ilvl, 130);
-    assert.strictEqual(t.parse, 40);
+    assert.strictEqual(t.parse, V.DEFAULT_THRESHOLDS.parse, 'junk falls back to whatever the current default is');
     assert.strictEqual(t.staleDays, 28);
     assert.strictEqual(t.bogus, undefined);
 });
@@ -211,13 +211,16 @@ function profile(over) {
     return Object.assign({
         identity: { class: 'SHAMAN', spec: 'Enhancement', role: 'melee' },
         computed: { avgItemLevel: 131.82, meleeHit: 171, rangedHit: 171, spellHit: 0, expertiseSkill: 0, defenseSkill: 350 },
-        gearSummary: { missingEnchants: 0, emptySockets: 0 },
+        gearSummary: { missingEnchants: 0, emptySockets: 0, gearScore: 1800 },
         parses: { medianPercent: 82.9, zone: 1060 },
         lastSeen: { timestamp: NOW - 2 * 86400e3 },
     }, over);
 }
 test('evaluate: the fixture-like enhancement shaman is a warn (expertise 0/26), nothing fails', () => {
-    const r = V.evaluate(profile(), V.DEFAULT_THRESHOLDS, NOW);
+    // Expertise is off by default (calibrated to 0) since nobody in the real roster gears it;
+    // this test exercises the warn mechanic itself, so it passes an explicit threshold of 26.
+    const t = Object.assign({}, V.DEFAULT_THRESHOLDS, { expertise: 26 });
+    const r = V.evaluate(profile(), t, NOW);
     assert.strictEqual(r.verdict, 'warn');
     const hit = r.rules.find(x => x.key === 'hit');
     assert.strictEqual(hit.effective, 142 - 95);
@@ -237,7 +240,9 @@ test('evaluate: casters use spell hit, healers and tanks have no hit rule, tanks
     assert.strictEqual(mage.rules.find(x => x.key === 'expertise').applies, false);
     const healer = V.evaluate(profile({ identity: { class: 'PRIEST', spec: 'Holy', role: 'healer' } }), V.DEFAULT_THRESHOLDS, NOW);
     assert.strictEqual(healer.rules.find(x => x.key === 'hit').applies, false);
-    const tank = V.evaluate(profile({ identity: { class: 'WARRIOR', spec: 'Protection', role: 'tank' }, computed: { avgItemLevel: 130, meleeHit: 0, expertiseSkill: 10, defenseSkill: 480 } }), V.DEFAULT_THRESHOLDS, NOW);
+    // Expertise is off by default (0); this sub-case is about the expertise-warn mechanic for a
+    // plate tank, so it passes an explicit threshold of 26 rather than relying on the default.
+    const tank = V.evaluate(profile({ identity: { class: 'WARRIOR', spec: 'Protection', role: 'tank' }, computed: { avgItemLevel: 130, meleeHit: 0, expertiseSkill: 10, defenseSkill: 480 } }), Object.assign({}, V.DEFAULT_THRESHOLDS, { expertise: 26 }), NOW);
     assert.strictEqual(tank.verdict, 'fail');
     assert.strictEqual(tank.rules.find(x => x.key === 'defense').status, 'fail');
     assert.strictEqual(tank.rules.find(x => x.key === 'expertise').status, 'warn');
@@ -246,10 +251,13 @@ test('evaluate: casters use spell hit, healers and tanks have no hit rule, tanks
     assert.strictEqual(bear.rules.find(x => x.key === 'expertise').applies, false);
 });
 test('evaluate: enchants and sockets warn at 1 and fail at 3; parse below threshold fails', () => {
-    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 1, emptySockets: 0 }, computed: profile().computed, }), V.DEFAULT_THRESHOLDS, NOW).rules.find(x => x.key === 'enchants').status, 'warn');
-    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 3, emptySockets: 0 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
-    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 0, emptySockets: 4 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
-    assert.strictEqual(V.evaluate(profile({ parses: { medianPercent: 12, zone: 1060 } }), V.DEFAULT_THRESHOLDS, NOW).verdict, 'fail');
+    // Enchants are calibrated to warn 2 / fail 4 by default; this test is about the warn/fail
+    // mechanic itself, so it exercises the 1/3 shape explicitly rather than the current default.
+    const t = Object.assign({}, V.DEFAULT_THRESHOLDS, { enchantWarn: 1, enchantFail: 3 });
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 1, emptySockets: 0 }, computed: profile().computed, }), t, NOW).rules.find(x => x.key === 'enchants').status, 'warn');
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 3, emptySockets: 0 } }), t, NOW).verdict, 'fail');
+    assert.strictEqual(V.evaluate(profile({ gearSummary: { missingEnchants: 0, emptySockets: 4 } }), t, NOW).verdict, 'fail');
+    assert.strictEqual(V.evaluate(profile({ parses: { medianPercent: 12, zone: 1060 } }), t, NOW).verdict, 'fail');
 });
 test('evaluate: stale data warns; no data at all is unverified, not fail', () => {
     const stale = V.evaluate(profile({ lastSeen: { timestamp: NOW - 40 * 86400e3 }, computed: Object.assign({}, profile().computed, { expertiseSkill: 26 }) }), V.DEFAULT_THRESHOLDS, NOW);
@@ -271,6 +279,94 @@ test('evaluate: hit note flags a gear-vs-reported disagreement over 5% of the th
 test('sortRows: fail, warn, unverified, pass, then by name', () => {
     const rows = [{ name: 'b', verdict: 'pass' }, { name: 'a', verdict: 'pass' }, { name: 'z', verdict: 'fail' }, { name: 'u', verdict: 'unverified' }, { name: 'w', verdict: 'warn' }];
     assert.deepStrictEqual(V.sortRows(rows).map(r => r.name), ['z', 'w', 'u', 'a', 'b']);
+});
+
+// --- Task 9: GearScore, two-hander item level, recalibrated defaults ---
+test('itemGearScore: TacoTip brackets are monotonic across the whole TBC range', () => {
+    const s = il => V.itemGearScore(il, 4, 'INVTYPE_CHEST');
+    assert.strictEqual(s(120), 145);
+    assert.strictEqual(s(121), 147, 'the WotLK bracket switch at 120 must NOT apply');
+    assert.strictEqual(s(133), 166);
+    assert.strictEqual(s(164), 214);
+    for (let il = 100; il < 167; il++) assert.ok(s(il + 1) >= s(il), 'not monotonic at ilvl ' + il);
+});
+test('itemGearScore: slot modifier, quality scaling and the sub-100 epic bracket', () => {
+    assert.strictEqual(V.itemGearScore(133, 4, 'INVTYPE_2HWEAPON'), 2 * 166,
+        'a two-hander is worth two weapon slots');
+    assert.strictEqual(V.itemGearScore(133, 4, 'INVTYPE_NECK'), Math.floor(((133 - 26) / 1.2) * 0.5625 * 1.8618));
+    assert.strictEqual(V.itemGearScore(90, 4, 'INVTYPE_CHEST'), Math.floor(((90 - 0.25) / 1.6275) * 1.8618),
+        'epics under ilvl 100 use bracket C');
+    assert.strictEqual(V.itemGearScore(133, 1, 'INVTYPE_CHEST'), Math.floor(((133 - 8) / 2) * 1.8618 * 0.005),
+        'common items are scaled to almost nothing');
+    assert.strictEqual(V.itemGearScore(133, 4, 'INVTYPE_BODY'), 0, 'an unscored slot is worth 0');
+});
+test('gsInvType: weapons and ranged resolve from the item table', () => {
+    assert.strictEqual(V.gsInvType('head', null), 'INVTYPE_HEAD');
+    assert.strictEqual(V.gsInvType('mainHand', { handType: 4 }), 'INVTYPE_2HWEAPON');
+    assert.strictEqual(V.gsInvType('mainHand', { handType: 1 }), 'INVTYPE_WEAPONMAINHAND');
+    assert.strictEqual(V.gsInvType('mainHand', { handType: 2 }), 'INVTYPE_WEAPON');
+    assert.strictEqual(V.gsInvType('offHand', { handType: 3, weaponType: 7 }), 'INVTYPE_SHIELD');
+    assert.strictEqual(V.gsInvType('offHand', { handType: 3, weaponType: 5 }), 'INVTYPE_HOLDABLE');
+    assert.strictEqual(V.gsInvType('ranged', { rangedWeaponType: 1 }), 'INVTYPE_RANGEDRIGHT');
+    assert.strictEqual(V.gsInvType('ranged', { rangedWeaponType: 8 }), 'INVTYPE_RELIC');
+});
+test('summarizeGear: a two-handed weapon counts for both weapon slots in avgItemLevel', () => {
+    const db = V.indexDb({ items: [
+        { id: 20, name: 'Test Greatsword', type: 13, handType: 4, weaponType: 9, ilvl: 136, quality: 4, gemSockets: [], socketBonus: {}, stats: {} },
+        { id: 21, name: 'Test 1H', type: 13, handType: 1, weaponType: 9, ilvl: 136, quality: 4, gemSockets: [], socketBonus: {}, stats: {} },
+    ], gems: [], enchants: [] });
+    const twoH = V.summarizeGear(wclGear({ 15: { id: 20, itemLevel: 136, quality: 4 } }), db, 'WARRIOR');
+    assert.strictEqual(twoH.avgItemLevel, Math.round(136 * 2 / 17 * 100) / 100);
+    const oneH = V.summarizeGear(wclGear({ 15: { id: 21, itemLevel: 136, quality: 4 } }), db, 'WARRIOR');
+    assert.strictEqual(oneH.avgItemLevel, Math.round(136 / 17 * 100) / 100);
+    assert.ok(twoH.avgItemLevel > oneH.avgItemLevel, 'the two-hander must not be penalised');
+});
+test('summarizeGear: gearScore sums the slots, and hunters are re-weighted', () => {
+    const db = V.indexDb({ items: [
+        { id: 30, name: 'Test Chest', type: 5, ilvl: 133, quality: 4, gemSockets: [], socketBonus: {}, stats: {} },
+        { id: 31, name: 'Test Bow', type: 14, rangedWeaponType: 1, ilvl: 133, quality: 4, gemSockets: [], socketBonus: {}, stats: {} },
+        { id: 32, name: 'Test 1H', type: 13, handType: 1, weaponType: 9, ilvl: 133, quality: 4, gemSockets: [], socketBonus: {}, stats: {} },
+    ], gems: [], enchants: [] });
+    const chestOnly = V.summarizeGear(wclGear({ 4: { id: 30, itemLevel: 133, quality: 4 } }), db, 'WARRIOR');
+    assert.strictEqual(chestOnly.gearScore, 166);
+    const warrior = V.summarizeGear(wclGear({ 17: { id: 31, itemLevel: 133, quality: 4 }, 15: { id: 32, itemLevel: 133, quality: 4 } }), db, 'WARRIOR');
+    const hunter = V.summarizeGear(wclGear({ 17: { id: 31, itemLevel: 133, quality: 4 }, 15: { id: 32, itemLevel: 133, quality: 4 } }), db, 'HUNTER');
+    assert.ok(hunter.gearScore > warrior.gearScore, 'a hunter\'s bow carries their score');
+    assert.strictEqual(hunter.gearScore,
+        Math.floor(V.itemGearScore(133, 4, 'INVTYPE_RANGEDRIGHT') * 5.3224) +
+        Math.floor(V.itemGearScore(133, 4, 'INVTYPE_WEAPONMAINHAND') * 0.3164));
+});
+test('DEFAULT_THRESHOLDS: the calibrated values from spec section 6', () => {
+    assert.deepStrictEqual(V.DEFAULT_THRESHOLDS, {
+        gs: 1700, ilvl: 110, meleeHit: 142, spellHit: 202, expertise: 0, defense: 490, parse: 20,
+        enchantWarn: 2, enchantFail: 4, socketWarn: 1, socketFail: 3, staleDays: 28,
+    });
+});
+test('evaluate: gearscore is the gear gate and its reason shows the shortfall', () => {
+    const p = profile({ gearSummary: { missingEnchants: 0, emptySockets: 0, gearScore: 1655 } });
+    const r = V.evaluate(p, V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.verdict, 'fail');
+    assert.strictEqual(r.rules.find(x => x.key === 'gs').status, 'fail');
+    assert.ok(r.reasons.indexOf('gearscore 1655/1700 (−45)') !== -1, r.reasons.join(','));
+    const ok = V.evaluate(profile({ gearSummary: { missingEnchants: 0, emptySockets: 0, gearScore: 1800 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(ok.rules.find(x => x.key === 'gs').status, 'pass');
+});
+test('evaluate: gearscore is unknown, not a failure, when there is no gear data', () => {
+    const r = V.evaluate({ identity: { class: 'MAGE', spec: 'Frost', role: 'caster' }, computed: null,
+        gearSummary: null, parses: { medianPercent: 60, zone: 1060 }, lastSeen: null }, V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(r.rules.find(x => x.key === 'gs').status, 'unknown');
+    assert.strictEqual(r.verdict, 'unverified');
+});
+test('evaluate: no reason string prints raw float noise', () => {
+    const r = V.evaluate(profile({ computed: { avgItemLevel: 108.35, meleeHit: 171, expertiseSkill: 0, defenseSkill: 350 },
+        gearSummary: { missingEnchants: 0, emptySockets: 0, gearScore: 1800 } }), V.DEFAULT_THRESHOLDS, NOW);
+    r.reasons.forEach(x => assert.ok(!/\d\.\d{4,}/.test(x), 'unrounded float in reason: ' + x));
+    assert.ok(r.reasons.indexOf('item level 108.35/110 (−1.65)') !== -1, r.reasons.join(','));
+});
+test('fixture: the real shaman scores a plausible GearScore and keeps its item level', () => {
+    const s = V.summarizeGear(REAL.report.combatant.gear, realDb, 'SHAMAN');
+    assert.strictEqual(s.avgItemLevel, 131.82, 'dual-wielder, so the two-hander rule must not move it');
+    assert.ok(s.gearScore > 1500 && s.gearScore < 2200, 'gearScore was ' + s.gearScore);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

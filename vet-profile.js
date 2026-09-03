@@ -54,7 +54,8 @@ function buildProfile(a) {
         const s = V.summarizeGear(a.combatant.gear, a.dbIndex, a.classToken);
         gear = s.slots;
         gearSummary = { avgItemLevel: s.avgItemLevel, missingEnchants: s.missingEnchants, emptySockets: s.emptySockets,
-                        unknownItems: s.unknownItems, socketBonusesApplied: s.socketBonusesApplied, setBonusesApplied: s.setBonusesApplied };
+                        unknownItems: s.unknownItems, socketBonusesApplied: s.socketBonusesApplied, setBonusesApplied: s.setBonusesApplied,
+                        gearScore: s.gearScore };
         gearOnly = { meleeHit: s.stats[V.STAT.MELEE_HIT] || 0, spellHit: s.stats[V.STAT.SPELL_HIT] || 0 };
         reported = {};
         REPORTED_FIELDS.forEach(k => { reported[k] = typeof a.combatant[k] === 'number' ? a.combatant[k] : null; });
