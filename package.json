@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node assignments-engine.test.js && node wcl-mult.test.js && node hyjal-positions.test.js"
+    "test": "node assignments-engine.test.js && node wcl-mult.test.js && node hyjal-positions.test.js && node data/tbc-item-db.test.js"
   },
   "keywords": [
     "wow",

@@ -1,0 +1,1414 @@
+{
+ "capturedAt": "2026-09-03",
+ "source": "WCL classic v2 API, character Nottomwro-Spineshatter (EU); actors trimmed to the one row the tests need",
+ "character": {
+  "id": 111679298,
+  "classID": 9,
+  "recentReports": {
+   "data": [
+    {
+     "code": "BfjHn8DkzhX1tTmJ",
+     "startTime": 1788424655440,
+     "fights": [
+      {
+       "id": 4,
+       "encounterID": 100623,
+       "name": "Hydross the Unstable",
+       "kill": true
+      },
+      {
+       "id": 11,
+       "encounterID": 100624,
+       "name": "The Lurker Below",
+       "kill": true
+      }
+     ]
+    },
+    {
+     "code": "MfPj6C9y2kXqQvtB",
+     "startTime": 1788373946993,
+     "fights": [
+      {
+       "id": 7,
+       "encounterID": 50601,
+       "name": "High Warlord Naj'entus",
+       "kill": true
+      },
+      {
+       "id": 11,
+       "encounterID": 50602,
+       "name": "Supremus",
+       "kill": true
+      },
+      {
+       "id": 17,
+       "encounterID": 50603,
+       "name": "Shade of Akama",
+       "kill": true
+      },
+      {
+       "id": 29,
+       "encounterID": 50604,
+       "name": "Teron Gorefiend",
+       "kill": true
+      },
+      {
+       "id": 36,
+       "encounterID": 50605,
+       "name": "Gurtogg Bloodboil",
+       "kill": true
+      },
+      {
+       "id": 38,
+       "encounterID": 50606,
+       "name": "Reliquary of Souls",
+       "kill": true
+      },
+      {
+       "id": 46,
+       "encounterID": 50607,
+       "name": "Mother Shahraz",
+       "kill": true
+      },
+      {
+       "id": 50,
+       "encounterID": 50608,
+       "name": "The Illidari Council",
+       "kill": true
+      },
+      {
+       "id": 51,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 52,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 53,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 54,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": true
+      },
+      {
+       "id": 64,
+       "encounterID": 50618,
+       "name": "Rage Winterchill",
+       "kill": true
+      },
+      {
+       "id": 73,
+       "encounterID": 50619,
+       "name": "Anetheron",
+       "kill": true
+      },
+      {
+       "id": 84,
+       "encounterID": 50620,
+       "name": "Kaz'rogal",
+       "kill": true
+      },
+      {
+       "id": 94,
+       "encounterID": 50621,
+       "name": "Azgalor",
+       "kill": true
+      },
+      {
+       "id": 96,
+       "encounterID": 50622,
+       "name": "Archimonde",
+       "kill": true
+      }
+     ]
+    },
+    {
+     "code": "MH1phc8A47TVqCPr",
+     "startTime": 1788375057510,
+     "fights": [
+      {
+       "id": 7,
+       "encounterID": 50601,
+       "name": "High Warlord Naj'entus",
+       "kill": true
+      },
+      {
+       "id": 11,
+       "encounterID": 50602,
+       "name": "Supremus",
+       "kill": true
+      },
+      {
+       "id": 17,
+       "encounterID": 50603,
+       "name": "Shade of Akama",
+       "kill": true
+      },
+      {
+       "id": 29,
+       "encounterID": 50604,
+       "name": "Teron Gorefiend",
+       "kill": true
+      },
+      {
+       "id": 36,
+       "encounterID": 50605,
+       "name": "Gurtogg Bloodboil",
+       "kill": true
+      },
+      {
+       "id": 38,
+       "encounterID": 50606,
+       "name": "Reliquary of Souls",
+       "kill": true
+      },
+      {
+       "id": 46,
+       "encounterID": 50607,
+       "name": "Mother Shahraz",
+       "kill": true
+      },
+      {
+       "id": 50,
+       "encounterID": 50608,
+       "name": "The Illidari Council",
+       "kill": true
+      },
+      {
+       "id": 51,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 52,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 53,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": false
+      },
+      {
+       "id": 54,
+       "encounterID": 50609,
+       "name": "Illidan Stormrage",
+       "kill": true
+      },
+      {
+       "id": 64,
+       "encounterID": 50618,
+       "name": "Rage Winterchill",
+       "kill": true
+      },
+      {
+       "id": 73,
+       "encounterID": 50619,
+       "name": "Anetheron",
+       "kill": true
+      },
+      {
+       "id": 84,
+       "encounterID": 50620,
+       "name": "Kaz'rogal",
+       "kill": true
+      },
+      {
+       "id": 94,
+       "encounterID": 50621,
+       "name": "Azgalor",
+       "kill": true
+      },
+      {
+       "id": 96,
+       "encounterID": 50622,
+       "name": "Archimonde",
+       "kill": true
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "zoneRankings": {
+  "1056": {
+   "bestPerformanceAverage": 68.03720427592009,
+   "medianPerformanceAverage": 51.714961307410285,
+   "difficulty": 3,
+   "metric": "dps",
+   "partition": -1,
+   "zone": 1056,
+   "size": 25,
+   "allStars": [
+    {
+     "partition": 3,
+     "spec": "Enhancement",
+     "points": 654.864,
+     "possiblePoints": 960,
+     "rank": 1686,
+     "regionRank": 888,
+     "serverRank": 565,
+     "rankPercent": 80.20674262892048,
+     "total": 8513,
+     "rankTooltip": null
+    },
+    {
+     "partition": 2,
+     "spec": "Enhancement",
+     "points": 542.425,
+     "possiblePoints": 960,
+     "rank": 12313,
+     "regionRank": 6218,
+     "serverRank": 4058,
+     "rankPercent": 60.999714910196715,
+     "total": 31569,
+     "rankTooltip": null
+    }
+   ],
+   "rankings": [
+    {
+     "encounter": {
+      "id": 100623,
+      "name": "Hydross the Unstable"
+     },
+     "rankPercent": 76.34347886982641,
+     "medianPercent": 55.82080638288773,
+     "lockedIn": false,
+     "totalKills": 5,
+     "fastestKill": 119155,
+     "allStars": {
+      "points": 75.6,
+      "possiblePoints": 120,
+      "partition": 2,
+      "rank": 10160,
+      "regionRank": 5096,
+      "serverRank": 3447,
+      "rankPercent": 65.59187129551228,
+      "total": 29525
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1537.0833198091,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 136581084,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1537.0833198091,
+      "ilvl": 132,
+      "fight_metadata": 916119
+     }
+    },
+    {
+     "encounter": {
+      "id": 100624,
+      "name": "The Lurker Below"
+     },
+     "rankPercent": 65.28735533753432,
+     "medianPercent": 51.34168407639451,
+     "lockedIn": true,
+     "totalKills": 5,
+     "fastestKill": 174794,
+     "allStars": {
+      "points": 81.46,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1871,
+      "regionRank": 963,
+      "serverRank": 585,
+      "rankPercent": 70.43010752688173,
+      "total": 6324
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1296.8923418424,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134664937,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1296.8923418424,
+      "ilvl": 127,
+      "fight_metadata": 917237
+     }
+    },
+    {
+     "encounter": {
+      "id": 100625,
+      "name": "Leotheras the Blind"
+     },
+     "rankPercent": 89.8365,
+     "medianPercent": 59.5787,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 166430,
+     "allStars": {
+      "points": 106.67,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 538,
+      "regionRank": 296,
+      "serverRank": 215,
+      "rankPercent": 91.4707750952986,
+      "total": 6296
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1628.6066214024,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134680111,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1628.6066214024,
+      "ilvl": 129,
+      "fight_metadata": 915409
+     }
+    },
+    {
+     "encounter": {
+      "id": 100626,
+      "name": "Fathom-Lord Karathress"
+     },
+     "rankPercent": 63.0092,
+     "medianPercent": 60.0609,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 104035,
+     "allStars": {
+      "points": 77.85,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 2029,
+      "regionRank": 1066,
+      "serverRank": 675,
+      "rankPercent": 67.91646891314666,
+      "total": 6321
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1631.6957189337,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 132827920,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1631.6957189337,
+      "ilvl": 129,
+      "fight_metadata": 915139
+     }
+    },
+    {
+     "encounter": {
+      "id": 100627,
+      "name": "Morogrim Tidewalker"
+     },
+     "rankPercent": 59.3384,
+     "medianPercent": 56.173,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 190139,
+     "allStars": {
+      "points": 79.14,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 2226,
+      "regionRank": 1172,
+      "serverRank": 728,
+      "rankPercent": 64.64887194153162,
+      "total": 6294
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1584.1200384982,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134666414,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1584.1200384982,
+      "ilvl": 127,
+      "fight_metadata": 915322
+     }
+    },
+    {
+     "encounter": {
+      "id": 100628,
+      "name": "Lady Vashj"
+     },
+     "rankPercent": 16.9329,
+     "medianPercent": 6.44086,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 451687,
+     "allStars": {
+      "points": 0,
+      "possiblePoints": 0,
+      "partition": 3,
+      "rank": 5483,
+      "regionRank": 2612,
+      "serverRank": 1433,
+      "rankPercent": 15.726364335126826,
+      "total": 6505
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 555.30512986829,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134669597,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 555.30512986829,
+      "ilvl": 129,
+      "fight_metadata": 927916
+     }
+    },
+    {
+     "encounter": {
+      "id": 100730,
+      "name": "Al'ar"
+     },
+     "rankPercent": 72.7761,
+     "medianPercent": 51.9775,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 275163,
+     "allStars": {
+      "points": 92.99,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1390,
+      "regionRank": 730,
+      "serverRank": 489,
+      "rankPercent": 78.26971214017522,
+      "total": 6392
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1017.1643716633,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134674060,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1017.1643716633,
+      "ilvl": 129,
+      "fight_metadata": 915844
+     }
+    },
+    {
+     "encounter": {
+      "id": 100731,
+      "name": "Void Reaver"
+     },
+     "rankPercent": 55.9515,
+     "medianPercent": 39.5407,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 153025,
+     "allStars": {
+      "points": 73.1,
+      "possiblePoints": 120,
+      "partition": 2,
+      "rank": 12824,
+      "regionRank": 6489,
+      "serverRank": 4133,
+      "rankPercent": 55.56364140416537,
+      "total": 28857
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1515.4401907632,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 130794563,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1515.4401907632,
+      "ilvl": 127,
+      "fight_metadata": 915143
+     }
+    },
+    {
+     "encounter": {
+      "id": 100732,
+      "name": "High Astromancer Solarian"
+     },
+     "rankPercent": 61.7551,
+     "medianPercent": 39.2264,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 118710,
+     "allStars": {
+      "points": 78.59,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1921,
+      "regionRank": 1030,
+      "serverRank": 663,
+      "rankPercent": 68.90688259109312,
+      "total": 6175
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1472.8950032947,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 134677225,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1472.8950032947,
+      "ilvl": 127,
+      "fight_metadata": 915289
+     }
+    },
+    {
+     "encounter": {
+      "id": 100733,
+      "name": "Kael'thas Sunstrider"
+     },
+     "rankPercent": 37.8284,
+     "medianPercent": 8.75038,
+     "lockedIn": true,
+     "totalKills": 4,
+     "fastestKill": 444148,
+     "allStars": {
+      "points": 0,
+      "possiblePoints": 0,
+      "partition": 2,
+      "rank": 17519,
+      "regionRank": 8590,
+      "serverRank": 5201,
+      "rankPercent": 37.40888952408175,
+      "total": 27988
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 732.47205886326,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 129441102,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 732.47205886326,
+      "ilvl": 129,
+      "fight_metadata": 915145
+     }
+    }
+   ]
+  },
+  "1060": {
+   "bestPerformanceAverage": 90.5907796530016,
+   "medianPerformanceAverage": 82.88794238140271,
+   "difficulty": 3,
+   "metric": "dps",
+   "partition": -1,
+   "zone": 1060,
+   "size": 25,
+   "allStars": [
+    {
+     "partition": 3,
+     "spec": "Enhancement",
+     "points": 1363.4,
+     "possiblePoints": 1560,
+     "rank": 252,
+     "regionRank": 122,
+     "serverRank": 105,
+     "rankPercent": 98.30748482805124,
+     "total": 14830,
+     "rankTooltip": null
+    }
+   ],
+   "rankings": [
+    {
+     "encounter": {
+      "id": 50601,
+      "name": "High Warlord Naj'entus"
+     },
+     "rankPercent": 92.21610006877785,
+     "medianPercent": 88.90663394741716,
+     "lockedIn": true,
+     "totalKills": 2,
+     "fastestKill": 105014,
+     "allStars": {
+      "points": 107.45,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 825,
+      "regionRank": 441,
+      "serverRank": 336,
+      "rankPercent": 92.04556424365286,
+      "total": 10359
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1844.2244455328,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 1484078,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1844.2244455328,
+      "ilvl": 131,
+      "fight_metadata": 996898
+     }
+    },
+    {
+     "encounter": {
+      "id": 50602,
+      "name": "Supremus"
+     },
+     "rankPercent": 97.78570933871966,
+     "medianPercent": 83.97775281906482,
+     "lockedIn": true,
+     "totalKills": 2,
+     "fastestKill": 149024,
+     "allStars": {
+      "points": 113.23,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 280,
+      "regionRank": 135,
+      "serverRank": 111,
+      "rankPercent": 97.30408735143492,
+      "total": 10349
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1809.5877174146,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 1490889,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1809.5877174146,
+      "ilvl": 131,
+      "fight_metadata": 996909
+     }
+    },
+    {
+     "encounter": {
+      "id": 50603,
+      "name": "Shade of Akama"
+     },
+     "rankPercent": 86.43790965849955,
+     "medianPercent": 51.63559225130414,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 82119,
+     "allStars": {
+      "points": 0,
+      "possiblePoints": 0,
+      "partition": 3,
+      "rank": 1579,
+      "regionRank": 762,
+      "serverRank": 491,
+      "rankPercent": 84.58080906781318,
+      "total": 10234
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1444.3916754953,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 4965023,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1444.3916754953,
+      "ilvl": 132,
+      "fight_metadata": 996910
+     }
+    },
+    {
+     "encounter": {
+      "id": 50604,
+      "name": "Teron Gorefiend"
+     },
+     "rankPercent": 95.31570604347235,
+     "medianPercent": 92.00497579198938,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 124227,
+     "allStars": {
+      "points": 109.85,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 559,
+      "regionRank": 272,
+      "serverRank": 206,
+      "rankPercent": 94.30960636345095,
+      "total": 9806
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 2286.8056058667,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 4989463,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 2286.8056058667,
+      "ilvl": 132,
+      "fight_metadata": 996911
+     }
+    },
+    {
+     "encounter": {
+      "id": 50605,
+      "name": "Gurtogg Bloodboil"
+     },
+     "rankPercent": 79.13553945237855,
+     "medianPercent": 57.058022108673846,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 163242,
+     "allStars": {
+      "points": 91.86,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1849,
+      "regionRank": 943,
+      "serverRank": 671,
+      "rankPercent": 76.6016713091922,
+      "total": 7898
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1793.1782261918,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5017236,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1793.1782261918,
+      "ilvl": 132,
+      "fight_metadata": 996912
+     }
+    },
+    {
+     "encounter": {
+      "id": 50606,
+      "name": "Reliquary of Souls"
+     },
+     "rankPercent": 79.67330740444682,
+     "medianPercent": 79.5834488880057,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 301025,
+     "allStars": {
+      "points": 93.48,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1989,
+      "regionRank": 974,
+      "serverRank": 692,
+      "rankPercent": 76.61451593930126,
+      "total": 8501
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1849.6827331176,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5032043,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1849.6827331176,
+      "ilvl": 132,
+      "fight_metadata": 996913
+     }
+    },
+    {
+     "encounter": {
+      "id": 50607,
+      "name": "Mother Shahraz"
+     },
+     "rankPercent": 89.88902038255408,
+     "medianPercent": 69.03339794271133,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 148132,
+     "allStars": {
+      "points": 102.71,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 800,
+      "regionRank": 411,
+      "serverRank": 326,
+      "rankPercent": 88.06393785479534,
+      "total": 6694
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1788.2631706856,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5054855,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1788.2631706856,
+      "ilvl": 131,
+      "fight_metadata": 996914
+     }
+    },
+    {
+     "encounter": {
+      "id": 50608,
+      "name": "The Illidari Council"
+     },
+     "rankPercent": 95.99268015094529,
+     "medianPercent": 88.47976934996187,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 280726,
+     "allStars": {
+      "points": 111.76,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 251,
+      "regionRank": 132,
+      "serverRank": 104,
+      "rankPercent": 94.02628434886499,
+      "total": 4185
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1884.9625613588,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5074304,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1884.9625613588,
+      "ilvl": 132,
+      "fight_metadata": 996883
+     }
+    },
+    {
+     "encounter": {
+      "id": 50609,
+      "name": "Illidan Stormrage"
+     },
+     "rankPercent": 68.38505147001841,
+     "medianPercent": 67.81232620662922,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 363086,
+     "allStars": {
+      "points": 86.41,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1516,
+      "regionRank": 834,
+      "serverRank": 641,
+      "rankPercent": 63.90278770550393,
+      "total": 4197
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1151.4324430025,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5125854,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1151.4324430025,
+      "ilvl": 132,
+      "fight_metadata": 996915
+     }
+    },
+    {
+     "encounter": {
+      "id": 50618,
+      "name": "Rage Winterchill"
+     },
+     "rankPercent": 91.61534768283428,
+     "medianPercent": 79.13630915624994,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 96187,
+     "allStars": {
+      "points": 103.97,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 1233,
+      "regionRank": 652,
+      "serverRank": 483,
+      "rankPercent": 90.40722572607646,
+      "total": 12843
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1970.5677482404,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5167561,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1970.5677482404,
+      "ilvl": 132,
+      "fight_metadata": 996916
+     }
+    },
+    {
+     "encounter": {
+      "id": 50619,
+      "name": "Anetheron"
+     },
+     "rankPercent": 98.24021242933988,
+     "medianPercent": 97.22001381831893,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 88271,
+     "allStars": {
+      "points": 113.12,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 241,
+      "regionRank": 123,
+      "serverRank": 100,
+      "rankPercent": 98.06060606060606,
+      "total": 12375
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 2356.6856612024,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5180855,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 2356.6856612024,
+      "ilvl": 132,
+      "fight_metadata": 996917
+     }
+    },
+    {
+     "encounter": {
+      "id": 50620,
+      "name": "Kaz'rogal"
+     },
+     "rankPercent": 96.6537789432686,
+     "medianPercent": 88.56381299735716,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 112654,
+     "allStars": {
+      "points": 111.07,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 486,
+      "regionRank": 259,
+      "serverRank": 205,
+      "rankPercent": 95.98941536426031,
+      "total": 12093
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1954.1516501855,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5196364,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1954.1516501855,
+      "ilvl": 131,
+      "fight_metadata": 996918
+     }
+    },
+    {
+     "encounter": {
+      "id": 50621,
+      "name": "Azgalor"
+     },
+     "rankPercent": 95.23089896574517,
+     "medianPercent": 91.03969852486304,
+     "lockedIn": true,
+     "totalKills": 2,
+     "fastestKill": 109940,
+     "allStars": {
+      "points": 105.18,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 865,
+      "regionRank": 473,
+      "serverRank": 358,
+      "rankPercent": 92.3796083965426,
+      "total": 11338
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 1972.0325827505,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 1449901,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 1972.0325827505,
+      "ilvl": 131,
+      "fight_metadata": 996919
+     }
+    },
+    {
+     "encounter": {
+      "id": 50622,
+      "name": "Archimonde"
+     },
+     "rankPercent": 97.54678315651992,
+     "medianPercent": 94.7270894069927,
+     "lockedIn": false,
+     "totalKills": 2,
+     "fastestKill": 129359,
+     "allStars": {
+      "points": 113.31,
+      "possiblePoints": 120,
+      "partition": 3,
+      "rank": 264,
+      "regionRank": 127,
+      "serverRank": 101,
+      "rankPercent": 97.1705217859064,
+      "total": 9295
+     },
+     "spec": "Enhancement",
+     "bestSpec": "Enhancement",
+     "bestAmount": 2073.5549903756,
+     "rankTooltip": null,
+     "bestRank": {
+      "rank_id": 5209571,
+      "class": 9,
+      "spec": 2,
+      "per_second_amount": 2073.5549903756,
+      "ilvl": 132,
+      "fight_metadata": 996920
+     }
+    }
+   ]
+  }
+ },
+ "report": {
+  "code": "BfjHn8DkzhX1tTmJ",
+  "startTime": 1788424655440,
+  "fight": {
+   "id": 4,
+   "encounterID": 100623,
+   "name": "Hydross the Unstable",
+   "kill": true
+  },
+  "actors": [
+   {
+    "id": 19,
+    "name": "Nottomwro",
+    "server": "Spineshatter",
+    "subType": "Shaman"
+   }
+  ],
+  "combatant": {
+   "timestamp": 460166,
+   "type": "combatantinfo",
+   "fight": 4,
+   "sourceID": 19,
+   "gear": [
+    {
+     "id": 30190,
+     "quality": 4,
+     "icon": "inv_helmet_54.jpg",
+     "itemLevel": 133,
+     "permanentEnchant": 3003,
+     "gems": [
+      {
+       "id": 32409,
+       "itemLevel": 70,
+       "icon": "inv_misc_gem_diamond_06.jpg"
+      },
+      {
+       "id": 24058,
+       "itemLevel": 70,
+       "icon": "inv_jewelcrafting_nobletopaz_03.jpg"
+      }
+     ],
+     "setID": 636
+    },
+    {
+     "id": 30017,
+     "quality": 4,
+     "icon": "inv_jewelry_necklace_30naxxramas.jpg",
+     "itemLevel": 138
+    },
+    {
+     "id": 32581,
+     "quality": 4,
+     "icon": "inv_shoulder_23.jpg",
+     "itemLevel": 141,
+     "permanentEnchant": 2986
+    },
+    {
+     "id": 23345,
+     "quality": 2,
+     "icon": "inv_shirt_14.jpg",
+     "itemLevel": 1
+    },
+    {
+     "id": 30185,
+     "quality": 4,
+     "icon": "inv_chest_plate08.jpg",
+     "itemLevel": 133,
+     "permanentEnchant": 2661,
+     "gems": [
+      {
+       "id": 28362,
+       "itemLevel": 60,
+       "icon": "inv_misc_gem_ruby_02.jpg"
+      },
+      {
+       "id": 28119,
+       "itemLevel": 60,
+       "icon": "inv_misc_gem_topaz_01.jpg"
+      },
+      {
+       "id": 28363,
+       "itemLevel": 60,
+       "icon": "inv_misc_gem_opal_01.jpg"
+      }
+     ],
+     "setID": 636
+    },
+    {
+     "id": 30040,
+     "quality": 4,
+     "icon": "inv_belt_29.jpg",
+     "itemLevel": 128,
+     "gems": [
+      {
+       "id": 24054,
+       "itemLevel": 70,
+       "icon": "inv_jewelcrafting_nightseye_03.jpg"
+      },
+      {
+       "id": 24054,
+       "itemLevel": 70,
+       "icon": "inv_jewelcrafting_nightseye_03.jpg"
+      }
+     ]
+    },
+    {
+     "id": 30192,
+     "quality": 4,
+     "icon": "inv_pants_mail_15.jpg",
+     "itemLevel": 133,
+     "permanentEnchant": 3012,
+     "gems": [
+      {
+       "id": 24027,
+       "itemLevel": 70,
+       "icon": "inv_jewelcrafting_livingruby_03.jpg"
+      }
+     ],
+     "setID": 636
+    },
+    {
+     "id": 32510,
+     "quality": 4,
+     "icon": "inv_boots_chain_01.jpg",
+     "itemLevel": 141,
+     "permanentEnchant": 2939
+    },
+    {
+     "id": 32574,
+     "quality": 4,
+     "icon": "inv_bracer_02.jpg",
+     "itemLevel": 141,
+     "permanentEnchant": 2647
+    },
+    {
+     "id": 30189,
+     "quality": 4,
+     "icon": "inv_gauntlets_25.jpg",
+     "itemLevel": 133,
+     "permanentEnchant": 684,
+     "setID": 636
+    },
+    {
+     "id": 29997,
+     "quality": 4,
+     "icon": "inv_jewelry_ring_55.jpg",
+     "itemLevel": 138
+    },
+    {
+     "id": 29301,
+     "quality": 4,
+     "icon": "inv_jewelry_ring_55.jpg",
+     "itemLevel": 152
+    },
+    {
+     "id": 28830,
+     "quality": 4,
+     "icon": "inv_misc_bone_03.jpg",
+     "itemLevel": 125
+    },
+    {
+     "id": 29383,
+     "quality": 4,
+     "icon": "inv_misc_monsterscales_15.jpg",
+     "itemLevel": 110
+    },
+    {
+     "id": 24259,
+     "quality": 4,
+     "icon": "inv_misc_cape_18.jpg",
+     "itemLevel": 105,
+     "permanentEnchant": 368,
+     "gems": [
+      {
+       "id": 24027,
+       "itemLevel": 70,
+       "icon": "inv_jewelcrafting_livingruby_03.jpg"
+      }
+     ]
+    },
+    {
+     "id": 32944,
+     "quality": 4,
+     "icon": "inv_weapon_hand_12.jpg",
+     "itemLevel": 134,
+     "permanentEnchant": 2673,
+     "temporaryEnchant": 2636
+    },
+    {
+     "id": 29996,
+     "quality": 4,
+     "icon": "inv_mace_48.jpg",
+     "itemLevel": 141,
+     "permanentEnchant": 2673,
+     "temporaryEnchant": 2636
+    },
+    {
+     "id": 27815,
+     "quality": 3,
+     "icon": "spell_unused.jpg",
+     "itemLevel": 115
+    },
+    {
+     "id": 31405,
+     "quality": 2,
+     "icon": "inv_shirt_15.jpg",
+     "itemLevel": 1
+    }
+   ],
+   "auras": [
+    {
+     "source": 18,
+     "ability": 20218,
+     "stacks": 1,
+     "icon": "spell_holy_mindvision.jpg",
+     "name": "Sanctity Aura"
+    },
+    {
+     "source": 9,
+     "ability": 24932,
+     "stacks": 1,
+     "icon": "spell_nature_unyeildingstamina.jpg",
+     "name": "Leader of the Pack"
+    },
+    {
+     "source": 18,
+     "ability": 25898,
+     "stacks": 1,
+     "icon": "spell_magic_greaterblessingofkings.jpg",
+     "name": "Greater Blessing of Kings"
+    },
+    {
+     "source": 10,
+     "ability": 25895,
+     "stacks": 1,
+     "icon": "spell_holy_greaterblessingofsalvation.jpg",
+     "name": "Greater Blessing of Salvation"
+    },
+    {
+     "source": 16,
+     "ability": 27140,
+     "stacks": 1,
+     "icon": "spell_holy_fistofjustice.jpg",
+     "name": "Blessing of Might"
+    },
+    {
+     "source": 15,
+     "ability": 39374,
+     "stacks": 1,
+     "icon": "spell_holy_prayerofshadowprotection.jpg",
+     "name": "Prayer of Shadow Protection"
+    },
+    {
+     "source": 19,
+     "ability": 33256,
+     "stacks": 1,
+     "icon": "spell_misc_food.jpg",
+     "name": "Well Fed"
+    },
+    {
+     "source": 26,
+     "ability": 2048,
+     "stacks": 1,
+     "icon": "ability_warrior_battleshout.jpg",
+     "name": "Battle Shout"
+    }
+   ],
+   "expansion": "tbc",
+   "faction": 1,
+   "specID": 0,
+   "strength": 503,
+   "agility": 449,
+   "stamina": 653,
+   "intellect": 355,
+   "spirit": 182,
+   "dodge": 0,
+   "parry": 0,
+   "block": 0,
+   "armor": 6210,
+   "critMelee": 157,
+   "critRanged": 157,
+   "critSpell": 0,
+   "hasteMelee": 65,
+   "hasteRanged": 65,
+   "hasteSpell": 0,
+   "hitMelee": 171,
+   "hitRanged": 171,
+   "hitSpell": 0,
+   "expertise": 0,
+   "resilienceCritTaken": 0,
+   "resilienceDamageTaken": 0,
+   "talentTree": [],
+   "talents": [
+    {
+     "id": 2,
+     "icon": "inv_axe_02.jpg"
+    },
+    {
+     "id": 45,
+     "icon": "ability_bullrush.jpg"
+    },
+    {
+     "id": 14,
+     "icon": "trade_engineering.jpg"
+    }
+   ],
+   "pvpTalents": [],
+   "customPowerSet": [],
+   "secondaryCustomPowerSet": [],
+   "tertiaryCustomPowerSet": []
+  }
+ }
+}
