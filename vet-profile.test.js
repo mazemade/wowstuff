@@ -59,6 +59,8 @@ test('fetchProfile: happy path joins gear, reported stats, spec and current-tier
     assert.strictEqual(p.parses.bosses[0].kills, 2);
     assert.strictEqual(p.lastSeen.reportCode, FX.report.code);
     assert.strictEqual(p.lastSeen.timestamp, FX.report.startTime);
+    assert.deepStrictEqual(s.calls.find(c => c.q === P.REPORT_QUERY).vars.fights, [11], 'asks for the last fight of the report');
+    assert.strictEqual(p.lastSeen.fightName, 'The Lurker Below');
     assert.deepStrictEqual(p.missing, []);
     // One report query only: the first report had the row.
     assert.strictEqual(s.calls.filter(c => c.q === P.REPORT_QUERY).length, 1);
@@ -130,6 +132,17 @@ test('buildProfile: is pure and does not need the network', () => {
     assert.strictEqual(p.identity.spec, 'Enhancement');
     assert.strictEqual(p.gearSummary.missingEnchants, 0);
     assert.strictEqual(p.lastSeen.fightName, 'Hydross the Unstable');
+});
+
+test('buildProfile: the WCL spec fallback reads the first ranking row that has a kill, not row zero', () => {
+    const rankings = JSON.parse(JSON.stringify(FX.zoneRankings['1060']));
+    rankings.rankings[0].totalKills = 0;
+    rankings.rankings[0].spec = null;
+    rankings.rankings[0].bestSpec = null;
+    const p = P.buildProfile({ name: 'X', server: 's', region: 'eu', zone: 1060, classToken: 'SHAMAN',
+        combatant: null, report: null, rankings, rankingsZone: 1060, fallback: false, metric: 'dps', dbIndex: db });
+    assert.strictEqual(p.identity.spec, 'Enhancement');
+    assert.strictEqual(p.identity.detectedFrom, 'wcl');
 });
 
 Promise.all(pending).then(() => {

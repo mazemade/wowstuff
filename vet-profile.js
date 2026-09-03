@@ -40,7 +40,9 @@ function buildParses(rankings, zone, fallback, metric) {
 function buildProfile(a) {
     const missing = [];
     const talentSplit = a.combatant && Array.isArray(a.combatant.talents) ? a.combatant.talents.map(t => t.id) : null;
-    const wclSpec = a.rankings && a.rankings.rankings && a.rankings.rankings[0] ? (a.rankings.rankings[0].bestSpec || a.rankings.rankings[0].spec) : null;
+    const rankRows = (a.rankings && Array.isArray(a.rankings.rankings)) ? a.rankings.rankings : [];
+    const specRow = rankRows.find(r => r && r.totalKills > 0) || rankRows[0] || null;
+    const wclSpec = specRow ? (specRow.bestSpec || specRow.spec) : null;
     const det = V.detectSpec(a.classToken, talentSplit, wclSpec);
     let gear = null, gearSummary = null, gearOnly = null, reported = null, computed = null, lastSeen = null;
     if (a.combatant) {
