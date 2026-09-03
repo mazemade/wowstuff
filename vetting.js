@@ -116,11 +116,17 @@ async function fetchOne(key) {
         const url = '/api/vet/player?name=' + encodeURIComponent(player.name) + '&server=' + encodeURIComponent(wcl.server) +
             '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE;
         const res = await fetch(url);
+        // Remove all (or a single ×) can run while this request is in flight; a response arriving
+        // after the player is gone from state.players must not resurrect its row.
+        if (!state.players.some(p => p.name.toLowerCase() === key)) return;
         if (res.status === 429) { queue.unshift(key); pause(); return; }
         const body = await res.json().catch(() => ({}));
         if (!res.ok) { state.errors[key] = body.error || ('HTTP ' + res.status); }
         else { state.profiles[key] = body; }
-    } catch (err) { state.errors[key] = 'Network error: ' + err.message; }
+    } catch (err) {
+        if (!state.players.some(p => p.name.toLowerCase() === key)) return;
+        state.errors[key] = 'Network error: ' + err.message;
+    }
     // save() can throw (e.g. QuotaExceededError). It must not skip renderTable() below, or the
     // row is stuck on "fetching…" forever with no error state — every failure is a row state.
     try { save(); } catch (err) { if (!state.errors[key]) state.errors[key] = 'Could not save locally: ' + err.message; }
@@ -168,6 +174,18 @@ function removePlayer(name) {
     queue = queue.filter(k => k !== key);
     rosterNotice = null;
     save(); renderTable();
+}
+function removeAll() {
+    state.players = [];
+    state.profiles = {};
+    state.errors = {};
+    queue = [];
+    expanded = null;
+    rosterNotice = null;
+    // save() can throw (e.g. QuotaExceededError); surface it as a status, same as loadRoster's
+    // own guarded save — never throw or alert.
+    try { save(); } catch (err) { rosterNotice = 'Could not save locally: ' + err.message; }
+    renderTable();
 }
 
 // --- table ---
@@ -362,6 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.players.forEach(p => enqueue(p.name, true));
     });
     document.getElementById('loadRosterBtn').addEventListener('click', loadRoster);
+    document.getElementById('removeAllBtn').addEventListener('click', removeAll);
     // Resume anything not yet fetched (e.g. after a reload mid-queue).
     state.players.forEach(p => enqueue(p.name, false));
 });
