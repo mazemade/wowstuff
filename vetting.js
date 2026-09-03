@@ -72,14 +72,43 @@ function renderThresholds() {
 }
 
 function renderRealm() {
+    document.getElementById('realmInput').value = wcl.server;
+    document.getElementById('regionInput').value = wcl.region;
     const el = document.getElementById('realmLine');
     if (!wcl.server) {
         el.className = 'status error';
-        el.innerHTML = 'No realm set — enter the Warcraft Logs realm slug under Player tuning on the <a href="./">Assignments page</a> first.';
+        el.textContent = 'No realm set — enter the Warcraft Logs realm slug above before adding players.';
     } else {
         el.className = 'status';
-        el.innerHTML = 'Realm: <b>' + escapeHtml(wcl.server) + '</b> (' + escapeHtml(wcl.region.toUpperCase()) + ') — change on the <a href="./">Assignments page</a>.';
+        el.textContent = 'Shared with the Assignments page\u2019s Warcraft Logs settings.';
     }
+}
+// The realm is a setting shared with the Assignments page, so it lives in that page's state blob
+// rather than ours. Merge into whatever is there — the blob also holds the roster, and a
+// wcl sub-object may carry fetch results (durations) that must survive a realm edit.
+function saveRealm() {
+    let a = {};
+    try { a = JSON.parse(localStorage.getItem(ASSIGN_KEY)) || {}; } catch (e) { a = {}; }
+    if (!a || typeof a !== 'object' || Array.isArray(a)) a = {};
+    a.wcl = Object.assign({}, a.wcl, { server: wcl.server, region: wcl.region });
+    localStorage.setItem(ASSIGN_KEY, JSON.stringify(a));
+}
+function onRealmChange() {
+    wcl.server = document.getElementById('realmInput').value.trim().toLowerCase();
+    wcl.region = document.getElementById('regionInput').value || 'eu';
+    try { saveRealm(); } catch (err) { rosterNotice = 'Could not save the realm locally: ' + err.message; }
+    renderRealm();
+    // Players added before a realm was set are parked on "No realm set"; a realm change is
+    // what unblocks them, so retry those now rather than making the user refresh everything.
+    if (wcl.server) {
+        Object.keys(state.errors).forEach(key => {
+            if (state.errors[key] !== 'No realm set') return;
+            delete state.errors[key];
+            const p = state.players.find(pl => pl.name.toLowerCase() === key);
+            if (p) enqueue(p.name, true);
+        });
+    }
+    renderTable();
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -379,6 +408,8 @@ document.addEventListener('DOMContentLoaded', () => {
         state.profiles = {}; state.errors = {}; save(); renderTable();
         state.players.forEach(p => enqueue(p.name, true));
     });
+    document.getElementById('realmInput').addEventListener('change', onRealmChange);
+    document.getElementById('regionInput').addEventListener('change', onRealmChange);
     document.getElementById('loadRosterBtn').addEventListener('click', loadRoster);
     document.getElementById('removeAllBtn').addEventListener('click', removeAll);
     // Resume anything not yet fetched (e.g. after a reload mid-queue).

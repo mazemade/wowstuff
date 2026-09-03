@@ -2,6 +2,10 @@
 .thresh-strip { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
 .thresh-strip label { display: flex; flex-direction: column; font-size: 0.8em; color: #b0b0b0; gap: 3px; }
 .thresh-strip input { width: 70px; background: rgba(0,0,0,0.3); border: 1px solid #555; border-radius: 6px; color: #e0e0e0; padding: 5px 6px; }
+.realm-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.realm-row label { font-size: 0.85em; color: #b0b0b0; }
+.realm-row input, .realm-row select { background: rgba(0,0,0,0.3); border: 1px solid #555; border-radius: 6px; color: #e0e0e0; padding: 6px 8px; }
+.realm-row input { width: 180px; }
 .table-wrap { overflow-x: auto; }
 #vetTable { width: 100%; border-collapse: collapse; font-size: 0.92em; }
 #vetTable th, #vetTable td { padding: 6px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
