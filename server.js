@@ -199,6 +199,9 @@ app.get('/api/vet/player', async (req, res) => {
   try {
     const profile = await VetProfile.fetchProfile(wclQuery, { name, server, region, zone }, db);
     if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
+    // Reclaim memory from entries the read path above already treats as misses (past VET_CACHE_MS) —
+    // this is a sweep, not an eviction policy: nothing here changes what a lookup returns.
+    for (const [k, v] of vetCache) if (Date.now() - v.at >= VET_CACHE_MS) vetCache.delete(k);
     vetCache.set(key, { at: Date.now(), profile });
     res.set('X-Vet-Cache', 'miss');
     res.json(profile);
