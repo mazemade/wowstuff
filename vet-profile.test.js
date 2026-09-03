@@ -64,7 +64,9 @@ test('fetchProfile: happy path joins gear, reported stats, spec and current-tier
     assert.deepStrictEqual(p.missing, []);
     // One report query only: the first report had the row.
     assert.strictEqual(s.calls.filter(c => c.q === P.REPORT_QUERY).length, 1);
-    assert.strictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).length, 1);
+    assert.strictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).length, 2, 'both tiers are always queried now');
+    assert.strictEqual(p.parses.other.zone, 1056);
+    assert.strictEqual(Math.round(p.parses.other.medianPercent), 52);
 });
 
 test('fetchProfile: unknown character returns null', async () => {
@@ -95,7 +97,27 @@ test('fetchProfile: no kills in the current tier falls back to SSC/TK and says s
     assert.strictEqual(p.parses.fallback, true);
     assert.strictEqual(Math.round(p.parses.medianPercent), 52);
     assert.strictEqual(p.parses.bosses.length, 10);
+    assert.strictEqual(p.parses.other, null, 'the requested tier had zero kills, so there is nothing to show as other');
     assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.zone), [1060, 1056]);
+});
+
+test('fetchProfile: both tiers have kills and the previous tier medians higher → it gates', async () => {
+    // Same shape as stubQuery, but the 1056 blob's medianPerformanceAverage is raised above the
+    // 1060 fixture median (82.888), so the previous tier is now the better one for this player.
+    const s = stubQuery();
+    const orig = s.query;
+    s.query = async (q, vars) => {
+        const d = await orig(q, vars);
+        if (q === P.RANK_QUERY && vars.zone === 1056) {
+            d.characterData.character.zoneRankings.medianPerformanceAverage = 90;
+        }
+        return d;
+    };
+    const p = await P.fetchProfile(s.query, PARAMS, db, NOW);
+    assert.strictEqual(p.parses.zone, 1056);
+    assert.strictEqual(p.parses.fallback, true);
+    assert.strictEqual(p.parses.other.zone, 1060);
+    assert.strictEqual(Math.round(p.parses.other.medianPercent), 83);
 });
 
 test('fetchProfile: no kills anywhere → parses null and a missing entry', async () => {
@@ -122,7 +144,11 @@ test('fetchProfile: a healer is ranked by hps', async () => {
     assert.strictEqual(p.identity.role, 'healer');
     assert.strictEqual(p.parses.metric, 'hps');
     assert.strictEqual(p.parses.medianPercent, 47.5);
-    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['hps']);
+    // Both tiers median to 47.5 (the stub forces every hps median there) — a tie, so the
+    // requested zone gates.
+    assert.strictEqual(p.parses.zone, 1060);
+    assert.strictEqual(p.parses.fallback, false);
+    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['hps', 'hps']);
 });
 
 test('fetchProfile: no combatant row, and a healer bestSpec from rankings re-queries dps then hps', async () => {
@@ -147,7 +173,7 @@ test('fetchProfile: no combatant row, and a healer bestSpec from rankings re-que
     assert.strictEqual(p.identity.role, 'healer');
     assert.strictEqual(p.identity.detectedFrom, 'wcl');
     assert.strictEqual(p.parses.metric, 'hps');
-    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['dps', 'hps']);
+    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['dps', 'dps', 'hps', 'hps']);
 });
 
 test('buildProfile: is pure and does not need the network', () => {

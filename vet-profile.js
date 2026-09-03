@@ -27,18 +27,29 @@ function hasKills(zr) {
     return !!(zr && Array.isArray(zr.rankings) && zr.rankings.some(r => r && r.totalKills > 0));
 }
 
-function buildParses(rankings, zone, fallback, metric) {
+function bossRows(rankings) {
+    return rankings.rankings.map(r => ({
+        encounterId: r.encounter && r.encounter.id, name: r.encounter && r.encounter.name,
+        medianPercent: typeof r.medianPercent === 'number' ? r.medianPercent : null,
+        bestPercent: typeof r.rankPercent === 'number' ? r.rankPercent : null,
+        kills: r.totalKills || 0, fastestKillMs: r.fastestKill || null,
+    }));
+}
+
+function buildParses(rankings, zone, fallback, metric, otherRankings, otherZone) {
     if (!hasKills(rankings)) return null;
     return {
         zone, zoneName: ZONE_NAMES[zone] || String(zone), fallback: !!fallback, metric,
         medianPercent: typeof rankings.medianPerformanceAverage === 'number' ? rankings.medianPerformanceAverage : null,
         bestPercent: typeof rankings.bestPerformanceAverage === 'number' ? rankings.bestPerformanceAverage : null,
-        bosses: rankings.rankings.map(r => ({
-            encounterId: r.encounter && r.encounter.id, name: r.encounter && r.encounter.name,
-            medianPercent: typeof r.medianPercent === 'number' ? r.medianPercent : null,
-            bestPercent: typeof r.rankPercent === 'number' ? r.rankPercent : null,
-            kills: r.totalKills || 0, fastestKillMs: r.fastestKill || null,
-        })),
+        bosses: bossRows(rankings),
+        other: otherRankings && hasKills(otherRankings) ? {
+            zone: otherZone, zoneName: ZONE_NAMES[otherZone] || String(otherZone),
+            medianPercent: typeof otherRankings.medianPerformanceAverage === 'number' ? otherRankings.medianPerformanceAverage : null,
+            bestPercent: typeof otherRankings.bestPerformanceAverage === 'number' ? otherRankings.bestPerformanceAverage : null,
+            kills: otherRankings.rankings.filter(r => r && r.totalKills > 0).length,
+            bosses: bossRows(otherRankings),
+        } : null,
     };
 }
 
@@ -68,7 +79,7 @@ function buildProfile(a) {
     } else {
         missing.push('no combatant data in last ' + RECENT_REPORTS + ' reports');
     }
-    const parses = buildParses(a.rankings, a.rankingsZone, a.fallback, a.metric);
+    const parses = buildParses(a.rankings, a.rankingsZone, a.fallback, a.metric, a.otherRankings || null, a.otherZone || null);
     if (!parses) missing.push('no parses in ' + (ZONE_NAMES[a.zone] || a.zone) + (PREVIOUS_ZONE[a.zone] ? ' or ' + ZONE_NAMES[PREVIOUS_ZONE[a.zone]] : ''));
     if (!det.spec) missing.push('spec could not be determined');
     return {
@@ -106,18 +117,34 @@ async function fetchProfile(query, params, dbIndex) {
         const d = await query(RANK_QUERY, { name, server, region, zone: z, metric: m });
         return d && d.characterData && d.characterData.character ? d.characterData.character.zoneRankings : null;
     }
-    let rankingsZone = zone, fallback = false;
-    let rankings = await rank(zone, metric);
-    if (!hasKills(rankings) && PREVIOUS_ZONE[zone]) {
-        const prev = await rank(PREVIOUS_ZONE[zone], metric);
-        if (hasKills(prev)) { rankings = prev; rankingsZone = PREVIOUS_ZONE[zone]; fallback = true; }
+    // Always ranks both the requested zone and its previous tier, then gates on whichever has
+    // kills and the higher median — a tie favours the requested zone. The non-gating tier
+    // (when it has kills) is returned as the "other" tier so both stay visible.
+    async function selectGating(z, m) {
+        const cur = await rank(z, m);
+        const prevZone = PREVIOUS_ZONE[z];
+        if (!prevZone) return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: null, otherZone: null };
+        const prev = await rank(prevZone, m);
+        const curHas = hasKills(cur), prevHas = hasKills(prev);
+        if (prevHas && (!curHas || prev.medianPerformanceAverage > cur.medianPerformanceAverage)) {
+            return { rankings: prev, rankingsZone: prevZone, fallback: true, otherRankings: cur, otherZone: z };
+        }
+        return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: prev, otherZone: prevZone };
     }
+    let g = await selectGating(zone, metric);
+    let { rankings, rankingsZone, fallback, otherRankings, otherZone } = g;
     if (!det.spec && hasKills(rankings)) {
         const first = rankings.rankings.find(r => r.totalKills > 0);
         det = V.detectSpec(classToken, talentSplit, first.bestSpec || first.spec);
-        if (det.role === 'healer' && metric === 'dps') { metric = 'hps'; rankings = await rank(rankingsZone, metric); }
+        if (det.role === 'healer' && metric === 'dps') {
+            // A healer's medians differ from their dps medians, so re-rank and re-gate both
+            // tiers rather than reusing the dps-based selection.
+            metric = 'hps';
+            g = await selectGating(zone, metric);
+            ({ rankings, rankingsZone, fallback, otherRankings, otherZone } = g);
+        }
     }
-    return buildProfile({ name, server, region, zone, classToken, combatant, report, rankings, rankingsZone, fallback, metric, dbIndex });
+    return buildProfile({ name, server, region, zone, classToken, combatant, report, rankings, rankingsZone, fallback, metric, otherRankings, otherZone, dbIndex });
 }
 
 module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, REPORT_QUERY, RANK_QUERY, buildProfile, fetchProfile };

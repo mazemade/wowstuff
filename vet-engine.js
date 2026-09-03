@@ -355,8 +355,14 @@
                           : rule('defense', 'defense', true, 'unknown', null, t.defense, t.defense, 'no gear data'));
 
         const p = profile.parses;
+        let parseNote = '';
+        if (p && p.other) {
+            parseNote = p.zoneName + ' ' + Math.round(p.medianPercent) + ' · ' + p.other.zoneName + ' ' + Math.round(p.other.medianPercent);
+        } else if (p && p.fallback) {
+            parseNote = 'previous tier';
+        }
         rules.push(p && typeof p.medianPercent === 'number'
-            ? rule('parse', 'parse', true, p.medianPercent < t.parse ? 'fail' : 'pass', Math.round(p.medianPercent), t.parse, t.parse, p.fallback ? 'previous tier' : '')
+            ? rule('parse', 'parse', true, p.medianPercent < t.parse ? 'fail' : 'pass', Math.round(p.medianPercent), t.parse, t.parse, parseNote)
             : rule('parse', 'parse', true, 'unknown', null, t.parse, t.parse, 'no parses in either tier'));
 
         function countRule(key, label, value, warnAt, failAt) {

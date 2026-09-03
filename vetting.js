@@ -83,6 +83,11 @@ function renderRealm() {
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// 'SSC / TK' -> 'SSC', 'BT / Hyjal' -> 'BT': the text before the first space or slash.
+function shortZoneLabel(zoneName) {
+    const m = /^[^\s/]+/.exec(zoneName || '');
+    return m ? m[0] : (zoneName || '');
+}
 
 // --- fetch queue ---
 function enqueue(name, force) {
@@ -213,7 +218,15 @@ function renderTable() {
         const byKey = Object.fromEntries(r.rules.map(x => [x.key, x]));
         ['gs', 'ilvl', 'hit', 'expertise', 'defense', 'parse', 'enchants', 'sockets', 'stale'].forEach(k => {
             const td = ruleCell(byKey[k]);
-            if (k === 'parse' && r.profile && r.profile.parses && r.profile.parses.fallback) td.textContent += ' (' + escapeHtml(r.profile.parses.zoneName) + ')';
+            if (k === 'parse' && r.profile && r.profile.parses) {
+                const parses = r.profile.parses;
+                if (parses.other) {
+                    td.textContent += ' (' + escapeHtml(shortZoneLabel(parses.zoneName)) + ' · ' +
+                        escapeHtml(shortZoneLabel(parses.other.zoneName)) + ' ' + Math.round(parses.other.medianPercent) + ')';
+                } else if (parses.fallback) {
+                    td.textContent += ' (' + escapeHtml(parses.zoneName) + ')';
+                }
+            }
             tr.appendChild(td);
         });
         const rm = document.createElement('td');
@@ -261,6 +274,16 @@ function statRows(p) {
              [r.strength, r.agility, r.stamina, r.intellect, r.spirit].join(' / ')),
     ];
 }
+function bossTable(bosses) {
+    const t = document.createElement('table');
+    t.innerHTML = '<tr><th>Boss</th><th>median</th><th>best</th><th>kills</th></tr>';
+    bosses.forEach(b => {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td>' + escapeHtml(b.name || '') + '</td><td>' + (b.medianPercent == null ? '—' : Math.round(b.medianPercent)) + '</td><td>' + (b.bestPercent == null ? '—' : Math.round(b.bestPercent)) + '</td><td>' + b.kills + '</td>';
+        t.appendChild(row);
+    });
+    return t;
+}
 function detailRow(r) {
     const p = r.profile;
     const tr = document.createElement('tr');
@@ -307,14 +330,13 @@ function detailRow(r) {
     const parseBox = document.createElement('div');
     parseBox.innerHTML = '<h4>Parses' + (p.parses ? ' — ' + escapeHtml(p.parses.zoneName) + ' (' + p.parses.metric + ')' : '') + '</h4>';
     if (p.parses) {
-        const t = document.createElement('table');
-        t.innerHTML = '<tr><th>Boss</th><th>median</th><th>best</th><th>kills</th></tr>';
-        p.parses.bosses.forEach(b => {
-            const row = document.createElement('tr');
-            row.innerHTML = '<td>' + escapeHtml(b.name || '') + '</td><td>' + (b.medianPercent == null ? '—' : Math.round(b.medianPercent)) + '</td><td>' + (b.bestPercent == null ? '—' : Math.round(b.bestPercent)) + '</td><td>' + b.kills + '</td>';
-            t.appendChild(row);
-        });
-        parseBox.appendChild(t);
+        parseBox.appendChild(bossTable(p.parses.bosses));
+        if (p.parses.other) {
+            const otherHeading = document.createElement('h4');
+            otherHeading.textContent = p.parses.other.zoneName + ' — ' + Math.round(p.parses.other.medianPercent) + ' median';
+            parseBox.appendChild(otherHeading);
+            parseBox.appendChild(bossTable(p.parses.other.bosses));
+        }
     } else parseBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No parses.</div>');
     if (p.lastSeen) parseBox.insertAdjacentHTML('beforeend', '<div class="status">Last seen: ' + escapeHtml(new Date(p.lastSeen.timestamp).toLocaleDateString()) + ' — ' + escapeHtml(p.lastSeen.fightName || '') + '</div>');
     if (p.missing && p.missing.length) parseBox.insertAdjacentHTML('beforeend', '<div class="warn">' + p.missing.map(escapeHtml).join('<br>') + '</div>');

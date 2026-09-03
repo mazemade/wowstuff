@@ -382,6 +382,15 @@ test('fixture: the real shaman scores a plausible GearScore and keeps its item l
     assert.strictEqual(s.avgItemLevel, 131.82, 'dual-wielder, so the two-hander rule must not move it');
     assert.ok(s.gearScore > 1500 && s.gearScore < 2200, 'gearScore was ' + s.gearScore);
 });
+test('evaluate: parse rule names both tiers with rounded medians when parses.other exists', () => {
+    const r = V.evaluate(profile({ parses: {
+        medianPercent: 51.71, zone: 1056, zoneName: 'SSC / TK', fallback: true,
+        other: { zone: 1060, zoneName: 'BT / Hyjal', medianPercent: 17 },
+    } }), V.DEFAULT_THRESHOLDS, NOW);
+    const parseRule = r.rules.find(x => x.key === 'parse');
+    assert.strictEqual(parseRule.note, 'SSC / TK 52 · BT / Hyjal 17');
+    assert.strictEqual(parseRule.value, 52, 'still the gating tier\'s median, not the other tier\'s');
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
