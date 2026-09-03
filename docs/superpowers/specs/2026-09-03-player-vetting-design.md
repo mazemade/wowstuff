@@ -162,10 +162,40 @@ keep the file small; anything a level-70 raider wears is above that.
 - Sum item base stats, enchant stats and gem stats over the 17 slots.
 - Socket bonus: applied when every socket on the item holds a gem whose colour matches
   (prismatic and meta rules per wowsims). `socketBonusesApplied` records that this was done.
-- Derived: `avgItemLevel` over the 17 slots (empty slot counts as 0 and is flagged);
-  `defenseSkill = 350 + floor(defenseRating / 2.37)`; `expertiseSkill = floor(rating / 3.94)`;
-  percentages from ratings use the level-70 constants (15.77 rating per 1% melee/ranged hit,
-  12.62 per 1% spell hit).
+- Derived: `avgItemLevel` over the 17 slots. A two-handed weapon counts for **both** weapon
+  slots, because it occupies both; without that, every two-hander user is docked roughly 8 item
+  levels for their weapon choice alone (measured on the real roster: 16 of 44 players, e.g.
+  111.41 -> 119.71). A genuinely empty slot still counts as 0 and is flagged, so the divisor
+  stays 17. `defenseSkill = 350 + floor(defenseRating / 2.37)`;
+  `expertiseSkill = floor(rating / 3.94)`; percentages from ratings use the level-70 constants
+  (15.77 rating per 1% melee/ranged hit, 12.62 per 1% spell hit).
+- **GearScore**, using the TacoTip algorithm (`anzz1/TacoTip` `gearscore.lua`) — the GearScore
+  variant TBC players actually run, and the primary gear gate (§6). Per item:
+  `floor(((ilvl - A) / B) * SlotMOD * 1.8618 * QualityScale)`, summed over the 17 slots.
+  `QualityScale` is 1.3 for legendary (rarity then treated as epic) and 0.005 for common/poor
+  (treated as uncommon), else 1. The `A`/`B` bracket is selected as TacoTip does it:
+
+  | condition | bracket | epic A/B |
+  |---|---|---|
+  | ilvl < 100 and epic | C | 0.25 / 1.6275 |
+  | ilvl < 168 and epic | B | 26 / 1.2 |
+  | ilvl < 148 and rare | B | rare 0.75 / 1.8 |
+  | ilvl < 138 and uncommon | B | uncommon 8 / 2 |
+  | ilvl <= 120 | B | |
+  | otherwise | A | 91.45 / 0.65 |
+
+  Keeping epics in bracket B up to ilvl 167 is the load-bearing difference from the original
+  WotLK GearScore, whose bracket switch at ilvl 120 sits dead centre of the TBC gear range and
+  inverts there: an ilvl 121 epic scores 42% *lower* than an ilvl 120 epic and does not recover
+  until ilvl 143. Under TacoTip's brackets the score is monotonic across the whole TBC range.
+  `SlotMOD` is 1.0 for head, chest, legs, one-hand/main-hand/off-hand weapons, shields and
+  held-in-off-hand items; **2.0 for a two-handed weapon**; 0.75 for shoulder, waist, hands,
+  feet; 0.5625 for neck, wrist, back, rings, trinkets; 0.3164 for ranged, thrown and relics.
+  Hunters are re-weighted as TacoTip does: weapon-slot scores multiplied by 0.3164 and the
+  ranged slot by 5.3224, since the bow is a hunter's primary weapon.
+- GearScore is why the two-hander correction above does not also need to be a gate: SlotMOD 2.0
+  with no off-hand entry already handles a two-hander correctly. The corrected `avgItemLevel`
+  is still surfaced, because a displayed number should be right even when it is not the gate.
 - Set bonuses: `db.json` carries `setId` per item but no set-bonus table, so they are not
   applied and `setBonusesApplied` is always `false`. Socket bonuses are applied (colour rules
   above), `socketBonusesApplied: true`.
@@ -197,13 +227,14 @@ Defaults, all editable in the threshold strip:
 
 | Rule | Default | Applies to |
 |---|---|---|
-| Average item level | ≥ 125 | everyone |
+| GearScore | ≥ 1700 | everyone — the primary gear gate |
+| Average item level | ≥ 110 | everyone — a sanity floor, not the gate |
 | Melee / ranged hit rating | ≥ 142 (9%) | melee dps, hunters |
 | Spell hit rating | ≥ 202 (16%) | caster dps |
-| Expertise (skill points) | ≥ 26 (6.5%) — warn only | melee dps, plate tanks |
+| Expertise (skill points) | ≥ 0, i.e. off by default | melee dps, plate tanks |
 | Defense skill | ≥ 490 | tanks except druids |
-| Median parse percentile | ≥ 40 | everyone with parses, current tier or the previous one as fallback |
-| Missing enchants | warn at 1, fail at 3 | enchantable slots |
+| Median parse percentile | ≥ 20 | everyone with parses, current tier or the previous one as fallback |
+| Missing enchants | warn at 2, fail at 4 | enchantable slots |
 | Empty sockets | warn at 1, fail at 3 | everyone |
 | Data age | warn past 28 days | everyone |
 
@@ -240,9 +271,43 @@ enchants and empty sockets warn at the first count and fail at the second. Stale
 gear is `unverified` for gear rules and the parse rule still evaluates. Unverified is not a
 failure: the row says exactly what is missing.
 
-**Calibration pass.** The defaults above are provisional. The implementation plan ends with a
-step that runs the real roster through the page, compares the verdicts to the raid leader's
-own judgement, adjusts the defaults, and records the outcome in this spec.
+**Calibration pass — outcome (2026-09-03).** 45 rostered characters (Spineshatter-EU) were run
+through `/api/vet/player` and scored against the original provisional defaults, which returned
+2 pass / 2 warn / 40 fail / 1 not-on-WCL — a failure rate that indicted the thresholds, not the
+raid. Each rule was then measured for discriminating power across the 44 profiled players:
+
+| Rule | Fired on | Finding |
+|---|---|---|
+| Expertise ≥ 26 | 15 of 15 it applied to | No signal at all — nobody in the raid gears expertise. Median melee expertise is 3 skill points. Turned off (threshold 0). Still displayed. |
+| Average item level ≥ 125 | 29 of 44 failed | Mostly the two-hander artefact of §4. Demoted to a 110 floor once GearScore became the gate. |
+| Median parse ≥ 40 | 24 of 44 failed | 40 means "better than 60% of all logged players" — an aspirational bar, not a vetting bar. Roster median is 28, p25 is 18. Lowered to 20. |
+| Missing enchants warn 1 / fail 3 | 24 of 44 warned or failed | Roster median missing is 1, so it warned the median player. Moved to warn 2 / fail 4. |
+| Defense ≥ 490 | 2 of 3 failed | Kept — correctly caught two tanks at 478 and 471, both genuinely crittable. |
+| Empty sockets, data age | 5 each | Kept — real signal, including one player with 13 empty sockets and no enchants. |
+
+Gear metrics were compared against each player's current-tier median parse percentile (n=25),
+since ranking gear is the rule's whole job:
+
+| Metric | Spearman rho vs median parse |
+|---|---|
+| TacoTip GearScore | **0.417** |
+| Average item level, two-hander-aware | 0.371 |
+| Average item level over filled slots only | 0.349 |
+| Average item level over 17 slots (as first shipped) | 0.172 |
+| Original WotLK GearScore | −0.133 |
+
+GearScore was adopted as the gate on that basis. Its distribution over the roster is
+754–2018 with a median of 1826 and p25 of 1718, so the 1700 default sits just under p25. The
+raid leader confirmed the resulting ranking matches their own knowledge of the players' gear.
+The recalibrated set returns **17 pass / 6 warn / 21 fail**, and every remaining failure is
+explicable: three Retribution paladins genuinely under hit cap (one at 52 of 142), two tanks not
+uncrittable, one player with no gems and a Classic-era weapon enchant, and two long-inactive
+alts.
+
+Not changed, deliberately: spell hit stays at the true 202 cap even though this roster fields
+three shadow priests and two balance druids, so Misery and Improved Faerie Fire (76 rating
+between them) are in practice always up. §6 does not assume raid-provided hit, so the leader
+lowers it in the threshold strip when they want that assumption rather than having it baked in.
 
 ## 7. Testing
 

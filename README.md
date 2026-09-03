@@ -17,6 +17,9 @@ groups, and checks live whether assignments were actually done.
 - Group layout optimizer: hill-climb with sim-calibrated, duration-aware buff weights
   (see `calibration/`), optional per-player performance multipliers prefetched from
   Warcraft Logs.
+- Player vetting page (`vetting.html`): type a character name or load the roster, and get gear,
+  hit and other stats, enchants, sockets and parses from Warcraft Logs with a pass / warn /
+  fail / unverified verdict against editable thresholds. Needs the WCL credentials below.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
@@ -49,7 +52,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 ## Tests
 
 ```bash
-npm test                          # engine + WCL multiplier suites (node, no deps)
+npm test                          # engine, WCL multiplier, positions, item table, vetting suites (node, no deps)
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking
@@ -63,6 +66,15 @@ repo root.
 `calibration/` holds the pipeline that produces the optimizer's buff weights: wowsims-driven
 sims at several fight durations (200/300/520s), anchor interpolation, and verification
 gates. See `calibration/README.md` before regenerating weights.
+
+## Item table
+
+`data/tbc-item-db.json` is the trimmed wowsims item/gem/enchant table the vetting page's stat
+math runs on. Regenerate it after updating the wowsims checkout under `calibration/vendor/`:
+
+```bash
+node calibration/extract-item-db.mjs
+```
 
 ## History
 
