@@ -215,13 +215,76 @@ function renderSummary() {
         count('unverified') + ' unverified · ' + count('error') + ' error' + (pending ? ' · ' + pending + ' fetching' : '');
 }
 function toggleDetail(key) { expanded = expanded === key ? null : key; renderTable(); }
+function statRows(p) {
+    const c = p.computed || {}, r = p.reported || {};
+    const line = (label, comp, rep) => [label, comp == null ? '—' : comp, rep == null ? '—' : rep];
+    return [
+        line('Spell damage', c.spellDamage, null), line('Healing', c.healing, null),
+        line('Attack power', c.attackPower, null), line('Ranged AP', c.rangedAttackPower, null),
+        line('Melee hit', c.meleeHit, r.hitMelee), line('Ranged hit', c.rangedHit, r.hitRanged), line('Spell hit', c.spellHit, r.hitSpell),
+        line('Expertise', c.expertiseSkill + ' (' + c.expertiseRating + ' rating)', r.expertise),
+        line('Melee crit', c.meleeCrit, r.critMelee), line('Spell crit', c.spellCrit, r.critSpell),
+        line('Melee haste', c.meleeHaste, r.hasteMelee), line('Spell haste', c.spellHaste, r.hasteSpell),
+        line('Defense', c.defenseSkill + ' (' + c.defenseRating + ' rating)', null), line('MP5', c.mp5, null),
+        line('Dodge / parry / block', null, [r.dodge, r.parry, r.block].join(' / ')), line('Armor', null, r.armor),
+        line('Str / Agi / Sta / Int / Spi', null, [r.strength, r.agility, r.stamina, r.intellect, r.spirit].join(' / ')),
+    ];
+}
 function detailRow(r) {
-    // Filled in by Task 7. Until then, an empty row keeps the click harmless.
+    const p = r.profile;
     const tr = document.createElement('tr');
     tr.className = 'detail-row';
     const td = document.createElement('td');
     td.colSpan = 12;
-    td.textContent = 'Details coming in Task 7.';
+    const grid = document.createElement('div');
+    grid.className = 'detail-grid';
+
+    // Gear
+    const gearBox = document.createElement('div');
+    gearBox.innerHTML = '<h4>Gear' + (p.gearSummary ? ' — avg ' + p.gearSummary.avgItemLevel + (p.gearSummary.setBonusesApplied ? '' : ' (set bonuses not included)') : '') + '</h4>';
+    if (p.gear) {
+        const t = document.createElement('table');
+        p.gear.forEach(s => {
+            const row = document.createElement('tr');
+            if (s.empty) { row.innerHTML = '<td>' + escapeHtml(s.label) + '</td><td class="slot-missing" colspan="3">empty</td>'; t.appendChild(row); return; }
+            const ench = s.enchantable ? (s.enchant ? '<span class="slot-ok">' + escapeHtml(s.enchant.name) + '</span>' : '<span class="slot-missing">no enchant</span>') : '';
+            const gems = s.sockets ? (s.gems.map(g => escapeHtml(g.name)).join(', ') + (s.emptySockets ? ' <span class="slot-missing">' + s.emptySockets + ' empty</span>' : '')) : '';
+            row.innerHTML = '<td>' + escapeHtml(s.label) + '</td><td>' + escapeHtml(s.name) + ' <span class="cell-unknown">' + s.itemLevel + '</span></td><td>' + ench + '</td><td>' + gems + '</td>';
+            t.appendChild(row);
+        });
+        gearBox.appendChild(t);
+    } else gearBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No gear data.</div>');
+    grid.appendChild(gearBox);
+
+    // Stats
+    const statBox = document.createElement('div');
+    statBox.innerHTML = '<h4>Stats (from gear · reported by WCL)</h4>';
+    if (p.computed) {
+        const t = document.createElement('table');
+        t.innerHTML = '<tr><th></th><th>gear</th><th>WCL</th></tr>';
+        statRows(p).forEach(([l, a, b]) => { const row = document.createElement('tr'); row.innerHTML = '<td>' + l + '</td><td>' + escapeHtml(String(a)) + '</td><td>' + escapeHtml(String(b)) + '</td>'; t.appendChild(row); });
+        statBox.appendChild(t);
+    } else statBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No stat data.</div>');
+    grid.appendChild(statBox);
+
+    // Parses + missing
+    const parseBox = document.createElement('div');
+    parseBox.innerHTML = '<h4>Parses' + (p.parses ? ' — ' + escapeHtml(p.parses.zoneName) + ' (' + p.parses.metric + ')' : '') + '</h4>';
+    if (p.parses) {
+        const t = document.createElement('table');
+        t.innerHTML = '<tr><th>Boss</th><th>median</th><th>best</th><th>kills</th></tr>';
+        p.parses.bosses.forEach(b => {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td>' + escapeHtml(b.name || '') + '</td><td>' + (b.medianPercent == null ? '—' : Math.round(b.medianPercent)) + '</td><td>' + (b.bestPercent == null ? '—' : Math.round(b.bestPercent)) + '</td><td>' + b.kills + '</td>';
+            t.appendChild(row);
+        });
+        parseBox.appendChild(t);
+    } else parseBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No parses.</div>');
+    if (p.lastSeen) parseBox.insertAdjacentHTML('beforeend', '<div class="status">Last seen: ' + escapeHtml(new Date(p.lastSeen.timestamp).toLocaleDateString()) + ' — ' + escapeHtml(p.lastSeen.fightName || '') + '</div>');
+    if (p.missing && p.missing.length) parseBox.insertAdjacentHTML('beforeend', '<div class="warn">' + p.missing.map(escapeHtml).join('<br>') + '</div>');
+    grid.appendChild(parseBox);
+
+    td.appendChild(grid);
     tr.appendChild(td);
     return tr;
 }
@@ -244,7 +307,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Resume anything not yet fetched (e.g. after a reload mid-queue).
     state.players.forEach(p => enqueue(p.name, false));
 });
-function loadRoster() { /* Task 7 */ }
+function loadRoster() {
+    let a = null, link = {};
+    try { a = JSON.parse(localStorage.getItem(ASSIGN_KEY)); } catch (e) { /* none */ }
+    try { link = JSON.parse(localStorage.getItem(ASSIGN_LINK_KEY)) || {}; } catch (e) { link = {}; }
+    const el = document.getElementById('summary');
+    if (!a || !a.sources) { el.textContent = 'No roster found — import one on the Assignments page first.'; return; }
+    const roster = AssignmentsEngine.deriveRoster(a, link);
+    if (!roster.length) { el.textContent = 'The Assignments roster is empty.'; return; }
+    let added = 0;
+    roster.forEach(p => { if (!state.players.some(x => x.name.toLowerCase() === p.name.toLowerCase())) added++; addPlayer(p.name); });
+    el.textContent = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
+}
 
 // Exposed for the headless smoke test.
 window.vetAdd = addPlayer;
