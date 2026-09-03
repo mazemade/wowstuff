@@ -91,11 +91,23 @@ Validation mirrors `/api/wcl/player`. Steps:
    `computed` are null and `missing` says so.
 2. Detect spec and role from `talents` (§5). Role decides the rankings metric: `hps` for
    healers, `dps` otherwise.
-3. `zoneRankings(zoneID, metric)` for the requested zone. If the result has no encounter
-   with a kill (a player who has not logged the current tier yet), query the **previous tier**
-   (zone 1056, SSC/TK) and use that instead. The profile records which zone the parses came
-   from, and the table labels the parse cell with the tier ("SSC/TK") so a previous-tier
-   number is never mistaken for a current one. If neither tier has parses, `parses` is null.
+3. `zoneRankings(zoneID, metric)` for the requested zone **and** for the previous tier
+   (zone 1056, SSC/TK), always. Whichever tier has kills and the higher median percentile is
+   the **gating tier**: its numbers fill the top level of `parses`, and the other tier (when it
+   has kills) is carried in `parses.other` so both are visible. The profile records which zone
+   gated, and the table labels the parse cell with both tiers ("52 / 20 (SSC · BT 17)") so a
+   previous-tier number is never mistaken for a current one. If neither tier has parses,
+   `parses` is null.
+
+   Why the higher of the two, rather than a fixed preference: percentiles on a progression tier
+   are earned against the early-clearing population and while the raid is still learning, so
+   the same player parses lower there than on farm content. Preferring the current tier
+   penalised exactly the raiders doing the harder content (measured: Xavamros BT/Hyjal 17,
+   SSC/TK 52 — failed). But preferring the farm tier merely moves the unfairness: Pepasexa
+   (BT 39, SSC 17) and Svartneon (BT 46, SSC 18) parse better on progression and would have
+   failed instead. Best-of-both produced no wrong verdict on the roster, and every player it
+   still fails is low on both tiers. It also self-adjusts as a tier moves from progression to
+   farm — no "which tier is progression" setting to maintain.
 4. Join gear with the wowsims tables (§4).
 5. Return the profile (§3.2). Cache the response in memory per `region/server/name/zone`
    for 15 minutes so a roster refresh does not re-hit WCL.
@@ -119,8 +131,9 @@ enchant `effectId`. Load failure is a 500 with a clear message.
               defenseRating, defenseSkill, mp5, spellHit, meleeHit, expertise, spellCrit,
               meleeCrit, … , setBonusesApplied: bool, socketBonusesApplied: bool } | null,
   parses: { zone, zoneName, fallback: bool, metric, medianPercent, bestPercent,
-            bosses: [ { encounterId, name, medianPercent, bestPercent, kills, fastestKillMs } ] }
-          | null,
+            bosses: [ { encounterId, name, medianPercent, bestPercent, kills, fastestKillMs } ],
+            other: { zone, zoneName, medianPercent, bestPercent, kills, bosses } | null }
+          | null,   // top level = the gating tier; other = the non-gating tier when it has kills
   missing: [ "no combatant data in last 3 reports", … ]
 }
 ```
@@ -232,7 +245,7 @@ Defaults, all editable in the threshold strip:
 | Spell hit rating | ≥ 202 (16%) | caster dps |
 | Expertise (skill points) | ≥ 0, i.e. off by default | melee dps, plate tanks |
 | Defense skill | ≥ 490 | tanks except druids |
-| Median parse percentile | ≥ 20 | everyone with parses, current tier or the previous one as fallback |
+| Median parse percentile | ≥ 20 | everyone with parses — the higher median of the current tier and the previous one (§3.1) |
 | Missing enchants | warn at 2, fail at 4 | enchantable slots |
 | Empty sockets | warn at 1, fail at 3 | everyone |
 | Data age | warn past 28 days | everyone |
