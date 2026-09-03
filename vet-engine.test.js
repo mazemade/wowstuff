@@ -416,5 +416,29 @@ test('evaluate: the hit rule uses the gated allowance and explains a withheld on
     assert.strictEqual(ret.rules.find(x => x.key === 'hit').status, 'pass');
 });
 
+// --- name intake: pasted lists and the #add= fragment the addon's copy link carries ---
+test('parseNameList: splits on newlines, commas, semicolons and spaces', () => {
+    assert.deepStrictEqual(V.parseNameList('Xavamros\nPepasexa, Svartneon;Náme  Other'),
+        ['Xavamros', 'Pepasexa', 'Svartneon', 'Náme', 'Other']);
+});
+test('parseNameList: strips a realm suffix and de-dupes case-insensitively', () => {
+    assert.deepStrictEqual(V.parseNameList('Xavamros-Spineshatter xavamros Pepasexa'), ['Xavamros', 'Pepasexa']);
+});
+test('parseNameList: empty or non-string input gives an empty list', () => {
+    assert.deepStrictEqual(V.parseNameList(''), []);
+    assert.deepStrictEqual(V.parseNameList(null), []);
+    assert.deepStrictEqual(V.parseNameList(' , ;\n'), []);
+});
+test('namesFromHash: decodes the comma-separated, percent-encoded add= fragment', () => {
+    assert.deepStrictEqual(V.namesFromHash('#add=N%C3%A1me,Xavamros-Spineshatter'), ['Náme', 'Xavamros']);
+});
+test('namesFromHash: anything else is an empty list', () => {
+    assert.deepStrictEqual(V.namesFromHash(''), []);
+    assert.deepStrictEqual(V.namesFromHash('#other=1'), []);
+    assert.deepStrictEqual(V.namesFromHash('#add='), []);
+    assert.deepStrictEqual(V.namesFromHash('#add=%E0%A4%A'), [], 'a malformed escape must not throw');
+});
+
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

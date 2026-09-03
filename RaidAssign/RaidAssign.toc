@@ -6,6 +6,7 @@
 ## SavedVariables: RaidAssignDB
 
 Scan.lua
+Vet.lua
 RaidAssign.lua
 Track.lua
 TrackUI.lua

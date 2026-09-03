@@ -419,6 +419,33 @@
         return { verdict, rules, reasons };
     }
 
+    // --- name intake ---
+    // Names arrive pasted from anywhere (one per line, comma lists, a whisper log) or through the
+    // #add= fragment the addon's copy link carries. Cross-realm names come as Name-Realm; the page
+    // vets on its one configured realm, so the suffix is dropped. Character names cannot contain
+    // a hyphen, so everything from the first one on is realm.
+    function parseNameList(text) {
+        if (typeof text !== 'string') return [];
+        const seen = new Set();
+        const out = [];
+        text.split(/[\s,;]+/).forEach(tok => {
+            const name = tok.replace(/-.*$/, '');
+            if (!name) return;
+            const key = name.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push(name);
+        });
+        return out;
+    }
+    function namesFromHash(hash) {
+        const m = /^#add=(.+)$/.exec(String(hash || ''));
+        if (!m) return [];
+        let decoded;
+        try { decoded = decodeURIComponent(m[1]); } catch (e) { return []; }
+        return parseNameList(decoded);
+    }
+
     const VERDICT_ORDER = { fail: 0, warn: 1, unverified: 2, pass: 3 };
     function sortRows(rows) {
         return rows.slice().sort((a, b) =>
@@ -430,5 +457,6 @@
         GS_SCALE, GS_FORMULA, GS_SLOTMOD, gsInvType, itemGearScore,
         indexDb, summarizeGear, derivedStats,
         normalizeWclSpec, roleOf, detectSpec, hitAllowanceRating, parseThresholds, evaluate, sortRows,
+        parseNameList, namesFromHash,
     };
 }));

@@ -196,6 +196,41 @@ function addPlayer(name) {
     enqueue(r.name, false);
     return true;
 }
+// Batch intake for several names at once — the #add= fragment, a pasted list, a typed comma
+// list, the Assignments roster. One save and one render for the lot; enqueue per name so each
+// fetch starts immediately. `source` names where they came from in the summary notice.
+function addPlayers(names, source) {
+    let added = 0, total = 0;
+    names.forEach(n => {
+        const r = insertPlayer(n);
+        if (!r) return;
+        total++;
+        if (r.added) added++;
+        enqueue(r.name, false);
+    });
+    if (!total) { rosterNotice = source ? 'Nothing usable in the ' + source + '.' : null; renderSummary(); return 0; }
+    // The players are already in state.players regardless of whether this save succeeds — a
+    // failure here must not report a false success; the notice has to say the list could not
+    // be persisted, or the next reload silently reverts it with no error anywhere.
+    const summary = source ? 'Added ' + total + ' from the ' + source + ' (' + added + ' new).' : null;
+    try {
+        save();
+        rosterNotice = summary;
+    } catch (err) {
+        rosterNotice = (summary || 'Added ' + total + ',') + ' but could not save locally: ' + err.message;
+    }
+    renderTable();
+    return total;
+}
+// The addon's copy link is vetting.html#add=Name,Name. Consume it on load and whenever the
+// hash changes (pasting into the address bar of the open tab), then drop it from the URL so a
+// reload or bookmark does not add everyone again.
+function takeFragment() {
+    const names = V.namesFromHash(location.hash);
+    if (!names.length) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    addPlayers(names, 'link');
+}
 function removePlayer(name) {
     const key = name.toLowerCase();
     state.players = state.players.filter(p => p.name.toLowerCase() !== key);
@@ -401,9 +436,21 @@ document.addEventListener('DOMContentLoaded', () => {
     renderThresholds();
     renderTable();
     const input = document.getElementById('nameInput');
-    const add = () => { if (addPlayer(input.value)) input.value = ''; input.focus(); };
+    const add = () => {
+        const names = V.parseNameList(input.value);
+        if (names.length === 1 ? addPlayer(names[0]) : addPlayers(names, 'list')) input.value = '';
+        input.focus();
+    };
     document.getElementById('addBtn').addEventListener('click', add);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+    // A pasted list is added on the spot — no Enter, no aiming for the button.
+    input.addEventListener('paste', e => {
+        const names = V.parseNameList(e.clipboardData ? e.clipboardData.getData('text') : '');
+        if (!names.length) return;
+        e.preventDefault();
+        if (names.length === 1 ? addPlayer(names[0]) : addPlayers(names, 'paste')) input.value = '';
+    });
+    window.addEventListener('hashchange', takeFragment);
     document.getElementById('refreshBtn').addEventListener('click', () => {
         state.profiles = {}; state.errors = {}; save(); renderTable();
         state.players.forEach(p => enqueue(p.name, true));
@@ -414,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('removeAllBtn').addEventListener('click', removeAll);
     // Resume anything not yet fetched (e.g. after a reload mid-queue).
     state.players.forEach(p => enqueue(p.name, false));
+    takeFragment();
 });
 function loadRoster() {
     let a = null, link = {};
@@ -422,26 +470,7 @@ function loadRoster() {
     if (!a || !a.sources) { rosterNotice = 'No roster found — import one on the Assignments page first.'; renderSummary(); return; }
     const roster = AssignmentsEngine.deriveRoster(a, link);
     if (!roster.length) { rosterNotice = 'The Assignments roster is empty.'; renderSummary(); return; }
-    // Add every player first, then save and render once — addPlayer's own save()+renderTable()
-    // per player is O(n) full localStorage writes and full re-renders for a large roster.
-    // enqueue is still called per player so each fetch starts immediately.
-    let added = 0;
-    roster.forEach(p => {
-        const r = insertPlayer(p.name);
-        if (!r) return;
-        if (r.added) added++;
-        enqueue(r.name, false);
-    });
-    // The players are already in state.players regardless of whether this save succeeds — a
-    // failure here must not report a false "Loaded" success; the notice has to say the roster
-    // could not be persisted, or the next reload silently reverts it with no error anywhere.
-    try {
-        save();
-        rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new).';
-    } catch (err) {
-        rosterNotice = 'Loaded ' + roster.length + ' from the roster (' + added + ' new), but could not save locally: ' + err.message;
-    }
-    renderTable();
+    addPlayers(roster.map(p => p.name), 'roster');
 }
 
 // Exposed for the headless smoke test.
