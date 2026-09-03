@@ -192,11 +192,11 @@ test('detectSpec: talents decide when unambiguous; WCL label fills in when not',
     assert.deepStrictEqual(V.detectSpec('MAGE', null, null), { spec: null, role: null, detectedFrom: null, ambiguous: true });
 });
 test('hitAllowanceRating: percent to rating with the right constant per role', () => {
-    assert.strictEqual(V.hitAllowanceRating('SHAMAN', 'Enhancement', 'melee'), 95);
-    assert.strictEqual(V.hitAllowanceRating('ROGUE', 'Combat', 'melee'), 79);
-    assert.strictEqual(V.hitAllowanceRating('PRIEST', 'Shadow', 'caster'), 126);
-    assert.strictEqual(V.hitAllowanceRating('MAGE', 'Frost', 'caster'), 38);
-    assert.strictEqual(V.hitAllowanceRating('PALADIN', 'Retribution', 'melee'), 0);
+    assert.strictEqual(V.hitAllowanceRating('SHAMAN', 'Enhancement', 'melee', [2, 45, 14]), 95);
+    assert.strictEqual(V.hitAllowanceRating('ROGUE', 'Combat', 'melee', [15, 41, 5]), 79);
+    assert.strictEqual(V.hitAllowanceRating('PRIEST', 'Shadow', 'caster', [14, 0, 47]), 126);
+    assert.strictEqual(V.hitAllowanceRating('MAGE', 'Frost', 'caster', [0, 0, 61]), 38);
+    assert.strictEqual(V.hitAllowanceRating('PALADIN', 'Retribution', 'melee', [0, 4, 57]), 0);
 });
 test('parseThresholds: finite numbers override, junk falls back to defaults', () => {
     const t = V.parseThresholds({ ilvl: '130', parse: 'abc', staleDays: null, bogus: 1 });
@@ -209,7 +209,7 @@ test('parseThresholds: finite numbers override, junk falls back to defaults', ()
 const NOW = Date.parse('2026-09-03T12:00:00Z');
 function profile(over) {
     return Object.assign({
-        identity: { class: 'SHAMAN', spec: 'Enhancement', role: 'melee' },
+        identity: { class: 'SHAMAN', spec: 'Enhancement', role: 'melee', talentSplit: [2, 45, 14] },
         computed: { avgItemLevel: 131.82, meleeHit: 171, rangedHit: 171, spellHit: 0, expertiseSkill: 0, defenseSkill: 350 },
         gearSummary: { missingEnchants: 0, emptySockets: 0, gearScore: 1800 },
         parses: { medianPercent: 82.9, zone: 1060 },
@@ -235,8 +235,8 @@ test('evaluate: under hit cap fails and the reason shows the shortfall against t
     assert.ok(r.reasons.indexOf('hit 30/47 (−17)') !== -1, r.reasons.join(','));
 });
 test('evaluate: casters use spell hit, healers and tanks have no hit rule, tanks get defense', () => {
-    const mage = V.evaluate(profile({ identity: { class: 'MAGE', spec: 'Frost', role: 'caster' }, computed: { avgItemLevel: 130, spellHit: 164, expertiseSkill: 0, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
-    assert.strictEqual(mage.rules.find(x => x.key === 'hit').status, 'pass');       // 164 >= 202-38
+    const mage = V.evaluate(profile({ identity: { class: 'MAGE', spec: 'Frost', role: 'caster', talentSplit: [0, 20, 41] }, computed: { avgItemLevel: 130, spellHit: 164, expertiseSkill: 0, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(mage.rules.find(x => x.key === 'hit').status, 'pass');       // 164 >= 202-38, 41 Frost reaches Elemental Precision's gate of 3
     assert.strictEqual(mage.rules.find(x => x.key === 'expertise').applies, false);
     const healer = V.evaluate(profile({ identity: { class: 'PRIEST', spec: 'Holy', role: 'healer' } }), V.DEFAULT_THRESHOLDS, NOW);
     assert.strictEqual(healer.rules.find(x => x.key === 'hit').applies, false);
@@ -390,6 +390,30 @@ test('evaluate: parse rule names both tiers with rounded medians when parses.oth
     const parseRule = r.rules.find(x => x.key === 'parse');
     assert.strictEqual(parseRule.note, 'SSC / TK 52 · BT / Hyjal 17');
     assert.strictEqual(parseRule.value, 52, 'still the gating tier\'s median, not the other tier\'s');
+});
+
+test('hitAllowanceRating: the allowance is gated on the tree total that can hold the talent', () => {
+    assert.strictEqual(V.hitAllowanceRating('HUNTER', 'Beast Mastery', 'ranged', [41, 20, 0]), 0, 'no Survival points, no Surefooted');
+    assert.strictEqual(V.hitAllowanceRating('HUNTER', 'Marksmanship', 'ranged', [0, 41, 20]), 47, '20 Survival reaches row 4 + 3 ranks');
+    assert.strictEqual(V.hitAllowanceRating('WARRIOR', 'Arms', 'melee', [33, 28, 0]), 0, 'Precision is Fury row 7; 28 does not reach 33');
+    assert.strictEqual(V.hitAllowanceRating('WARRIOR', 'Fury', 'melee', [17, 44, 0]), 47);
+    assert.strictEqual(V.hitAllowanceRating('PALADIN', 'Retribution', 'melee', [5, 11, 45]), 47, 'Protection row 2 reached');
+    assert.strictEqual(V.hitAllowanceRating('PALADIN', 'Retribution', 'melee', [0, 4, 57]), 0);
+    assert.strictEqual(V.hitAllowanceRating('MAGE', 'Fire', 'caster', [10, 48, 3]), 38, 'three Frost points hold Elemental Precision');
+    assert.strictEqual(V.hitAllowanceRating('MAGE', 'Fire', 'caster', [10, 51, 0]), 0);
+    assert.strictEqual(V.hitAllowanceRating('SHAMAN', 'Enhancement', 'melee', null), 0, 'no split, no allowance');
+});
+test('evaluate: the hit rule uses the gated allowance and explains a withheld one', () => {
+    const bm = V.evaluate(profile({ identity: { class: 'HUNTER', spec: 'Beast Mastery', role: 'ranged', talentSplit: [41, 20, 0] },
+        computed: { avgItemLevel: 130, rangedHit: 113, expertiseSkill: 0, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
+    const hit = bm.rules.find(x => x.key === 'hit');
+    assert.strictEqual(hit.effective, 142, 'no allowance granted');
+    assert.strictEqual(hit.status, 'fail');
+    assert.ok(/Surefooted/.test(hit.note) && /no allowance/.test(hit.note), hit.note);
+    const ret = V.evaluate(profile({ identity: { class: 'PALADIN', spec: 'Retribution', role: 'melee', talentSplit: [5, 11, 45] },
+        computed: { avgItemLevel: 130, meleeHit: 113, expertiseSkill: 0, defenseSkill: 350 } }), V.DEFAULT_THRESHOLDS, NOW);
+    assert.strictEqual(ret.rules.find(x => x.key === 'hit').effective, 95);
+    assert.strictEqual(ret.rules.find(x => x.key === 'hit').status, 'pass');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

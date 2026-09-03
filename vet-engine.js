@@ -273,20 +273,38 @@
         return { spec, role: spec ? roleOf(cls, spec) : null, detectedFrom, ambiguous };
     }
 
-    // Hit granted by the talents every standard build takes, in percent (spec §6).
+    // Hit granted by each spec's standard talent, in percent (spec §6), gated on the tree total
+    // needed to hold that talent at full rank: 5 * rowIdx + maxPoints, from the wowsims trees.
+    // WCL reports only the three-tree split, so this is the finest check available — and it is
+    // enough: a 41/20/0 hunter has no Survival points and therefore no Surefooted.
     const TALENT_HIT_ALLOWANCE = {
-        'WARRIOR:Arms': 3, 'WARRIOR:Fury': 3,
-        'ROGUE:Assassination': 5, 'ROGUE:Combat': 5, 'ROGUE:Subtlety': 5,
-        'SHAMAN:Enhancement': 6,
-        'HUNTER:Beast Mastery': 3, 'HUNTER:Marksmanship': 3, 'HUNTER:Survival': 3,
-        'MAGE:Fire': 3, 'MAGE:Frost': 3, 'MAGE:Arcane': 10,
-        'WARLOCK:Affliction': 10, 'PRIEST:Shadow': 10, 'DRUID:Balance': 4, 'SHAMAN:Elemental': 6,
+        'WARRIOR:Arms':         { pct: 3,  tree: 1, minPoints: 33, talent: 'Precision' },  // Fury row 7
+        'WARRIOR:Fury':         { pct: 3,  tree: 1, minPoints: 33, talent: 'Precision' },
+        'ROGUE:Assassination':  { pct: 5,  tree: 1, minPoints: 10, talent: 'Precision' },  // Combat row 2
+        'ROGUE:Combat':         { pct: 5,  tree: 1, minPoints: 10, talent: 'Precision' },
+        'ROGUE:Subtlety':       { pct: 5,  tree: 1, minPoints: 10, talent: 'Precision' },
+        'SHAMAN:Enhancement':   { pct: 6,  tree: 1, minPoints: 33, talent: 'Dual Wield Specialization' },  // Enh row 7
+        'HUNTER:Beast Mastery': { pct: 3,  tree: 2, minPoints: 18, talent: 'Surefooted' },  // Survival row 4
+        'HUNTER:Marksmanship':  { pct: 3,  tree: 2, minPoints: 18, talent: 'Surefooted' },
+        'HUNTER:Survival':      { pct: 3,  tree: 2, minPoints: 18, talent: 'Surefooted' },
+        'MAGE:Fire':            { pct: 3,  tree: 2, minPoints: 3,  talent: 'Elemental Precision' },  // Frost row 1
+        'MAGE:Frost':           { pct: 3,  tree: 2, minPoints: 3,  talent: 'Elemental Precision' },
+        'MAGE:Arcane':          { pct: 10, tree: 0, minPoints: 5,  talent: 'Arcane Focus' },  // Arcane row 1
+        'WARLOCK:Affliction':   { pct: 10, tree: 0, minPoints: 5,  talent: 'Suppression' },  // Affliction row 1
+        'PRIEST:Shadow':        { pct: 10, tree: 2, minPoints: 10, talent: 'Shadow Focus' },  // Shadow row 2
+        'DRUID:Balance':        { pct: 4,  tree: 0, minPoints: 27, talent: 'Balance of Power' },  // Balance row 6
+        'SHAMAN:Elemental':     { pct: 6,  tree: 0, minPoints: 28, talent: 'Elemental Precision' },  // Ele row 6
+        'PALADIN:Retribution':  { pct: 3,  tree: 1, minPoints: 8,  talent: 'Precision' },  // Protection row 2
     };
 
-    function hitAllowanceRating(classToken, spec, role) {
-        const pct = TALENT_HIT_ALLOWANCE[String(classToken).toUpperCase() + ':' + spec] || 0;
+    function hitAllowanceRating(classToken, spec, role, talentSplit) {
+        const entry = TALENT_HIT_ALLOWANCE[String(classToken).toUpperCase() + ':' + spec];
+        if (!entry) return 0;
+        if (!Array.isArray(talentSplit) || talentSplit.length !== 3) return 0;
+        const points = talentSplit[entry.tree];
+        if (typeof points !== 'number' || !Number.isFinite(points) || points < entry.minPoints) return 0;
         const per = role === 'caster' ? RATING.SPELL_HIT_PER_PCT : RATING.MELEE_HIT_PER_PCT;
-        return Math.round(pct * per);
+        return Math.round(entry.pct * per);
     }
 
     // Calibrated 2026-09-03 against a real 45-character roster; see spec §6 "Calibration pass".
@@ -329,10 +347,14 @@
         if (!hitApplies) rules.push(rule('hit', 'hit', false, 'pass', null, null, null));
         else {
             const threshold = role === 'caster' ? t.spellHit : t.meleeHit;
-            const allowance = hitAllowanceRating(cls, id.spec, role);
+            const allowance = hitAllowanceRating(cls, id.spec, role, id.talentSplit);
             const effective = threshold - allowance;
             const value = c ? (role === 'caster' ? c.spellHit : role === 'ranged' ? c.rangedHit : c.meleeHit) : null;
             let note = allowance ? threshold + ' − ' + allowance + ' from talents = ' + effective : '';
+            if (!allowance) {
+                const entry = TALENT_HIT_ALLOWANCE[cls + ':' + id.spec];
+                if (entry) note = entry.talent + ' not reachable with ' + (Array.isArray(id.talentSplit) ? id.talentSplit[entry.tree] : 0) + ' ' + (E.SPEC_TREES[cls] || [])[entry.tree] + ' (needs ' + entry.minPoints + ') — no allowance';
+            }
             const gearOnly = profile.gearOnly;
             if (c && gearOnly) {
                 const fromGear = role === 'caster' ? gearOnly.spellHit : gearOnly.meleeHit;
