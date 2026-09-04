@@ -404,6 +404,109 @@ test('checkNumbers: figures from the sheet pass with rounding, foreign figures f
     assert.strictEqual(F.checkNumbers('Three things, in 2 groups of 5.', facts).ok, true);
 });
 
+// --- Task 8: orchestration
+// A stub WCL that answers from the fixture by query kind and records what was asked.
+function stubQuery() {
+    const calls = [];
+    const byFight = new Map();
+    Object.keys(FX.kills).forEach(e => { const k = FX.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
+    Object.keys(FX.reference).forEach(e => FX.reference[e].players.forEach(p => {
+        const key = p.rank.report.code + '/' + p.rank.report.fightID;
+        const cur = byFight.get(key) || { context: p.context, tables: {} };
+        cur.tables[p.sourceID] = p.tables;
+        byFight.set(key, cur);
+    }));
+    const query = async (q, vars) => {
+        calls.push({ q, vars });
+        if (q.includes('encounterRankings(')) {
+            const ch = { id: 1, classID: 10 };
+            Object.keys(FX.encounterRankings).forEach(e => { ch['e' + e] = FX.encounterRankings[e]; });
+            return { characterData: { character: ch } };
+        }
+        if (q === F.FIGHT_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.context : null } }; }
+        if (q === F.PLAYER_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.tables[vars.s] || null : null } }; }
+        if (q.includes('characterRankings(')) {
+            const enc = /encounter\(id:(\d+)\)/.exec(q)[1], page = +/page:(\d+)/.exec(q)[1];
+            const pg = FX.reference[enc].pages[page - 1];
+            return { worldData: { encounter: { characterRankings: pg || { page, hasMorePages: false, count: 0, rankings: [] } } } };
+        }
+        throw new Error('unexpected query: ' + q.slice(0, 60));
+    };
+    return { calls, query };
+}
+test('query builders', () => {
+    assert.ok(F.encounterRankQuery([50619, 50620], 'dps').includes('e50619:encounterRankings(encounterID:50619,metric:dps)'));
+    assert.ok(F.encounterRankQuery([1], 'hps').includes('metric:hps'));
+    assert.ok(/serverSlug:\$server/.test(F.encounterRankQuery([1], 'dps')));
+    const rq = F.refPageQuery(50619, 'Warlock', 'Destruction', 'eu', 2);
+    assert.ok(rq.includes('encounter(id:50619)') && rq.includes('className:"Warlock"') && rq.includes('specName:"Destruction"') && rq.includes('serverRegion:"eu"') && rq.includes('page:2'));
+    assert.ok(F.FIGHT_QUERY.includes('debuffs:table(dataType:Debuffs') && F.FIGHT_QUERY.includes('summary:table(dataType:Summary'));
+    assert.ok(F.PLAYER_QUERY.includes('ci:events(dataType:CombatantInfo'));
+});
+test('mapLimit keeps at most N in flight and returns results in order', async () => {
+    let inFlight = 0, peak = 0;
+    const out = await F.mapLimit([1, 2, 3, 4, 5], 2, async x => { inFlight++; peak = Math.max(peak, inFlight); await new Promise(r => setTimeout(r, 5)); inFlight--; return x * 2; });
+    assert.deepStrictEqual(out, [2, 4, 6, 8, 10]);
+    assert.strictEqual(peak, 2);
+});
+test('fetchFeedback: two kills analysed, references from page 1, cache reused on the second run', async () => {
+    const s = stubQuery();
+    const refCache = new Map();
+    const now = Date.now();
+    const facts = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache, thresholds: {}, now });
+    assert.strictEqual(facts.kills.length, 2);
+    assert.deepStrictEqual(facts.kills.map(k => k.name), ["Kaz'rogal", 'Anetheron'], 'worst parse first');
+    assert.strictEqual(facts.kills[1].reference.sampleSize, 8);
+    assert.deepStrictEqual(facts.kills[1].reference.itemLevelBand, [122, 126]);
+    assert.strictEqual(facts.overall.badPulls.length, 1);
+    const pageCalls = s.calls.filter(c => c.q.includes('characterRankings('));
+    assert.strictEqual(pageCalls.length, 2, 'page 1 already holds 8 in-band ranks for each boss');
+    const playerCalls = s.calls.filter(c => c.q === F.PLAYER_QUERY);
+    assert.strictEqual(playerCalls.length, 2 + 2 * F.REF.players);
+    assert.strictEqual(refCache.size, 2);
+    const before = s.calls.length;
+    await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache, thresholds: {}, now: now + 1000 });
+    assert.strictEqual(s.calls.slice(before).filter(c => c.q.includes('characterRankings(')).length, 0, 'reference cache hit');
+    assert.strictEqual(s.calls.slice(before).filter(c => c.q === F.PLAYER_QUERY).length, 2, 'only the player\'s own tables again');
+});
+test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
+    const s = stubQuery();
+    const p = rotProfile();
+    p.parses.metric = 'hps';
+    const facts = await F.fetchFeedback(s.query, { profile: p, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.strictEqual(facts.limited, true);
+    assert.ok(facts.kills.every(k => k.reference === null));
+    assert.strictEqual(s.calls.filter(c => c.q.includes('characterRankings(')).length, 0);
+    assert.ok(!facts.overall.findings.some(f => ['crit_low', 'hit_low', 'stat_low', 'ability_unused'].includes(f.key)));
+});
+test('fetchFeedback: no parses gives null; WCL errors propagate', async () => {
+    const s = stubQuery();
+    const p = rotProfile();
+    p.parses = null;
+    assert.strictEqual(await F.fetchFeedback(s.query, { profile: p, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() }), null);
+    const boom = async () => { const e = new Error('WCL rate limit reached'); e.code = 'RATE_LIMIT'; throw e; };
+    await assert.rejects(F.fetchFeedback(boom, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() }), /rate limit/);
+});
+test('getReference: widens once when the band is thin, gives a note when still too few, shares in-flight work', async () => {
+    const pages = FX.reference['50619'].pages;
+    const thin = pages.flatMap(p => p.rankings).filter(r => r.bracketData === 119);
+    const twoPages = { page: 1, hasMorePages: false, count: thin.length, rankings: thin };
+    let pageCalls = 0;
+    const query = async q => {
+        if (q.includes('characterRankings(')) { pageCalls++; return { worldData: { encounter: { characterRankings: twoPages } } }; }
+        throw new Error('no fight data in this stub');
+    };
+    const base = { encounterId: 50619, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', dbIndex: db, now: Date.now() };
+    const none = await F.getReference(query, Object.assign({ itemLevel: 150, refCache: new Map() }, base));
+    assert.strictEqual(none.summary, null);
+    assert.ok(/too few same-item-level parses/.test(none.note));
+    const cache = new Map();
+    const a = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
+    const b = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
+    await Promise.all([a, b]);
+    assert.strictEqual(pageCalls, 2, 'one page fetch for the first call, one shared fetch for the pair');
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

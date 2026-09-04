@@ -587,4 +587,113 @@ function checkNumbers(text, facts) {
     return { ok: foreign.length === 0, foreign: Array.from(new Set(foreign)) };
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers };
+// --- WCL queries (verified live 2026-09-04, spec §9). The metric, class, spec, region and
+// encounter id are inlined after validation, matching the probe text exactly: WCL's classic
+// schema types some of these arguments in ways that reject plain String variables.
+function encounterRankQuery(encounterIds, metric) {
+    const m = metric === 'hps' ? 'hps' : 'dps';
+    return 'query($name:String!,$server:String!,$region:String!){characterData{character(name:$name,serverSlug:$server,serverRegion:$region){id classID ' +
+        encounterIds.map(id => 'e' + id + ':encounterRankings(encounterID:' + id + ',metric:' + m + ')').join(' ') + '}}}';
+}
+const FIGHT_QUERY = 'query($c:String!,$f:[Int]!){reportData{report(code:$c){' +
+    'masterData{actors(type:"Player"){id name subType}} fights(fightIDs:$f){id name startTime endTime kill} rankings(fightIDs:$f) ' +
+    'dmgAll:table(dataType:DamageDone,fightIDs:$f) deaths:table(dataType:Deaths,fightIDs:$f) summary:table(dataType:Summary,fightIDs:$f) ' +
+    'debuffs:table(dataType:Debuffs,fightIDs:$f,hostilityType:Enemies)}}}';
+const PLAYER_QUERY = 'query($c:String!,$f:[Int]!,$s:Int!){reportData{report(code:$c){' +
+    'dmg:table(dataType:DamageDone,fightIDs:$f,sourceID:$s) casts:table(dataType:Casts,fightIDs:$f,sourceID:$s) ' +
+    'buffs:table(dataType:Buffs,fightIDs:$f,sourceID:$s) ci:events(dataType:CombatantInfo,fightIDs:$f,sourceID:$s,limit:5){data}}}}';
+function refPageQuery(encounterId, className, specName, region, page) {
+    const safe = s => String(s).replace(/[^A-Za-z]/g, '');
+    return '{worldData{encounter(id:' + (parseInt(encounterId, 10) || 0) + '){characterRankings(metric:dps,className:"' + safe(className) +
+        '",specName:"' + safe(specName) + '",serverRegion:"' + safe(region).toLowerCase() + '",page:' + (parseInt(page, 10) || 1) + ')}}}';
+}
+
+async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+        while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+}
+
+async function fightAndTables(query, code, fightID, playerName) {
+    const ctxD = await query(FIGHT_QUERY, { c: code, f: [fightID] });
+    const ctx = ctxD && ctxD.reportData && ctxD.reportData.report;
+    if (!ctx || !ctx.masterData) return null;
+    const actor = (ctx.masterData.actors || []).find(a => a.name && lower(a.name) === lower(playerName));
+    if (!actor) return null;
+    const tD = await query(PLAYER_QUERY, { c: code, f: [fightID], s: actor.id });
+    const tables = tD && tD.reportData && tD.reportData.report;
+    if (!tables) return null;
+    return { ctx, tables, sourceId: actor.id };
+}
+
+// Reference per (boss, class, spec, region, band). Shared across every player of that spec, so
+// it is cached for a day and an in-flight fetch is handed to concurrent callers.
+async function getReference(query, o) {
+    const key = [o.encounterId, o.classToken, o.spec, o.region, o.itemLevel - REF.band, o.itemLevel + REF.band].join('/');
+    const hit = o.refCache.get(key);
+    if (hit && hit.value && o.now - hit.at < REF.cacheMs) return hit.value;
+    if (hit && hit.pending) return hit.pending;
+    const pending = (async () => {
+        const pages = [];
+        let ranks = [];
+        for (let p = 1; p <= REF.maxPages; p++) {
+            const d = await query(refPageQuery(o.encounterId, WCL_CLASS_NAME[String(o.classToken).toUpperCase()], wclSpecName(o.spec), o.region, p), {});
+            const cr = d && d.worldData && d.worldData.encounter && d.worldData.encounter.characterRankings;
+            if (!cr || !Array.isArray(cr.rankings)) break;
+            pages.push(cr);
+            ranks = bandRanks(pages.flatMap(x => x.rankings), o.itemLevel, REF.band);
+            if (ranks.length >= REF.target || !cr.hasMorePages) break;
+        }
+        let band = REF.band;
+        if (ranks.length < REF.min) { band = REF.wideBand; ranks = bandRanks(pages.flatMap(x => x.rankings), o.itemLevel, REF.wideBand); }
+        if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against' };
+        ranks = ranks.slice(0, REF.target);
+        const players = [];
+        for (const r of ranks.slice(0, REF.players)) {
+            const got = await fightAndTables(query, r.report.code, r.report.fightID, r.name);
+            if (got) players.push({ rank: r, sourceID: got.sourceId, context: got.ctx, tables: got.tables });
+        }
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band]), note: null };
+    })();
+    o.refCache.set(key, { at: o.now, pending });
+    try {
+        const value = await pending;
+        o.refCache.set(key, { at: o.now, value });
+        return value;
+    } catch (e) { o.refCache.delete(key); throw e; }
+}
+
+// The whole pipeline for one player (spec §3.1 steps 2–5). Returns null when there is nothing
+// to analyse; WCL errors (including rate limits) propagate to the route.
+async function fetchFeedback(query, o) {
+    const { profile, dbIndex, refCache, thresholds, now } = o;
+    if (!profile || !profile.parses) return null;
+    const targets = pickKills(profile);
+    if (!targets.length) return null;
+    const id = profile.identity || {};
+    const role = id.role || 'caster';
+    const limited = profile.parses.metric === 'hps';
+    const player = { name: profile.name, classToken: id.class, spec: id.spec, role, schools: schoolsOf(id.class, id.spec, role) };
+    const er = await query(encounterRankQuery(targets.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
+    const ch = er && er.characterData && er.characterData.character;
+    if (!ch) return null;
+    const kills = (await mapLimit(targets, 3, async t => {
+        const blob = ch['e' + t.encounterId];
+        const ranks = blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : [];
+        const rank = ranks.slice().sort((a, b) => (b.startTime || 0) - (a.startTime || 0))[0];
+        if (!rank) return null;
+        const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
+        if (!got) return null;
+        const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
+            : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
+        return killFacts({ encounterId: t.encounterId, name: t.name, rank, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
+    })).filter(Boolean);
+    kills.sort((a, b) => (a.rankPercent == null ? 101 : a.rankPercent) - (b.rankPercent == null ? 101 : b.rankPercent));
+    return buildFacts({ profile, player, kills, thresholds, now, limited });
+}
+
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, mapLimit, getReference, fetchFeedback };
