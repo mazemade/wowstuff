@@ -164,6 +164,44 @@ test('playerStats: from the CombatantInfo gear with reported ratings, or from th
     assert.strictEqual(F.playerStats(null, null, db, 'WARLOCK'), null);
 });
 
+// --- Task 4: reference
+function refFor(enc) {
+    const R = FX.reference[String(enc)];
+    const ranks = F.bandRanks(R.pages.flatMap(p => p.rankings), 124, F.REF.band).slice(0, F.REF.target);
+    return F.referenceSummary(ranks, R.players, db, 'WARLOCK', 'caster', [122, 126]);
+}
+test('bandRanks: item level within the band, page order kept, empty when nobody fits', () => {
+    const all = FX.reference['50619'].pages.flatMap(p => p.rankings);
+    const page1 = F.bandRanks(FX.reference['50619'].pages[0].rankings, 124, 2);
+    assert.strictEqual(page1.length, 29);
+    assert.strictEqual(F.bandRanks(all, 124, 2).length, 74);
+    assert.ok(F.bandRanks(all, 124, 2).every(r => Math.abs(r.bracketData - 124) <= 2));
+    assert.deepStrictEqual(F.bandRanks(all, 200, 2), []);
+    assert.strictEqual(F.bandRanks(all, 124, 2)[0].name, FX.reference['50619'].players[0].rank.name);
+});
+test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => {
+    const ref = refFor(50619);
+    assert.strictEqual(ref.sampleSize, 8);
+    assert.strictEqual(ref.playersCompared, 3);
+    assert.strictEqual(ref.dps, 2684);
+    assert.strictEqual(ref.durationSec, 94.7);
+    assert.strictEqual(ref.activePercent, 89.5);
+    assert.strictEqual(ref.castsPerMinute, 30.5);
+    assert.strictEqual(ref.casts['Shadow Bolt'], 36);
+    assert.strictEqual(ref.casts['Life Tap'], 2);
+    assert.strictEqual(ref.casts.Shadowburn, undefined, 'only one of three cast it, so it is not a reference ability');
+    assert.strictEqual(ref.abilities[0].name, 'Shadow Bolt');
+    assert.strictEqual(ref.abilities[0].critPercent, 58.8);
+    assert.strictEqual(ref.abilities[0].avgHit, 4215);
+    assert.strictEqual(ref.stats.spellDamage, 1001);
+    assert.strictEqual(ref.stats.spellCrit, 345);
+    assert.ok(ref.buffsAtPull.includes('Moonkin Aura') && ref.buffsAtPull.includes('Prayer of Spirit'));
+    assert.strictEqual(ref.flaskShare, 1);      // all 3 flasked; Zûl's is the Shattrath form
+    assert.strictEqual(ref.flask, 'Flask of Pure Death');
+    assert.ok(ref.topDps >= ref.dps);
+    assert.deepStrictEqual(ref.itemLevelBand, [122, 126]);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

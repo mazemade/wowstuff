@@ -218,4 +218,66 @@ function playerStats(ci, row, dbIndex, classToken) {
     return out;
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats };
+function bandRanks(rankings, itemLevel, band) {
+    return (Array.isArray(rankings) ? rankings : []).filter(r => r && typeof r.bracketData === 'number' &&
+        Math.abs(r.bracketData - itemLevel) <= band && r.report && r.report.code);
+}
+function countNames(lists) {
+    const c = {};
+    lists.forEach(l => new Set(l).forEach(n => { c[n] = (c[n] || 0) + 1; }));
+    return c;
+}
+function mostCommon(names) {
+    const c = countNames(names.map(n => [n]));
+    return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || null;
+}
+
+// What "players like you" do on this boss: DPS and fight length are medians over every in-band
+// rank collected; everything that needs a fight's tables (casts, per-ability numbers, buffs,
+// consumables, stats) is a median over the fetched reference players. An ability or buff counts
+// only when a majority of those players show it, so one player's one-off cast is not "unused".
+function referenceSummary(ranks, players, dbIndex, classToken, role, band) {
+    const per = (players || []).map(p => {
+        const fight = Array.isArray(p.context.fights) ? p.context.fights[0] : null;
+        const dur = fight ? (fight.endTime - fight.startTime) / 1000 : null;
+        const dmg = p.context.dmgAll && p.context.dmgAll.data;
+        const row = dmg && Array.isArray(dmg.entries) ? dmg.entries.find(e => lower(e.name) === lower(p.rank.name)) : null;
+        const casts = castCounts(p.tables.casts);
+        const ci = p.tables.ci && p.tables.ci.data && p.tables.ci.data[0];
+        const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
+        return {
+            dur, activePercent: row && dmg.totalTime && typeof row.activeTime === 'number' ? round1(100 * row.activeTime / dmg.totalTime) : null,
+            casts, castsPerMinute: castsPerMinute(casts, dur), abilities: abilityStats(p.tables.dmg), aur,
+            buffs: aur ? canonBuffs(aur.buffs, role) : [], bloodlust: buffUptime(p.tables.buffs, 'Bloodlust'),
+            stats: playerStats(ci, row, dbIndex, classToken),
+        };
+    });
+    const n = per.length, majority = Math.floor(n / 2) + 1;
+    const medOf = arr => round1(median(arr));
+    const castNames = countNames(per.map(p => Object.keys(p.casts)));
+    const casts = {};
+    Object.keys(castNames).filter(nm => castNames[nm] >= majority).forEach(nm => { casts[nm] = medOf(per.map(p => p.casts[nm] || 0)); });
+    const abilityNames = countNames(per.map(p => p.abilities.map(a => a.name)));
+    const abilities = Object.keys(abilityNames).filter(nm => abilityNames[nm] >= majority).map(nm => {
+        const rows = per.map(p => p.abilities.find(a => a.name === nm)).filter(Boolean);
+        return { name: nm, share: medOf(rows.map(r => r.share)), avgHit: medOf(rows.map(r => r.avgHit)), avgCrit: medOf(rows.map(r => r.avgCrit)),
+                 critPercent: medOf(rows.map(r => r.critPercent)), resistPercent: medOf(rows.map(r => r.resistPercent)) };
+    }).sort((a, b) => (b.share || 0) - (a.share || 0));
+    const buffCounts = countNames(per.map(p => p.buffs));
+    const withCi = per.filter(p => p.aur).length;
+    const flasks = per.filter(p => p.aur && p.aur.flask).map(p => p.aur.flask);
+    const stats = {};
+    STAT_KEYS.forEach(k => { stats[k] = medOf(per.map(p => p.stats && p.stats[k])); });
+    const amounts = ranks.map(r => r.amount);
+    return {
+        itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
+        dps: Math.round(median(amounts)), topDps: amounts.length ? Math.round(Math.max.apply(null, amounts)) : null,
+        durationSec: round1(median(ranks.map(r => r.duration / 1000))), castsDurationSec: medOf(per.map(p => p.dur)),
+        activePercent: medOf(per.map(p => p.activePercent)), castsPerMinute: medOf(per.map(p => p.castsPerMinute)),
+        casts, abilities, buffsAtPull: Object.keys(buffCounts).filter(b => buffCounts[b] >= majority),
+        flaskShare: withCi ? round1(flasks.length / withCi) : 0, flask: mostCommon(flasks),
+        bloodlustPercent: medOf(per.map(p => p.bloodlust)), stats,
+    };
+}
+
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary };
