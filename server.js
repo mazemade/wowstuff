@@ -182,6 +182,23 @@ function getVetDbIndex() {
 const VET_CACHE_MS = 15 * 60 * 1000;
 const vetCache = new Map(); // key -> { at, profile }
 
+// One profile per character, cached for VET_CACHE_MS. Shared by the vetting and feedback routes.
+async function loadProfile(name, server, region, zone) {
+  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone;
+  const hit = vetCache.get(key);
+  if (hit && Date.now() - hit.at < VET_CACHE_MS) return { profile: hit.profile, cached: true };
+  let db;
+  try { db = getVetDbIndex(); }
+  catch (err) { console.error('item table load failed:', err); const e = new Error('Item table data/tbc-item-db.json is missing or unreadable'); e.code = 'NO_DB'; throw e; }
+  const profile = await VetProfile.fetchProfile(wclQuery, { name, server, region, zone }, db);
+  if (!profile) return { profile: null, cached: false };
+  // Reclaim memory from entries the read path above already treats as misses (past VET_CACHE_MS) —
+  // this is a sweep, not an eviction policy: nothing here changes what a lookup returns.
+  for (const [k, v] of vetCache) if (Date.now() - v.at >= VET_CACHE_MS) vetCache.delete(k);
+  vetCache.set(key, { at: Date.now(), profile });
+  return { profile, cached: false };
+}
+
 app.get('/api/vet/player', async (req, res) => {
   const name = String(req.query.name || '');
   const server = String(req.query.server || '').toLowerCase();
@@ -190,41 +207,118 @@ app.get('/api/vet/player', async (req, res) => {
   if (!/^[^\s\/\\"]{2,24}$/.test(name)) return res.status(400).json({ error: 'Invalid character name' });
   if (!/^[a-z0-9-]{2,40}$/.test(server)) return res.status(400).json({ error: 'Invalid server slug' });
   if (!/^(eu|us|kr|tw|cn)$/.test(region)) return res.status(400).json({ error: 'Invalid region' });
-  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone;
-  const hit = vetCache.get(key);
-  if (hit && Date.now() - hit.at < VET_CACHE_MS) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.profile); }
-  let db;
-  try { db = getVetDbIndex(); }
-  catch (err) { console.error('item table load failed:', err); return res.status(500).json({ error: 'Item table data/tbc-item-db.json is missing or unreadable' }); }
   try {
-    const profile = await VetProfile.fetchProfile(wclQuery, { name, server, region, zone }, db);
+    const { profile, cached } = await loadProfile(name, server, region, zone);
     if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
-    // Reclaim memory from entries the read path above already treats as misses (past VET_CACHE_MS) —
-    // this is a sweep, not an eviction policy: nothing here changes what a lookup returns.
-    for (const [k, v] of vetCache) if (Date.now() - v.at >= VET_CACHE_MS) vetCache.delete(k);
-    vetCache.set(key, { at: Date.now(), profile });
-    res.set('X-Vet-Cache', 'miss');
+    res.set('X-Vet-Cache', cached ? 'hit' : 'miss');
     res.json(profile);
-  } catch (err) { wclErrorResponse(res, err, 'WCL vetting lookup'); }
+  } catch (err) {
+    if (err.code === 'NO_DB') return res.status(500).json({ error: err.message });
+    wclErrorResponse(res, err, 'WCL vetting lookup');
+  }
+});
+
+// Parse feedback report: measured facts from WCL plus a model-written, facts-only note.
+// A model failure never fails the request — the facts sheet is the product, the prose is a
+// convenience — so `report` may be null with `reportError` saying why.
+const VetFeedback = require('./vet-feedback.js');
+const FEEDBACK_CACHE_MS = 15 * 60 * 1000;
+const feedbackCache = new Map();     // key -> { at, body }
+const feedbackRefCache = new Map();  // shared reference cache, see getReference in vet-feedback.js
+
+app.get('/api/vet/feedback', async (req, res) => {
+  const name = String(req.query.name || '');
+  const server = String(req.query.server || '').toLowerCase();
+  const region = String(req.query.region || '').toLowerCase();
+  const zone = parseInt(req.query.zone, 10) || 1060;
+  if (!/^[^\s\/\\"]{2,24}$/.test(name)) return res.status(400).json({ error: 'Invalid character name' });
+  if (!/^[a-z0-9-]{2,40}$/.test(server)) return res.status(400).json({ error: 'Invalid server slug' });
+  if (!/^(eu|us|kr|tw|cn)$/.test(region)) return res.status(400).json({ error: 'Invalid region' });
+  let thresholds = {};
+  if (req.query.thresholds) {
+    try { thresholds = JSON.parse(String(req.query.thresholds)); } catch (e) { return res.status(400).json({ error: 'Invalid thresholds' }); }
+  }
+  thresholds = VetEngine.parseThresholds(thresholds);
+  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone + '/' + JSON.stringify(thresholds);
+  const hit = feedbackCache.get(key);
+  if (hit && Date.now() - hit.at < FEEDBACK_CACHE_MS) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.body); }
+  try {
+    const { profile } = await loadProfile(name, server, region, zone);
+    if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
+    if (!profile.parses) return res.status(404).json({ error: 'No parses to analyse' });
+    const facts = await VetFeedback.fetchFeedback(wclQuery, { profile, dbIndex: getVetDbIndex(), refCache: feedbackRefCache, thresholds, now: Date.now() });
+    if (!facts) return res.status(404).json({ error: 'No kills to analyse' });
+    let report = null, reportError = null;
+    try {
+      const { system, user } = VetFeedback.buildPrompt(facts, ANNIVERSARY_RULES);
+      const text = await openaiChat(system, user, 60000);
+      const check = VetFeedback.checkNumbers(text, facts);
+      if (check.ok) report = text;
+      else reportError = 'The model introduced figures not in the facts (' + check.foreign.join(', ') + '); showing the facts only';
+    } catch (err) {
+      console.error('feedback report model failed:', err);
+      if (err.code === 'NO_KEY') reportError = 'No OPENAI_API_KEY configured; showing the facts only';
+      else if (err.name === 'AbortError' || err.name === 'TimeoutError') reportError = 'The model timed out; showing the facts only';
+      else reportError = 'The model failed; showing the facts only';
+    }
+    const body = { facts, report, reportError, generatedAt: new Date().toISOString() };
+    for (const [k, v] of feedbackCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) feedbackCache.delete(k);
+    feedbackCache.set(key, { at: Date.now(), body });
+    res.set('X-Vet-Cache', 'miss');
+    res.json(body);
+  } catch (err) {
+    if (err.code === 'NO_DB') return res.status(500).json({ error: err.message });
+    wclErrorResponse(res, err, 'WCL feedback lookup');
+  }
 });
 
 // Advisory AI second opinion on the whole assignment sheet. The client sends its live
 // state; we wrap it in a system prompt that states the Anniversary rules so the model
 // cannot repeat the rule-ignorant critiques a bare ChatGPT produces. Display-only:
 // nothing here ever mutates an assignment.
-const AI_SYSTEM_PROMPT = [
-  'You are reviewing a World of Warcraft TBC Anniversary-realm raid assignment sheet.',
-  'Anniversary rules you must respect (they differ from original TBC):',
+// The Anniversary-realm rules both model prompts must state, so neither repeats the
+// rule-ignorant critiques a bare ChatGPT produces.
+const ANNIVERSARY_RULES = [
   '- Bloodlust/Heroism is RAID-wide (10-minute Sated-style debuff). It is never a reason to group anyone.',
   '- Everything else is party-scoped: all shaman totems, paladin auras, Battle Shout, Leader of the Pack, Moonkin Aura, Trueshot Aura, Ferocious Inspiration, Vampiric Touch, Mana Tide, Blood Pact, and draenei presences.',
   '- A shaman runs only ONE air totem at a time: Windfury, Grace of Air and Wrath of Air are all air totems.',
-  '- Party mana buffs (Vampiric Touch, Mana Spring, Mana Tide) scale strongly with fight length. The payload includes fightLengthSec, and the layout weights already assume it — do not suggest mana-motivated regrouping beyond what the sheet shows unless the actual fight is much longer than fightLengthSec.',
   '- Windfury Totem does not affect shapeshifted druids or hunters, and enhancement shamans use their own weapon imbues instead.',
+];
+const AI_SYSTEM_PROMPT = [
+  'You are reviewing a World of Warcraft TBC Anniversary-realm raid assignment sheet.',
+  'Anniversary rules you must respect (they differ from original TBC):',
+].concat(ANNIVERSARY_RULES, [
+  '- Party mana buffs (Vampiric Touch, Mana Spring, Mana Tide) scale strongly with fight length. The payload includes fightLengthSec, and the layout weights already assume it — do not suggest mana-motivated regrouping beyond what the sheet shows unless the actual fight is much longer than fightLengthSec.',
   '- A non-enhancement shaman grouped with melee is expected to drop Windfury as baseline; the group notes say which totem each group gets.',
   'Critique the group layout, debuff assignments, blessings and uncovered list as an advisory second opinion.',
   'Suggest concrete swaps where they genuinely help; say so if the sheet is already sound.',
   'Under 400 words. Plain text, no markdown headings.',
-].join('\n');
+]).join('\n');
+
+// One chat completion. Errors carry a code so routes can map them to a status without
+// re-deriving it from the message.
+async function openaiChat(system, user, timeoutMs) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) { const e = new Error('No OPENAI_API_KEY configured — put it in .env next to server.js'); e.code = 'NO_KEY'; throw e; }
+  const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(timeoutMs),
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || 'gpt-5-mini',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    }),
+  });
+  const data = await upstream.json();
+  if (!upstream.ok) {
+    const msg = (data && data.error && data.error.message) || `OpenAI returned ${upstream.status}`;
+    console.error('OpenAI upstream error:', upstream.status, msg);
+    const e = new Error(`OpenAI returned ${upstream.status}`); e.code = 'UPSTREAM'; throw e;
+  }
+  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!text) { const e = new Error('OpenAI returned an empty response'); e.code = 'UPSTREAM'; throw e; }
+  return text;
+}
 
 app.post('/api/ai-review', async (req, res) => {
   // A text/plain or form-urlencoded POST is a CORS simple request: no preflight, so any
@@ -236,37 +330,14 @@ app.post('/api/ai-review', async (req, res) => {
   if (!req.is('application/json')) {
     return res.status(415).json({ error: 'Expected application/json' });
   }
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    return res.status(503).json({ error: 'No OPENAI_API_KEY configured — put it in .env next to server.js' });
-  }
   try {
-    const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(180000),
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-5-mini',
-        messages: [
-          { role: 'system', content: AI_SYSTEM_PROMPT },
-          { role: 'user', content: `Review this sheet:\n${JSON.stringify(req.body)}` },
-        ],
-      }),
-    });
-    const data = await upstream.json();
-    if (!upstream.ok) {
-      const msg = (data && data.error && data.error.message) || `OpenAI returned ${upstream.status}`;
-      console.error('AI review upstream error:', upstream.status, msg);
-      return res.status(502).json({ error: `OpenAI returned ${upstream.status}` });
-    }
-    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (!text) return res.status(502).json({ error: 'OpenAI returned an empty response' });
+    const text = await openaiChat(AI_SYSTEM_PROMPT, `Review this sheet:\n${JSON.stringify(req.body)}`, 180000);
     res.json({ review: text });
   } catch (err) {
+    if (err.code === 'NO_KEY') return res.status(503).json({ error: err.message });
+    if (err.code === 'UPSTREAM') return res.status(502).json({ error: err.message });
     console.error('AI review failed:', err);
-    if (err.name === 'AbortError' || err.name === 'TimeoutError') {
-      return res.status(504).json({ error: 'OpenAI request timed out' });
-    }
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') return res.status(504).json({ error: 'OpenAI request timed out' });
     res.status(502).json({ error: 'Failed to reach OpenAI' });
   }
 });
