@@ -53,6 +53,41 @@ function pickKills(profile) {
         .map(b => ({ encounterId: b.encounterId, name: b.name, medianPercent: b.medianPercent }));
 }
 
+// task-rep-kill: the boss was selected by its median percentile across every kill of that boss;
+// the report should analyse the kill that explains that number, not whichever happened last (the
+// two diverge once a player has more than one kill on a boss). `ranks` are already filtered to
+// those with a report.code by the caller. Rules, in order:
+//  1. Demote likely raid-wide bad pulls: a rank whose duration is more than T.longFightRatio times
+//     the shortest duration among this boss's ranks is a probable bad pull and is only chosen if
+//     nothing else is available (the shortest rank itself can never be demoted by this rule, so a
+//     single rank is always "taken" regardless of its own duration).
+//  2. Among the surviving candidates, pick the rankPercent closest to medianPercent — the number
+//     that caused the boss to be selected in the first place. Falls back to the most recent when
+//     medianPercent is null or no candidate has a rankPercent.
+//  3. Ties on distance-to-median break toward the more recent kill (larger startTime).
+function pickRank(ranks, medianPercent) {
+    if (!ranks || !ranks.length) return null;
+    if (ranks.length === 1) return ranks[0];
+
+    const durations = ranks.map(r => r.duration).filter(d => typeof d === 'number');
+    const shortest = durations.length ? Math.min(...durations) : null;
+    const isLikelyBadPull = r => shortest != null && typeof r.duration === 'number' && r.duration > shortest * T.longFightRatio;
+    let candidates = ranks.filter(r => !isLikelyBadPull(r));
+    if (!candidates.length) candidates = ranks; // degrade to "take it": nothing else is available
+
+    const byRecency = (a, b) => (b.startTime || 0) - (a.startTime || 0);
+    if (typeof medianPercent !== 'number' || !candidates.some(r => typeof r.rankPercent === 'number')) {
+        return candidates.slice().sort(byRecency)[0];
+    }
+    let best = null, bestDist = Infinity;
+    for (const r of candidates) {
+        if (typeof r.rankPercent !== 'number') continue;
+        const dist = Math.abs(r.rankPercent - medianPercent);
+        if (!best || dist < bestDist || (dist === bestDist && (r.startTime || 0) > (best.startTime || 0))) { best = r; bestDist = dist; }
+    }
+    return best;
+}
+
 function median(values) {
     const v = (values || []).filter(x => typeof x === 'number').sort((a, b) => a - b);
     if (!v.length) return null;
@@ -603,6 +638,9 @@ function killFindings(kill, player) {
 
 function killFacts(input) {
     const { encounterId, name, rank, context, tables, sourceId, player, reference, referenceNote, dbIndex } = input;
+    // task-rep-kill: how many ranks this boss had, so the facts sheet (and the page) can say which
+    // pull is being analysed. Defaults to 1 for the pre-existing single-rank call shape.
+    const killsOnBoss = typeof input.killsOnBoss === 'number' ? input.killsOnBoss : 1;
     const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null, player.metric);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
@@ -615,7 +653,7 @@ function killFacts(input) {
         bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
     });
     const kill = {
-        encounterId, name, rankPercent: round1(rank.rankPercent),
+        encounterId, name, killsOnBoss, rankPercent: round1(rank.rankPercent),
         date: rank.startTime ? new Date(rank.startTime).toISOString().slice(0, 10) : null,
         reportCode: rank.report.code, fightId: rank.report.fightID,
         wclUrl: 'https://classic.warcraftlogs.com/reports/' + rank.report.code + '#fight=' + rank.report.fightID + '&source=' + sourceId,
@@ -825,7 +863,9 @@ async function fetchFeedback(query, o) {
     const results = await mapLimit(targets, 3, async t => {
         const blob = ch['e' + t.encounterId];
         const ranks = blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : [];
-        const rank = ranks.slice().sort((a, b) => (b.startTime || 0) - (a.startTime || 0))[0];
+        // task-rep-kill: analyse the kill representative of the median that flagged this boss,
+        // not the most recent one — see pickRank's own comment for the selection rules.
+        const rank = pickRank(ranks, t.medianPercent);
         if (!rank) return null;
         // Important 5: a report that errors (a GraphQL error on a deleted/restricted report, not
         // the already-handled `report: null`) drops this one kill instead of 502ing the whole
@@ -837,7 +877,7 @@ async function fetchFeedback(query, o) {
             if (!got) return null;
             const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
                 : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
-            return killFacts({ encounterId: t.encounterId, name: t.name, rank, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
+            return killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
         } catch (err) {
             if (err && err.code === 'RATE_LIMIT') throw err;
             return { dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' };
@@ -849,4 +889,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, mapLimit, getReference, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, mapLimit, getReference, fetchFeedback };

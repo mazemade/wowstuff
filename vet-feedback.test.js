@@ -42,6 +42,57 @@ test('pickKills: killed bosses only, lowest median first, capped at KILL_LIMIT',
     assert.ok(!picked.some(k => k.encounterId === 200));     // null median sorts last, past the cap
     assert.deepStrictEqual(F.pickKills({ parses: null }), []);
 });
+
+// --- task-rep-kill: pick a representative kill per boss, not the most recent one
+function rk(overrides) {
+    return Object.assign({ rankPercent: 50, duration: 100000, startTime: 1000, report: { code: 'X', fightID: 1 } }, overrides || {});
+}
+test('pickRank: a boss with one rank chooses that rank regardless of duration or median (today\'s behaviour, unchanged)', () => {
+    const only = rk({ rankPercent: 12, duration: 999999, startTime: 1 });
+    assert.strictEqual(F.pickRank([only], 90), only);
+    assert.strictEqual(F.pickRank([only], null), only);
+});
+test('pickRank: among several ranks, the one nearest the median is chosen, not the most recent', () => {
+    const near = rk({ rankPercent: 30, startTime: 1000 });
+    const far = rk({ rankPercent: 90, startTime: 5000 }); // most recent, but far from the median
+    assert.strictEqual(F.pickRank([far, near], 32), near);
+});
+test('pickRank: a long-duration outlier is skipped in favour of a shorter, representative pull', () => {
+    const shortest = rk({ rankPercent: 40, duration: 100000, startTime: 1000 });
+    // Exactly on the median and more recent than `shortest`, so rule 3/4 alone would pick this one.
+    // Its duration is more than T.longFightRatio x the shortest duration on this boss, so rule 2
+    // demotes it and `shortest` (the only non-outlier candidate) must win instead.
+    const outlier = rk({ rankPercent: 41, duration: 100000 * F.T.longFightRatio + 1, startTime: 9000 });
+    assert.strictEqual(F.pickRank([shortest, outlier], 41), shortest);
+});
+test('pickRank: a boss where every rank is a long pull still returns a rank, never null (degrades to "take it")', () => {
+    // The demotion rule compares each rank's duration to the SHORTEST duration on the same boss, so
+    // the shortest rank can never be excluded by its own rule (ratio to itself is 1). Genuinely
+    // reducing the candidate set to zero is therefore unreachable by construction; this proves the
+    // uniform-long-pull edge case (every rank equally long, none relatively an outlier) is still
+    // handled: a rank comes back, not null, and normal median/recency rules decide which one.
+    const a = rk({ rankPercent: 10, duration: 1131000, startTime: 1000 });
+    const b = rk({ rankPercent: 90, duration: 1131000, startTime: 2000 });
+    const picked = F.pickRank([a, b], 10);
+    assert.ok(picked === a || picked === b, 'a rank is always returned, never null/undefined');
+    assert.strictEqual(picked, a, 'still picks by median-closeness among the (undemoted) candidates');
+});
+test('pickRank: ties on distance-to-median break toward the more recent kill', () => {
+    const older = rk({ rankPercent: 20, startTime: 1000 });
+    const newer = rk({ rankPercent: 40, startTime: 2000 });
+    assert.strictEqual(F.pickRank([older, newer], 30), newer); // both 10 away from the median
+});
+test('pickRank: a null medianPercent falls back to the most recent rank', () => {
+    const older = rk({ rankPercent: 80, startTime: 1000 });
+    const newer = rk({ rankPercent: 10, startTime: 5000 });
+    assert.strictEqual(F.pickRank([older, newer], null), newer);
+});
+test('pickRank: when no rank carries a rankPercent, falls back to the most recent rank', () => {
+    const older = rk({ rankPercent: null, startTime: 1000 });
+    const newer = rk({ rankPercent: null, startTime: 5000 });
+    assert.strictEqual(F.pickRank([older, newer], 40), newer);
+});
+
 test('median and round1', () => {
     assert.strictEqual(F.median([3, 1, 2]), 2);
     assert.strictEqual(F.median([4, 1, 2, 3]), 2.5);
@@ -287,6 +338,13 @@ test('killFacts on Anetheron: identity, url, me, and the player-side findings', 
     assert.ok(/5 times/.test(extra.text), extra.text);
     const casts = k.findings.find(f => f.key === 'casts_low');
     assert.ok(/25\.2/.test(casts.text) && /30\.5/.test(casts.text), casts.text);
+});
+test('killFacts: killsOnBoss reaches the kill object for the facts sheet (task-rep-kill)', () => {
+    assert.strictEqual(killFor(50619).killsOnBoss, 1, 'every existing caller in this file omits it: defaults to 1, the true count for a single-rank fixture kill');
+    const K = FX.kills['50619'];
+    const withCount = F.killFacts({ encounterId: 50619, name: NAMES[50619], rank: FX.encounterRankings['50619'].ranks[0], context: K.context, tables: K.tables,
+                                     sourceId: K.sourceID, player: PLAYER, reference: refFor(50619), referenceNote: null, dbIndex: db, killsOnBoss: 7 });
+    assert.strictEqual(withCount.killsOnBoss, 7);
 });
 test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unused', () => {
     const k = killFor(50620);
@@ -543,12 +601,15 @@ test('checkNumbers (Important 7): facts are read from real numbers, not harveste
 });
 
 // --- Task 8: orchestration
-// A stub WCL that answers from the fixture by query kind and records what was asked.
-function stubQuery() {
+// A stub WCL that answers from the fixture by query kind and records what was asked. `fx`
+// defaults to the captured fixture; task-rep-kill passes a deep-cloned, modified copy to test
+// multi-rank selection without mutating the shared fixture other tests read.
+function stubQuery(fx) {
+    fx = fx || FX;
     const calls = [];
     const byFight = new Map();
-    Object.keys(FX.kills).forEach(e => { const k = FX.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
-    Object.keys(FX.reference).forEach(e => FX.reference[e].players.forEach(p => {
+    Object.keys(fx.kills).forEach(e => { const k = fx.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
+    Object.keys(fx.reference).forEach(e => fx.reference[e].players.forEach(p => {
         const key = p.rank.report.code + '/' + p.rank.report.fightID;
         const cur = byFight.get(key) || { context: p.context, tables: {} };
         cur.tables[p.sourceID] = p.tables;
@@ -558,14 +619,14 @@ function stubQuery() {
         calls.push({ q, vars });
         if (q.includes('encounterRankings(')) {
             const ch = { id: 1, classID: 10 };
-            Object.keys(FX.encounterRankings).forEach(e => { ch['e' + e] = FX.encounterRankings[e]; });
+            Object.keys(fx.encounterRankings).forEach(e => { ch['e' + e] = fx.encounterRankings[e]; });
             return { characterData: { character: ch } };
         }
         if (q === F.FIGHT_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.context : null } }; }
         if (q === F.PLAYER_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.tables[vars.s] || null : null } }; }
         if (q.includes('characterRankings(')) {
             const enc = /encounter\(id:(\d+)\)/.exec(q)[1], page = +/page:(\d+)/.exec(q)[1];
-            const pg = FX.reference[enc].pages[page - 1];
+            const pg = fx.reference[enc].pages[page - 1];
             return { worldData: { encounter: { characterRankings: pg || { page, hasMorePages: false, count: 0, rankings: [] } } } };
         }
         throw new Error('unexpected query: ' + q.slice(0, 60));
@@ -597,6 +658,10 @@ test('fetchFeedback: two kills analysed, references from page 1, cache reused on
     assert.strictEqual(facts.kills[1].reference.sampleSize, 8);
     assert.deepStrictEqual(facts.kills[1].reference.itemLevelBand, [122, 126]);
     assert.strictEqual(facts.overall.badPulls.length, 1);
+    // task-rep-kill: every current-roster boss has exactly one rank, so killsOnBoss must read 1 and
+    // the chosen kill, hence the whole report, must be a strict no-op against today's live data.
+    assert.strictEqual(facts.kills[0].killsOnBoss, 1);
+    assert.strictEqual(facts.kills[1].killsOnBoss, 1);
     const pageCalls = s.calls.filter(c => c.q.includes('characterRankings('));
     assert.strictEqual(pageCalls.length, 2, 'page 1 already holds 8 in-band ranks for each boss');
     const playerCalls = s.calls.filter(c => c.q === F.PLAYER_QUERY);
@@ -606,6 +671,30 @@ test('fetchFeedback: two kills analysed, references from page 1, cache reused on
     await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache, thresholds: {}, now: now + 1000 });
     assert.strictEqual(s.calls.slice(before).filter(c => c.q.includes('characterRankings(')).length, 0, 'reference cache hit');
     assert.strictEqual(s.calls.slice(before).filter(c => c.q === F.PLAYER_QUERY).length, 2, 'only the player\'s own tables again');
+});
+test('fetchFeedback (task-rep-kill): a boss with several ranks analyses the one nearest the median, and the reference band still comes from that CHOSEN rank\'s item level', async () => {
+    // Give Anetheron a second rank built from Kaz'rogal's real fixture report (full context and
+    // player tables, so it resolves like a genuine kill): far from the median (90 vs 31.9) and
+    // more recent, at a different item level. The old recency sort would pick this one; the new
+    // rule must not.
+    const fx2 = JSON.parse(JSON.stringify(FX));
+    const az = FX.kills['50620'];
+    const original = fx2.encounterRankings['50619'].ranks[0];
+    fx2.encounterRankings['50619'].ranks.push({
+        rankPercent: 90, duration: 90000, amount: 4000, bracketData: 110, spec: 'Destruction',
+        startTime: original.startTime + 100000,
+        report: { code: az.code, fightID: az.fightID },
+    });
+    const s = stubQuery(fx2);
+    const facts = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    const anetheron = facts.kills.find(k => k.name === 'Anetheron');
+    assert.ok(anetheron, 'Anetheron kill is present (the wrong choice has no fixture data under encounter 50619 and would resolve to nothing)');
+    assert.strictEqual(anetheron.reportCode, original.report.code, 'the median-nearest rank was fetched, not the most recent one');
+    assert.strictEqual(anetheron.fightId, original.report.fightID);
+    assert.strictEqual(anetheron.killsOnBoss, 2);
+    // The reference band must still come from the CHOSEN rank's bracketData (124), not the
+    // more-recent-but-wrong rank's (110); the fixture only has reference pages for the 124 band.
+    assert.deepStrictEqual(anetheron.reference.itemLevelBand, [122, 126]);
 });
 test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
     const s = stubQuery();

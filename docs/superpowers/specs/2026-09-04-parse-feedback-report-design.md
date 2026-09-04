@@ -145,7 +145,20 @@ Validation and error mapping mirror `/api/vet/player` (`wclErrorResponse`). Step
    (§4.6) come from this profile.
 2. Take the gating tier's killed encounters (`profile.parses.bosses` with `kills > 0`), lowest
    `medianPercent` first, at most **8**. Query `encounterRankings` for them (one query, aliased)
-   and take each encounter's most recent rank as the kill to analyse.
+   and, for each encounter, pick the rank most representative of the `medianPercent` that got the
+   boss selected — not the most recent rank (`pickRank`, task-rep-kill, 2026-09-05). The boss was
+   flagged by its median across every kill; the most recent kill can sit at a completely different
+   percentile once a player has more than one kill on a boss, so the numbers that flagged the
+   player and the numbers explaining them would describe different events. Recency also loses
+   whole bosses outright: a bad pull contributes nothing to the median (§4.1) but is a real rank,
+   so a boss whose most recent kill happens to be a bad pull would vanish from the report even
+   when the player has other, clean kills on it. Rules, in order: demote (but do not exclude) a
+   rank whose duration is more than `T.longFightRatio` times the shortest duration on that boss, as
+   a likely raid-wide bad pull; among what remains, pick the rank whose `rankPercent` is closest to
+   `medianPercent`, falling back to the most recent rank when `medianPercent` is null or no rank
+   has a `rankPercent`; break ties toward the more recent kill. On the current roster, where every
+   player has exactly one kill per boss, this is a no-op — the value is for later in the tier, once
+   kills accumulate.
 3. For each kill, run the fight-context and player-table queries (§2.2, §2.3), three kills in
    flight at a time.
 4. For each encounter, get the reference (§3.4).
@@ -228,6 +241,9 @@ document and the code agree):
 - `overall` also gained `droppedKills` (`[{ name, reason }]`, fix wave A, Important 5): a kill
   whose WCL report errors (rather than returning `report: null`) is now skipped and recorded here
   instead of aborting the whole request.
+- Each kill gained `killsOnBoss` (task-rep-kill, 2026-09-05): how many ranks that boss had, so the
+  facts table can say which pull is being shown (`Anetheron (1 of 7 kills)`) now that the analysed
+  rank need not be the most recent — see the rewritten step 2 above.
 
 ### 3.4 Reference selection and cache
 

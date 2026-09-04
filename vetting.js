@@ -451,7 +451,8 @@ function factsTable(facts) {
         const topMe = k.me.abilities[0], topRef = ref && topMe ? ref.abilities.find(a => a.name === topMe.name) : null;
         const fmt = x => (x == null ? '—' : x);
         const cells = [
-            escapeHtml(k.name) + (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : ''),
+            escapeHtml(k.name) + (k.killsOnBoss > 1 ? ' <span class="cell-unknown">(1 of ' + escapeHtml(String(k.killsOnBoss)) + ' kills)</span>' : '') +
+                (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : ''),
             fmt(k.rankPercent == null ? null : Math.round(k.rankPercent)),
             fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref && ref.durationSec != null ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
             fmt(k.me.activePercent == null ? null : k.me.activePercent + '%'),
