@@ -11,11 +11,17 @@ const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, 
 // Finding thresholds (spec §4). Not user-editable in v1.
 const T = {
     activeMajor: 85, activeGap: 8, castsLowRatio: 0.85, diedBefore: 0.9,
-    unusedPerMin: 1.5, extraPerMin: 1, ratioLow: 0.7,
-    critGap: 10, hitRatio: 0.85, resistGap: 10,
+    unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7,
+    critGap: 10, hitRatio: 0.85, resistGap: 10, minAbilityHits: 10,
     statPrimaryRatio: 0.9, statSecondaryRatio: 0.85,
     debuffUptime: 70, potionMinSec: 60,
     longFightRatio: 2, raidUnderPercent: 5, raidUnderShare: 0.8, raidSpeedLow: 5,
+    // Minor 10 (whole-branch review): spec 4.1 has no deaths-based bad-pull rule. Rule 2 (80% of
+    // the raid's DPS parsed under 5) needs enough DPS to have actually parsed, and rule 1 needs a
+    // reference duration healers never have, so a raid-wide near-wipe with few surviving DPS could
+    // slip past both. This fills that gap: a large share of the whole raid dying is bad-pull
+    // evidence on its own, independent of role or duration.
+    raidDeathsShare: 0.3,
 };
 
 const WCL_CLASS_NAME = { DRUID: 'Druid', HUNTER: 'Hunter', MAGE: 'Mage', PALADIN: 'Paladin', PRIEST: 'Priest', ROGUE: 'Rogue', SHAMAN: 'Shaman', WARLOCK: 'Warlock', WARRIOR: 'Warrior' };
@@ -62,7 +68,7 @@ function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n 
 // Everything the fight-wide tables say about one pull: its length, how the raid itself ranked,
 // where the player sat among their role, active time, death and potions, and whether the pull
 // was so bad raid-wide that it says nothing about the player.
-function fightContext(ctx, playerName, role, refDurationSec) {
+function fightContext(ctx, playerName, role, refDurationSec, metric) {
     ctx = ctx || {};
     const fight = Array.isArray(ctx.fights) ? ctx.fights[0] : null;
     const durationSec = fight ? round1((fight.endTime - fight.startTime) / 1000) : null;
@@ -78,7 +84,11 @@ function fightContext(ctx, playerName, role, refDurationSec) {
     }
     const sorted = group.slice().sort((a, b) => b.amount - a.amount);
     const idx = sorted.findIndex(c => lower(c.name) === me);
-    const under = group.filter(c => c.rankPercent < T.raidUnderPercent).length;
+    // Minor 10: rule 2 (spec 4.1, "80% of the group parsed under 5") is always evaluated over the
+    // raid's DPS, never the player's own role group — for a healer, "the group" the spec means is
+    // the raid's damage dealers, not other healers' HPS ranks.
+    const dpsGroup = groupOf('dps');
+    const dpsUnder = dpsGroup.filter(c => c.rankPercent < T.raidUnderPercent).length;
 
     const dmg = ctx.dmgAll && ctx.dmgAll.data;
     const totalTime = dmg ? dmg.totalTime : null;
@@ -93,11 +103,14 @@ function fightContext(ctx, playerName, role, refDurationSec) {
     const pd = (ctx.summary && ctx.summary.data && ctx.summary.data.playerDetails) || {};
     const detail = ['dps', 'healers', 'tanks'].flatMap(k => Array.isArray(pd[k]) ? pd[k] : []).find(p => lower(p.name) === me) || null;
     const speed = rank && rank.speed && typeof rank.speed.rankPercent === 'number' ? rank.speed.rankPercent : null;
+    // Minor 10 gap-fill: raid roster size across every role, used only for the deaths rule below.
+    const raidSize = dpsGroup.length + groupOf('healers').length + groupOf('tanks').length;
 
     const reasons = [];
     if (refDurationSec && durationSec > T.longFightRatio * refDurationSec) reasons.push('the pull took ' + Math.round(durationSec) + 's against a typical ' + Math.round(refDurationSec) + 's');
-    if (group.length && under >= T.raidUnderShare * group.length) reasons.push(under + ' of ' + group.length + ' ' + groupKey + ' in the raid parsed under ' + T.raidUnderPercent);
+    if (dpsGroup.length && dpsUnder >= T.raidUnderShare * dpsGroup.length) reasons.push(dpsUnder + ' of ' + dpsGroup.length + ' dps in the raid parsed under ' + T.raidUnderPercent);
     if (speed != null && speed < T.raidSpeedLow && idx >= 0 && idx < group.length / 2) reasons.push('the raid\'s kill speed ranked ' + speed + ' while you were ' + ordinal(idx + 1) + ' of ' + group.length + ' ' + groupKey);
+    if (raidSize && deaths.length >= T.raidDeathsShare * raidSize) reasons.push(deaths.length + ' of ' + raidSize + ' in the raid died');
 
     return {
         fight: {
@@ -108,7 +121,9 @@ function fightContext(ctx, playerName, role, refDurationSec) {
             badPull: reasons.length > 0, badPullReason: reasons.length ? reasons.join('; ') : null,
         },
         me: {
-            dps: idx >= 0 ? round1(sorted[idx].amount) : null, activePercent: activeOf(meRow),
+            // Minor 11: named `amount` with a sibling `metric` rather than `dps`, so the number is
+            // not mislabelled "DPS" for a healer whose kill facts carry HPS.
+            amount: idx >= 0 ? round1(sorted[idx].amount) : null, metric: metric || 'dps', activePercent: activeOf(meRow),
             died: myDeath && fight ? { atSec: Math.round((myDeath.timestamp - fight.startTime) / 1000), by: myDeath.killingBlow ? myDeath.killingBlow.name : null } : null,
             potionUse: detail && typeof detail.potionUse === 'number' ? detail.potionUse : null,
             healthstoneUse: detail && typeof detail.healthstoneUse === 'number' ? detail.healthstoneUse : null,
@@ -260,8 +275,10 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band) {
     const abilityNames = countNames(per.map(p => p.abilities.map(a => a.name)));
     const abilities = Object.keys(abilityNames).filter(nm => abilityNames[nm] >= majority).map(nm => {
         const rows = per.map(p => p.abilities.find(a => a.name === nm)).filter(Boolean);
+        // Important 3: carry the reference's sample size (median hits across the reference players)
+        // through, so damageFindings can refuse to compare crit/hit/resist on a two-cast sample.
         return { name: nm, share: medOf(rows.map(r => r.share)), avgHit: medOf(rows.map(r => r.avgHit)), avgCrit: medOf(rows.map(r => r.avgCrit)),
-                 critPercent: medOf(rows.map(r => r.critPercent)), resistPercent: medOf(rows.map(r => r.resistPercent)) };
+                 critPercent: medOf(rows.map(r => r.critPercent)), resistPercent: medOf(rows.map(r => r.resistPercent)), hits: medOf(rows.map(r => r.hits)) };
     }).sort((a, b) => (b.share || 0) - (a.share || 0));
     const buffCounts = countNames(per.map(p => p.buffs));
     const withCi = per.filter(p => p.aur).length;
@@ -310,7 +327,10 @@ function debuffFacts(debuffTable, schools) {
         const names = [x.name].concat(x.alt || []);
         const rows = auras.filter(a => names.includes(a.name));
         if (!rows.length) missing.push({ name: x.name, value: x.value, source: x.source });
-        else present.push({ name: x.name, uptimePercent: total ? Math.round(100 * Math.max.apply(null, rows.map(r => r.totalUptime)) / total) : null, value: x.value, source: x.source });
+        // Minor 13: `hostilityType:Enemies` sums totalUptime across every enemy, so a debuff kept
+        // up on several adds (Hyjal wave pulls) can report over 100%. Clamp for display; the
+        // underlying number is still a real WCL figure, just not a percentage of one target.
+        else present.push({ name: x.name, uptimePercent: total ? Math.min(100, Math.round(100 * Math.max.apply(null, rows.map(r => r.totalUptime)) / total)) : null, value: x.value, source: x.source });
     });
     return { known: !!d, present, missing };
 }
@@ -343,7 +363,10 @@ function rotationFindings(kill) {
         if (UTILITY_CAST.test(name)) return;
         const r = ref.casts[name] / refMin, p = (kill.me.casts[name] || 0) / min;
         if (!kill.me.casts[name]) {
-            if (r >= T.unusedPerMin || top3.includes(name))
+            // Minor 20 (spec 4.3): unused when the reference casts it >= 1.5/min OR at least once
+            // per fight — the second clause is what catches a once-per-fight cooldown like Curse of
+            // Doom even when it is not one of the reference's top-3 abilities by damage share.
+            if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown)
                 f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute', { ability: name }));
         } else if (top3.includes(name) && p < T.ratioLow * r) {
             f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
@@ -363,6 +386,10 @@ function damageFindings(kill) {
     ref.abilities.slice(0, 3).forEach(ra => {
         const pa = kill.me.abilities.find(a => a.name === ra.name);
         if (!pa) return;
+        // Important 3: crit/hit/resist need enough casts on both sides, or a two-cast sample reads
+        // as a finding ("Shadowburn is underperforming: crit 50% vs 100%" from 1 of 2 casts).
+        const sampled = typeof pa.hits === 'number' && pa.hits >= T.minAbilityHits && typeof ra.hits === 'number' && ra.hits >= T.minAbilityHits;
+        if (!sampled) return;
         const x = { ability: ra.name, share: pa.share };
         if (typeof pa.critPercent === 'number' && typeof ra.critPercent === 'number' && ra.critPercent - pa.critPercent >= T.critGap)
             f.push(finding('crit_low', 'major', 'player', ra.name + ' crit ' + pa.critPercent + '% of the time on ' + kill.name + '; comparable players crit ' + ra.critPercent + '%', x));
@@ -386,6 +413,12 @@ const STAT_LABEL = {
     spellCrit: 'spell crit rating', meleeCrit: 'melee crit rating', rangedCrit: 'ranged crit rating', spellHaste: 'spell haste rating',
     meleeHaste: 'haste rating', spellHit: 'spell hit rating', meleeHit: 'hit rating', mp5: 'mana per five',
 };
+// Minor 15: the player's rating comes from CombatantInfo where WCL reports it (pick(reported, ...)
+// in playerStats), while reference players (no CombatantInfo query, see referenceSummary) are
+// gear-only. Measured on the fixture: 222 reported vs 208 gear-only spell crit, ~7%. Spec 4.8
+// sanctions comparing them (same units, gear-derived on both sides in the end) but with
+// statSecondaryRatio at 0.85 a systematic 7% offset eats a meaningful share of the 15% trigger
+// margin, so a borderline `stat_low` minor could be an artifact of the data source rather than gear.
 function statFindings(kill, role) {
     const f = [], ref = kill.reference, me = kill.me.stats;
     const spec = ROLE_STATS[role];
@@ -466,9 +499,20 @@ function mergeFindings(kills, gear) {
         const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
         const cur = byId.get(id);
         if (cur) { cur.count++; cur.bosses.push(k.name); }
-        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name] }));
+        // Important 2: the merged record keeps the first-seen finding's text and numbers verbatim
+        // (they are one boss's real measurement), while `bosses` can list several. `measuredOn`
+        // records which boss the kept numbers actually came from — a live report once attributed
+        // one boss's crit numbers to another because the merged record named several bosses with
+        // only one boss's figures attached, and the number guard cannot catch that (both figures
+        // are genuine facts, just misattributed).
+        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name], measuredOn: k.name }));
     }));
     let merged = Array.from(byId.values());
+    // Minor 12: append the "seen on N of M bosses" count — naming the boss the numbers were
+    // measured on, per Important 2 — before folding stat_low into hit_low below, so the count
+    // qualifies hit_low's own sentence rather than trailing after the appended stat numbers
+    // ("...crit rating 222 against 345 for comparable players" reading as the qualified clause).
+    merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' bosses)'; });
     const hitLow = merged.find(f => f.key === 'hit_low');
     const statLow = merged.filter(f => f.key === 'stat_low');
     if (hitLow && statLow.length) {
@@ -476,30 +520,60 @@ function mergeFindings(kills, gear) {
         hitLow.stats = statLow.map(s => ({ stat: s.stat, value: s.value, reference: s.reference }));
         merged = merged.filter(f => f.key !== 'stat_low');
     }
-    merged.forEach(f => { if (f.count > 1) f.text += ' (on ' + f.count + ' of ' + live.length + ' bosses)'; });
-    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [] }, g)));
+    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null }, g)));
     merged.sort((a, b) => (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count) || ((b.share || 0) - (a.share || 0)));
     return merged.slice(0, 6);
 }
 
-function positives(kills) {
+// Minor 8: with a full roster of kills, listing the same three lines per kill in order and
+// slicing at 6 only ever surfaced the two worst bosses (the earliest in kill order) and repeated
+// itself. Spec 5.1 wants one or two lines for "What's fine", so this dedupes by kind and
+// aggregates a count across the live (non-bad-pull) kills; a single-kill sheet keeps the old
+// per-boss phrasing since there is nothing to aggregate. Also reads ROLE_STATS[role].primary
+// instead of hardcoding spellDamage, so melee and hunters can earn the primary-stat line too.
+function positives(kills, role) {
+    const live = kills.filter(k => !k.fight.badPull);
+    if (!live.length) return [];
+    const n = live.length;
     const out = [];
-    kills.filter(k => !k.fight.badPull).forEach(k => {
-        if (typeof k.me.activePercent === 'number' && k.me.activePercent >= 90) out.push('Active ' + k.me.activePercent + '% on ' + k.name);
-        if (!k.me.died) out.push('No death on ' + k.name);
-        if (k.me.consumablesKnown && (k.me.flask || (k.me.battleElixir && k.me.guardianElixir)) && k.me.food) out.push('Flask or elixirs and food at the ' + k.name + ' pull');
-        if (k.reference && k.me.stats && typeof k.me.stats.gearScore === 'number' && typeof k.reference.stats.spellDamage === 'number' && k.me.stats.spellDamage >= k.reference.stats.spellDamage) out.push('Spell power ' + k.me.stats.spellDamage + ' matches comparable players on ' + k.name);
-    });
-    return out.slice(0, 6);
+
+    const activeKills = live.filter(k => typeof k.me.activePercent === 'number' && k.me.activePercent >= 90);
+    if (activeKills.length === n) out.push(n === 1 ? 'Active ' + activeKills[0].me.activePercent + '% on ' + activeKills[0].name : 'Active 90%+ on every boss');
+    else if (activeKills.length) out.push('Active 90%+ on ' + activeKills.length + ' of ' + n + ' bosses');
+
+    const noDeathKills = live.filter(k => !k.me.died);
+    if (noDeathKills.length === n) out.push(n === 1 ? 'No death on ' + noDeathKills[0].name : 'No deaths on any of the ' + n + ' bosses');
+    else if (noDeathKills.length) out.push('No deaths on ' + noDeathKills.length + ' of ' + n + ' bosses');
+
+    const consumableKills = live.filter(k => k.me.consumablesKnown && (k.me.flask || (k.me.battleElixir && k.me.guardianElixir)) && k.me.food);
+    if (consumableKills.length === n) out.push(n === 1 ? 'Flask or elixirs and food at the ' + consumableKills[0].name + ' pull' : 'Flask and food at every pull');
+    else if (consumableKills.length) out.push('Flask and food at ' + consumableKills.length + ' of ' + n + ' pulls');
+
+    const spec = ROLE_STATS[role];
+    if (spec) {
+        const label = STAT_LABEL[spec.primary];
+        const statKills = live.filter(k => k.reference && k.reference.stats && k.me.stats &&
+            typeof k.me.stats[spec.primary] === 'number' && typeof k.reference.stats[spec.primary] === 'number' &&
+            k.me.stats[spec.primary] >= k.reference.stats[spec.primary]);
+        if (statKills.length === n) out.push(n === 1
+            ? label.charAt(0).toUpperCase() + label.slice(1) + ' ' + statKills[0].me.stats[spec.primary] + ' matches comparable players on ' + statKills[0].name
+            : (label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on every boss');
+        else if (statKills.length) out.push((label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on ' + statKills.length + ' of ' + n + ' bosses');
+    }
+
+    return out.slice(0, 2);
 }
 
 function buildFacts(o) {
-    const { profile, player, kills, thresholds, now, limited } = o;
+    const { profile, player, kills, thresholds, now, limited, droppedKills } = o;
     const th = V.parseThresholds(thresholds || {});
     const gear = gearFindings(profile, th, now);
     const gs = profile.gearSummary || {};
+    // Minor 19: `meRow` was never on `kill` or `kill.me` in the first place — killFacts only ever
+    // copies `fc.fight` and `fc.me` onto the kill, and `fc.meRow` is a sibling of `fc.me`, not
+    // nested inside it — so the deletes here were no-ops and the paired test assertion passed
+    // vacuously. Removed both; `slim` is still a shallow copy so callers cannot mutate `kills`.
     const slim = kills.map(k => Object.assign({}, k, { me: Object.assign({}, k.me) }));
-    slim.forEach(k => { delete k.meRow; delete k.me.meRow; });
     return {
         player: { name: profile.name, class: player.classToken, spec: player.spec, role: player.role, metric: profile.parses.metric,
                   itemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null, gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null,
@@ -511,7 +585,11 @@ function buildFacts(o) {
         kills: slim,
         overall: {
             badPulls: slim.filter(k => k.fight.badPull).map(k => ({ name: k.name, rankPercent: k.rankPercent, reason: k.fight.badPullReason })),
-            findings: mergeFindings(slim, gear), positives: positives(slim),
+            // Important 5: kills dropped by a caught per-kill WCL error (a report that comes back
+            // as a GraphQL error rather than `report: null`), so the page can say why a boss the
+            // player killed is missing from the sheet rather than silently having fewer kills.
+            droppedKills: droppedKills || [],
+            findings: mergeFindings(slim, gear), positives: positives(slim, player.role),
         },
         limited: !!limited,
     };
@@ -525,7 +603,7 @@ function killFindings(kill, player) {
 
 function killFacts(input) {
     const { encounterId, name, rank, context, tables, sourceId, player, reference, referenceNote, dbIndex } = input;
-    const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null);
+    const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null, player.metric);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
     const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
@@ -551,18 +629,29 @@ function killFacts(input) {
 // The model writes, the sheet decides. Every claim it may make is in `facts`; the system prompt
 // forbids anything else, and checkNumbers() enforces the part that matters most.
 function buildPrompt(facts, rulesLines) {
+    // Minor 9: healers get told what is holding their HEALING back, not their damage — the
+    // `limited` note two lines below already tells the model this is a healer, so the plumbing to
+    // branch on the metric was already there.
+    const holdingBack = facts && facts.player && facts.player.metric === 'hps' ? "What's holding your healing back" : "What's holding your damage back";
     const system = [
         'You are writing a short note to a World of Warcraft TBC Anniversary raider on behalf of their raid leader, about why their parses are low and what to do about it.',
         'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
         'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
         'Findings with scope "group" are about raid composition (party buffs, raid debuffs, Bloodlust): phrase them as things to ask the raid leader for, never as the player\'s failing.',
         '"Comparable players" means players of the same spec on the same boss within the item-level band in each kill\'s reference.itemLevelBand.',
+        // Important 2: a merged finding can name several bosses in `bosses` while its text and
+        // numbers belong to only one of them (kept verbatim from where they were first measured).
+        // A live report once attributed one boss's crit numbers to another for exactly this reason.
+        'A finding\'s numbers were measured on the boss named in its measuredOn field. Never attach them to another boss, even one also listed in that finding\'s bosses array.',
         'Anniversary rules that differ from original TBC:',
     ].concat(rulesLines || [], [
         'Structure, in this order:',
         '1. One header line: name, spec, tier, median parse percentile.',
-        '2. A line "What\'s holding your damage back", then overall.findings biggest first, at most 5, each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix.',
-        '3. A line "What\'s fine", then one or two sentences built from overall.positives.',
+        // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives, yet
+        // the old wording ordered these sections unconditionally, producing a heading with nothing
+        // under it. Each section now says explicitly to skip itself when its source array is empty.
+        '2. If overall.findings is not empty, a line "' + holdingBack + '", then overall.findings biggest first, at most 5, each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix. If overall.findings is empty, skip this section entirely.',
+        '3. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives. If overall.positives is empty, skip this section entirely.',
         '4. If overall.badPulls is not empty, a line "Not on you", then one line per bad pull with its reason.',
         'Under 350 words.',
         facts && facts.limited ? 'This player is a healer: the sheet has no per-cast comparison, so write only about uptime, deaths, consumables, buffs and gear.' : '',
@@ -573,16 +662,29 @@ function buildPrompt(facts, rulesLines) {
 function numbersIn(s) {
     return (String(s).replace(/(\d),(\d{3})\b/g, '$1$2').match(/\d+(?:\.\d+)?/g) || []).map(Number);
 }
-// Every figure over 10 in the reply must appear in the sheet, give or take one for rounding.
-// Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also holds
-// in one form or another, so they are not worth a false alarm.
+// Important 7 (widening 2): walk the facts sheet's actual VALUES rather than its serialised JSON
+// text. `JSON.stringify(facts)` mixes numeric facts with digits that live inside strings — report
+// codes ("BcZWRDk2..." -> 2), `wclUrl` ("#fight=57&source=12" -> 57, 12), dates ("2026-08-30" ->
+// 2026, 8, 30) — and all of those entered the allowed set. Only real numbers count as facts.
+function collectFactNumbers(value, out) {
+    if (typeof value === 'number') { if (isFinite(value)) out.push(value); return; }
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out)); return; }
+    Object.keys(value).forEach(k => collectFactNumbers(value[k], out));
+}
+// Every figure over 10 in the reply must appear in the sheet, give or take 1 for rounding (spec
+// 5.2). Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also
+// holds in one form or another, so they are not worth a false alarm.
 function checkNumbers(text, facts) {
-    const allowed = new Set();
-    numbersIn(JSON.stringify(facts)).forEach(n => { allowed.add(Math.round(n)); allowed.add(Math.floor(n)); allowed.add(Math.ceil(n)); });
+    const facNums = [];
+    collectFactNumbers(facts, facNums);
+    // Important 7 (widening 1): comparing rounded forms of both sides ({round,floor,ceil} of each
+    // fact against {r-1,r,r+1} of the reply number) composes to roughly +/-2. Compare the reply
+    // number directly against each raw fact instead, so only a true +/-1 passes (round1(91.6) vs
+    // a reply of 93 is a 1.4 gap and must fail, where the old composed tolerance let it through).
     const foreign = numbersIn(text).filter(n => {
         if (n <= 10) return false;
-        const r = Math.round(n);
-        return ![r - 1, r, r + 1].some(x => allowed.has(x));
+        return !facNums.some(f => Math.abs(n - f) <= 1);
     });
     return { ok: foreign.length === 0, foreign: Array.from(new Set(foreign)) };
 }
@@ -630,18 +732,42 @@ async function fightAndTables(query, code, fightID, playerName) {
     return { ctx, tables, sourceId: actor.id };
 }
 
+// Important 4: scan for an existing cache entry belonging to this (encounterId, class, spec,
+// region) group whose stored item-level band already covers `itemLevel`, so two players a level
+// apart (124 and 125, both within REF.band of each other) share one fetch instead of two.
+function findRefEntry(refCache, prefix, itemLevel) {
+    for (const [k, v] of refCache) {
+        if (!k.startsWith(prefix)) continue;
+        const rest = k.slice(prefix.length).split('/');
+        const lo = Number(rest[0]), hi = Number(rest[1]);
+        if (itemLevel >= lo && itemLevel <= hi) return v;
+    }
+    return null;
+}
+
 // Reference per (boss, class, spec, region, band). Shared across every player of that spec, so
 // it is cached for a day and an in-flight fetch is handed to concurrent callers.
 async function getReference(query, o) {
-    const key = [o.encounterId, o.classToken, o.spec, o.region, o.itemLevel - REF.band, o.itemLevel + REF.band].join('/');
-    const hit = o.refCache.get(key);
-    if (hit && hit.value && o.now - hit.at < REF.cacheMs) return hit.value;
-    if (hit && hit.pending) return hit.pending;
+    // Important 4: keying strictly on `itemLevel ± REF.band` defeated the cost model spec §3.4
+    // budgets on ("every player of a spec shares the same reference per boss") — two Destruction
+    // warlocks at 124 and 125 missed each other and each paid the full ~35-point fetch. Scanning
+    // for a covering entry first fixes that without touching the in-flight sharing or expiry below.
+    const prefix = [o.encounterId, o.classToken, o.spec, o.region].join('/') + '/';
+    const cached = findRefEntry(o.refCache, prefix, o.itemLevel);
+    if (cached && cached.value && o.now - cached.at < REF.cacheMs) return cached.value;
+    if (cached && cached.pending) return cached.pending;
+
+    // Minor 16: an unrecognised class token would otherwise be sent to WCL as `className:"undefined"`,
+    // which comes back as a GraphQL error. Refuse before spending the query.
+    const wclClass = WCL_CLASS_NAME[String(o.classToken).toUpperCase()];
+    if (!wclClass) return { summary: null, note: 'unrecognised class for a WCL reference lookup: ' + o.classToken };
+
+    const key = prefix + (o.itemLevel - REF.band) + '/' + (o.itemLevel + REF.band);
     const pending = (async () => {
         const pages = [];
         let ranks = [];
         for (let p = 1; p <= REF.maxPages; p++) {
-            const d = await query(refPageQuery(o.encounterId, WCL_CLASS_NAME[String(o.classToken).toUpperCase()], wclSpecName(o.spec), o.region, p), {});
+            const d = await query(refPageQuery(o.encounterId, wclClass, wclSpecName(o.spec), o.region, p), {});
             const cr = d && d.worldData && d.worldData.encounter && d.worldData.encounter.characterRankings;
             if (!cr || !Array.isArray(cr.rankings)) break;
             pages.push(cr);
@@ -650,19 +776,32 @@ async function getReference(query, o) {
         }
         let band = REF.band;
         if (ranks.length < REF.min) { band = REF.wideBand; ranks = bandRanks(pages.flatMap(x => x.rankings), o.itemLevel, REF.wideBand); }
-        if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against' };
+        if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against', band };
         ranks = ranks.slice(0, REF.target);
         const players = [];
         for (const r of ranks.slice(0, REF.players)) {
-            const got = await fightAndTables(query, r.report.code, r.report.fightID, r.name);
-            if (got) players.push({ rank: r, sourceID: got.sourceId, context: got.ctx, tables: got.tables });
+            // Important 5: a reference player's report can come back as a GraphQL error (deleted
+            // or restricted report) rather than the handled `report: null`. Skip that player
+            // instead of failing the whole reference — and the whole request behind it — but a
+            // 429 still aborts everything (spec §3.2).
+            try {
+                const got = await fightAndTables(query, r.report.code, r.report.fightID, r.name);
+                if (got) players.push({ rank: r, sourceID: got.sourceId, context: got.ctx, tables: got.tables });
+            } catch (e) {
+                if (e && e.code === 'RATE_LIMIT') throw e;
+            }
         }
-        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band]), note: null };
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band]), note: null, band };
     })();
     o.refCache.set(key, { at: o.now, pending });
     try {
         const value = await pending;
-        o.refCache.set(key, { at: o.now, value });
+        // The band may have widened during the fetch; re-key to the band actually used so a scan
+        // for a nearby item level that only the widened band covers finds this entry too.
+        const finalBand = typeof value.band === 'number' ? value.band : REF.band;
+        const finalKey = prefix + (o.itemLevel - finalBand) + '/' + (o.itemLevel + finalBand);
+        if (finalKey !== key) o.refCache.delete(key);
+        o.refCache.set(finalKey, { at: o.now, value });
         return value;
     } catch (e) { o.refCache.delete(key); throw e; }
 }
@@ -677,23 +816,37 @@ async function fetchFeedback(query, o) {
     const id = profile.identity || {};
     const role = id.role || 'caster';
     const limited = profile.parses.metric === 'hps';
-    const player = { name: profile.name, classToken: id.class, spec: id.spec, role, schools: schoolsOf(id.class, id.spec, role) };
+    // Minor 11: `metric` rides along on `player` so fightContext (via killFacts) can label its
+    // `me.amount` field correctly instead of always calling it "dps".
+    const player = { name: profile.name, classToken: id.class, spec: id.spec, role, schools: schoolsOf(id.class, id.spec, role), metric: profile.parses.metric };
     const er = await query(encounterRankQuery(targets.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
     const ch = er && er.characterData && er.characterData.character;
     if (!ch) return null;
-    const kills = (await mapLimit(targets, 3, async t => {
+    const results = await mapLimit(targets, 3, async t => {
         const blob = ch['e' + t.encounterId];
         const ranks = blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : [];
         const rank = ranks.slice().sort((a, b) => (b.startTime || 0) - (a.startTime || 0))[0];
         if (!rank) return null;
-        const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
-        if (!got) return null;
-        const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
-            : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
-        return killFacts({ encounterId: t.encounterId, name: t.name, rank, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
-    })).filter(Boolean);
+        // Important 5: a report that errors (a GraphQL error on a deleted/restricted report, not
+        // the already-handled `report: null`) drops this one kill instead of 502ing the whole
+        // request. A 429 anywhere still aborts everything (spec §3.2). The reason is recorded
+        // rather than dropped silently with `.filter(Boolean)`, so the page can say why a killed
+        // boss is missing from the sheet.
+        try {
+            const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
+            if (!got) return null;
+            const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
+                : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
+            return killFacts({ encounterId: t.encounterId, name: t.name, rank, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
+        } catch (err) {
+            if (err && err.code === 'RATE_LIMIT') throw err;
+            return { dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' };
+        }
+    });
+    const kills = results.filter(k => k && !k.dropped);
+    const droppedKills = results.filter(k => k && k.dropped).map(k => ({ name: k.name, reason: k.reason }));
     kills.sort((a, b) => (a.rankPercent == null ? 101 : a.rankPercent) - (b.rankPercent == null ? 101 : b.rankPercent));
-    return buildFacts({ profile, player, kills, thresholds, now, limited });
+    return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
 }
 
 module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, mapLimit, getReference, fetchFeedback };

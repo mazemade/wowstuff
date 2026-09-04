@@ -15,7 +15,7 @@ function test(name, fn) {
 
 const FX = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wcl-feedback-rotminster.json'), 'utf8'));
 const db = V.indexDb(JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'tbc-item-db.json'), 'utf8')));
-const PLAYER = { name: 'Rotminster', classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', schools: ['shadow'] };
+const PLAYER = { name: 'Rotminster', classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', schools: ['shadow'], metric: 'dps' };
 const NAMES = { 50619: 'Anetheron', 50620: "Kaz'rogal" };
 
 // --- Task 1: names, schools, kill selection
@@ -52,7 +52,7 @@ test('median and round1', () => {
 
 // --- Task 2: fight context
 test('fightContext on Anetheron: length, active time, raid rank, potions, not a bad pull', () => {
-    const fc = F.fightContext(FX.kills['50619'].context, 'Rotminster', 'caster', 94.7);
+    const fc = F.fightContext(FX.kills['50619'].context, 'Rotminster', 'caster', 94.7, 'dps');
     assert.strictEqual(fc.fight.durationSec, 130.9);
     assert.strictEqual(fc.fight.referenceDurationSec, 94.7);
     assert.strictEqual(fc.fight.raidGroup, 'dps');
@@ -65,7 +65,8 @@ test('fightContext on Anetheron: length, active time, raid rank, potions, not a 
     assert.strictEqual(fc.fight.badPull, false);
     assert.strictEqual(fc.fight.badPullReason, null);
     assert.strictEqual(fc.me.activePercent, 91.6);
-    assert.strictEqual(fc.me.dps, 1300.7);
+    assert.strictEqual(fc.me.amount, 1300.7);
+    assert.strictEqual(fc.me.metric, 'dps');
     assert.strictEqual(fc.me.died, null);
     assert.strictEqual(fc.me.potionUse, 1);
     assert.strictEqual(fc.me.healthstoneUse, 0);
@@ -94,11 +95,37 @@ test('fightContext: a death is reported with time and killing blow; missing tabl
 test('fightContext: healers are ranked among healers, tanks among tanks', () => {
     const ctx = { fights: [{ startTime: 0, endTime: 100000 }], rankings: { data: [{ speed: { rankPercent: 50 }, execution: { rankPercent: 50 },
         roles: { dps: { characters: [{ name: 'D', amount: 1000, rankPercent: 50 }] }, healers: { characters: [{ name: 'H1', amount: 900, rankPercent: 60 }, { name: 'H2', amount: 700, rankPercent: 2 }] }, tanks: { characters: [] } } }] } };
-    const fc = F.fightContext(ctx, 'h2', 'healer', null);
+    const fc = F.fightContext(ctx, 'h2', 'healer', null, 'hps');
     assert.strictEqual(fc.fight.raidGroup, 'healers');
     assert.strictEqual(fc.fight.raidGroupRank, 2);
     assert.strictEqual(fc.fight.raidGroupCount, 2);
-    assert.strictEqual(fc.me.dps, 700);
+    assert.strictEqual(fc.me.amount, 700);
+    assert.strictEqual(fc.me.metric, 'hps');
+});
+test('fightContext: bad-pull rule 2 is always evaluated over the raid\'s DPS, even for a healer (Minor 10)', () => {
+    // 4 of 5 healers parsed under 5 (80%+), but only 1 of 10 dps did. If rule 2 looked at the
+    // healer's own group (the pre-fix behaviour) this would read as a bad pull; it should not.
+    const dps = Array.from({ length: 10 }, (_, i) => ({ name: 'D' + i, amount: 1000, rankPercent: i === 0 ? 1 : 50 }));
+    const healers = [0, 1, 2, 3, 4].map(i => ({ name: 'H' + i, amount: 900, rankPercent: i < 4 ? 1 : 50 }));
+    const ctx = { fights: [{ startTime: 0, endTime: 100000 }], rankings: { data: [{ speed: { rankPercent: 50 }, execution: { rankPercent: 50 },
+        roles: { dps: { characters: dps }, healers: { characters: healers }, tanks: { characters: [] } } }] },
+        deaths: { data: { entries: [] } } };
+    const fc = F.fightContext(ctx, 'H0', 'healer', null, 'hps');
+    assert.strictEqual(fc.fight.badPull, false, fc.fight.badPullReason);
+});
+test('fightContext: a raid-wide near-wipe is a bad pull from deaths alone, with no duration baseline (Minor 10 gap-fill)', () => {
+    const ctx = {
+        fights: [{ startTime: 0, endTime: 300000 }],
+        rankings: { data: [{ speed: { rankPercent: 50 }, execution: { rankPercent: 50 },
+            roles: { dps: { characters: Array.from({ length: 10 }, (_, i) => ({ name: 'D' + i, amount: 1000, rankPercent: 50 })) },
+                     healers: { characters: [{ name: 'Healy', amount: 900, rankPercent: 50 }] }, tanks: { characters: [] } } }] },
+        deaths: { data: { entries: Array.from({ length: 8 }, (_, i) => ({ name: 'D' + i, timestamp: i * 1000, killingBlow: { name: 'Boss Ability' } })) } },
+    };
+    // A healer: no refDurationSec (rule 1 dead), and no dps parsed under 5 (rule 2 silent) — only
+    // the deaths rule can catch this near-wipe.
+    const fc = F.fightContext(ctx, 'Healy', 'healer', null, 'hps');
+    assert.strictEqual(fc.fight.badPull, true);
+    assert.ok(/8 of 11 in the raid died/.test(fc.fight.badPullReason), fc.fight.badPullReason);
 });
 
 // --- Task 3: ability, cast, aura and stat facts
@@ -193,6 +220,7 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
     assert.strictEqual(ref.abilities[0].name, 'Shadow Bolt');
     assert.strictEqual(ref.abilities[0].critPercent, 58.8);
     assert.strictEqual(ref.abilities[0].avgHit, 4215);
+    assert.strictEqual(ref.abilities[0].hits, 36, 'Important 3: median hits carried through so damageFindings can gate on sample size');
     assert.strictEqual(ref.stats.spellDamage, 1001);
     assert.strictEqual(ref.stats.spellCrit, 345);
     assert.ok(ref.buffsAtPull.includes('Moonkin Aura') && ref.buffsAtPull.includes('Prayer of Spirit'));
@@ -218,6 +246,12 @@ test('debuffFacts: shadow caster on Anetheron has Curse of the Elements, lacks M
     assert.ok(!d.present.concat(d.missing).some(x => x.name === 'Fire Vulnerability'), 'fire debuffs do not concern a shadow caster');
     assert.strictEqual(F.debuffFacts(null, ['shadow']).known, false);
     assert.deepStrictEqual(F.debuffFacts(K19.context.debuffs, ['physical']).present.map(p => p.name).sort(), ['Curse of Recklessness', 'Faerie Fire', 'Sunder Armor'].concat(F.debuffFacts(K19.context.debuffs, ['physical']).present.some(p => p.name === 'Blood Frenzy') ? ['Blood Frenzy'] : []).sort());
+});
+test('debuffFacts: uptime is clamped at 100 (hostilityType:Enemies sums a debuff across every add) (Minor 13)', () => {
+    const table = { data: { totalTime: 100000, auras: [{ name: 'Sunder Armor', totalUptime: 240000 }] } };
+    const d = F.debuffFacts(table, ['physical']);
+    const sunder = d.present.find(p => p.name === 'Sunder Armor');
+    assert.strictEqual(sunder.uptimePercent, 100, 'a debuff kept up on several Hyjal wave adds must not read as 240%');
 });
 test('killFacts on Anetheron: identity, url, me, and the player-side findings', () => {
     const k = killFor(50619);
@@ -264,6 +298,23 @@ test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unus
     assert.ok(keys.includes('active_low'), keys.join());
     assert.ok(k.findings.some(f => f.key === 'ability_unused' && f.ability === 'Curse of Doom'), keys.join());
 });
+test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage share is still "ability_unused" (Minor 20)', () => {
+    const kill = {
+        name: 'TestBoss', fight: { durationSec: 120 },
+        me: { casts: { 'Shadow Bolt': 60 } },
+        reference: {
+            castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Shadowburn': 1 },
+            // Shadowburn is NOT in the top 3 by damage share, so the old "top3 or r>=1.5/min"
+            // condition never fired for it: r = 1 cast / 2 min = 0.5/min, well under 1.5.
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Immolate', share: 5 }, { name: 'Curse of Recklessness', share: 3 }],
+        },
+    };
+    const f = F.rotationFindings(kill);
+    const sb = f.find(x => x.ability === 'Shadowburn');
+    assert.ok(sb, 'a cooldown the reference casts at least once a fight must be flagged even outside the top 3');
+    assert.strictEqual(sb.key, 'ability_unused');
+    assert.strictEqual(sb.severity, 'minor', 'minor because it is not one of the reference\'s top-3 damage abilities');
+});
 test('uptimeFindings: a death before 90% of the fight and active time under 85% are major', () => {
     const base = killFor(50619);
     const dead = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 40, by: 'Carrion Swarm' }, activePercent: 70 }) });
@@ -282,6 +333,20 @@ test('statFindings: primary stat under 90% is major, nothing without a reference
     assert.strictEqual(sp.severity, 'major');
     assert.ok(/Spell power 800 against 1001/.test(sp.text), sp.text);
     assert.deepStrictEqual(F.statFindings(Object.assign({}, base, { reference: null }), 'caster'), []);
+});
+test('damageFindings: crit/hit/resist need at least T.minAbilityHits casts on both sides (Important 3)', () => {
+    const mk = (hits, refHits) => ({
+        name: 'TestBoss',
+        me: { abilities: [{ name: 'Shadowburn', share: 40, avgHit: 500, avgCrit: 1000, critPercent: 50, resistPercent: 0, hits }] },
+        reference: { abilities: [{ name: 'Shadowburn', share: 40, avgHit: 1000, avgCrit: 2000, critPercent: 100, resistPercent: 0, hits: refHits }] },
+    });
+    // 1 of 2 casts each side, exactly the "Shadowburn is underperforming: crit 50% vs 100%" case
+    // that reproduced live from a two-cast sample: must not produce a finding.
+    assert.deepStrictEqual(F.damageFindings(mk(1, 2)), []);
+    assert.deepStrictEqual(F.damageFindings(mk(12, 3)), [], 'the reference side also needs the minimum sample');
+    const big = F.damageFindings(mk(12, 12));
+    assert.ok(big.some(f => f.key === 'crit_low'), JSON.stringify(big));
+    assert.ok(big.some(f => f.key === 'hit_low'), JSON.stringify(big));
 });
 
 // --- Task 6: consumables, buffs, debuffs, gear, merge, facts
@@ -353,13 +418,19 @@ test('mergeFindings: bad pulls dropped, stat_low folded into hit_low, ordered, c
     const withGear = F.mergeFindings(kills, [F.finding('gear_sockets', 'major', 'player', 'Empty sockets: 3')]);
     assert.ok(withGear.some(f => f.key === 'gear_sockets'));
 });
-test('mergeFindings: the same finding on two bosses is one line with a count', () => {
+test('mergeFindings: the same finding on two bosses is one line with a count, naming which boss the numbers came from (Important 2, Minor 12)', () => {
     const a = killFor(50619);
     const b = Object.assign({}, a, { name: 'Archimonde' });
     const m = F.mergeFindings([a, b], []);
     const crit = m.find(f => f.key === 'crit_low');
     assert.strictEqual(crit.count, 2);
-    assert.ok(/\(on 2 of 2 bosses\)/.test(crit.text), crit.text);
+    // Important 2: `bosses` names both, but the kept text and numbers are Anetheron's (first
+    // seen) verbatim — `measuredOn` records that explicitly instead of leaving it to the model.
+    assert.strictEqual(crit.measuredOn, 'Anetheron');
+    assert.deepStrictEqual(crit.bosses, ['Anetheron', 'Archimonde']);
+    // Minor 12: the count suffix names the boss it was measured on and lands as its own clause,
+    // not trailing right after a folded-in stat sentence where it could read as qualifying that.
+    assert.ok(/\(numbers measured on Anetheron; seen on 2 of 2 bosses\)/.test(crit.text), crit.text);
 });
 test('buildFacts: the sheet the model reads', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
@@ -374,8 +445,30 @@ test('buildFacts: the sheet the model reads', () => {
     assert.ok(facts.overall.positives.includes('Active 91.6% on Anetheron'), facts.overall.positives.join(' | '));
     assert.ok(facts.overall.positives.includes('No death on Anetheron'));
     assert.strictEqual(facts.limited, false);
-    assert.ok(!('meRow' in facts.kills[0]) && !('meRow' in facts.kills[0].me), 'bulky gear rows are not in the sheet');
+    assert.deepStrictEqual(facts.overall.droppedKills, [], 'no kills errored, so nothing to record here (Important 5)');
     assert.ok(JSON.stringify(facts).length < 60000, 'sheet stays small enough to send to the model');
+});
+test('positives: dedupes and aggregates across a full roster instead of repeating the same lines per kill (Minor 8)', () => {
+    const mk = (name, over) => ({ name, fight: { badPull: false },
+        me: Object.assign({ activePercent: 95, died: null, consumablesKnown: true, flask: 'Flask of Pure Death', battleElixir: null, guardianElixir: null, food: 'Well Fed', stats: {} },
+                           over && over.me),
+        reference: 'reference' in (over || {}) ? over.reference : null,
+    });
+    const kills = Array.from({ length: 8 }, (_, i) => mk('Boss' + i, i < 2 ? { me: { activePercent: 60, died: { atSec: 5 } } } : null));
+    const out = F.positives(kills, 'caster');
+    assert.ok(out.length <= 2, 'spec 5.1 wants one or two lines, not one per kind that happens to be true: ' + out.join(' | '));
+    assert.strictEqual(new Set(out).size, out.length, 'no repeated lines');
+    assert.ok(out.some(l => /6 of 8 bosses/.test(l)), out.join(' | '));
+    assert.ok(!out.some(l => /Boss2|Boss3|Boss4/.test(l)), 'aggregated, not one line per boss: ' + out.join(' | '));
+
+    // The old code hardcoded me.stats.spellDamage, so a melee player's matching attack power could
+    // never produce a positive. Isolate the stat line by suppressing the other three candidates.
+    const meleeKills = [mk('Gruul', {
+        me: { activePercent: 50, died: { atSec: 3 }, consumablesKnown: false, stats: { attackPower: 1200 } },
+        reference: { stats: { attackPower: 1000 } },
+    })];
+    const meleeOut = F.positives(meleeKills, 'melee');
+    assert.ok(meleeOut.some(l => /[Aa]ttack power 1200 matches comparable players on Gruul/.test(l)), meleeOut.join(' | '));
 });
 
 // --- Task 7: prompt and number guard
@@ -392,6 +485,29 @@ test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note o
     assert.ok(p.user.includes('"Rotminster"'));
     const h = F.buildPrompt(Object.assign({}, facts, { limited: true }), RULES);
     assert.ok(/healer/i.test(h.system));
+    // Important 2: the system prompt tells the model not to move a merged finding's numbers to a
+    // different boss than the one they were measured on.
+    assert.ok(/measuredOn/.test(p.system) && /never attach them to another boss/i.test(p.system), p.system);
+});
+test('buildPrompt: the "holding you back" heading names healing for hps facts, damage for dps facts (Minor 9)', () => {
+    const dpsFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    assert.strictEqual(dpsFacts.player.metric, 'dps');
+    assert.ok(/What's holding your damage back/.test(F.buildPrompt(dpsFacts, RULES).system));
+    const hpsFacts = Object.assign({}, dpsFacts, { player: Object.assign({}, dpsFacts.player, { metric: 'hps' }) });
+    const p = F.buildPrompt(hpsFacts, RULES);
+    assert.ok(/What's holding your healing back/.test(p.system), p.system);
+    assert.ok(!/What's holding your damage back/.test(p.system), p.system);
+});
+test('buildPrompt: sections tell the model to skip themselves when the facts sheet has nothing for them (Minor 14)', () => {
+    const badPullOnlyFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(badPullOnlyFacts.overall.findings, []);
+    assert.deepStrictEqual(badPullOnlyFacts.overall.positives, []);
+    assert.ok(badPullOnlyFacts.overall.badPulls.length >= 1);
+    const p = F.buildPrompt(badPullOnlyFacts, RULES);
+    // The old wording unconditionally ordered "What's holding your damage back" and "What's fine",
+    // which for a bad-pull-only player produced a heading with nothing under it.
+    assert.ok(/If overall\.findings is empty, skip this section/.test(p.system), p.system);
+    assert.ok(/If overall\.positives is empty, skip this section/.test(p.system), p.system);
 });
 test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
@@ -402,6 +518,28 @@ test('checkNumbers: figures from the sheet pass with rounding, foreign figures f
     assert.strictEqual(r.ok, false);
     assert.deepStrictEqual(r.foreign, [7777]);
     assert.strictEqual(F.checkNumbers('Three things, in 2 groups of 5.', facts).ok, true);
+});
+test('checkNumbers (Important 7): empty reply, a reply with no digits, and a rounded fact +/-1 exactly', () => {
+    assert.deepStrictEqual(F.checkNumbers('', { a: 91.6 }), { ok: true, foreign: [] });
+    assert.deepStrictEqual(F.checkNumbers('Great work out there, no numbers needed.', { a: 91.6 }), { ok: true, foreign: [] });
+    // Widening 1: the old composed tolerance ({round,floor,ceil} of the fact vs {r-1,r,r+1} of the
+    // reply) let a reply of 93 pass against a fact of 91.6 (a 1.4 gap, from rounding both sides).
+    // Spec 5.2 wants a strict +/-1 against the raw fact, so this must now fail.
+    const r = F.checkNumbers('score 93', { a: 91.6 });
+    assert.strictEqual(r.ok, false, JSON.stringify(r));
+    assert.deepStrictEqual(r.foreign, [93]);
+    // A reply within +/-1 of the raw fact still passes.
+    assert.deepStrictEqual(F.checkNumbers('score 92', { a: 91.6 }), { ok: true, foreign: [] });
+});
+test('checkNumbers (Important 7): facts are read from real numbers, not harvested out of JSON strings', () => {
+    const facts = { reportCode: 'BcZWRDk2PXaYghpC', wclUrl: 'https://classic.warcraftlogs.com/reports/x#fight=57&source=12', date: '2026-08-30', amount: 50 };
+    // Old code ran numbersIn() over JSON.stringify(facts), which pulls digits out of the report
+    // code ("...Dk2..." -> 2), the URL ("fight=57&source=12" -> 57, 12) and the date (2026, 8, 30).
+    // None of those are real facts, so a reply inventing 2026 or 57 must still be rejected.
+    const r = F.checkNumbers('Aim to hit 2026 next time, or at least 57.', facts);
+    assert.strictEqual(r.ok, false, JSON.stringify(r));
+    assert.deepStrictEqual(r.foreign.sort((a, b) => a - b), [57, 2026]);
+    assert.strictEqual(F.checkNumbers('You did 50 last time.', facts).ok, true);
 });
 
 // --- Task 8: orchestration
@@ -486,6 +624,77 @@ test('fetchFeedback: no parses gives null; WCL errors propagate', async () => {
     assert.strictEqual(await F.fetchFeedback(s.query, { profile: p, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() }), null);
     const boom = async () => { const e = new Error('WCL rate limit reached'); e.code = 'RATE_LIMIT'; throw e; };
     await assert.rejects(F.fetchFeedback(boom, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() }), /rate limit/);
+});
+test('fetchFeedback: a kill whose report errors is dropped with a reason, the rest of the request still succeeds (Important 5)', async () => {
+    const s = stubQuery();
+    const kazCode = FX.kills['50620'].code, kazFight = FX.kills['50620'].fightID;
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY && vars.c === kazCode && vars.f[0] === kazFight) throw new Error('GraphQL error: report is private');
+        return s.query(q, vars);
+    };
+    const facts = await F.fetchFeedback(query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.strictEqual(facts.kills.length, 1, 'the erroring kill is dropped, not the whole request');
+    assert.strictEqual(facts.kills[0].name, 'Anetheron');
+    assert.deepStrictEqual(facts.overall.droppedKills, [{ name: "Kaz'rogal", reason: 'GraphQL error: report is private' }]);
+});
+test('fetchFeedback: a 429 partway through the pipeline still aborts the whole request (Important 5, spec §3.2)', async () => {
+    const s = stubQuery();
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) { const e = new Error('WCL rate limit reached'); e.code = 'RATE_LIMIT'; throw e; }
+        return s.query(q, vars);
+    };
+    await assert.rejects(
+        F.fetchFeedback(query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() }),
+        e => e.code === 'RATE_LIMIT'
+    );
+});
+test('getReference: a reference player whose report errors is skipped, not fatal (Important 5)', async () => {
+    const s = stubQuery();
+    const badPlayer = FX.reference['50619'].players[0];
+    const query = async (q, vars) => {
+        if (q === F.PLAYER_QUERY && vars.c + '/' + vars.f[0] === badPlayer.rank.report.code + '/' + badPlayer.rank.report.fightID)
+            throw new Error('GraphQL error: table unavailable');
+        return s.query(q, vars);
+    };
+    const ref = await F.getReference(query, { encounterId: 50619, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.ok(ref.summary, 'the reference is still built from the surviving players');
+    assert.strictEqual(ref.summary.playersCompared, F.REF.players - 1);
+});
+test('getReference: a 429 from a reference player still aborts (Important 5, spec §3.2)', async () => {
+    const s = stubQuery();
+    const badPlayer = FX.reference['50619'].players[0];
+    const query = async (q, vars) => {
+        if (q === F.PLAYER_QUERY && vars.c + '/' + vars.f[0] === badPlayer.rank.report.code + '/' + badPlayer.rank.report.fightID) {
+            const e = new Error('WCL rate limit reached'); e.code = 'RATE_LIMIT'; throw e;
+        }
+        return s.query(q, vars);
+    };
+    await assert.rejects(
+        F.getReference(query, { encounterId: 50619, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() }),
+        e => e.code === 'RATE_LIMIT'
+    );
+});
+test('getReference: an unrecognised class token short-circuits without querying WCL (Minor 16)', async () => {
+    let called = false;
+    const query = async () => { called = true; throw new Error('should not be called'); };
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'DEATHKNIGHT', spec: 'Blood', role: 'tank', region: 'eu', itemLevel: 120, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.strictEqual(r.summary, null);
+    assert.ok(/class/i.test(r.note), r.note);
+    assert.strictEqual(called, false);
+});
+test('getReference: two players a level apart in the same spec share one reference fetch (Important 4)', async () => {
+    const s = stubQuery();
+    const refCache = new Map();
+    const base = { encounterId: 50619, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', dbIndex: db, refCache, now: Date.now() };
+    const a = await F.getReference(s.query, Object.assign({ itemLevel: 124 }, base));
+    assert.ok(a.summary, 'sanity: the first fetch actually built a reference');
+    const before = s.calls.length;
+    // Old code keyed strictly on itemLevel +/- REF.band (124 -> [122,126], 125 -> [123,127]): two
+    // different strings, so a second Destruction warlock one item level over paid the ~35-point
+    // reference fetch again. 125 is within the [122,126] band already cached for 124.
+    const b = await F.getReference(s.query, Object.assign({ itemLevel: 125 }, base));
+    assert.strictEqual(s.calls.length, before, 'no new WCL calls for a nearby item level already covered by the cached band');
+    assert.strictEqual(b, a, 'the same cached reference object is reused');
 });
 test('getReference: widens once when the band is thin, gives a note when still too few, shares in-flight work', async () => {
     const pages = FX.reference['50619'].pages;

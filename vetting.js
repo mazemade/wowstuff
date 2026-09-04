@@ -436,7 +436,7 @@ function factsTable(facts) {
             fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
             fmt(k.me.activePercent == null ? null : k.me.activePercent + '%'),
             k.fight.raidGroupRank ? k.fight.raidGroupRank + ' of ' + k.fight.raidGroupCount : '—',
-            fmt(k.me.dps) + (ref ? ' / ' + ref.dps : ''),
+            fmt(k.me.amount) + (ref ? ' / ' + ref.dps : ''),
             topMe && topMe.critPercent != null ? escapeHtml(topMe.name) + ' ' + topMe.critPercent + '%' + (topRef && topRef.critPercent != null ? ' / ' + topRef.critPercent + '%' : '') : '—',
             k.me.consumablesKnown ? (k.me.consumablesAtPull.length ? escapeHtml(k.me.consumablesAtPull.join(', ')) : '<span class="slot-missing">none</span>') : '<span class="cell-unknown">unknown</span>',
             '<a href="' + escapeHtml(k.wclUrl) + '" target="_blank" rel="noopener">WCL</a>',

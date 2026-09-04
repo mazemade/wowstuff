@@ -201,6 +201,34 @@ and retry handle it. In-flight reference fetches for the same key are shared
 `wclUrl` is `https://classic.warcraftlogs.com/reports/<code>#fight=<id>&source=<sourceId>`
 so the report can link straight to the fight.
 
+**Deviations from the shape above** (Minor 21, whole-branch review, recorded 2026-09-05 so the
+document and the code agree):
+
+- `fight.raidDpsCount/raidDpsRank/raidDpsMedianPercent` became `raidGroupCount/raidGroupRank/
+  raidGroupMedianPercent`, because the player's own row is ranked among their actual role group
+  (dps/healers/tanks), not always "dps".
+- `me.stats.haste` became `spellHaste`/`meleeHaste` (and `me.stats.rangedCrit` was added) — the
+  two haste ratings are not interchangeable and the profile already keeps them separate.
+- `gear.hit`/`gear.defense` (`{ value, cap, short } | null` each) became a single `gear.findings`
+  array of the same `{ key, severity, text }` shape as every other finding, reusing
+  `gearFindings()` instead of a bespoke pair of fields.
+- `me.dps` became `me.amount` with a sibling `me.metric` (Minor 11, fix wave A): the field was
+  named `dps` for both metrics, so a healer's facts sheet read "dps" and the model wrote "your
+  DPS" for someone being measured on healing.
+- `fight.badPull` gained a fourth trigger not in §4.1: a raid-deaths rule (Minor 10, fix wave A).
+  Rule 2 ("80% of the group parsed under 5") is now always evaluated over the raid's DPS
+  regardless of the player's own role — for a healer, "the group" the rule means is the raid's
+  damage dealers, not other healers' HPS ranks — and a new rule flags a bad pull when
+  `raidDeathsShare` (a constant in `T`, currently 0.3) or more of the whole raid roster died,
+  so a near-wipe is detectable without a duration baseline (healers never have
+  `referenceDurationSec`). Neither is in the original spec text above; both are gap-fills, not
+  reversions.
+- `overall.badPullCount` became `overall.badPulls` (an array of `{ name, rankPercent, reason }`,
+  not a count) — the reason text is what the report actually needs.
+- `overall` also gained `droppedKills` (`[{ name, reason }]`, fix wave A, Important 5): a kill
+  whose WCL report errors (rather than returning `report: null`) is now skipped and recorded here
+  instead of aborting the whole request.
+
 ### 3.4 Reference selection and cache
 
 Per `(encounterId, class, spec, itemLevelBand, region)`:
