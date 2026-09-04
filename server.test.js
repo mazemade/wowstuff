@@ -234,6 +234,7 @@ test('GET /api/vet/feedback: different thresholds reuse the cached pipeline and 
     const s = setupPipeline();
     const r1 = await fetch(`${base}/api/vet/feedback?${QS}&thresholds=${encodeURIComponent(JSON.stringify({ parse: 10 }))}`, SAME_ORIGIN);
     assert.strictEqual(r1.status, 200);
+    assert.strictEqual(r1.headers.get('x-vet-cache'), 'miss');
     const body1 = await r1.json();
     assert.strictEqual(body1.facts.tier.threshold, 10);
     const callsAfterFirst = s.calls.length;
@@ -244,6 +245,13 @@ test('GET /api/vet/feedback: different thresholds reuse the cached pipeline and 
     const body2 = await r2.json();
     assert.strictEqual(body2.facts.tier.threshold, 77, 'the response does reflect the requested threshold');
     assert.strictEqual(s.calls.length, callsAfterFirst, 'a different thresholds value must not trigger a second WCL pipeline run');
+    // fix-d: the WCL facts were reused (no new WCL calls, asserted above) but this response still
+    // required its own fresh OpenAI call to reflect thresholds=77's gear findings — a paid call
+    // that a bare "did the cache help" header would hide. X-Vet-Cache must report 'miss' here too,
+    // not 'hit', because it is scoped to whether THIS response's model call was fresh, not to
+    // whether the (unrelated) WCL pipeline was reused.
+    assert.strictEqual(r2.headers.get('x-vet-cache'), 'miss',
+        'a fresh model call for this request\'s own thresholds must not be reported as a cache hit, even though the WCL pipeline was reused');
 });
 
 test('GET /api/vet/feedback: a missing item table on a profile cache hit is 500 with the specific message (Minor 17)', async () => {

@@ -329,7 +329,14 @@ app.get('/api/vet/feedback', async (req, res) => {
     const body = { facts, report, reportError, generatedAt: new Date().toISOString() };
     for (const [k, v] of feedbackCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) feedbackCache.delete(k);
     feedbackCache.set(key, { at: Date.now(), facts, thresholdsKey, body });
-    res.set('X-Vet-Cache', fresh ? 'hit' : 'miss');
+    // X-Vet-Cache reflects whether THIS response required a fresh (paid) OpenAI call, not merely
+    // whether the WCL pipeline's facts were reused — the person reading this header is debugging
+    // model spend, not WCL traffic. The only 'hit' is the early return above, where the stored
+    // body (model report included) is served unchanged. Every path that reaches here just made a
+    // model-call attempt above, whether or not `fresh` reused the WCL facts (same identity,
+    // different thresholds — see Critical 1 above) or not (a cold pipeline run), so it's always a
+    // 'miss' by that definition.
+    res.set('X-Vet-Cache', 'miss');
     res.json(body);
   } catch (err) {
     if (err.code === 'NO_DB') return res.status(500).json({ error: err.message });
