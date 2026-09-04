@@ -117,4 +117,105 @@ function fightContext(ctx, playerName, role, refDurationSec) {
     };
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext };
+// Per-ability damage facts from a sourceID-scoped DamageDone table. `hitdetails` splits hits into
+// Hit / Critical Hit / Resisted Hit / Resisted Critical Hit (partial resists), which is where the
+// average non-crit hit and the resist share come from.
+function abilityStats(dmgTable) {
+    const entries = (dmgTable && dmgTable.data && Array.isArray(dmgTable.data.entries)) ? dmgTable.data.entries : [];
+    const total = entries.reduce((s, a) => s + (a.total || 0), 0);
+    return entries.map(a => {
+        const det = Array.isArray(a.hitdetails) ? a.hitdetails : [];
+        const nonCrit = det.find(h => h.type === 'Hit');
+        const crit = det.find(h => h.type === 'Critical Hit');
+        const resisted = det.filter(h => /Resisted/.test(h.type)).reduce((s, h) => s + (h.count || 0), 0);
+        const hits = a.hitCount || 0;
+        return {
+            name: a.name, total: a.total || 0, share: total ? round1(100 * a.total / total) : 0, hits,
+            avgHit: nonCrit && nonCrit.count ? Math.round(nonCrit.total / nonCrit.count) : null,
+            avgCrit: crit && crit.count ? Math.round(crit.total / crit.count) : null,
+            critPercent: hits ? round1(100 * (a.critHitCount || 0) / hits) : null,
+            resistPercent: hits ? round1(100 * resisted / hits) : null,
+        };
+    }).sort((a, b) => b.total - a.total);
+}
+function castCounts(castsTable) {
+    const out = {};
+    const entries = (castsTable && castsTable.data && Array.isArray(castsTable.data.entries)) ? castsTable.data.entries : [];
+    entries.forEach(e => { if (e.name) out[e.name] = (out[e.name] || 0) + (e.total || 0); });
+    return out;
+}
+function castsPerMinute(casts, durationSec) {
+    if (!durationSec) return null;
+    const n = Object.keys(casts || {}).reduce((s, k) => s + casts[k], 0);
+    return round1(n / (durationSec / 60));
+}
+function buffUptime(buffsTable, name) {
+    const d = buffsTable && buffsTable.data;
+    if (!d || !d.totalTime) return null;
+    const a = (Array.isArray(d.auras) ? d.auras : []).find(x => x.name === name);
+    return a ? Math.round(100 * a.totalUptime / d.totalTime) : 0;
+}
+
+// Consumables as WCL names them in CombatantInfo auras. WCL drops "Elixir of" from some elixirs
+// ("Major Shadow Power") and Shattrath flasks read "<flask> of Shattrath", so these are patterns.
+const CONSUMABLE = {
+    flask: [/^flask of /i, /^unstable flask/i, / of shattrath$/i],
+    battle: [/^(elixir of )?major (fire|frost|shadow) ?power/i, /adept'?s elixir/i, /^(elixir of )?major agility/i, /mongoose/i,
+             /^(elixir of )?major strength/i, /fel strength/i, /elixir of mastery/i, /healing power/i, /greater arcane elixir/i, /^(elixir of )?the sages/i],
+    guardian: [/draenic wisdom/i, /mageblood/i, /^(elixir of )?major fortitude/i, /^(elixir of )?major defense/i, /ironshield/i, /earthen elixir/i, /^(elixir of )?major armor/i],
+    food: [/^well fed$/i],
+    oil: [/wizard oil/i, /mana oil/i, /sharpening stone/i, /weightstone/i],
+};
+// Guardian elixirs that give mana or utility rather than damage; a flask does more for a dps.
+const UTILITY_GUARDIAN = [/draenic wisdom/i, /mageblood/i];
+function isUtilityGuardian(name) { return UTILITY_GUARDIAN.some(re => re.test(String(name || ''))); }
+function classifyAuras(names) {
+    const has = (list, n) => list.some(re => re.test(n));
+    const out = { flask: null, battleElixir: null, guardianElixir: null, food: null, oil: null, consumables: [], buffs: [] };
+    (names || []).forEach(n => {
+        if (has(CONSUMABLE.flask, n)) { out.flask = n; out.consumables.push(n); }
+        else if (has(CONSUMABLE.battle, n)) { out.battleElixir = n; out.consumables.push(n); }
+        else if (has(CONSUMABLE.guardian, n)) { out.guardianElixir = n; out.consumables.push(n); }
+        else if (has(CONSUMABLE.food, n)) { out.food = n; out.consumables.push(n); }
+        else if (has(CONSUMABLE.oil, n)) { out.oil = n; out.consumables.push(n); }
+        else out.buffs.push(n);
+    });
+    return out;
+}
+
+// Party-scoped buffs that move the metric, by role. Single-target and greater versions are one
+// buff for comparison purposes (BUFF_ALIAS folds them to the canonical name).
+const BUFF_ALIAS = {
+    'Divine Spirit': 'Prayer of Spirit', 'Arcane Intellect': 'Arcane Brilliance',
+    'Blessing of Kings': 'Greater Blessing of Kings', 'Blessing of Wisdom': 'Greater Blessing of Wisdom', 'Blessing of Might': 'Greater Blessing of Might',
+};
+const PARTY_BUFFS = {
+    caster: ['Moonkin Aura', 'Prayer of Spirit', 'Blood Pact', 'Eye of the Night', 'Chain of the Twilight Owl', 'Totem of Wrath', 'Wrath of Air Totem',
+             'Arcane Brilliance', 'Greater Blessing of Kings', 'Greater Blessing of Wisdom', 'Fel Intelligence', 'Mana Spring Totem'],
+    melee: ['Battle Shout', 'Leader of the Pack', 'Trueshot Aura', 'Ferocious Inspiration', 'Strength of Earth Totem', 'Grace of Air Totem', 'Unleashed Rage',
+            'Greater Blessing of Might', 'Greater Blessing of Kings', 'Windfury Totem', 'Blood Pact'],
+};
+PARTY_BUFFS.healer = PARTY_BUFFS.caster; PARTY_BUFFS.ranged = PARTY_BUFFS.melee; PARTY_BUFFS.tank = PARTY_BUFFS.melee;
+function canonBuffs(names, role) {
+    const table = PARTY_BUFFS[role] || [];
+    const canon = new Set((names || []).map(n => BUFF_ALIAS[n] || n));
+    return table.filter(b => canon.has(b));
+}
+
+// Gear-derived stats, the same way the vetting profile computes them: WCL-reported ratings win
+// where the CombatantInfo row carries them, gear fills the rest. The fight-wide DamageDone row
+// carries gear too, which is what reference players (no CombatantInfo query) use.
+const STAT_KEYS = ['spellDamage', 'healing', 'attackPower', 'rangedAttackPower', 'spellCrit', 'meleeCrit', 'rangedCrit', 'spellHit', 'meleeHit', 'spellHaste', 'meleeHaste', 'mp5'];
+function playerStats(ci, row, dbIndex, classToken) {
+    const gear = ci && Array.isArray(ci.gear) ? ci.gear : (row && Array.isArray(row.gear) ? row.gear : null);
+    if (!gear || !gear.length || !dbIndex) return null;
+    const s = V.summarizeGear(gear, dbIndex, classToken);
+    const d = V.derivedStats(s.stats, ci || null);
+    const out = {};
+    STAT_KEYS.forEach(k => { out[k] = k === 'rangedCrit' ? (ci && typeof ci.critRanged === 'number' ? ci.critRanged : d.meleeCrit) : d[k]; });
+    out.avgItemLevel = s.avgItemLevel;
+    out.gearScore = s.gearScore;
+    return out;
+}
+
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats };

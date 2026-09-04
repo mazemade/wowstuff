@@ -101,6 +101,69 @@ test('fightContext: healers are ranked among healers, tanks among tanks', () => 
     assert.strictEqual(fc.me.dps, 700);
 });
 
+// --- Task 3: ability, cast, aura and stat facts
+const K19 = FX.kills['50619'], K20 = FX.kills['50620'];
+test('abilityStats: Shadow Bolt on Anetheron, sorted by damage', () => {
+    const ab = F.abilityStats(K19.tables.dmg);
+    assert.strictEqual(ab[0].name, 'Shadow Bolt');
+    assert.strictEqual(ab[0].hits, 42);
+    assert.strictEqual(ab[0].critPercent, 26.2);
+    assert.strictEqual(ab[0].avgHit, 3087);
+    assert.strictEqual(ab[0].avgCrit, 6500);
+    assert.strictEqual(ab[0].share, 93.3);
+    assert.strictEqual(ab[0].resistPercent, 11.9);
+    assert.deepStrictEqual(F.abilityStats(null), []);
+});
+test('castCounts and castsPerMinute', () => {
+    const casts = F.castCounts(K19.tables.casts);
+    assert.strictEqual(casts['Shadow Bolt'], 43);
+    assert.strictEqual(casts.Immolate, 5);
+    assert.strictEqual(F.castsPerMinute(casts, 130.855), 25.2);
+    assert.strictEqual(F.castsPerMinute(casts, null), null);
+    assert.deepStrictEqual(F.castCounts(undefined), {});
+});
+test('buffUptime: Bloodlust 31% on Anetheron, 0 when absent, null without a table', () => {
+    assert.strictEqual(F.buffUptime(K19.tables.buffs, 'Bloodlust'), 31);
+    assert.strictEqual(F.buffUptime(K19.tables.buffs, 'Not A Buff'), 0);
+    assert.strictEqual(F.buffUptime(null, 'Bloodlust'), null);
+});
+test('classifyAuras: elixirs, food, flask forms, everything else is a buff', () => {
+    const c = F.classifyAuras(K19.tables.ci.data[0].auras.map(a => a.name));
+    assert.strictEqual(c.flask, null);
+    assert.strictEqual(c.battleElixir, 'Major Shadow Power');
+    assert.strictEqual(c.guardianElixir, 'Elixir of Draenic Wisdom');
+    assert.strictEqual(c.food, 'Well Fed');
+    assert.deepStrictEqual(c.consumables, ['Elixir of Draenic Wisdom', 'Major Shadow Power', 'Well Fed']);
+    assert.ok(c.buffs.includes('Arcane Brilliance') && c.buffs.includes('Greater Blessing of Kings'));
+    assert.strictEqual(F.classifyAuras(['Pure Death of Shattrath']).flask, 'Pure Death of Shattrath');
+    assert.strictEqual(F.classifyAuras(['Flask of Pure Death']).flask, 'Flask of Pure Death');
+    assert.strictEqual(F.classifyAuras(["Adept's Elixir"]).battleElixir, "Adept's Elixir");
+    assert.strictEqual(F.isUtilityGuardian('Elixir of Draenic Wisdom'), true);
+    assert.strictEqual(F.isUtilityGuardian('Elixir of Major Fortitude'), false);
+});
+test('canonBuffs: party buffs for the role, aliases folded, order of the table', () => {
+    const cosmos = FX.reference['50619'].players[1].tables.ci.data[0].auras.map(a => a.name);
+    const b = F.canonBuffs(cosmos, 'caster');
+    assert.ok(b.includes('Moonkin Aura') && b.includes('Prayer of Spirit') && b.includes('Arcane Brilliance'));
+    assert.ok(!b.includes('Greater Blessing of Salvation'));
+    assert.deepStrictEqual(F.canonBuffs(['Divine Spirit', 'Battle Shout'], 'melee'), ['Battle Shout']);
+    assert.deepStrictEqual(F.canonBuffs(['Divine Spirit'], 'caster'), ['Prayer of Spirit']);
+});
+test('playerStats: from the CombatantInfo gear with reported ratings, or from the fight-wide row', () => {
+    const s = F.playerStats(K19.tables.ci.data[0], null, db, 'WARLOCK');
+    assert.strictEqual(s.spellDamage, 986);
+    assert.strictEqual(s.spellCrit, 222);
+    assert.strictEqual(s.spellHit, 207);
+    assert.strictEqual(s.gearScore, 1854);
+    assert.strictEqual(s.avgItemLevel, 123.82);
+    const refRow = FX.reference['50619'].players[0].context.dmgAll.data.entries[0];
+    const s2 = F.playerStats(null, refRow, db, 'WARLOCK');
+    assert.strictEqual(s2.spellDamage, 1001);   // gear-only stats from the fight-wide row
+    const bare = K20.context.dmgAll.data.entries.find(e => e.name === 'Rotminster');
+    assert.strictEqual(F.playerStats(null, bare, db, 'WARLOCK'), null);   // WCL logged no gear on that kill
+    assert.strictEqual(F.playerStats(null, null, db, 'WARLOCK'), null);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;
