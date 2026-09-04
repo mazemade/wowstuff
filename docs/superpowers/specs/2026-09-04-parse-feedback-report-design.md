@@ -50,6 +50,7 @@ query($c:String!,$f:[Int]!){reportData{report(code:$c){
   rankings(fightIDs:$f)
   dmgAll:table(dataType:DamageDone,fightIDs:$f)
   deaths:table(dataType:Deaths,fightIDs:$f)
+  debuffs:table(dataType:Debuffs,fightIDs:$f,hostilityType:Enemies)
 }}}
 ```
 
@@ -60,6 +61,12 @@ query($c:String!,$f:[Int]!){reportData{report(code:$c){
   `activeTimeReduced`, `itemLevel`, `talents`, `gear`. `data.totalTime` is the fight length.
   Active time is read from here; the per-player (sourceID-scoped) tables do not carry it.
 - `deaths.data.entries[]`: `name`, `timestamp`, `killingBlow { name }`.
+- `debuffs.data.auras[]`: every debuff on enemies during the fight with `name`, `guid`,
+  `totalUptime`; `data.totalTime`. Verified on the Anetheron pull: Curse of the Elements 91%,
+  Curse of Recklessness 92%, no Misery, Shadow Weaving or Fire Vulnerability present.
+- `dmgAll` entries' `gear[]` has the same shape as the CombatantInfo gear the vetting profile
+  already summarises (`id`, `slot`, `quality`, `itemLevel`, `permanentEnchant`, `gems[{id}]`,
+  `setID`), so `VetEngine.summarizeGear` applies to reference players with no extra query.
 
 ### 2.3 Player tables (one query per kill)
 
@@ -172,11 +179,15 @@ and retry handle it. In-flight reference fetches for the same key are shared
     fight: { durationSec, referenceDurationSec, raidDeaths, raidSpeedPercent,
              raidExecutionPercent, raidDpsCount, raidDpsRank, raidDpsMedianPercent,
              badPull: bool, badPullReason: string|null },
+    debuffs: { present: [ { name, uptimePercent } ], missing: [name…] },   // metric-relevant raid debuffs
     me: { dps, activePercent, died: { atSec, by } | null, potionUse, healthstoneUse,
+          stats: { spellDamage, healing, attackPower, rangedAttackPower, spellCrit, meleeCrit,
+                   spellHit, meleeHit, haste, avgItemLevel, gearScore },
           consumablesAtPull: [name…], buffsAtPull: [name…],
           castsPerMinute, casts: { ability: count },
           abilities: [ { name, share, avgHit, avgCrit, critPercent, resistPercent } ] },
     reference: { itemLevelBand: [lo, hi], sampleSize, dps, durationSec, activePercent,
+                 stats: { same shape, medians over the 3 reference players },
                  castsPerMinute, casts: { ability: count },
                  abilities: [ same shape ], consumablesAtPull: [name…],
                  buffsAtPull: [name…] } | null,
@@ -203,7 +214,9 @@ Per `(encounterId, class, spec, itemLevelBand, region)`:
 4. Per-cast stats, cast counts, consumables and buffs come from the tables of the **3
    highest-ranked in-band players**, fetched with the §2.3 query (their `sourceID` from the
    report's `masterData`). Values are medians of the three. Cast counts are normalised to the
-   player's fight length before comparison (§4.3).
+   player's fight length before comparison (§4.3). Their `gear[]` from the fight-wide
+   DamageDone table (already fetched for active time) is run through `summarizeGear` and
+   `derivedStats` to give the reference `stats` (§4.8); no extra query.
 5. Cached in memory for 24 hours. Rankings shift slowly enough that a day-old reference is fine.
 
 Why in-band rather than the top parse: the top parse tells the player what a better-geared
@@ -281,7 +294,56 @@ Reuses the profile: `missing_enchants` (count and slots), `empty_sockets`, `hit_
 (value, effective cap, shortfall), `defense_under_cap`. Severity follows the vetting rules
 (fail → major, warn → minor).
 
-### 4.7 Ranking findings
+### 4.8 Stats versus peers
+
+The player's `stats` come from the vetting profile's gear-derived numbers (`computedFromGear`,
+with WCL-reported ratings preferred where present, as the profile already does). The
+reference `stats` come from the three reference players' logged gear (§3.4), medians. Only the
+stats that matter for the metric are compared, by role:
+
+| Role | Compared |
+|---|---|
+| caster dps | spellDamage, spellCrit, spellHit, haste |
+| melee / hunter dps | attackPower or rangedAttackPower, meleeCrit, meleeHit, haste |
+| healer | healing, spellCrit, mp5 (reduced report only lists them) |
+
+- `stat_low`: the primary stat (spell damage / attack power) under 90% of the reference →
+  major; a secondary stat (crit, haste) 15% or more under → minor. Text gives both numbers,
+  so "your spell power is 890, players at your item level have 1050" is a line the model can
+  use directly, and it is what explains a `hit_low` finding.
+- When `stat_low` and `hit_low` both fire for the same role, the merge (§4.10) keeps `hit_low`
+  as the symptom line and attaches the stat numbers to it rather than listing two findings.
+- Set bonuses are not applied on either side (`setBonusesApplied: false` in the profile), so the
+  comparison is like for like.
+
+### 4.9 Raid debuffs on the boss
+
+From the fight's `debuffs` table, a fixed table of metric-relevant raid debuffs with their
+WCL names and the roles they help:
+
+| Debuff | Helps | Source |
+|---|---|---|
+| Curse of the Elements | casters (arcane, fire, frost, shadow) | warlock |
+| Misery | casters | shadow priest |
+| Shadow Weaving | shadow casters | shadow priest |
+| Fire Vulnerability (Improved Scorch) | fire casters | fire mage |
+| Winter's Chill | frost casters | frost mage |
+| Sunder Armor / Expose Armor | physical | warrior / rogue |
+| Faerie Fire | physical | druid |
+| Blood Frenzy / Improved Expose Weakness (Expose Weakness) | physical | arms warrior / survival hunter |
+| Judgement of the Crusader | holy (paladin, and Holy damage) | paladin |
+| Curse of Recklessness | physical (armor) | warlock |
+
+- `debuff_missing`: a debuff that helps the player's role was never present → one finding
+  listing them, severity minor. Text says this is raid composition ("the raid had no shadow
+  priest, so no Misery"), not the player's fault, and names the value ("Misery is 5% spell
+  hit; Shadow Weaving is 10% shadow damage").
+- `debuff_uptime_low`: present but under 70% uptime → minor, names the debuff and the uptime.
+  When the player's own class provides it (a warlock and Curse of the Elements) the text
+  addresses them directly ("keep Curse of the Elements up").
+- Bad pulls (§4.1) skip these findings like every other.
+
+### 4.10 Ranking findings
 
 `overall.findings` merges per-kill findings by `key` (the same finding on three bosses is one
 line, "on 3 of 4 bosses"), drops bad pulls, and orders: major before minor, then by how many
@@ -303,6 +365,8 @@ System prompt, fixed:
   1. One header line: name, spec, tier, median parse.
   2. "What's holding your damage back" — the `overall.findings`, biggest first, at most 5,
      each as: what it is, the measured number next to the reference number, one concrete fix.
+     Findings about group buffs and raid debuffs (§4.5 `buffs_missing`, §4.9) are phrased as
+     things to ask the raid leader for, never as the player's failing.
   3. "What's fine" — one or two lines from things that were good (active time, no deaths,
      consumables present), so the note is not only negative.
   4. "Not on you" — each bad pull with its reason, one line each. Omit the section if none.
@@ -349,7 +413,10 @@ bulleted list under the same headings, so there is always something to copy. The
   bad pull fires on Kaz'rogal (1131 s vs 93 s, raid-wide zeros) and not on Anetheron; active
   time 92 on Anetheron; `crit_low` and `hit_low` fire on Shadow Bolt with the fixture's
   numbers; `ability_extra` fires for Immolate; `wrong_elixir` fires for Draenic Wisdom;
-  `buffs_missing` lists Moonkin Aura and Blood Pact; reference band selection over a stubbed
+  `buffs_missing` lists Moonkin Aura and Blood Pact; `debuff_missing` lists Misery and Shadow
+  Weaving for the Anetheron pull while Curse of the Elements at 91% produces nothing; `stat_low`
+  compares the fixture's gear-derived spell damage against the three reference players' and
+  attaches its numbers to `hit_low` in the merge; reference band selection over a stubbed
   rankings page set (stops at 8, widens once, gives null under 3); overall merge, ordering
   and cap; the number guard accepts the fixture-consistent reply and rejects a reply with a
   foreign figure; the healer path produces `limited: true` and no per-cast findings.
@@ -387,6 +454,7 @@ query($c:String!,$f:[Int]!){reportData{report(code:$c){
   dmgAll:table(dataType:DamageDone,fightIDs:$f)
   deaths:table(dataType:Deaths,fightIDs:$f)
   summary:table(dataType:Summary,fightIDs:$f)
+  debuffs:table(dataType:Debuffs,fightIDs:$f,hostilityType:Enemies)
 }}}
 
 query($c:String!,$f:[Int]!,$s:Int!){reportData{report(code:$c){
