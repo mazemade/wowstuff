@@ -171,10 +171,12 @@ app.get('/api/wcl/player', async (req, res) => {
 const VetEngine = require('./vet-engine.js');
 const VetProfile = require('./vet-profile.js');
 
+const DEFAULT_DB_PATH = path.join(__dirname, 'data', 'tbc-item-db.json');
+let vetDbPath = DEFAULT_DB_PATH; // overridable only by server.test.js, via app.__test.setDbPath
 let vetDbIndex = null;
 function getVetDbIndex() {
   if (vetDbIndex) return vetDbIndex;
-  const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'tbc-item-db.json'), 'utf8'));
+  const raw = JSON.parse(fs.readFileSync(vetDbPath, 'utf8'));
   vetDbIndex = VetEngine.indexDb(raw);
   return vetDbIndex;
 }
@@ -223,10 +225,25 @@ app.get('/api/vet/player', async (req, res) => {
 // convenience — so `report` may be null with `reportError` saying why.
 const VetFeedback = require('./vet-feedback.js');
 const FEEDBACK_CACHE_MS = 15 * 60 * 1000;
-const feedbackCache = new Map();     // key -> { at, body }
+const feedbackCache = new Map();     // key(identity only, see Critical 1 below) -> { at, facts, thresholdsKey, body }
+const feedbackInFlight = new Map();  // key(identity only) -> pending Promise<facts>, so concurrent requests share one pipeline run
 const feedbackRefCache = new Map();  // shared reference cache, see getReference in vet-feedback.js
 
 app.get('/api/vet/feedback', async (req, res) => {
+  // Critical (whole-branch review): unlike /api/ai-review below, this is a plain GET — it needs
+  // no preflight and no CORS-triggering header, so any page the user has open (or a bare
+  // `<img src>`) could fire it at will. The reply is unreadable to the caller, but each cold hit
+  // still burns a paid OpenAI completion on a ~40 KB prompt plus up to ~360 WCL rate-limit
+  // points, and the URL is discoverable straight from the public vetting.js. A GET can't be
+  // gated on Content-Type the way /api/ai-review is, so gate on Sec-Fetch-Site instead: the
+  // browser sets this itself and page script cannot override it. 'same-origin' is what the
+  // app's own page sends when it fetches this endpoint back on itself; a third-party origin (or
+  // an <img> it embeds) sends 'cross-site' (or 'same-site' for a related-but-different origin).
+  // Non-browser clients — curl, server-to-server calls — send no Sec-Fetch-Site at all and pass
+  // through untouched.
+  const site = req.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+
   const name = String(req.query.name || '');
   const server = String(req.query.server || '').toLowerCase();
   const region = String(req.query.region || '').toLowerCase();
@@ -239,15 +256,63 @@ app.get('/api/vet/feedback', async (req, res) => {
     try { thresholds = JSON.parse(String(req.query.thresholds)); } catch (e) { return res.status(400).json({ error: 'Invalid thresholds' }); }
   }
   thresholds = VetEngine.parseThresholds(thresholds);
-  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone + '/' + JSON.stringify(thresholds);
-  const hit = feedbackCache.get(key);
-  if (hit && Date.now() - hit.at < FEEDBACK_CACHE_MS) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.body); }
+  const thresholdsKey = JSON.stringify(thresholds);
+  // Critical (whole-branch review): `thresholds` only ever changes gearFindings below, never the
+  // WCL fetch — but parseThresholds whitelists keys, not values, so `?thresholds={"gs":1}`,
+  // `{"gs":2}`, ... used to mint unlimited distinct cache keys, each a guaranteed cold ~180-point
+  // pipeline run swept only by age. The cache and the in-flight map below are keyed on identity
+  // alone; thresholds are reapplied to the (possibly cached or shared) facts after the expensive
+  // WCL part is already done, so no choice of thresholds can force a repeat fetch.
+  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone;
   try {
     const { profile } = await loadProfile(name, server, region, zone);
     if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
     if (!profile.parses) return res.status(404).json({ error: 'No parses to analyse' });
-    const facts = await VetFeedback.fetchFeedback(wclQuery, { profile, dbIndex: getVetDbIndex(), refCache: feedbackRefCache, thresholds, now: Date.now() });
-    if (!facts) return res.status(404).json({ error: 'No kills to analyse' });
+
+    const hit = feedbackCache.get(key);
+    const fresh = !!hit && Date.now() - hit.at < FEEDBACK_CACHE_MS;
+    if (fresh && hit.thresholdsKey === thresholdsKey) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.body); }
+
+    let facts;
+    if (fresh) {
+      facts = hit.facts; // same identity, different thresholds — the WCL pipeline is reused as-is
+    } else {
+      // Critical (whole-branch review): in-flight dedup. Without this, N concurrent requests for
+      // the same player each ran their own full pipeline, since feedbackCache was only written
+      // after one completed. Keyed the same as feedbackCache (identity only, see above); the
+      // entry is removed on both success and failure so a rejected pipeline can't poison the key
+      // for the next request — the same shape as getReference's pending map in vet-feedback.js.
+      let pending = feedbackInFlight.get(key);
+      if (!pending) {
+        // Minor 17 (whole-branch review): on a profile *cache hit* above, loadProfile returns
+        // before ever touching the item db, so a missing/unreadable table would otherwise
+        // surface for the first time here as the generic 502 wclErrorResponse gives everything
+        // else, instead of the specific 500 + message /api/vet/player gives it. Map it the same
+        // way loadProfile does.
+        let dbIndex;
+        try { dbIndex = getVetDbIndex(); }
+        catch (err) { console.error('item table load failed:', err); const e = new Error('Item table data/tbc-item-db.json is missing or unreadable'); e.code = 'NO_DB'; throw e; }
+        pending = VetFeedback.fetchFeedback(wclQuery, { profile, dbIndex, refCache: feedbackRefCache, thresholds: {}, now: Date.now() });
+        feedbackInFlight.set(key, pending);
+        // `.finally()` returns its own promise that also rejects when `pending` does; nobody
+        // else holds a reference to it, so an uncaught rejection there would crash the process
+        // even though `pending` itself (awaited below, by every caller) is handled correctly.
+        pending.finally(() => feedbackInFlight.delete(key)).catch(() => {});
+      }
+      facts = await pending;
+      if (!facts) return res.status(404).json({ error: 'No kills to analyse' });
+    }
+
+    // Reapply this request's own thresholds to the (possibly reused/shared) facts: gearFindings
+    // and its effect on the ranked overall list are the only things thresholds ever change (see
+    // the cache-key comment above) — everything else in `facts` is thresholds-independent.
+    const gear = VetFeedback.gearFindings(profile, thresholds, Date.now());
+    facts = Object.assign({}, facts, {
+      tier: Object.assign({}, facts.tier, { threshold: thresholds.parse }),
+      gear: Object.assign({}, facts.gear, { findings: gear }),
+      overall: Object.assign({}, facts.overall, { findings: VetFeedback.mergeFindings(facts.kills, gear) }),
+    });
+
     let report = null, reportError = null;
     try {
       const { system, user } = VetFeedback.buildPrompt(facts, ANNIVERSARY_RULES);
@@ -263,8 +328,8 @@ app.get('/api/vet/feedback', async (req, res) => {
     }
     const body = { facts, report, reportError, generatedAt: new Date().toISOString() };
     for (const [k, v] of feedbackCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) feedbackCache.delete(k);
-    feedbackCache.set(key, { at: Date.now(), body });
-    res.set('X-Vet-Cache', 'miss');
+    feedbackCache.set(key, { at: Date.now(), facts, thresholdsKey, body });
+    res.set('X-Vet-Cache', fresh ? 'hit' : 'miss');
     res.json(body);
   } catch (err) {
     if (err.code === 'NO_DB') return res.status(500).json({ error: err.message });
@@ -347,6 +412,25 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'assignments.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+// Only bind a real port when this file is run directly (`npm start` / `node server.js`).
+// server.test.js requires this module to get `app` and drives it with Node's own `http`
+// against an ephemeral port instead, so requiring it must never also start listening.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
+
+// Test-only seams (server.test.js). wclQuery/openaiChat are plain function declarations, so
+// every route above resolves them as free variables at call time — reassigning the bindings
+// here is enough to stub both without touching any call site or adding a dependency. Nothing
+// outside server.test.js calls app.__test; production never mutates any of this.
+app.__test = {
+  setWclQuery(fn) { wclQuery = fn; },
+  setOpenaiChat(fn) { openaiChat = fn; },
+  setDbPath(p) { vetDbPath = p || DEFAULT_DB_PATH; vetDbIndex = null; },
+  resetCaches() { vetCache.clear(); feedbackCache.clear(); feedbackInFlight.clear(); feedbackRefCache.clear(); },
+  caches: { vetCache, feedbackCache, feedbackInFlight, feedbackRefCache },
+};
+
+module.exports = app;
