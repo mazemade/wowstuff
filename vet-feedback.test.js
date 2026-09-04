@@ -284,6 +284,100 @@ test('statFindings: primary stat under 90% is major, nothing without a reference
     assert.deepStrictEqual(F.statFindings(Object.assign({}, base, { reference: null }), 'caster'), []);
 });
 
+// --- Task 6: consumables, buffs, debuffs, gear, merge, facts
+function rotProfile() {
+    const rankings = { medianPerformanceAverage: 14.0, bestPerformanceAverage: 14.0, rankings: [
+        { encounter: { id: 50619, name: 'Anetheron' }, medianPercent: 31.9, rankPercent: 31.9, totalKills: 1, spec: 'Destruction', bestSpec: 'Destruction' },
+        { encounter: { id: 50620, name: "Kaz'rogal" }, medianPercent: 0.3, rankPercent: 0.3, totalKills: 1, spec: 'Destruction', bestSpec: 'Destruction' },
+        { encounter: { id: 50603, name: 'Shade of Akama' }, medianPercent: null, rankPercent: null, totalKills: 0, spec: 'Destruction', bestSpec: 'Destruction' },
+    ] };
+    return P.buildProfile({ name: 'Rotminster', server: 'spineshatter', region: 'eu', zone: 1060, classToken: 'WARLOCK', combatant: null, report: null,
+                            rankings, rankingsZone: 1060, fallback: false, metric: 'dps', otherRankings: null, otherZone: 1056, specRankings: rankings, dbIndex: db });
+}
+const NOTT = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wcl-vet-nottomwro.json'), 'utf8'));
+function nottProfile() {
+    return P.buildProfile({ name: 'Nottomwro', server: 'spineshatter', region: 'eu', zone: 1060, classToken: 'SHAMAN', combatant: NOTT.report.combatant,
+                            report: { code: NOTT.report.code, startTime: NOTT.report.startTime, fightName: NOTT.report.fight.name },
+                            rankings: NOTT.zoneRankings['1056'], rankingsZone: 1056, fallback: true, metric: 'dps', otherRankings: null, otherZone: 1060,
+                            specRankings: NOTT.zoneRankings['1056'], dbIndex: db });
+}
+test('consumableFindings on Anetheron: a mana elixir instead of a flask, missing group buffs, nothing else', () => {
+    const f = F.consumableFindings(killFor(50619));
+    assert.deepStrictEqual(keysOf(f).sort(), ['buffs_missing', 'wrong_elixir']);
+    const w = f.find(x => x.key === 'wrong_elixir');
+    assert.ok(/Elixir of Draenic Wisdom/.test(w.text) && /Flask of Pure Death/.test(w.text), w.text);
+    const b = f.find(x => x.key === 'buffs_missing');
+    assert.strictEqual(b.scope, 'group');
+    assert.ok(b.buffs.includes('Moonkin Aura') && b.buffs.includes('Prayer of Spirit'), b.buffs.join());
+    assert.ok(!b.buffs.includes('Arcane Brilliance'));
+});
+test('consumableFindings: no flask or elixirs, no food, no potion, when the pull row shows none', () => {
+    const base = killFor(50619);
+    const bare = Object.assign({}, base, { me: Object.assign({}, base.me, { flask: null, battleElixir: null, guardianElixir: null, food: null, consumablesAtPull: [], potionUse: 0 }) });
+    const keys = keysOf(F.consumableFindings(bare));
+    assert.ok(keys.includes('no_flask_or_elixirs') && keys.includes('no_food') && keys.includes('no_potion'), keys.join());
+    assert.ok(!keys.includes('wrong_elixir'));
+    const unknown = Object.assign({}, base, { me: Object.assign({}, base.me, { consumablesKnown: false, potionUse: 0 }) });
+    assert.deepStrictEqual(keysOf(F.consumableFindings(unknown)), ['no_potion'], 'unknown consumables are not missing consumables');
+});
+test('debuffFindings: missing shadow debuffs are a group finding; a low uptime on your own curse is yours', () => {
+    const a = F.debuffFindings(killFor(50619), PLAYER);
+    assert.deepStrictEqual(keysOf(a), ['debuff_missing']);
+    assert.strictEqual(a[0].scope, 'group');
+    assert.deepStrictEqual(a[0].debuffs, ['Misery', 'Shadow Weaving']);
+    assert.ok(/shadow priest/.test(a[0].text), a[0].text);
+    const k = F.debuffFindings(killFor(50620), PLAYER);
+    const low = k.find(x => x.key === 'debuff_uptime_low');
+    assert.ok(low && low.scope === 'player' && /Curse of the Elements was up 33%/.test(low.text), JSON.stringify(k));
+});
+test('gearFindings: vetting rules that fail or warn become gear_ findings', () => {
+    const p = nottProfile();
+    const f = F.gearFindings(p, { gs: 9999 }, Date.parse('2026-09-03T12:00:00Z'));
+    const gs = f.find(x => x.key === 'gear_gs');
+    assert.ok(gs && gs.severity === 'major' && /GearScore \d+ against the 9999/.test(gs.text), JSON.stringify(f));
+    assert.ok(!f.some(x => x.key === 'gear_parse' || x.key === 'gear_stale'));
+    assert.deepStrictEqual(F.gearFindings(rotProfile(), {}, Date.now()), [], 'no gear data, no gear findings');
+});
+test('mergeFindings: bad pulls dropped, stat_low folded into hit_low, ordered, capped at 6', () => {
+    const kills = [killFor(50619), killFor(50620)];
+    const m = F.mergeFindings(kills, []);
+    assert.ok(m.length <= 6);
+    assert.ok(!m.some(f => /Kaz'rogal/.test(f.text)), 'nothing from the bad pull');
+    assert.ok(!m.some(f => f.key === 'stat_low'));
+    const hit = m.find(f => f.key === 'hit_low');
+    assert.ok(hit && /Spell crit rating 222 against 345/.test(hit.text), hit && hit.text);
+    assert.deepStrictEqual(hit.stats, [{ stat: 'spellCrit', value: 222, reference: 345 }]);
+    assert.strictEqual(m[0].severity, 'major');
+    const sev = m.map(f => f.severity);
+    assert.ok(sev.indexOf('minor') === -1 || sev.indexOf('minor') > sev.lastIndexOf('major'), sev.join());
+    const withGear = F.mergeFindings(kills, [F.finding('gear_sockets', 'major', 'player', 'Empty sockets: 3')]);
+    assert.ok(withGear.some(f => f.key === 'gear_sockets'));
+});
+test('mergeFindings: the same finding on two bosses is one line with a count', () => {
+    const a = killFor(50619);
+    const b = Object.assign({}, a, { name: 'Archimonde' });
+    const m = F.mergeFindings([a, b], []);
+    const crit = m.find(f => f.key === 'crit_low');
+    assert.strictEqual(crit.count, 2);
+    assert.ok(/\(on 2 of 2 bosses\)/.test(crit.text), crit.text);
+});
+test('buildFacts: the sheet the model reads', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual([facts.player.name, facts.player.class, facts.player.spec, facts.player.role, facts.player.metric], ['Rotminster', 'WARLOCK', 'Destruction', 'caster', 'dps']);
+    assert.strictEqual(facts.tier.zone, 1060);
+    assert.strictEqual(facts.tier.medianPercent, 14);
+    assert.strictEqual(facts.tier.threshold, V.DEFAULT_THRESHOLDS.parse);
+    assert.strictEqual(facts.kills.length, 2);
+    assert.deepStrictEqual(facts.overall.badPulls.map(b => b.name), ["Kaz'rogal"]);
+    assert.ok(/19 of 19/.test(facts.overall.badPulls[0].reason));
+    assert.ok(facts.overall.findings.length >= 3 && facts.overall.findings.length <= 6);
+    assert.ok(facts.overall.positives.includes('Active 91.6% on Anetheron'), facts.overall.positives.join(' | '));
+    assert.ok(facts.overall.positives.includes('No death on Anetheron'));
+    assert.strictEqual(facts.limited, false);
+    assert.ok(!('meRow' in facts.kills[0]) && !('meRow' in facts.kills[0].me), 'bulky gear rows are not in the sheet');
+    assert.ok(JSON.stringify(facts).length < 60000, 'sheet stays small enough to send to the model');
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

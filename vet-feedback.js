@@ -401,8 +401,124 @@ function statFindings(kill, role) {
     return f;
 }
 
+function consumableFindings(kill) {
+    const f = [], me = kill.me, ref = kill.reference;
+    if (me.consumablesKnown) {
+        if (!me.flask && !(me.battleElixir && me.guardianElixir))
+            f.push(finding('no_flask_or_elixirs', 'major', 'player', 'No flask and no battle plus guardian elixir at the ' + kill.name + ' pull' + (me.consumablesAtPull.length ? ' (had ' + me.consumablesAtPull.join(', ') + ')' : '')));
+        else if (!me.flask && me.guardianElixir && isUtilityGuardian(me.guardianElixir) && ref && ref.flaskShare >= 0.5 && ref.flask)
+            f.push(finding('wrong_elixir', 'minor', 'player', me.guardianElixir + ' at the ' + kill.name + ' pull, while comparable players ran ' + ref.flask + '; a flask does more for your damage'));
+        if (!me.food) f.push(finding('no_food', 'minor', 'player', 'No food buff at the ' + kill.name + ' pull'));
+        if (ref && ref.buffsAtPull.length) {
+            const missing = ref.buffsAtPull.filter(b => !me.partyBuffs.includes(b));
+            if (missing.length) f.push(finding('buffs_missing', 'minor', 'group', 'Group buffs comparable players had at the pull that you did not on ' + kill.name + ': ' + missing.join(', ') + '. Worth asking to be grouped with them', { buffs: missing }));
+        }
+    }
+    if (me.potionUse === 0 && kill.fight.durationSec > T.potionMinSec)
+        f.push(finding('no_potion', 'minor', 'player', 'No potion used on ' + kill.name + ' (' + Math.round(kill.fight.durationSec) + 's)'));
+    if (ref && ref.bloodlustPercent > 0 && me.bloodlustPercent === 0)
+        f.push(finding('bloodlust_uptime', 'minor', 'group', 'No Bloodlust on ' + kill.name + ' while comparable players had it'));
+    return f;
+}
+
+function debuffFindings(kill, player) {
+    const f = [], d = kill.debuffs;
+    if (!d || !d.known) return f;
+    if (d.missing.length)
+        f.push(finding('debuff_missing', 'minor', 'group', 'Raid debuffs missing on ' + kill.name + ': ' + d.missing.map(m => m.name + ' (' + m.value + ', needs ' + m.source + ')').join('; ') + '. Raid composition, not your doing', { debuffs: d.missing.map(m => m.name) }));
+    const own = OWN_DEBUFF[String(player.classToken || '').toUpperCase()] || [];
+    d.present.filter(p => typeof p.uptimePercent === 'number' && p.uptimePercent < T.debuffUptime).forEach(p => {
+        const mine = own.includes(p.name);
+        f.push(finding('debuff_uptime_low', 'minor', mine ? 'player' : 'group', p.name + ' was up ' + p.uptimePercent + '% of ' + kill.name + (mine ? '; keep it up' : ''), { debuff: p.name }));
+    });
+    return f;
+}
+
+const GEAR_LABEL = { gs: 'GearScore', ilvl: 'Average item level', hit: 'Hit rating', expertise: 'Expertise', defense: 'Defense', enchants: 'Missing enchants', sockets: 'Empty sockets' };
+function gearFindings(profile, thresholds, now) {
+    const ev = V.evaluate(profile, V.parseThresholds(thresholds || {}), now);
+    const f = [];
+    (ev.rules || []).forEach(r => {
+        if (!r.applies || !GEAR_LABEL[r.key]) return;
+        const sev = r.status === 'fail' ? 'major' : r.status === 'warn' ? 'minor' : null;
+        if (!sev) return;
+        let text;
+        if (r.key === 'enchants') {
+            const slots = Array.isArray(profile.gear) ? profile.gear.filter(s => s.enchantable && !s.enchant && !s.empty).map(s => s.label) : [];
+            text = GEAR_LABEL[r.key] + ': ' + r.value + (slots.length ? ' (' + slots.join(', ') + ')' : '');
+        } else if (r.key === 'sockets') {
+            text = GEAR_LABEL[r.key] + ': ' + r.value;
+        } else {
+            text = GEAR_LABEL[r.key] + ' ' + r.value + ' against the ' + (r.key === 'hit' ? r.effective : r.threshold) + ' the raid asks for';
+        }
+        f.push(finding('gear_' + r.key, sev, 'player', text));
+    });
+    return f;
+}
+
+// One list for the whole report: bad pulls contribute nothing, the same finding on several
+// bosses is one line, stat shortfalls attach to the weak-hit line they explain, majors first.
+const SEVERITY_ORDER = { major: 0, minor: 1, info: 2 };
+function mergeFindings(kills, gear) {
+    const live = kills.filter(k => !k.fight.badPull);
+    const byId = new Map();
+    live.forEach(k => k.findings.forEach(fd => {
+        const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
+        const cur = byId.get(id);
+        if (cur) { cur.count++; cur.bosses.push(k.name); }
+        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name] }));
+    }));
+    let merged = Array.from(byId.values());
+    const hitLow = merged.find(f => f.key === 'hit_low');
+    const statLow = merged.filter(f => f.key === 'stat_low');
+    if (hitLow && statLow.length) {
+        hitLow.text += '. ' + statLow.map(s => s.text).join('; ');
+        hitLow.stats = statLow.map(s => ({ stat: s.stat, value: s.value, reference: s.reference }));
+        merged = merged.filter(f => f.key !== 'stat_low');
+    }
+    merged.forEach(f => { if (f.count > 1) f.text += ' (on ' + f.count + ' of ' + live.length + ' bosses)'; });
+    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [] }, g)));
+    merged.sort((a, b) => (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count) || ((b.share || 0) - (a.share || 0)));
+    return merged.slice(0, 6);
+}
+
+function positives(kills) {
+    const out = [];
+    kills.filter(k => !k.fight.badPull).forEach(k => {
+        if (typeof k.me.activePercent === 'number' && k.me.activePercent >= 90) out.push('Active ' + k.me.activePercent + '% on ' + k.name);
+        if (!k.me.died) out.push('No death on ' + k.name);
+        if (k.me.consumablesKnown && (k.me.flask || (k.me.battleElixir && k.me.guardianElixir)) && k.me.food) out.push('Flask or elixirs and food at the ' + k.name + ' pull');
+        if (k.reference && k.me.stats && typeof k.me.stats.gearScore === 'number' && typeof k.reference.stats.spellDamage === 'number' && k.me.stats.spellDamage >= k.reference.stats.spellDamage) out.push('Spell power ' + k.me.stats.spellDamage + ' matches comparable players on ' + k.name);
+    });
+    return out.slice(0, 6);
+}
+
+function buildFacts(o) {
+    const { profile, player, kills, thresholds, now, limited } = o;
+    const th = V.parseThresholds(thresholds || {});
+    const gear = gearFindings(profile, th, now);
+    const gs = profile.gearSummary || {};
+    const slim = kills.map(k => Object.assign({}, k, { me: Object.assign({}, k.me) }));
+    slim.forEach(k => { delete k.meRow; delete k.me.meRow; });
+    return {
+        player: { name: profile.name, class: player.classToken, spec: player.spec, role: player.role, metric: profile.parses.metric,
+                  itemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null, gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null,
+                  talentSplit: profile.identity ? profile.identity.talentSplit : null },
+        tier: { zone: profile.parses.zone, zoneName: profile.parses.zoneName, medianPercent: round1(profile.parses.medianPercent), threshold: th.parse },
+        gear: { gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null, avgItemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null,
+                missingEnchants: Array.isArray(profile.gear) ? profile.gear.filter(s => s.enchantable && !s.enchant && !s.empty).map(s => s.label) : [],
+                emptySockets: typeof gs.emptySockets === 'number' ? gs.emptySockets : null, findings: gear },
+        kills: slim,
+        overall: {
+            badPulls: slim.filter(k => k.fight.badPull).map(k => ({ name: k.name, rankPercent: k.rankPercent, reason: k.fight.badPullReason })),
+            findings: mergeFindings(slim, gear), positives: positives(slim),
+        },
+        limited: !!limited,
+    };
+}
+
 function killFindings(kill, player) {
-    let f = uptimeFindings(kill).concat(rotationFindings(kill), damageFindings(kill), statFindings(kill, player.role));
+    let f = uptimeFindings(kill).concat(rotationFindings(kill), damageFindings(kill), statFindings(kill, player.role), consumableFindings(kill), debuffFindings(kill, player));
     if (!kill.reference && kill.referenceNote) f.push(finding('no_reference', 'info', 'player', kill.referenceNote + ' on ' + kill.name));
     return f;
 }
@@ -432,4 +548,4 @@ function killFacts(input) {
     return kill;
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts };
