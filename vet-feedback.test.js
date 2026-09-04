@@ -50,6 +50,57 @@ test('median and round1', () => {
     assert.strictEqual(F.round1(null), null);
 });
 
+// --- Task 2: fight context
+test('fightContext on Anetheron: length, active time, raid rank, potions, not a bad pull', () => {
+    const fc = F.fightContext(FX.kills['50619'].context, 'Rotminster', 'caster', 94.7);
+    assert.strictEqual(fc.fight.durationSec, 130.9);
+    assert.strictEqual(fc.fight.referenceDurationSec, 94.7);
+    assert.strictEqual(fc.fight.raidGroup, 'dps');
+    assert.strictEqual(fc.fight.raidGroupCount, 16);
+    assert.strictEqual(fc.fight.raidGroupRank, 9);
+    assert.strictEqual(fc.fight.raidGroupMedianPercent, 25.5);
+    assert.strictEqual(fc.fight.raidDeaths, 1);
+    assert.strictEqual(fc.fight.raidSpeedPercent, 30);
+    assert.strictEqual(fc.fight.raidActivePercent, 92.4);
+    assert.strictEqual(fc.fight.badPull, false);
+    assert.strictEqual(fc.fight.badPullReason, null);
+    assert.strictEqual(fc.me.activePercent, 91.6);
+    assert.strictEqual(fc.me.dps, 1300.7);
+    assert.strictEqual(fc.me.died, null);
+    assert.strictEqual(fc.me.potionUse, 1);
+    assert.strictEqual(fc.me.healthstoneUse, 0);
+    assert.ok(fc.meRow && Array.isArray(fc.meRow.gear));
+});
+test('fightContext on Kaz\'rogal: an 1131 s pull where all 19 DPS parsed under 5 is a bad pull', () => {
+    const fc = F.fightContext(FX.kills['50620'].context, 'Rotminster', 'caster', 93);
+    assert.strictEqual(fc.fight.durationSec, 1130.6);
+    assert.strictEqual(fc.fight.badPull, true);
+    assert.ok(/1131s against a typical 93s/.test(fc.fight.badPullReason), fc.fight.badPullReason);
+    assert.ok(/19 of 19 dps in the raid parsed under 5/.test(fc.fight.badPullReason), fc.fight.badPullReason);
+    assert.strictEqual(fc.me.activePercent, 16.7);
+    assert.strictEqual(fc.me.potionUse, 2);
+    assert.strictEqual(fc.fight.raidDeaths, 3);
+});
+test('fightContext: a death is reported with time and killing blow; missing tables give nulls', () => {
+    const fc = F.fightContext(FX.kills['50619'].context, 'Slyvester', 'caster', null);
+    assert.deepStrictEqual(fc.me.died, { atSec: 33, by: 'Immolation' });
+    const empty = F.fightContext({}, 'Nobody', 'caster', null);
+    assert.strictEqual(empty.fight.durationSec, null);
+    assert.strictEqual(empty.fight.raidGroupCount, 0);
+    assert.strictEqual(empty.fight.badPull, false);
+    assert.strictEqual(empty.me.activePercent, null);
+    assert.strictEqual(empty.meRow, null);
+});
+test('fightContext: healers are ranked among healers, tanks among tanks', () => {
+    const ctx = { fights: [{ startTime: 0, endTime: 100000 }], rankings: { data: [{ speed: { rankPercent: 50 }, execution: { rankPercent: 50 },
+        roles: { dps: { characters: [{ name: 'D', amount: 1000, rankPercent: 50 }] }, healers: { characters: [{ name: 'H1', amount: 900, rankPercent: 60 }, { name: 'H2', amount: 700, rankPercent: 2 }] }, tanks: { characters: [] } } }] } };
+    const fc = F.fightContext(ctx, 'h2', 'healer', null);
+    assert.strictEqual(fc.fight.raidGroup, 'healers');
+    assert.strictEqual(fc.fight.raidGroupRank, 2);
+    assert.strictEqual(fc.fight.raidGroupCount, 2);
+    assert.strictEqual(fc.me.dps, 700);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;
