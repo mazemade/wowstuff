@@ -202,6 +202,88 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
     assert.deepStrictEqual(ref.itemLevelBand, [122, 126]);
 });
 
+// --- Task 5: kill facts and player findings
+function killFor(enc) {
+    const K = FX.kills[String(enc)];
+    return F.killFacts({ encounterId: enc, name: NAMES[enc], rank: FX.encounterRankings[String(enc)].ranks[0], context: K.context, tables: K.tables,
+                         sourceId: K.sourceID, player: PLAYER, reference: refFor(enc), referenceNote: null, dbIndex: db });
+}
+const keysOf = fs => fs.map(f => f.key);
+test('debuffFacts: shadow caster on Anetheron has Curse of the Elements, lacks Misery and Shadow Weaving', () => {
+    const d = F.debuffFacts(K19.context.debuffs, ['shadow']);
+    assert.strictEqual(d.known, true);
+    assert.deepStrictEqual(d.missing.map(m => m.name), ['Misery', 'Shadow Weaving']);
+    const coe = d.present.find(p => p.name === 'Curse of the Elements');
+    assert.strictEqual(coe.uptimePercent, 91);
+    assert.ok(!d.present.concat(d.missing).some(x => x.name === 'Fire Vulnerability'), 'fire debuffs do not concern a shadow caster');
+    assert.strictEqual(F.debuffFacts(null, ['shadow']).known, false);
+    assert.deepStrictEqual(F.debuffFacts(K19.context.debuffs, ['physical']).present.map(p => p.name).sort(), ['Curse of Recklessness', 'Faerie Fire', 'Sunder Armor'].concat(F.debuffFacts(K19.context.debuffs, ['physical']).present.some(p => p.name === 'Blood Frenzy') ? ['Blood Frenzy'] : []).sort());
+});
+test('killFacts on Anetheron: identity, url, me, and the player-side findings', () => {
+    const k = killFor(50619);
+    assert.strictEqual(k.rankPercent, 31.9);
+    assert.strictEqual(k.reportCode, 'BcZWRDk2PXaYghpC');
+    assert.strictEqual(k.fightId, 57);
+    assert.strictEqual(k.wclUrl, 'https://classic.warcraftlogs.com/reports/BcZWRDk2PXaYghpC#fight=57&source=12');
+    assert.strictEqual(k.date, '2026-08-30');
+    assert.strictEqual(k.fight.badPull, false);
+    assert.strictEqual(k.me.consumablesKnown, true);
+    assert.strictEqual(k.me.castsPerMinute, 25.2);
+    assert.strictEqual(k.me.bloodlustPercent, 31);
+    assert.strictEqual(k.me.stats.spellCrit, 222);
+    assert.deepStrictEqual(k.me.partyBuffs, ['Arcane Brilliance', 'Greater Blessing of Kings', 'Greater Blessing of Wisdom']);
+    const keys = keysOf(k.findings);
+    assert.ok(keys.includes('crit_low'), keys.join());
+    assert.ok(keys.includes('hit_low'), keys.join());
+    assert.ok(keys.includes('stat_low'), keys.join());
+    assert.ok(keys.includes('casts_low'), keys.join());
+    assert.ok(keys.includes('ability_extra'), keys.join());
+    assert.ok(!keys.includes('active_low') && !keys.includes('died') && !keys.includes('ability_unused'), keys.join());
+    const crit = k.findings.find(f => f.key === 'crit_low');
+    assert.strictEqual(crit.severity, 'major');
+    assert.strictEqual(crit.scope, 'player');
+    assert.strictEqual(crit.ability, 'Shadow Bolt');
+    assert.ok(/26\.2%/.test(crit.text) && /58\.8%/.test(crit.text) && /Anetheron/.test(crit.text), crit.text);
+    const hit = k.findings.find(f => f.key === 'hit_low');
+    assert.ok(/3087/.test(hit.text) && /4215/.test(hit.text), hit.text);
+    const stat = k.findings.find(f => f.key === 'stat_low');
+    assert.deepStrictEqual([stat.stat, stat.value, stat.reference, stat.severity], ['spellCrit', 222, 345, 'minor']);
+    const extra = k.findings.find(f => f.key === 'ability_extra');
+    assert.strictEqual(extra.ability, 'Immolate');
+    assert.ok(/5 times/.test(extra.text), extra.text);
+    const casts = k.findings.find(f => f.key === 'casts_low');
+    assert.ok(/25\.2/.test(casts.text) && /30\.5/.test(casts.text), casts.text);
+});
+test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unused', () => {
+    const k = killFor(50620);
+    assert.strictEqual(k.fight.badPull, true);
+    assert.strictEqual(k.me.consumablesKnown, false);
+    assert.deepStrictEqual(k.me.consumablesAtPull, []);
+    assert.strictEqual(k.me.stats, null);   // no CombatantInfo and no gear on this kill
+    const keys = keysOf(k.findings);
+    assert.ok(keys.includes('active_low'), keys.join());
+    assert.ok(k.findings.some(f => f.key === 'ability_unused' && f.ability === 'Curse of Doom'), keys.join());
+});
+test('uptimeFindings: a death before 90% of the fight and active time under 85% are major', () => {
+    const base = killFor(50619);
+    const dead = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 40, by: 'Carrion Swarm' }, activePercent: 70 }) });
+    const f = F.uptimeFindings(dead);
+    assert.deepStrictEqual(keysOf(f), ['active_low', 'died']);
+    assert.ok(f.every(x => x.severity === 'major'));
+    assert.ok(/40s of 131s/.test(f[1].text) && /Carrion Swarm/.test(f[1].text), f[1].text);
+    const late = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 125, by: null } }) });
+    assert.ok(!keysOf(F.uptimeFindings(late)).includes('died'), 'a death in the last 10% is not a finding');
+});
+test('statFindings: primary stat under 90% is major, nothing without a reference', () => {
+    const base = killFor(50619);
+    const weak = Object.assign({}, base, { me: Object.assign({}, base.me, { stats: Object.assign({}, base.me.stats, { spellDamage: 800 }) }) });
+    const f = F.statFindings(weak, 'caster');
+    const sp = f.find(x => x.stat === 'spellDamage');
+    assert.strictEqual(sp.severity, 'major');
+    assert.ok(/Spell power 800 against 1001/.test(sp.text), sp.text);
+    assert.deepStrictEqual(F.statFindings(Object.assign({}, base, { reference: null }), 'caster'), []);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

@@ -280,4 +280,156 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band) {
     };
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary };
+function finding(key, severity, scope, text, extra) { return Object.assign({ key, severity, scope, text }, extra || {}); }
+
+// Raid-provided debuffs on the boss that move the metric, with the schools they help. Missing
+// ones are a raid-composition finding, never the player's failing, unless their own class
+// provides it (OWN_DEBUFF) and it was up too little.
+const RAID_DEBUFFS = [
+    { name: 'Curse of the Elements', schools: ['arcane', 'fire', 'frost', 'shadow'], value: '10% more arcane, fire, frost and shadow damage', source: 'a warlock' },
+    { name: 'Misery', schools: ['arcane', 'fire', 'frost', 'shadow', 'nature', 'holy'], value: '5% spell hit', source: 'a shadow priest' },
+    { name: 'Shadow Weaving', schools: ['shadow'], value: '10% more shadow damage', source: 'a shadow priest' },
+    { name: 'Fire Vulnerability', schools: ['fire'], value: '15% more fire damage', source: 'a fire mage with Improved Scorch' },
+    { name: "Winter's Chill", schools: ['frost'], value: '10% frost crit', source: 'a frost mage' },
+    { name: 'Sunder Armor', alt: ['Expose Armor'], schools: ['physical'], value: '2600 armor off the boss', source: 'a warrior or rogue' },
+    { name: 'Faerie Fire', alt: ['Faerie Fire (Feral)'], schools: ['physical'], value: '610 armor off the boss', source: 'a druid' },
+    { name: 'Blood Frenzy', alt: ['Expose Weakness'], schools: ['physical'], value: '4% more physical damage, or attack power from Expose Weakness', source: 'an arms warrior or a survival hunter' },
+    { name: 'Curse of Recklessness', schools: ['physical'], value: '800 armor off the boss', source: 'a warlock' },
+    { name: 'Judgement of the Crusader', schools: ['holy'], value: '219 more holy damage per hit', source: 'a paladin' },
+];
+const OWN_DEBUFF = {
+    WARLOCK: ['Curse of the Elements', 'Curse of Recklessness'], PRIEST: ['Misery', 'Shadow Weaving'], MAGE: ['Fire Vulnerability', "Winter's Chill"],
+    WARRIOR: ['Sunder Armor', 'Blood Frenzy'], ROGUE: ['Sunder Armor'], DRUID: ['Faerie Fire'], HUNTER: ['Blood Frenzy'], PALADIN: ['Judgement of the Crusader'],
+};
+function debuffFacts(debuffTable, schools) {
+    const d = debuffTable && debuffTable.data;
+    const auras = d && Array.isArray(d.auras) ? d.auras : [];
+    const total = d ? d.totalTime : 0;
+    const present = [], missing = [];
+    RAID_DEBUFFS.filter(x => x.schools.some(s => (schools || []).includes(s))).forEach(x => {
+        const names = [x.name].concat(x.alt || []);
+        const rows = auras.filter(a => names.includes(a.name));
+        if (!rows.length) missing.push({ name: x.name, value: x.value, source: x.source });
+        else present.push({ name: x.name, uptimePercent: total ? Math.round(100 * Math.max.apply(null, rows.map(r => r.totalUptime)) / total) : null, value: x.value, source: x.source });
+    });
+    return { known: !!d, present, missing };
+}
+
+// Casts that are upkeep rather than rotation: never "unused" or "extra".
+const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
+
+function uptimeFindings(kill) {
+    const f = [], me = kill.me, fight = kill.fight, ref = kill.reference;
+    if (typeof me.activePercent === 'number') {
+        const raidTail = typeof fight.raidActivePercent === 'number' ? ' (raid median ' + fight.raidActivePercent + '%)' : '';
+        if (me.activePercent < T.activeMajor) f.push(finding('active_low', 'major', 'player', 'Active ' + me.activePercent + '% of the ' + kill.name + ' fight' + raidTail));
+        else if (typeof fight.raidActivePercent === 'number' && me.activePercent < 92 && fight.raidActivePercent - me.activePercent >= T.activeGap)
+            f.push(finding('active_low', 'minor', 'player', 'Active ' + me.activePercent + '% of the ' + kill.name + ' fight' + raidTail));
+    }
+    if (me.died && fight.durationSec && me.died.atSec < T.diedBefore * fight.durationSec)
+        f.push(finding('died', 'major', 'player', 'Died at ' + me.died.atSec + 's of ' + Math.round(fight.durationSec) + 's on ' + kill.name + (me.died.by ? ' to ' + me.died.by : '')));
+    if (!f.some(x => x.key === 'active_low') && ref && ref.castsPerMinute && typeof me.castsPerMinute === 'number' && me.castsPerMinute < T.castsLowRatio * ref.castsPerMinute)
+        f.push(finding('casts_low', 'minor', 'player', me.castsPerMinute + ' casts per minute on ' + kill.name + '; comparable players manage ' + ref.castsPerMinute));
+    return f;
+}
+
+function rotationFindings(kill) {
+    const f = [], ref = kill.reference;
+    if (!ref || !kill.fight.durationSec || !ref.castsDurationSec) return f;
+    const min = kill.fight.durationSec / 60, refMin = ref.castsDurationSec / 60;
+    const top3 = ref.abilities.slice(0, 3).map(a => a.name);
+    const fmt = x => Math.round(x * 10) / 10;
+    Object.keys(ref.casts).forEach(name => {
+        if (UTILITY_CAST.test(name)) return;
+        const r = ref.casts[name] / refMin, p = (kill.me.casts[name] || 0) / min;
+        if (!kill.me.casts[name]) {
+            if (r >= T.unusedPerMin || top3.includes(name))
+                f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute', { ability: name }));
+        } else if (top3.includes(name) && p < T.ratioLow * r) {
+            f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
+        }
+    });
+    Object.keys(kill.me.casts).forEach(name => {
+        if (UTILITY_CAST.test(name) || ref.casts[name]) return;
+        if (kill.me.casts[name] / min >= T.extraPerMin)
+            f.push(finding('ability_extra', 'minor', 'player', 'Cast ' + name + ' ' + kill.me.casts[name] + ' times on ' + kill.name + '; comparable players do not use it', { ability: name }));
+    });
+    return f;
+}
+
+function damageFindings(kill) {
+    const f = [], ref = kill.reference;
+    if (!ref) return f;
+    ref.abilities.slice(0, 3).forEach(ra => {
+        const pa = kill.me.abilities.find(a => a.name === ra.name);
+        if (!pa) return;
+        const x = { ability: ra.name, share: pa.share };
+        if (typeof pa.critPercent === 'number' && typeof ra.critPercent === 'number' && ra.critPercent - pa.critPercent >= T.critGap)
+            f.push(finding('crit_low', 'major', 'player', ra.name + ' crit ' + pa.critPercent + '% of the time on ' + kill.name + '; comparable players crit ' + ra.critPercent + '%', x));
+        if (typeof pa.avgHit === 'number' && typeof ra.avgHit === 'number' && pa.avgHit < T.hitRatio * ra.avgHit)
+            f.push(finding('hit_low', 'major', 'player', ra.name + ' hit for ' + pa.avgHit + ' on ' + kill.name + ' against ' + ra.avgHit + ' for comparable players', x));
+        if (typeof pa.resistPercent === 'number' && typeof ra.resistPercent === 'number' && pa.resistPercent - ra.resistPercent >= T.resistGap)
+            f.push(finding('resist_high', 'minor', 'player', pa.resistPercent + '% of ' + ra.name + ' casts were resisted or partially resisted on ' + kill.name + ' against ' + ra.resistPercent + '% for comparable players; check spell hit and Curse of the Elements', x));
+    });
+    return f;
+}
+
+const ROLE_STATS = {
+    caster: { primary: 'spellDamage', secondary: ['spellCrit', 'spellHaste'] },
+    healer: { primary: 'healing', secondary: ['spellCrit', 'mp5'] },
+    melee: { primary: 'attackPower', secondary: ['meleeCrit', 'meleeHaste'] },
+    ranged: { primary: 'rangedAttackPower', secondary: ['rangedCrit', 'meleeHaste'] },
+    tank: { primary: 'attackPower', secondary: ['meleeCrit'] },
+};
+const STAT_LABEL = {
+    spellDamage: 'spell power', healing: 'healing power', attackPower: 'attack power', rangedAttackPower: 'ranged attack power',
+    spellCrit: 'spell crit rating', meleeCrit: 'melee crit rating', rangedCrit: 'ranged crit rating', spellHaste: 'spell haste rating',
+    meleeHaste: 'haste rating', spellHit: 'spell hit rating', meleeHit: 'hit rating', mp5: 'mana per five',
+};
+function statFindings(kill, role) {
+    const f = [], ref = kill.reference, me = kill.me.stats;
+    const spec = ROLE_STATS[role];
+    if (!ref || !ref.stats || !me || !spec) return f;
+    const cmp = (key, ratio, sev) => {
+        const p = me[key], r = ref.stats[key];
+        if (typeof p !== 'number' || typeof r !== 'number' || !r) return;
+        const label = STAT_LABEL[key];
+        if (p < ratio * r) f.push(finding('stat_low', sev, 'player', label.charAt(0).toUpperCase() + label.slice(1) + ' ' + p + ' against ' + r + ' for comparable players', { stat: key, value: p, reference: r }));
+    };
+    cmp(spec.primary, T.statPrimaryRatio, 'major');
+    spec.secondary.forEach(k => cmp(k, T.statSecondaryRatio, 'minor'));
+    return f;
+}
+
+function killFindings(kill, player) {
+    let f = uptimeFindings(kill).concat(rotationFindings(kill), damageFindings(kill), statFindings(kill, player.role));
+    if (!kill.reference && kill.referenceNote) f.push(finding('no_reference', 'info', 'player', kill.referenceNote + ' on ' + kill.name));
+    return f;
+}
+
+function killFacts(input) {
+    const { encounterId, name, rank, context, tables, sourceId, player, reference, referenceNote, dbIndex } = input;
+    const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null);
+    const casts = castCounts(tables.casts);
+    const ci = tables.ci && tables.ci.data && tables.ci.data[0];
+    const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
+    const me = Object.assign(fc.me, {
+        consumablesKnown: !!ci, consumablesAtPull: aur ? aur.consumables : [], buffsAtPull: aur ? aur.buffs : [],
+        partyBuffs: aur ? canonBuffs(aur.buffs, player.role) : [],
+        flask: aur ? aur.flask : null, battleElixir: aur ? aur.battleElixir : null, guardianElixir: aur ? aur.guardianElixir : null, food: aur ? aur.food : null,
+        castsPerMinute: castsPerMinute(casts, fc.fight.durationSec), casts, abilities: abilityStats(tables.dmg),
+        bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
+    });
+    const kill = {
+        encounterId, name, rankPercent: round1(rank.rankPercent),
+        date: rank.startTime ? new Date(rank.startTime).toISOString().slice(0, 10) : null,
+        reportCode: rank.report.code, fightId: rank.report.fightID,
+        wclUrl: 'https://classic.warcraftlogs.com/reports/' + rank.report.code + '#fight=' + rank.report.fightID + '&source=' + sourceId,
+        fight: fc.fight, debuffs: debuffFacts(context.debuffs, player.schools), me,
+        reference: reference || null, referenceNote: referenceNote || null, findings: [],
+    };
+    kill.findings = killFindings(kill, player);
+    return kill;
+}
+
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts };
