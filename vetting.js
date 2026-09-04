@@ -21,6 +21,10 @@ let expanded = null; // name (lower) whose detail row is open
 let rosterNotice = null;
 const feedbackInFlight = new Set(); // keys with a report request running
 const feedbackErrors = {};          // key -> last request error, cleared on the next request
+// Minor 18: removeAll() and the "Refresh all" handler clear state.feedback but must also drop any
+// stale feedbackErrors, or re-adding a player with the same name in the same session surfaces an
+// old error message before any new request is made.
+function clearFeedbackErrors() { Object.keys(feedbackErrors).forEach(k => delete feedbackErrors[k]); }
 
 function load() {
     let raw = {};
@@ -217,9 +221,20 @@ function copyText(text, btn) {
 // The facts sheet's findings as plain text, for when the model wrote nothing usable.
 function fallbackReport(facts) {
     const lines = [facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName + ', median parse ' + Math.round(facts.tier.medianPercent)];
-    lines.push('', "What's holding your damage back");
-    facts.overall.findings.forEach((f, i) => lines.push((i + 1) + '. ' + f.text));
+    // Mirrors vet-feedback.js's buildPrompt: label the section by metric so a healer does not
+    // read "damage" over their HPS findings.
+    const holdingBackHeading = facts.player.metric === 'hps' ? "What's holding your healing back" : "What's holding your damage back";
+    // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives. Skip each
+    // heading whose list is empty rather than rendering it bare, and when both are empty say so in
+    // one line — this is the path a leader sees on an OpenAI outage, so it has to read well alone.
+    if (facts.overall.findings.length) {
+        lines.push('', holdingBackHeading);
+        facts.overall.findings.forEach((f, i) => lines.push((i + 1) + '. ' + f.text));
+    }
     if (facts.overall.positives.length) lines.push('', "What's fine", facts.overall.positives.join('. ') + '.');
+    if (!facts.overall.findings.length && !facts.overall.positives.length) {
+        lines.push('', facts.overall.badPulls.length ? 'Nothing to flag beyond the bad pulls below.' : 'Nothing to flag.');
+    }
     if (facts.overall.badPulls.length) { lines.push('', 'Not on you'); facts.overall.badPulls.forEach(b => lines.push(b.name + ' (' + b.rankPercent + '): ' + b.reason)); }
     return lines.join('\n');
 }
@@ -295,6 +310,7 @@ function removeAll() {
     state.profiles = {};
     state.errors = {};
     state.feedback = {};
+    clearFeedbackErrors();
     queue = [];
     expanded = null;
     rosterNotice = null;
@@ -423,7 +439,11 @@ function bossTable(bosses) {
 function factsTable(facts) {
     const t = document.createElement('table');
     t.className = 'facts-table';
-    t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>DPS vs band</th><th>Crit vs band</th><th>Pull consumables</th><th>Log</th></tr>';
+    // Minor 11 / carried finding: label the column by metric so a healer's HPS is not shown under
+    // a header literally saying "DPS" (the same mislabelling the me.dps -> me.amount rename in
+    // vet-feedback.js was meant to remove, just moved from the model's prose into this header).
+    const metricLabel = facts.player.metric === 'hps' ? 'HPS' : 'DPS';
+    t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>' + metricLabel + ' vs band</th><th>Crit vs band</th><th>Pull consumables</th><th>Log</th></tr>';
     facts.kills.forEach(k => {
         const tr = document.createElement('tr');
         if (k.fight.badPull) { tr.className = 'bad-pull'; tr.title = k.fight.badPullReason; }
@@ -433,10 +453,13 @@ function factsTable(facts) {
         const cells = [
             escapeHtml(k.name) + (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : ''),
             fmt(k.rankPercent == null ? null : Math.round(k.rankPercent)),
-            fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
+            fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref && ref.durationSec != null ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
             fmt(k.me.activePercent == null ? null : k.me.activePercent + '%'),
             k.fight.raidGroupRank ? k.fight.raidGroupRank + ' of ' + k.fight.raidGroupCount : '—',
-            fmt(k.me.amount) + (ref ? ' / ' + ref.dps : ''),
+            // Defensive rather than a live bug today: a reference only exists once >= 3 in-band
+            // ranks were collected, and both fields are medians over that non-empty array. Guarded
+            // anyway to match the fmt() treatment the neighbouring cells get.
+            fmt(k.me.amount) + (ref && ref.dps != null ? ' / ' + ref.dps : ''),
             topMe && topMe.critPercent != null ? escapeHtml(topMe.name) + ' ' + topMe.critPercent + '%' + (topRef && topRef.critPercent != null ? ' / ' + topRef.critPercent + '%' : '') : '—',
             k.me.consumablesKnown ? (k.me.consumablesAtPull.length ? escapeHtml(k.me.consumablesAtPull.join(', ')) : '<span class="slot-missing">none</span>') : '<span class="cell-unknown">unknown</span>',
             '<a href="' + escapeHtml(k.wclUrl) + '" target="_blank" rel="noopener">WCL</a>',
@@ -569,7 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     window.addEventListener('hashchange', takeFragment);
     document.getElementById('refreshBtn').addEventListener('click', () => {
-        state.profiles = {}; state.errors = {}; state.feedback = {}; save(); renderTable();
+        state.profiles = {}; state.errors = {}; state.feedback = {}; clearFeedbackErrors(); save(); renderTable();
         state.players.forEach(p => enqueue(p.name, true));
     });
     document.getElementById('realmInput').addEventListener('change', onRealmChange);
