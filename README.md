@@ -22,6 +22,15 @@ groups, and checks live whether assignments were actually done.
   fail / unverified verdict against editable thresholds. Gear is scored primarily with GearScore
   (the same TacoTip formula TBC players run), with average item level shown alongside it. Needs
   the WCL credentials below.
+  - **Feedback report** (button in a player's expanded row): a short note you can paste to the
+    player saying what is holding their parses back, biggest first, with the measured number next
+    to what same-spec players within two item levels do on the same boss, and a fix for each.
+    The server measures every figure from Warcraft Logs (`/api/vet/feedback`, see
+    `vet-feedback.js`); the prose is written by OpenAI under a facts-only prompt and rejected if
+    it introduces numbers the facts do not hold, in which case the findings are shown as a plain
+    list. Raid-wide bad pulls (an 18-minute kill where every DPS parsed 0) are listed under
+    "Not on you". Needs `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET` and, for the prose, `OPENAI_API_KEY`
+    (`OPENAI_MODEL` optional) in `.env`.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
@@ -57,7 +66,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 ## Tests
 
 ```bash
-npm test                          # engine, WCL multiplier, positions, item table, vetting suites (node, no deps)
+npm test                          # engine, WCL multiplier, positions, item table, vetting and feedback suites (node, no deps)
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking
