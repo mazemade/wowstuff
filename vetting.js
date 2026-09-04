@@ -8,7 +8,7 @@ const ZONE = 1060;
 const CONCURRENCY = 3;
 const RATE_LIMIT_PAUSE_MS = 60 * 1000;
 
-const state = { players: [], thresholds: Object.assign({}, V.DEFAULT_THRESHOLDS), profiles: {}, errors: {} };
+const state = { players: [], thresholds: Object.assign({}, V.DEFAULT_THRESHOLDS), profiles: {}, errors: {}, feedback: {} };
 const wcl = { server: '', region: 'eu' };
 let queue = [];
 let inFlight = 0;
@@ -19,6 +19,8 @@ let expanded = null; // name (lower) whose detail row is open
 // renderTable() (e.g. from an in-flight fetch completing) does not silently overwrite it.
 // Cleared whenever the player list next changes (add/remove).
 let rosterNotice = null;
+const feedbackInFlight = new Set(); // keys with a report request running
+const feedbackErrors = {};          // key -> last request error, cleared on the next request
 
 function load() {
     let raw = {};
@@ -32,6 +34,9 @@ function load() {
     }
     if (parsed.errors && typeof parsed.errors === 'object' && !Array.isArray(parsed.errors)) {
         state.errors = parsed.errors;
+    }
+    if (parsed.feedback && typeof parsed.feedback === 'object' && !Array.isArray(parsed.feedback)) {
+        state.feedback = parsed.feedback;
     }
     state.thresholds = V.parseThresholds(parsed.thresholds);
     try {
@@ -174,6 +179,51 @@ function pause() {
     tick();
 }
 
+// --- feedback report ---
+async function requestFeedback(key) {
+    const player = state.players.find(p => p.name.toLowerCase() === key);
+    if (!player || feedbackInFlight.has(key)) return;
+    delete feedbackErrors[key];
+    if (!wcl.server) { feedbackErrors[key] = 'No realm set'; renderTable(); return; }
+    feedbackInFlight.add(key);
+    renderTable();
+    try {
+        const url = '/api/vet/feedback?name=' + encodeURIComponent(player.name) + '&server=' + encodeURIComponent(wcl.server) +
+            '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds));
+        const res = await fetch(url);
+        if (!state.players.some(p => p.name.toLowerCase() === key)) return;
+        if (res.status === 429) { feedbackErrors[key] = 'Warcraft Logs rate limit reached — try again after the pause'; pause(); return; }
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { feedbackErrors[key] = body.error || ('HTTP ' + res.status); return; }
+        state.feedback[key] = { report: body.report || null, reportError: body.reportError || null, generatedAt: body.generatedAt, facts: body.facts };
+        try { save(); } catch (err) { feedbackErrors[key] = 'Report shown but could not be saved locally: ' + err.message; }
+    } catch (err) {
+        feedbackErrors[key] = 'Network error: ' + err.message;
+    } finally {
+        feedbackInFlight.delete(key);
+        renderTable();
+    }
+}
+function copyText(text, btn) {
+    const done = ok => { const was = btn.textContent; btn.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => { btn.textContent = was; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); return; }
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    done(ok);
+}
+// The facts sheet's findings as plain text, for when the model wrote nothing usable.
+function fallbackReport(facts) {
+    const lines = [facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName + ', median parse ' + Math.round(facts.tier.medianPercent)];
+    lines.push('', "What's holding your damage back");
+    facts.overall.findings.forEach((f, i) => lines.push((i + 1) + '. ' + f.text));
+    if (facts.overall.positives.length) lines.push('', "What's fine", facts.overall.positives.join('. ') + '.');
+    if (facts.overall.badPulls.length) { lines.push('', 'Not on you'); facts.overall.badPulls.forEach(b => lines.push(b.name + ' (' + b.rankPercent + '): ' + b.reason)); }
+    return lines.join('\n');
+}
+
 // --- players ---
 // Sanitizes and de-dupes a name into state.players without saving/rendering/enqueueing, so
 // loadRoster can add many players and pay for one save+render instead of one per player.
@@ -235,6 +285,7 @@ function removePlayer(name) {
     const key = name.toLowerCase();
     state.players = state.players.filter(p => p.name.toLowerCase() !== key);
     delete state.profiles[key]; delete state.errors[key];
+    delete state.feedback[key]; delete feedbackErrors[key];
     queue = queue.filter(k => k !== key);
     rosterNotice = null;
     save(); renderTable();
@@ -243,6 +294,7 @@ function removeAll() {
     state.players = [];
     state.profiles = {};
     state.errors = {};
+    state.feedback = {};
     queue = [];
     expanded = null;
     rosterNotice = null;
@@ -368,6 +420,68 @@ function bossTable(bosses) {
     });
     return t;
 }
+function factsTable(facts) {
+    const t = document.createElement('table');
+    t.className = 'facts-table';
+    t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>DPS vs band</th><th>Crit vs band</th><th>Pull consumables</th><th>Log</th></tr>';
+    facts.kills.forEach(k => {
+        const tr = document.createElement('tr');
+        if (k.fight.badPull) { tr.className = 'bad-pull'; tr.title = k.fight.badPullReason; }
+        const ref = k.reference;
+        const topMe = k.me.abilities[0], topRef = ref && topMe ? ref.abilities.find(a => a.name === topMe.name) : null;
+        const fmt = x => (x == null ? '—' : x);
+        const cells = [
+            escapeHtml(k.name) + (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : ''),
+            fmt(k.rankPercent == null ? null : Math.round(k.rankPercent)),
+            fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
+            fmt(k.me.activePercent == null ? null : k.me.activePercent + '%'),
+            k.fight.raidGroupRank ? k.fight.raidGroupRank + ' of ' + k.fight.raidGroupCount : '—',
+            fmt(k.me.dps) + (ref ? ' / ' + ref.dps : ''),
+            topMe && topMe.critPercent != null ? escapeHtml(topMe.name) + ' ' + topMe.critPercent + '%' + (topRef && topRef.critPercent != null ? ' / ' + topRef.critPercent + '%' : '') : '—',
+            k.me.consumablesKnown ? (k.me.consumablesAtPull.length ? escapeHtml(k.me.consumablesAtPull.join(', ')) : '<span class="slot-missing">none</span>') : '<span class="cell-unknown">unknown</span>',
+            '<a href="' + escapeHtml(k.wclUrl) + '" target="_blank" rel="noopener">WCL</a>',
+        ];
+        tr.innerHTML = cells.map(c => '<td>' + c + '</td>').join('');
+        t.appendChild(tr);
+    });
+    return t;
+}
+function feedbackBox(r) {
+    const box = document.createElement('div');
+    box.className = 'feedback-box';
+    const fb = state.feedback[r.key];
+    const busy = feedbackInFlight.has(r.key);
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = busy ? 'Analysing…' : (fb ? 'Refresh report' : 'Feedback report');
+    btn.disabled = busy || !r.profile.parses;
+    if (!r.profile.parses) btn.title = 'No parses to analyse';
+    btn.addEventListener('click', e => { e.stopPropagation(); requestFeedback(r.key); });
+    box.appendChild(btn);
+    if (feedbackErrors[r.key]) box.insertAdjacentHTML('beforeend', '<div class="status error feedback-status">' + escapeHtml(feedbackErrors[r.key]) + '</div>');
+    if (!fb) return box;
+    const text = fb.report || (fb.facts ? fallbackReport(fb.facts) : '');
+    if (fb.reportError) box.insertAdjacentHTML('beforeend', '<div class="status feedback-status">' + escapeHtml(fb.reportError) + '</div>');
+    const pre = document.createElement('pre');
+    pre.className = 'feedback-report';
+    pre.textContent = text;
+    box.appendChild(pre);
+    const actions = document.createElement('div');
+    actions.className = 'feedback-actions';
+    const copy = document.createElement('button');
+    copy.className = 'btn btn-primary'; copy.textContent = 'Copy';
+    copy.addEventListener('click', e => { e.stopPropagation(); copyText(text, copy); });
+    actions.appendChild(copy);
+    if (fb.generatedAt) actions.insertAdjacentHTML('beforeend', '<span class="status">' + escapeHtml(new Date(fb.generatedAt).toLocaleString()) + '</span>');
+    box.appendChild(actions);
+    if (fb.facts) {
+        const det = document.createElement('details');
+        det.innerHTML = '<summary>Facts</summary>';
+        det.appendChild(factsTable(fb.facts));
+        box.appendChild(det);
+    }
+    return box;
+}
 function detailRow(r) {
     const p = r.profile;
     const tr = document.createElement('tr');
@@ -424,6 +538,7 @@ function detailRow(r) {
     } else parseBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No parses.</div>');
     if (p.lastSeen) parseBox.insertAdjacentHTML('beforeend', '<div class="status">Last seen: ' + escapeHtml(new Date(p.lastSeen.timestamp).toLocaleDateString()) + ' — ' + escapeHtml(p.lastSeen.fightName || '') + '</div>');
     if (p.missing && p.missing.length) parseBox.insertAdjacentHTML('beforeend', '<div class="warn">' + p.missing.map(escapeHtml).join('<br>') + '</div>');
+    parseBox.appendChild(feedbackBox(r));
     grid.appendChild(parseBox);
 
     td.appendChild(grid);
@@ -454,7 +569,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     window.addEventListener('hashchange', takeFragment);
     document.getElementById('refreshBtn').addEventListener('click', () => {
-        state.profiles = {}; state.errors = {}; save(); renderTable();
+        state.profiles = {}; state.errors = {}; state.feedback = {}; save(); renderTable();
         state.players.forEach(p => enqueue(p.name, true));
     });
     document.getElementById('realmInput').addEventListener('change', onRealmChange);
@@ -478,3 +593,4 @@ function loadRoster() {
 // Exposed for the headless smoke test.
 window.vetAdd = addPlayer;
 window.vetState = () => state;
+window.vetFeedback = requestFeedback;
