@@ -548,4 +548,43 @@ function killFacts(input) {
     return kill;
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts };
+// The model writes, the sheet decides. Every claim it may make is in `facts`; the system prompt
+// forbids anything else, and checkNumbers() enforces the part that matters most.
+function buildPrompt(facts, rulesLines) {
+    const system = [
+        'You are writing a short note to a World of Warcraft TBC Anniversary raider on behalf of their raid leader, about why their parses are low and what to do about it.',
+        'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
+        'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
+        'Findings with scope "group" are about raid composition (party buffs, raid debuffs, Bloodlust): phrase them as things to ask the raid leader for, never as the player\'s failing.',
+        '"Comparable players" means players of the same spec on the same boss within the item-level band in each kill\'s reference.itemLevelBand.',
+        'Anniversary rules that differ from original TBC:',
+    ].concat(rulesLines || [], [
+        'Structure, in this order:',
+        '1. One header line: name, spec, tier, median parse percentile.',
+        '2. A line "What\'s holding your damage back", then overall.findings biggest first, at most 5, each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix.',
+        '3. A line "What\'s fine", then one or two sentences built from overall.positives.',
+        '4. If overall.badPulls is not empty, a line "Not on you", then one line per bad pull with its reason.',
+        'Under 350 words.',
+        facts && facts.limited ? 'This player is a healer: the sheet has no per-cast comparison, so write only about uptime, deaths, consumables, buffs and gear.' : '',
+    ]).filter(Boolean).join('\n');
+    return { system, user: 'Facts sheet:\n' + JSON.stringify(facts) };
+}
+
+function numbersIn(s) {
+    return (String(s).replace(/(\d),(\d{3})\b/g, '$1$2').match(/\d+(?:\.\d+)?/g) || []).map(Number);
+}
+// Every figure over 10 in the reply must appear in the sheet, give or take one for rounding.
+// Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also holds
+// in one form or another, so they are not worth a false alarm.
+function checkNumbers(text, facts) {
+    const allowed = new Set();
+    numbersIn(JSON.stringify(facts)).forEach(n => { allowed.add(Math.round(n)); allowed.add(Math.floor(n)); allowed.add(Math.ceil(n)); });
+    const foreign = numbersIn(text).filter(n => {
+        if (n <= 10) return false;
+        const r = Math.round(n);
+        return ![r - 1, r, r + 1].some(x => allowed.has(x));
+    });
+    return { ok: foreign.length === 0, foreign: Array.from(new Set(foreign)) };
+}
+
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers };

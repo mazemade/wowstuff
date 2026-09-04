@@ -378,6 +378,32 @@ test('buildFacts: the sheet the model reads', () => {
     assert.ok(JSON.stringify(facts).length < 60000, 'sheet stays small enough to send to the model');
 });
 
+// --- Task 7: prompt and number guard
+const RULES = ['- Bloodlust/Heroism is RAID-wide.', '- Everything else is party-scoped.'];
+test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note only when limited', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/Use ONLY the facts/.test(p.system));
+    assert.ok(/Bloodlust\/Heroism is RAID-wide/.test(p.system));
+    assert.ok(/What's holding your damage back/.test(p.system) && /What's fine/.test(p.system) && /Not on you/.test(p.system));
+    assert.ok(/Under 350 words/.test(p.system));
+    assert.ok(!/healer/i.test(p.system));
+    assert.ok(p.user.startsWith('Facts sheet:\n{'));
+    assert.ok(p.user.includes('"Rotminster"'));
+    const h = F.buildPrompt(Object.assign({}, facts, { limited: true }), RULES);
+    assert.ok(/healer/i.test(h.system));
+});
+test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const good = 'Rotminster, Destruction warlock, BT/Hyjal, median parse 14.\n1. Crit: your Shadow Bolts crit 26% of the time; comparable players crit 59%. Your crit rating is 222 against 345.\n2. Shadow Bolt hit for 3,087 against 4215.\nWhat\'s fine: active 92%, no deaths.';
+    assert.deepStrictEqual(F.checkNumbers(good, facts), { ok: true, foreign: [] });
+    const bad = good + '\nAim for 7777 DPS next week.';
+    const r = F.checkNumbers(bad, facts);
+    assert.strictEqual(r.ok, false);
+    assert.deepStrictEqual(r.foreign, [7777]);
+    assert.strictEqual(F.checkNumbers('Three things, in 2 groups of 5.', facts).ok, true);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;
