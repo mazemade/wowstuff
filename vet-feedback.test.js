@@ -1732,6 +1732,26 @@ test('positives (v3): an input where the player is ahead of the reference is a p
     assert.ok(pos.some(p => /ahead of comparable players on activity/.test(p)), pos.join(' | '));
 });
 
+test('fightContext (v4 §3): fight.sameClass lists every same-class player row by DPS, pets excluded, the player flagged', () => {
+    const ctx = {
+        fights: [{ id: 1, startTime: 0, endTime: 100000 }],
+        rankings: { data: [{ roles: { dps: { characters: [{ name: 'Lovestoned', amount: 1000, rankPercent: 20 }] } } }] },
+        dmgAll: { data: { totalTime: 100000, entries: [
+            { name: 'Cartis', type: 'Warlock', total: 137200, activeTime: 90000 },
+            { name: 'Lovestoned', type: 'Warlock', total: 136300, activeTime: 90000 },
+            { name: 'Xeasha', type: 'Warlock', total: 131900, activeTime: 90000 },
+            { name: 'Disxia', type: 'Pet', total: 5000, activeTime: 90000 },
+            { name: 'Craqu', type: 'Mage', total: 200000, activeTime: 90000 },
+        ] } },
+        deaths: { data: { entries: [] } },
+    };
+    const fc = F.fightContext(ctx, 'Lovestoned', 'caster', null, 'dps', 'Void Reaver', 'WARLOCK');
+    assert.deepStrictEqual(fc.fight.sameClass, [
+        { name: 'Cartis', amount: 1372, isMe: false }, { name: 'Lovestoned', amount: 1363, isMe: true }, { name: 'Xeasha', amount: 1319, isMe: false },
+    ]);
+    assert.deepStrictEqual(F.fightContext(ctx, 'Lovestoned', 'caster', null, 'dps', 'Void Reaver').fight.sameClass, [], 'no class token: empty');
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

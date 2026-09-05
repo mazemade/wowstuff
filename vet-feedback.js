@@ -131,7 +131,7 @@ function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n 
 // Everything the fight-wide tables say about one pull: its length, how the raid itself ranked,
 // where the player sat among their role, active time, death and potions, and whether the pull
 // was so bad raid-wide that it says nothing about the player.
-function fightContext(ctx, playerName, role, refDurationSec, metric, name) {
+function fightContext(ctx, playerName, role, refDurationSec, metric, name, classToken) {
     ctx = ctx || {};
     const fight = Array.isArray(ctx.fights) ? ctx.fights[0] : null;
     const durationSec = fight ? round1((fight.endTime - fight.startTime) / 1000) : null;
@@ -165,6 +165,13 @@ function fightContext(ctx, playerName, role, refDurationSec, metric, name) {
     const activeRows = groupRows.length ? groupRows : rows.filter(r => r.type !== 'Pet');
     const raidActivePercent = round1(median(activeRows.map(activeOf)));
 
+    // v4 §3: the player's same-class peers in this pull, from the fight-wide table already
+    // fetched. WCL's `type` is the class name ("Warlock"); the profile's token is "WARLOCK".
+    const cls = lower(classToken);
+    const sameClass = (cls && durationSec) ? rows.filter(r => r.type !== 'Pet' && lower(r.type) === cls)
+        .map(r => ({ name: r.name, amount: Math.round((r.total || 0) / durationSec), isMe: lower(r.name) === me }))
+        .sort((a, b) => b.amount - a.amount) : [];
+
     const deaths = (ctx.deaths && ctx.deaths.data && Array.isArray(ctx.deaths.data.entries)) ? ctx.deaths.data.entries : [];
     const myDeath = deaths.find(d => lower(d.name) === me);
     const pd = (ctx.summary && ctx.summary.data && ctx.summary.data.playerDetails) || {};
@@ -189,6 +196,7 @@ function fightContext(ctx, playerName, role, refDurationSec, metric, name) {
             raidSpeedPercent: speed, raidExecutionPercent: rank && rank.execution && typeof rank.execution.rankPercent === 'number' ? rank.execution.rankPercent : null,
             raidGroup: groupKey, raidGroupCount: group.length, raidGroupRank: idx >= 0 ? idx + 1 : null,
             raidGroupMedianPercent: round1(median(group.map(c => c.rankPercent))), raidActivePercent,
+            sameClass,
             badPull: reasons.length > 0, badPullReason: reasons.length ? reasons.join('; ') : null,
         },
         me: {
@@ -905,7 +913,7 @@ function killFacts(input) {
     // the pre-existing single-rank call shape.
     const killsOnBoss = typeof input.killsOnBoss === 'number' ? input.killsOnBoss : 1;
     const killIndex = typeof input.killIndex === 'number' ? input.killIndex : 1;
-    const fc = fightContext(context, player.name, player.role, reference ? (reference.topDurationSec || reference.durationSec) : null, player.metric, name);
+    const fc = fightContext(context, player.name, player.role, reference ? (reference.topDurationSec || reference.durationSec) : null, player.metric, name, player.classToken);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
     const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
