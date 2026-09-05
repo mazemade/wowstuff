@@ -128,8 +128,12 @@ The measured chance is decomposed into an **expected** chance from inputs and **
 `expected = base + rating/CRIT_RATING_PER_PCT + int/INT_PER_CRIT[class] + talents + buffs`, with
 `base` 1.7 for casters (class table `BASE_CRIT`), `CRIT_RATING_PER_PCT` 22.08, `INT_PER_CRIT`
 (warlock 81.9, mage 80, priest 80, druid 80, shaman 80, paladin 80), `talents` from `SPEC_CRIT`
-(Destruction 8: Devastation 5 + Backlash 3; Fire 6: Critical Mass; Arcane 0; Shadow 0; Balance
-5: Focused Starlight? — use 0 where unsure; the table is explicit), `buffs` from `BUFF_VALUES`
+(explicit per spec, crit percent added by talents to the main damaging spells: Destruction 8 —
+Devastation 5 + Backlash 3; Affliction 3 — Backlash; Demonology 3 — Backlash; Fire 9 — Critical
+Mass 6 + Pyromaniac 3; Arcane 3 — Arcane Instability; Frost 0; Shadow 0; Balance 4 — Focused
+Starlight; Elemental 5 — Call of Thunder; Retribution 0; Enhancement 0; Combat 5 — Malice;
+Assassination 5 — Malice; Subtlety 5 — Malice; Fury 5 — Cruelty; Arms 5 — Cruelty; Feral 0;
+Beast Mastery 0; Marksmanship 5 — Lethal Shots; Survival 5 — Lethal Shots; any other spec 0), `buffs` from `BUFF_VALUES`
 (Moonkin Aura 5, Totem of Wrath 3, Chain of the Twilight Owl 2, Arcane Brilliance 40 int → via
 INT_PER_CRIT, Blessing of Kings 10% int, Adept's Elixir 24 rating, Brilliant Wizard Oil 14
 rating). Inputs, in order:
