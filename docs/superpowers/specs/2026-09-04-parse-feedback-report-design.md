@@ -115,6 +115,10 @@ fights + rankings query ~3, a rankings page ~1. Budget is 3600 points per hour p
 | One player, 4 kills, references cold | ~180 |
 | One player, 4 kills, references warm | ~40 |
 
+Superseded 2026-09-05: measured costs are higher (ranking page 2, fight context 9, player
+tables 5) and the reference is now built around the leaderboard's middle — see the v2 spec §9
+for the current table.
+
 The reference cache (§3.4) makes the roster-wide case cheap: every player of a spec shares
 the same reference per boss.
 

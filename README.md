@@ -30,7 +30,8 @@ groups, and checks live whether assignments were actually done.
     it introduces numbers the facts do not hold, in which case the findings are shown as a plain
     list. Raid-wide bad pulls (an 18-minute kill where every DPS parsed 0) are listed under
     "Not on you". Needs `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET` and, for the prose, `OPENAI_API_KEY`
-    (`OPENAI_MODEL` optional) in `.env`.
+    (`OPENAI_MODEL` optional) in `.env`. Optional `report=<WCL report code>` analyses one raid
+    night; the default response's `facts.nights` lists the codes.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
