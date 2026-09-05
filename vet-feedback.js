@@ -902,7 +902,17 @@ function completeReply(text, facts) {
     const findings = facts && facts.overall && Array.isArray(facts.overall.findings) ? facts.overall.findings : [];
     const body = String(text || '');
     const bodyNums = numbersIn(body);
-    const numPresent = x => { const n = Math.round(x); return bodyNums.some(v => Math.abs(v - n) <= 1) || body.includes(String(x)); };
+    // Fix round 3: a small number's ±1-or-round tolerance is far too loose — a debuffs finding
+    // whose me/reference are a damage multiplier near 1.0 (1.1 vs 1.15) was satisfied by almost
+    // any stray 0, 1 or 2 digit in the reply. Below 10, only the literal figure (an exact string
+    // match, or a same-magnitude decimal within 0.05 — 1.1 vs 1.15 in the reply's own rounding)
+    // counts; the loose ±1-or-round rule stays for numbers large enough that a coincidental match
+    // is implausible.
+    const numPresent = x => {
+        if (Math.abs(x) < 10) return bodyNums.some(v => Math.abs(v - x) <= 0.05) || body.includes(String(x));
+        const n = Math.round(x);
+        return bodyNums.some(v => Math.abs(v - n) <= 1) || body.includes(String(x));
+    };
     const present = f => {
         const anchor = anchorOf(f);
         const anchorPresent = anchor ? body.toLowerCase().includes(String(anchor).toLowerCase()) : false;
@@ -1225,4 +1235,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

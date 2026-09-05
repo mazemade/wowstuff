@@ -5,6 +5,7 @@ const path = require('node:path');
 const V = require('./vet-engine.js');
 const P = require('./vet-profile.js');
 const F = require('./vet-feedback.js');
+const G = require('./vet-gap.js');
 
 let passed = 0, failed = 0;
 const pending = [];
@@ -899,6 +900,46 @@ test('completeReply (fix round 2): the gap-accounting keys now have their own an
     // unknown-key waiver, which would let "0" and "80" match anything nearby.
     const spellHaste = { key: 'gear_stat', stat: 'spellHaste', me: 0, reference: 80, text: 'Spell haste rating 0 against 80 for players at your item level among the top 2000 parses.' };
     assert.deepStrictEqual(F.completeReply('0 deaths, 80% active', withFindings([spellHaste])).appended, [spellHaste.text]);
+});
+test('completeReply (fix round 3): a small number needs its literal figure, not a loose +/-1 match; the debuffs anchor is specific, channel_time takes any spelling', () => {
+    const withFindings = findings => ({ overall: { findings } });
+
+    // Review repro: debuffs' me/reference are a damage multiplier near 1.0 (1.1 vs 1.15); the old
+    // +/-1-or-round tolerance treated almost any 0/1/2 digit in the reply as "1" or "1", and the
+    // generic 'debuff' anchor was satisfied by any unrelated debuff sentence.
+    const debuffs = { key: 'debuffs', me: 1.1, reference: 1.15, text: 'Raid debuffs on Anetheron multiplied damage by 1.1 against 1.15 for the reference raid.' };
+    assert.deepStrictEqual(F.completeReply('You are missing 1 debuff; the raid needs 2 more uptime on it.', withFindings([debuffs])).appended, [debuffs.text]);
+    assert.deepStrictEqual(F.completeReply('Raid debuffs multiplied damage by 1.1 against 1.15.', withFindings([debuffs])).appended, []);
+
+    // 'hannelling' rejected the standard single-L spelling; 'hannel' matches channel/channeling/
+    // channelling alike.
+    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
+    assert.deepStrictEqual(F.completeReply('You are channeling 6 seconds a minute (comparable players 0).', withFindings([channel])).appended, []);
+});
+test('completeReply (fix round 3): every STAT_ANCHOR stat is recognised in the real text statPriorityFindings produces for it', () => {
+    // Mirrors vet-feedback.js's internal STAT_ANCHOR keys (not exported — this list is the same
+    // eleven stats STAT_PRIORITY ever puts under a gear_stat finding).
+    const CASES = [
+        ['spellHit', 'Destruction', 'caster'], ['spellDamage', 'Destruction', 'caster'], ['spellCrit', 'Destruction', 'caster'], ['spellHaste', 'Destruction', 'caster'],
+        ['meleeHit', 'Combat', 'melee'], ['expertise', 'Combat', 'melee'], ['attackPower', 'Combat', 'melee'], ['meleeCrit', 'Combat', 'melee'], ['meleeHaste', 'Combat', 'melee'],
+        ['rangedAttackPower', 'BeastMastery', 'ranged'], ['rangedCrit', 'BeastMastery', 'ranged'],
+    ];
+    CASES.forEach(([stat, spec, role]) => {
+        const order = G.STAT_PRIORITY[spec];
+        const me = {}, reference = {};
+        order.forEach(s => { reference[s] = 100; me[s] = s === stat ? 0 : 1000; });
+        const found = G.statPriorityFindings({ me, reference, spec, role, boss: 'TestBoss' }).find(f => f.stat === stat);
+        assert.ok(found, stat + ' produced no finding for ' + spec);
+        const gearStat = { key: 'gear_stat', stat, me: found.me, reference: found.reference, text: found.text };
+        assert.deepStrictEqual(F.completeReply(found.text, { overall: { findings: [gearStat] } }).appended, [], stat + ': ' + found.text);
+    });
+});
+test('completeReply (fix round 3): every gear_<key> anchor matches the real text gearFindings emits for that key', () => {
+    ['gs', 'ilvl', 'hit', 'expertise', 'defense'].forEach(key => {
+        const text = F.GEAR_LABEL[key] + ' 1 against the 2 the raid asks for';
+        const gearFinding = { key: 'gear_' + key, me: 1, reference: 2, text };
+        assert.deepStrictEqual(F.completeReply(text, { overall: { findings: [gearFinding] } }).appended, [], key + ': ' + text);
+    });
 });
 test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
