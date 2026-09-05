@@ -217,6 +217,14 @@ test('buffUptime: Bloodlust 31% on Anetheron, 0 when absent, null without a tabl
     assert.strictEqual(F.buffUptime(K19.tables.buffs, 'Not A Buff'), 0);
     assert.strictEqual(F.buffUptime(null, 'Bloodlust'), null);
 });
+test('lustPercent (v2 §6 fix): Heroism counts the same as Bloodlust, 0 when neither is present, null without a table', () => {
+    const s = x => x * 1000;
+    const heroismOnly = { data: { totalTime: s(100), auras: [{ name: 'Heroism', totalUptime: s(40) }] } };
+    assert.strictEqual(F.lustPercent(heroismOnly), 40);
+    const neither = { data: { totalTime: s(100), auras: [] } };
+    assert.strictEqual(F.lustPercent(neither), 0);
+    assert.strictEqual(F.lustPercent(null), null);
+});
 test('burstStats (v2 §6): on-use items and potions are short self-buffs that also appear as casts; procs and long buffs are not bursts', () => {
     const s = x => x * 1000;
     const buffs = { data: { totalTime: s(180), auras: [
@@ -523,6 +531,16 @@ test('burst timing (v2 §6): inside the window, or a fight with no Bloodlust, gi
     const kill = killWithBands(fx2);
     assert.strictEqual(kill.me.bloodlustPercent, 0);
     assert.deepStrictEqual(kill.findings.filter(x => x.key === 'burst_outside_bloodlust'), []);
+});
+test('burst timing (v2 §6 fix): a Heroism-only fight (Alliance shaman) still opens the burst_outside_bloodlust gate', () => {
+    const fx2 = withBands(false);
+    const lust = fx2.kills['50619'].tables.buffs.data.auras.find(a => a.name === 'Bloodlust');
+    lust.name = 'Heroism';   // name only; bands and totalUptime are unchanged
+    const kill = killWithBands(fx2);
+    assert.ok(kill.me.bloodlustPercent > 0, kill.me.bloodlustPercent);
+    const f = kill.findings.filter(x => x.key === 'burst_outside_bloodlust');
+    assert.strictEqual(f.length, 1);
+    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; comparable players line it up with Bloodlust');
 });
 test('rotationFindings (v2 §6): an on-use item the reference uses and the player never did reads "Never used … (on-use item)", a potion by its potion name', () => {
     const kill = killWithBands(withBands(true));

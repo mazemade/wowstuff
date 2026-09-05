@@ -165,13 +165,18 @@ Findings (`consumableFindings`):
 
 - `burst_outside_bloodlust`, minor, player: the fight had Bloodlust (`me.bloodlustPercent > 0`),
   the player used the burst ≥ 1 time, 0 of those inside Bloodlust, and the reference's median
-  `insideBloodlust` ≥ 1. Text: "Used `<name>` `<uses>` times on `<boss>`, never inside Bloodlust;
-  comparable players line it up with Bloodlust". One finding per burst, `ability: name`.
+  `insideBloodlust` ≥ 1. Text, with `<label>` = `POTION_LABEL[name] || name`: "Used `<label>`
+  once on `<boss>`, never inside Bloodlust; comparable players line it up with Bloodlust" for one
+  use, or "Used `<label>` `<uses>` times on `<boss>`, never inside Bloodlust; comparable players
+  line it up with Bloodlust" for more. One finding per burst, `ability: name`.
 - `ability_unused` (v1 §4.3) keeps flagging on-use items the reference casts and the player never
   does — they are a large DPS gain and stay in. Only the wording changes: when the unused name is
-  a burst for the reference (`reference.burst` has it), the text reads "Never used `<name>`
-  (on-use item) on `<boss>`; comparable players use it `<r>` times a minute" so the model does
-  not call a trinket a spell.
+  a burst for the reference (`reference.burst` has it), the text reads "Never used `<label>` (on-use
+  item) on `<boss>`; comparable players use it `<r>` times a minute", with `<label>` again
+  `POTION_LABEL[name] || name` — except a potion (a name present in `POTION_LABEL`) drops the
+  "(on-use item)" suffix, since `<label>` already says "Potion": "Never used `<label>` on
+  `<boss>`; comparable players use it `<r>` times a minute". Either way the model is not left to
+  call a trinket or a potion a spell.
 
 ## 7. Ceiling and completeness
 

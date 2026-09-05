@@ -223,6 +223,7 @@ function buffUptime(buffsTable, name) {
     const a = (Array.isArray(d.auras) ? d.auras : []).find(x => x.name === name);
     return a ? Math.round(100 * a.totalUptime / d.totalTime) : 0;
 }
+function lustPercent(buffsTable) { const a = buffUptime(buffsTable, 'Bloodlust'), b = buffUptime(buffsTable, 'Heroism'); if (a === null && b === null) return null; return Math.max(a || 0, b || 0); }
 
 // --- Burst timing (spec v2 §6). A burst is a short self-buff the player triggers — an on-use
 // item or a potion. Both show as a cast of the same name (WCL names a potion cast after its
@@ -339,7 +340,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         return {
             dur, activePercent: row && dmg.totalTime && typeof row.activeTime === 'number' ? round1(100 * row.activeTime / dmg.totalTime) : null,
             casts, castsPerMinute: castsPerMinute(casts, dur), abilities: abilityStats(p.tables.dmg), aur,
-            buffs: aur ? canonBuffs(aur.buffs, role) : [], bloodlust: buffUptime(p.tables.buffs, 'Bloodlust'),
+            buffs: aur ? canonBuffs(aur.buffs, role) : [], bloodlust: lustPercent(p.tables.buffs),
             burst: burstStats(p.tables.buffs, p.tables.casts),
             stats: playerStats(ci, row, dbIndex, classToken),
         };
@@ -729,7 +730,7 @@ function killFacts(input) {
         partyBuffs: aur ? canonBuffs(aur.buffs, player.role) : [],
         flask: aur ? aur.flask : null, battleElixir: aur ? aur.battleElixir : null, guardianElixir: aur ? aur.guardianElixir : null, food: aur ? aur.food : null,
         castsPerMinute: castsPerMinute(casts, fc.fight.durationSec), casts, abilities: abilityStats(tables.dmg),
-        bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), burst: burstStats(tables.buffs, tables.casts),
+        bloodlustPercent: lustPercent(tables.buffs), burst: burstStats(tables.buffs, tables.casts),
         stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
     });
     const kill = {
@@ -1075,4 +1076,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
