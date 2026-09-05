@@ -3,7 +3,7 @@
 (function () {
     const params = new URLSearchParams(location.search);
     const q = { name: params.get('name') || '', server: (params.get('server') || '').toLowerCase(), region: (params.get('region') || 'eu').toLowerCase(), zone: params.get('zone') || '1060', report: params.get('report') || '', thresholds: params.get('thresholds') || '' };
-    const key = () => 'raidFeedback:' + q.region + '/' + q.server + '/' + q.name.toLowerCase() + '/' + q.zone + '/' + (q.report || 'all');
+    const key = () => 'raidFeedback:' + encodeURIComponent(q.region) + '/' + encodeURIComponent(q.server) + '/' + encodeURIComponent(q.name.toLowerCase()) + '/' + encodeURIComponent(q.zone) + '/' + encodeURIComponent(q.report || 'all');
     const $ = id => document.getElementById(id);
     function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
     // factsTable(facts) — pasted from vetting.js (lines 469-506).
@@ -47,7 +47,16 @@
     }
 
     let current = null;
-    function readCache() { try { return JSON.parse(localStorage.getItem(key())); } catch (e) { return null; } }
+    function readCache() {
+        try {
+            const c = JSON.parse(localStorage.getItem(key()));
+            // Belt-and-suspenders against a stale/foreign key format (or a pre-encoding key from
+            // before this fix) rendering another player's cached report: only trust a cache hit
+            // whose own facts actually name the player this page was opened for.
+            if (c && c.facts && c.facts.player && typeof c.facts.player.name === 'string' && c.facts.player.name.toLowerCase() === q.name.toLowerCase()) return c;
+            return null;
+        } catch (e) { return null; }
+    }
     function writeCache(body) { try { localStorage.setItem(key(), JSON.stringify(Object.assign({}, body, { fetchedAt: Date.now() }))); } catch (e) { /* quota: the page still renders */ } }
     function apiUrl() {
         return '/api/vet/feedback?name=' + encodeURIComponent(q.name) + '&server=' + encodeURIComponent(q.server) + '&region=' + encodeURIComponent(q.region) + '&zone=' + encodeURIComponent(q.zone) +
@@ -68,16 +77,20 @@
         finally { $('refreshBtn').disabled = false; }
     }
     function showError(msg) { $('errorBox').textContent = msg; $('errorBox').classList.remove('hidden'); $('statusLine').textContent = ''; }
-    function rowEl(r) {
+    function rowEl(r, n) {
         const mark = { fail: '✗', warn: '!', pass: '✓', info: '·' }[r.verdict] || '·';
         const div = document.createElement('div'); div.className = 'report-row ' + r.verdict;
-        div.innerHTML = '<span class="mark">' + mark + '</span><span><span class="text">' + escapeHtml(r.text) + '.</span>' + (r.value != null ? '<span class="value">~' + r.value + '% of the gap</span>' : '') + (r.fix ? '<span class="fix">' + escapeHtml(r.fix) + '</span>' : '') + '</span>';
+        // spec §6: Fix first is numbered in render order (1., 2., 3.); every other card stays
+        // unnumbered. The number is an addition inside the second (1fr) grid column, ahead of the
+        // text — it never touches the 1.4em .mark column, so other cards' alignment is untouched.
+        const num = n != null ? '<span class="num">' + n + '.</span> ' : '';
+        div.innerHTML = '<span class="mark">' + mark + '</span><span>' + num + '<span class="text">' + escapeHtml(r.text) + '.</span>' + (r.value != null ? '<span class="value">~' + r.value + '% of the gap</span>' : '') + (r.fix ? '<span class="fix">' + escapeHtml(r.fix) + '</span>' : '') + '</span>';
         return div;
     }
-    function card(title, rows, wide, more) {
+    function card(title, rows, wide, more, numbered) {
         const c = document.createElement('div'); c.className = 'report-card' + (wide ? ' wide' : '');
         c.innerHTML = '<h3>' + escapeHtml(title) + '</h3>';
-        rows.forEach(r => c.appendChild(rowEl(r)));
+        rows.forEach((r, i) => c.appendChild(rowEl(r, numbered ? i + 1 : null)));
         if (more && more.length) { const d = document.createElement('details'); d.className = 'report-more'; d.innerHTML = '<summary>' + more.length + ' more</summary>'; more.forEach(r => d.appendChild(rowEl(r))); c.appendChild(d); }
         return c;
     }
@@ -105,10 +118,10 @@
         // Cards
         const cards = $('cards'); cards.innerHTML = '';
         const player = cl.rows.filter(r => r.owner === 'player'), listed = new Set(cl.fixFirst.concat(cl.also));
-        if (cl.fixFirst.length) cards.appendChild(card(facts.limited ? "What's holding your healing back" : 'Fix first', cl.fixFirst.map(byId), true));
+        if (cl.fixFirst.length) cards.appendChild(card(facts.limited ? "What's holding your healing back" : 'Fix first', cl.fixFirst.map(byId), true, null, true));
         const alsoMore = player.filter(r => !listed.has(r.id) && r.verdict !== 'pass');
         if (cl.also.length || alsoMore.length) cards.appendChild(card('Also', cl.also.map(byId), false, alsoMore));
-        const group = cl.rows.filter(r => r.owner === 'group'), askMore = group.filter(r => !cl.asks.includes(r.id));
+        const group = cl.rows.filter(r => r.owner === 'group'), askMore = group.filter(r => !cl.asks.includes(r.id) && r.verdict !== 'pass');
         if (group.length) cards.appendChild(card('Ask your raid leader', cl.asks.map(byId), false, askMore));
         if (cl.fine.length) { const c = document.createElement('div'); c.className = 'report-card'; c.innerHTML = '<h3>Fine</h3><div class="fine-line">' + escapeHtml(cl.fine.map(id => byId(id).text).join(', ')) + '</div>'; cards.appendChild(c); }
         if (cl.stand.length) {

@@ -10,6 +10,7 @@
 .report-row.fail .mark { color: #ff6b6b; } .report-row.warn .mark { color: #ffd166; } .report-row.pass .mark { color: #8fe38f; } .report-row.info .mark { color: #9ab; }
 .report-row .fix { display: block; font-weight: 600; margin-top: 2px; }
 .report-row .value { color: #9ab; margin-left: 6px; }
+.report-row .num { font-weight: 700; }
 .report-more { margin-top: 6px; } .report-more summary { cursor: pointer; color: #9ab; font-size: 0.9em; }
 .stand-table td, .stand-table th { padding: 3px 8px; text-align: left; }
 .fine-line { color: #8fe38f; }
