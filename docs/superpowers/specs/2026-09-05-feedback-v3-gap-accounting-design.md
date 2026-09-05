@@ -98,8 +98,12 @@ Inputs, in order:
    Expose Armor / Blood Frenzy 1.04 (physical, armour only approximated by the last three). Each
    multiplier `m` with uptime `u` gives `1 + (m − 1)·u`; the input is the ratio of the reference
    fight's product to the player's.
-3. **Spell power / attack power** (three inputs sharing one proportional split): the remaining
-   factor after 1 and 2 is split in proportion to the *known* power gaps:
+3. **Spell power / attack power** (three inputs sharing one split): damage per cast scales with
+   total power plus the main ability's base damage expressed in power points (`POWER_BASE`:
+   caster 670 ≈ Shadow Bolt's 575 average base at a 0.857 coefficient; melee/ranged 1000). The
+   log factor `ln((refPower + base) / (myPower + base))`, clipped to what is left after 1 and 2,
+   is split over the three sources in proportion to their positive gaps; nothing is claimed
+   when gear power is unknown on either side:
    - **from gear** (player): `reference.stats.spellDamage − me.stats.spellDamage` (gear-derived,
      v1 §4.8; attack power for physical);
    - **from consumables** (player): flask / battle elixir / weapon oil / food values from
@@ -110,8 +114,7 @@ Inputs, in order:
      (intellect → crit in 3.3; no spell power), Blessing of Kings (10% of intellect → crit in
      3.3, and nothing here), Battle Shout / Trueshot / Strength of Earth / Unleashed Rage for
      physical.
-   The proportional split applies to the *remaining log factor*; if the known gaps sum to zero,
-   the whole remainder goes to 4.
+   Whatever the power difference cannot claim goes to 4.
 4. **Ability mix and unexplained** (player, labelled "rotation"): what is left. Reported with the
    top-3 reference abilities' damage shares next to the player's (v1 §4.3 keeps `ability_unused`,
    `ability_extra`, `ability_ratio` as the concrete lines under it; `ability_extra` now also fires
@@ -134,9 +137,10 @@ Mass 6 + Pyromaniac 3; Arcane 3 — Arcane Instability; Frost 0; Shadow 0; Balan
 Starlight; Elemental 5 — Call of Thunder; Retribution 0; Enhancement 0; Combat 5 — Malice;
 Assassination 5 — Malice; Subtlety 5 — Malice; Fury 5 — Cruelty; Arms 5 — Cruelty; Feral 0;
 Beast Mastery 0; Marksmanship 5 — Lethal Shots; Survival 5 — Lethal Shots; any other spec 0), `buffs` from `BUFF_VALUES`
-(Moonkin Aura 5, Totem of Wrath 3, Chain of the Twilight Owl 2, Arcane Brilliance 40 int → via
-INT_PER_CRIT, Blessing of Kings 10% int, Adept's Elixir 24 rating, Brilliant Wizard Oil 14
-rating). Inputs, in order:
+(flat crit only: Moonkin Aura 5, Totem of Wrath 3, Chain of the Twilight Owl 2, Leader of the
+Pack 5; consumables: Adept's Elixir 24 rating, Brilliant Wizard Oil 14 rating). Intellect and
+agility buffs (Arcane Brilliance, Kings, Grace of Air) are already inside the intellect WCL
+reports for the player and unknowable for reference players, so neither side counts them again. Inputs, in order:
 1. **Crit rating and intellect from gear** (player): expected chance from own rating/int vs the
    reference's.
 2. **Consumables** (player): Adept's, oils, food with crit.
@@ -165,8 +169,8 @@ carried under the damage-per-cast factor's rotation input. `no_potion` likewise 
 
 After all factors: `residual = R / (castsFactor × dmgFactor × critFactor)`. Its share is reported
 as "unexplained" in the sheet and in the facts table; the model is told it exists and told not to
-explain it. A residual share above `T.residualWarn` (25%) is a `Minor` note in the facts table for
-the leader ("the measurements do not account for a quarter of the gap on this pull").
+explain it. The facts table shows it per pull so the leader can see how much a pull's gap the measurements
+left unaccounted for.
 
 ### 3.7 Two pulls per boss, several bosses
 
@@ -241,7 +245,7 @@ Arcane Brilliance 40 int, Blessing of Kings 10% stats, Fel Intelligence 48 int, 
 305 ap, Trueshot Aura 125 ap, Strength of Earth Totem 86 str, Unleashed Rage 10% ap, Grace of
 Air 77 agi, Leader of the Pack 5 crit%, Ferocious Inspiration 3% damage. `DEBUFF_MULT` per §3.2.
 `CRIT_BONUS`, `BASE_CRIT`, `CRIT_RATING_PER_PCT`, `INT_PER_CRIT`, `SPEC_CRIT`, `HIT_CAP`,
-`HIT_RATING_PER_PCT`, `STAT_PRIORITY`, `CHANNEL_UTILITY`, `PHASE_BOSSES`, `BURST_VALUE`,
+`HIT_RATING_PER_PCT`, `POWER_BASE`, `STAT_PRIORITY`, `CHANNEL_UTILITY`, `PHASE_BOSSES`, `BURST_VALUE`,
 `FINDING_ANCHOR`. Values are documented in-file with the wowhead spell id where known; they feed
 shares and asks, never a number the player is judged against.
 
