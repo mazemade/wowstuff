@@ -73,7 +73,12 @@ function pickRank(ranks, medianPercent) {
     const shortest = durations.length ? Math.min(...durations) : null;
     const isLikelyBadPull = r => shortest != null && typeof r.duration === 'number' && r.duration > shortest * T.longFightRatio;
     let candidates = ranks.filter(r => !isLikelyBadPull(r));
-    if (!candidates.length) candidates = ranks; // degrade to "take it": nothing else is available
+    // Defensive, not reachable today: the rank with the shortest duration is compared to itself
+    // (ratio 1, never > T.longFightRatio), so it can never be filtered out and `candidates` can
+    // never be empty under this proxy. Kept because the rule is described as a fallback ("only
+    // chosen if nothing else is available... degrade to take it") that a future, less trivially
+    // self-safe proxy could actually reach; not exercised by a test for that reason.
+    if (!candidates.length) candidates = ranks;
 
     const byRecency = (a, b) => (b.startTime || 0) - (a.startTime || 0);
     if (typeof medianPercent !== 'number' || !candidates.some(r => typeof r.rankPercent === 'number')) {
@@ -638,9 +643,11 @@ function killFindings(kill, player) {
 
 function killFacts(input) {
     const { encounterId, name, rank, context, tables, sourceId, player, reference, referenceNote, dbIndex } = input;
-    // task-rep-kill: how many ranks this boss had, so the facts sheet (and the page) can say which
-    // pull is being analysed. Defaults to 1 for the pre-existing single-rank call shape.
+    // task-rep-kill: how many ranks this boss had, and which one (oldest-first) is being shown, so
+    // the facts sheet (and the page) can say which pull is being analysed. Both default to 1 for
+    // the pre-existing single-rank call shape.
     const killsOnBoss = typeof input.killsOnBoss === 'number' ? input.killsOnBoss : 1;
+    const killIndex = typeof input.killIndex === 'number' ? input.killIndex : 1;
     const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null, player.metric);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
@@ -653,7 +660,7 @@ function killFacts(input) {
         bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
     });
     const kill = {
-        encounterId, name, killsOnBoss, rankPercent: round1(rank.rankPercent),
+        encounterId, name, killsOnBoss, killIndex, rankPercent: round1(rank.rankPercent),
         date: rank.startTime ? new Date(rank.startTime).toISOString().slice(0, 10) : null,
         reportCode: rank.report.code, fightId: rank.report.fightID,
         wclUrl: 'https://classic.warcraftlogs.com/reports/' + rank.report.code + '#fight=' + rank.report.fightID + '&source=' + sourceId,
@@ -867,6 +874,10 @@ async function fetchFeedback(query, o) {
         // not the most recent one — see pickRank's own comment for the selection rules.
         const rank = pickRank(ranks, t.medianPercent);
         if (!rank) return null;
+        // Which pull (oldest first) the chosen rank is, so the facts table can say "kill 3 of 7"
+        // in the order a raid leader reads a boss's kill history, not in whatever order WCL
+        // happened to return ranks.
+        const killIndex = ranks.slice().sort((a, b) => (a.startTime || 0) - (b.startTime || 0)).indexOf(rank) + 1;
         // Important 5: a report that errors (a GraphQL error on a deleted/restricted report, not
         // the already-handled `report: null`) drops this one kill instead of 502ing the whole
         // request. A 429 anywhere still aborts everything (spec §3.2). The reason is recorded
@@ -877,7 +888,7 @@ async function fetchFeedback(query, o) {
             if (!got) return null;
             const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
                 : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
-            return killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
+            return killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
         } catch (err) {
             if (err && err.code === 'RATE_LIMIT') throw err;
             return { dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' };

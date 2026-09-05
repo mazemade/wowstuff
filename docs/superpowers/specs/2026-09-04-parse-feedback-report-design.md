@@ -241,9 +241,10 @@ document and the code agree):
 - `overall` also gained `droppedKills` (`[{ name, reason }]`, fix wave A, Important 5): a kill
   whose WCL report errors (rather than returning `report: null`) is now skipped and recorded here
   instead of aborting the whole request.
-- Each kill gained `killsOnBoss` (task-rep-kill, 2026-09-05): how many ranks that boss had, so the
-  facts table can say which pull is being shown (`Anetheron (1 of 7 kills)`) now that the analysed
-  rank need not be the most recent — see the rewritten step 2 above.
+- Each kill gained `killsOnBoss` and `killIndex` (task-rep-kill, 2026-09-05): how many ranks that
+  boss had, and which one (oldest-first) is being shown, so the facts table can say which pull this
+  is (`Anetheron (kill 3 of 7 kills)`) now that the analysed rank need not be the most recent — see
+  the rewritten step 2 above.
 
 ### 3.4 Reference selection and cache
 

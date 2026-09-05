@@ -339,12 +339,14 @@ test('killFacts on Anetheron: identity, url, me, and the player-side findings', 
     const casts = k.findings.find(f => f.key === 'casts_low');
     assert.ok(/25\.2/.test(casts.text) && /30\.5/.test(casts.text), casts.text);
 });
-test('killFacts: killsOnBoss reaches the kill object for the facts sheet (task-rep-kill)', () => {
+test('killFacts: killsOnBoss and killIndex reach the kill object for the facts sheet (task-rep-kill)', () => {
     assert.strictEqual(killFor(50619).killsOnBoss, 1, 'every existing caller in this file omits it: defaults to 1, the true count for a single-rank fixture kill');
+    assert.strictEqual(killFor(50619).killIndex, 1, 'defaults to 1 alongside killsOnBoss');
     const K = FX.kills['50619'];
     const withCount = F.killFacts({ encounterId: 50619, name: NAMES[50619], rank: FX.encounterRankings['50619'].ranks[0], context: K.context, tables: K.tables,
-                                     sourceId: K.sourceID, player: PLAYER, reference: refFor(50619), referenceNote: null, dbIndex: db, killsOnBoss: 7 });
+                                     sourceId: K.sourceID, player: PLAYER, reference: refFor(50619), referenceNote: null, dbIndex: db, killsOnBoss: 7, killIndex: 3 });
     assert.strictEqual(withCount.killsOnBoss, 7);
+    assert.strictEqual(withCount.killIndex, 3, 'carries the caller-supplied ordinal, not just the count');
 });
 test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unused', () => {
     const k = killFor(50620);
@@ -658,10 +660,13 @@ test('fetchFeedback: two kills analysed, references from page 1, cache reused on
     assert.strictEqual(facts.kills[1].reference.sampleSize, 8);
     assert.deepStrictEqual(facts.kills[1].reference.itemLevelBand, [122, 126]);
     assert.strictEqual(facts.overall.badPulls.length, 1);
-    // task-rep-kill: every current-roster boss has exactly one rank, so killsOnBoss must read 1 and
-    // the chosen kill, hence the whole report, must be a strict no-op against today's live data.
+    // task-rep-kill: every current-roster boss has exactly one rank, so killsOnBoss/killIndex must
+    // both read 1 and the chosen kill, hence the whole report, must be a strict no-op against
+    // today's live data.
     assert.strictEqual(facts.kills[0].killsOnBoss, 1);
+    assert.strictEqual(facts.kills[0].killIndex, 1);
     assert.strictEqual(facts.kills[1].killsOnBoss, 1);
+    assert.strictEqual(facts.kills[1].killIndex, 1);
     const pageCalls = s.calls.filter(c => c.q.includes('characterRankings('));
     assert.strictEqual(pageCalls.length, 2, 'page 1 already holds 8 in-band ranks for each boss');
     const playerCalls = s.calls.filter(c => c.q === F.PLAYER_QUERY);
@@ -673,27 +678,30 @@ test('fetchFeedback: two kills analysed, references from page 1, cache reused on
     assert.strictEqual(s.calls.slice(before).filter(c => c.q === F.PLAYER_QUERY).length, 2, 'only the player\'s own tables again');
 });
 test('fetchFeedback (task-rep-kill): a boss with several ranks analyses the one nearest the median, and the reference band still comes from that CHOSEN rank\'s item level', async () => {
-    // Give Anetheron a second rank built from Kaz'rogal's real fixture report (full context and
-    // player tables, so it resolves like a genuine kill): far from the median (90 vs 31.9) and
-    // more recent, at a different item level. The old recency sort would pick this one; the new
-    // rule must not.
+    // Give Anetheron two decoy ranks around the real one: a more-recent one far from the median
+    // (rankPercent 90, built from Kaz'rogal's real fixture report so it resolves like a genuine
+    // kill), and an even-older one also far from the median. The old recency sort would have
+    // picked the more-recent decoy; the new rule must pick the real, median-matching rank in the
+    // middle, and killIndex must reflect its chronological position (2nd oldest of 3), not "1".
     const fx2 = JSON.parse(JSON.stringify(FX));
     const az = FX.kills['50620'];
     const original = fx2.encounterRankings['50619'].ranks[0];
-    fx2.encounterRankings['50619'].ranks.push({
-        rankPercent: 90, duration: 90000, amount: 4000, bracketData: 110, spec: 'Destruction',
-        startTime: original.startTime + 100000,
-        report: { code: az.code, fightID: az.fightID },
-    });
+    fx2.encounterRankings['50619'].ranks.push(
+        { rankPercent: 90, duration: 90000, amount: 4000, bracketData: 110, spec: 'Destruction',
+          startTime: original.startTime + 100000, report: { code: az.code, fightID: az.fightID } },
+        { rankPercent: 5, duration: 95000, amount: 500, bracketData: 118, spec: 'Destruction',
+          startTime: original.startTime - 100000, report: { code: 'FAKE_OLDEST_NEVER_FETCHED', fightID: 999 } },
+    );
     const s = stubQuery(fx2);
     const facts = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
     const anetheron = facts.kills.find(k => k.name === 'Anetheron');
     assert.ok(anetheron, 'Anetheron kill is present (the wrong choice has no fixture data under encounter 50619 and would resolve to nothing)');
     assert.strictEqual(anetheron.reportCode, original.report.code, 'the median-nearest rank was fetched, not the most recent one');
     assert.strictEqual(anetheron.fightId, original.report.fightID);
-    assert.strictEqual(anetheron.killsOnBoss, 2);
-    // The reference band must still come from the CHOSEN rank's bracketData (124), not the
-    // more-recent-but-wrong rank's (110); the fixture only has reference pages for the 124 band.
+    assert.strictEqual(anetheron.killsOnBoss, 3);
+    assert.strictEqual(anetheron.killIndex, 2, 'the chosen rank is the 2nd oldest of 3, not the 1st (proves the index is a real ordinal, not a hardcoded 1)');
+    // The reference band must still come from the CHOSEN rank's bracketData (124), not either
+    // decoy's (110 or 118); the fixture only has reference pages for the 124 band.
     assert.deepStrictEqual(anetheron.reference.itemLevelBand, [122, 126]);
 });
 test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
