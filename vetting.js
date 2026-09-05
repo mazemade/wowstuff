@@ -231,16 +231,24 @@ function fallbackReport(facts) {
         ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent)
         : 'median parse ' + Math.round(facts.tier.medianPercent);
     const lines = [facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName + ', ' + head];
-    // Mirrors vet-feedback.js's buildPrompt: label the section by metric so a healer does not
-    // read "damage" over their HPS findings.
-    const holdingBackHeading = facts.player.metric === 'hps' ? "What's holding your healing back" : "What's holding your damage back";
-    // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives. Skip each
-    // heading whose list is empty rather than rendering it bare, and when both are empty say so in
-    // one line — this is the path a leader sees on an OpenAI outage, so it has to read well alone.
-    if (facts.overall.findings.length) {
-        lines.push('', holdingBackHeading);
-        facts.overall.findings.forEach((f, i) => lines.push((i + 1) + '. ' + f.text));
+    // Mirrors vet-feedback.js's buildPrompt: every finding carries an owner (defaulting to
+    // 'player' for pre-v3 sheets that have neither owner nor scope), so the six sections here —
+    // gap breakdown, what you can fix, ask your raid leader, what's fine, where you stand, not on
+    // you — read the same whether the model wrote the report or this fallback did.
+    const byOwner = o => facts.overall.findings.filter(f => (f.owner || (f.scope === 'group' ? 'group' : 'player')) === o);
+    const g = facts.overall.gap;
+    if (g) {
+        lines.push('', 'Where the gap comes from');
+        lines.push('Casting less: ' + g.casts + '% of the gap. Weaker casts: ' + g.dmg + '%. Crit: ' + g.crit + '%.' + (g.residual >= 3 ? ' Luck or unexplained: ' + g.residual + '%.' : ''));
     }
+    const fixable = byOwner('player'), asks = byOwner('group'), raid = byOwner('raid');
+    // Minor 14: a bad-pull-only player has empty findings and positives in every owner bucket.
+    // Skip each heading whose list is empty rather than rendering it bare, and when all three
+    // owner buckets and positives are empty say so in one line — this is the path a leader sees
+    // on an OpenAI outage, so it has to read well alone.
+    const heading = facts.player.metric === 'hps' ? "What's holding your healing back" : 'What you can fix';
+    if (fixable.length) { lines.push('', heading); fixable.forEach((f, i) => lines.push((i + 1) + '. ' + f.text)); }
+    if (asks.length) { lines.push('', 'Ask your raid leader'); asks.forEach((f, i) => lines.push((i + 1) + '. ' + f.text)); }
     if (facts.overall.positives.length) lines.push('', "What's fine", facts.overall.positives.join('. ') + '.');
     if (facts.overall.ceiling && facts.overall.ceiling.length) {
         // Minor 3 (whole-branch review): with more than one pull of a boss in the sheet (the same
@@ -250,10 +258,14 @@ function fallbackReport(facts) {
         lines.push('', 'Where you stand');
         facts.overall.ceiling.forEach(c => lines.push((multi && c.date ? c.name + ' (' + c.date + ')' : c.name) + ': you ' + c.me + ', players at your item level ' + c.dps + ', the best at your item level ' + c.topDps));
     }
-    if (!facts.overall.findings.length && !facts.overall.positives.length) {
+    if (!fixable.length && !asks.length && !raid.length && !facts.overall.positives.length) {
         lines.push('', facts.overall.badPulls.length ? 'Nothing to flag beyond the bad pulls below.' : 'Nothing to flag.');
     }
-    if (facts.overall.badPulls.length) { lines.push('', 'Not on you'); facts.overall.badPulls.forEach(b => lines.push(b.name + (b.date ? ' ' + b.date : '') + ' (' + b.rankPercent + '): ' + b.reason)); }
+    if (facts.overall.badPulls.length || raid.length) {
+        lines.push('', 'Not on you');
+        facts.overall.badPulls.forEach(b => lines.push(b.name + (b.date ? ' ' + b.date : '') + ' (' + b.rankPercent + '): ' + b.reason));
+        raid.forEach(f => lines.push(f.text));
+    }
     return lines.join('\n');
 }
 
@@ -461,11 +473,12 @@ function factsTable(facts) {
     // a header literally saying "DPS" (the same mislabelling the me.dps -> me.amount rename in
     // vet-feedback.js was meant to remove, just moved from the model's prose into this header).
     const metricLabel = facts.player.metric === 'hps' ? 'HPS' : 'DPS';
-    t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>' + metricLabel + ' vs band</th><th>Crit vs band</th><th>Pull consumables</th><th>Log</th></tr>';
+    t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>' + metricLabel + ' vs band</th><th>Crit %</th><th>Gap</th><th>Pull consumables</th><th>Log</th></tr>';
     const multi = new Set(facts.kills.map(k => k.name)).size < facts.kills.length;
     facts.kills.forEach(k => {
         const tr = document.createElement('tr');
         if (k.fight.badPull) { tr.className = 'bad-pull'; tr.title = k.fight.badPullReason; }
+        else if (k.gap) { tr.title = ['casts', 'dmg', 'crit'].flatMap(f => k.gap.factors[f].inputs.map(i => i.key + ' (' + i.owner + ') ' + i.share + '%')).join('\n'); }
         const ref = k.reference;
         const topMe = k.me.abilities[0], topRef = ref && topMe ? ref.abilities.find(a => a.name === topMe.name) : null;
         const fmt = x => (x == null ? '—' : x);
@@ -482,6 +495,7 @@ function factsTable(facts) {
             // anyway to match the fmt() treatment the neighbouring cells get.
             fmt(k.me.amount) + (ref && ref.dps != null ? ' / ' + ref.dps : ''),
             topMe && topMe.critPercent != null ? escapeHtml(topMe.name) + ' ' + topMe.critPercent + '%' + (topRef && topRef.critPercent != null ? ' / ' + topRef.critPercent + '%' : '') : '—',
+            k.gap ? escapeHtml('casts ' + k.gap.factors.casts.share + '% · per cast ' + k.gap.factors.dmg.share + '% · crit ' + k.gap.factors.crit.share + '% · unexplained ' + k.gap.factors.residual.share + '%') : '—',
             k.me.consumablesKnown ? (k.me.consumablesAtPull.length ? escapeHtml(k.me.consumablesAtPull.join(', ')) : '<span class="slot-missing">none</span>') : '<span class="cell-unknown">unknown</span>',
             '<a href="' + escapeHtml(k.wclUrl) + '" target="_blank" rel="noopener">WCL</a>',
         ];
