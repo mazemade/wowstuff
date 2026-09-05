@@ -115,6 +115,7 @@ test('explainGap: factors multiply back to the ratio and shares sum to 100', () 
     const total = ['casts', 'dmg', 'crit', 'residual'].reduce((s, k) => s + g.factors[k].share, 0);
     assert.ok(Math.abs(total - 100) <= 1, 'shares sum ' + total);
     ['casts', 'dmg', 'crit'].forEach(k => assert.ok(Math.abs(sumShares(g.factors[k].inputs) - g.factors[k].share) <= 1, k + ' inputs ' + sumShares(g.factors[k].inputs) + ' vs ' + g.factors[k].share));
+    assert.strictEqual(g.factors.casts.inputs.find(i => i.key === 'own_activity').share, 20, 'ln((85/85)/(60/70)) / ln 2.2');
     assert.ok(Math.abs(g.factors.casts.value - 24 / 17) < 1e-9);
     assert.ok(Math.abs(g.factors.dmg.value - 4000 / 2900) < 1e-9);
     assert.ok(Math.abs(g.factors.crit.value - 1.46 / 1.32) < 1e-9, 'Ruin doubles crits');
@@ -169,6 +170,18 @@ test('averageGap: mean factor shares over pulls with an accounting; null when no
     assert.strictEqual(avg.crit, Math.round((a.factors.crit.share + b.factors.crit.share) / 2));
     assert.strictEqual(avg.casts, Math.round((a.factors.casts.share + b.factors.casts.share) / 2));
     assert.strictEqual(G.averageGap([{ gap: null }]), null);
+});
+test('explainGap (Important 1): an unknown debuff table on either side puts nothing on debuffs, not a fabricated share', () => {
+    const g1 = G.explainGap(pull({ debuffs: { known: false, present: [] } }), PLAYER);
+    const d1 = Object.fromEntries(g1.factors.dmg.inputs.map(i => [i.key, i]));
+    assert.strictEqual(d1.debuffs.share, 0);
+    assert.ok(Math.abs(sumShares(g1.factors.dmg.inputs) - g1.factors.dmg.share) <= 1, 'dmg inputs ' + sumShares(g1.factors.dmg.inputs) + ' vs ' + g1.factors.dmg.share);
+    const g2 = G.explainGap(pull({ reference: Object.assign({}, pull().reference, { debuffs: null }) }), PLAYER);
+    const d2 = Object.fromEntries(g2.factors.dmg.inputs.map(i => [i.key, i]));
+    assert.strictEqual(d2.debuffs.share, 0);
+});
+test('explainGap (Important 2): a ratio that rounds down to exactly 1 returns null, not an all-zero accounting', () => {
+    assert.strictEqual(G.explainGap(pull({ me: Object.assign({}, pull().me, { amount: 2199.9 }) }), PLAYER), null, '2200 / 2199.9 rounds to 1.000');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

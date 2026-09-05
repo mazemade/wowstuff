@@ -346,7 +346,11 @@ test('v3 measurements: me and reference carry damaging casts, damage per cast, c
     ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin', 'raidActivePercent'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
     assert.ok(ref.damagingCastsPerMinute < ref.castsPerMinute, 'Life Tap is not a damaging cast');
     assert.ok(Array.isArray(ref.consumablesAtPull) && ref.consumablesAtPull.includes('Flask of Pure Death'));
-    assert.ok(Array.isArray(ref.debuffs) && ref.debuffs.every(d => typeof d.name === 'string' && typeof d.uptimePercent === 'number'));
+    // Important 1 fix round: none of the Anetheron reference players in this fixture carry a
+    // context.debuffs table at all, so the honest answer is "unknown", not an empty (= "known, and
+    // there are none") array — see the dedicated Important 1 test below for the populated case's
+    // shape via a clone, and vet-gap.test.js for how explainGap treats this null.
+    assert.strictEqual(ref.debuffs, null, 'no Anetheron reference player in this fixture carries a debuff table');
     assert.strictEqual(ref.fastestDurationSec, null, 'a direct referenceSummary call has no ceiling pages');
     assert.strictEqual(typeof ref.stats.intellect, 'number');
     const k = killFor(50619);
@@ -355,6 +359,14 @@ test('v3 measurements: me and reference carry damaging casts, damage per cast, c
     assert.ok(k.me.critRate > 20 && k.me.critRate < 35, 'Rotminster crits about a quarter of his damaging hits: ' + k.me.critRate);
     assert.strictEqual(k.me.channelSecPerMin, 0, 'the fixture has no bands');
     assert.strictEqual(typeof k.me.stats.intellect, 'number');
+});
+test('v3 measurements (Important 1): a reference with every player\'s debuff table deleted reports debuffs as null, not an empty array', () => {
+    const FX2 = JSON.parse(JSON.stringify(FX));
+    FX2.reference['50619'].players.forEach(p => { delete p.context.debuffs; });
+    const R2 = FX2.reference['50619'];
+    const ranks2 = F.bandRanks(R2.pages.flatMap(p => p.rankings), 124, F.REF.band).slice(0, F.REF.target);
+    const ref2 = F.referenceSummary(ranks2, R2.players, db, 'WARLOCK', 'caster', [122, 126]);
+    assert.strictEqual(ref2.debuffs, null);
 });
 test('v3 measurements: getReference records the fastest in-band kill from the ceiling pages', async () => {
     const lb = leaderboard(20, [124]);

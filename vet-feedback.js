@@ -355,6 +355,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         const casts = castCounts(p.tables.casts);
         const ci = p.tables.ci && p.tables.ci.data && p.tables.ci.data[0];
         const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
+        const df = debuffFacts(p.context.debuffs, schoolsOf(classToken, p.rank.spec, role));
         return {
             dur, activePercent: row && dmg.totalTime && typeof row.activeTime === 'number' ? round1(100 * row.activeTime / dmg.totalTime) : null,
             casts, castsPerMinute: castsPerMinute(casts, dur), abilities: abilityStats(p.tables.dmg), aur,
@@ -365,7 +366,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
             channelSec: GAP.channelSeconds(p.tables.buffs),
             consumables: aur ? aur.consumables : [],
             raidActive: fightContext(p.context, p.rank.name, role, null, 'dps').fight.raidActivePercent,
-            debuffs: debuffFacts(p.context.debuffs, schoolsOf(classToken, p.rank.spec, role)).present,
+            debuffs: df.present, debuffsKnown: df.known,
         };
     });
     const n = per.length, majority = Math.floor(n / 2) + 1;
@@ -419,8 +420,14 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         channelSecPerMin: medOf(per.map(p => p.dur ? 60 * p.channelSec / p.dur : null)),
         raidActivePercent: medOf(per.map(p => p.raidActive)),
         consumablesAtPull: Object.keys(countNames(per.map(p => p.consumables))).filter(n => countNames(per.map(p => p.consumables))[n] >= majority),
-        debuffs: Object.keys(countNames(per.map(p => p.debuffs.map(d => d.name)))).filter(n => countNames(per.map(p => p.debuffs.map(d => d.name)))[n] >= majority)
-            .map(n => ({ name: n, uptimePercent: medOf(per.map(p => { const d = p.debuffs.find(x => x.name === n); return d ? d.uptimePercent : null; })) })),
+        // Important 1: a reference where no player's debuff table came back known must report
+        // `debuffs: null`, not an empty array — an empty array reads as "known and there are none",
+        // which would tell explainGap's debuffs input the reference genuinely lacks the raid
+        // debuff, fabricating a group-owned share against the player's own (also unknown) table.
+        debuffs: per.some(p => p.debuffsKnown)
+            ? Object.keys(countNames(per.map(p => p.debuffs.map(d => d.name)))).filter(n => countNames(per.map(p => p.debuffs.map(d => d.name)))[n] >= majority)
+                .map(n => ({ name: n, uptimePercent: medOf(per.map(p => { const d = p.debuffs.find(x => x.name === n); return d ? d.uptimePercent : null; })) }))
+            : null,
         fastestDurationSec: typeof o.fastestDurationSec === 'number' ? o.fastestDurationSec : null,
         stats,
     };

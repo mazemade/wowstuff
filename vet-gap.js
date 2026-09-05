@@ -193,11 +193,10 @@ function debuffMultiplier(present, schools) {
 const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
 const safeLog = r => (r > 0 && isFinite(r) ? Math.log(r) : 0);
 function input(key, owner, logValue, G, me, reference, unit) {
-    return { key, owner, share: share(logValue, G), me, reference, unit: unit || null, log: logValue };
+    return { key, owner, share: share(logValue, G), me, reference, unit: unit || null };
 }
 function finish(factor, G) {
     factor.share = share(Math.log(factor.value), G);
-    factor.inputs.forEach(i => delete i.log);
     return factor;
 }
 
@@ -205,15 +204,18 @@ function explainGap(kill, player) {
     const me = kill && kill.me, ref = kill && kill.reference, fight = kill && kill.fight;
     if (!me || !ref || !fight) return null;
     const need = ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate'];
-    if (need.some(k => num(me[k]) === null || num(ref[k]) === null) || num(me.amount) === null || num(ref.dps) === null) return null;
+    // A literal 0 on any of these would divide to Infinity below, so they must be positive, not
+    // merely non-null.
+    if (need.some(k => num(me[k]) === null || !(me[k] > 0) || num(ref[k]) === null) || num(me.amount) === null || !(me.amount > 0) || num(ref.dps) === null) return null;
     const rawRatio = ref.dps / me.amount;
-    if (!(rawRatio > 1)) return null;
-    // Round once, here, and use the rounded ratio for every downstream computation (G, and the
-    // residual factor below). Rounding only the returned `ratio` while computing residual from the
-    // unrounded value broke the product-multiplies-back-to-the-ratio contract on real (non-clean)
-    // numbers: residual.value * casts.value * dmg.value * crit.value equalled the raw ratio, which
-    // could differ from the displayed (rounded) ratio by more than the 1e-6 test tolerance.
+    // Round once, here, and use the rounded ratio for every downstream computation (the >1 gate,
+    // G, and the residual factor below). Gating on the unrounded ratio while reporting the rounded
+    // one let a ratio that rounds down to exactly 1 (e.g. 2200/2199.9) through as an all-zero
+    // accounting instead of null; rounding before the gate closes that. And rounding here (rather
+    // than only at the return) keeps residual.value * casts.value * dmg.value * crit.value equal
+    // to the ratio that is actually returned, not the raw one.
     const ratio = Math.round(rawRatio * 1000) / 1000;
+    if (!(ratio > 1)) return null;
     const G = Math.log(ratio);
     const role = player.role, spec = player.spec, schools = player.schools || [];
     const physical = role === 'melee' || role === 'ranged' || role === 'tank';
@@ -237,8 +239,12 @@ function explainGap(kill, player) {
     const myHit = me.stats && num(me.stats[hitKey]), refHit = ref.stats && num(ref.stats[hitKey]);
     const miss = h => Math.max(0, cap - h / perPct) / 100;
     const hitLog = myHit !== null && refHit !== null ? safeLog((1 - miss(refHit)) / (1 - miss(myHit))) : 0;
+    // Both sides' debuff tables have to actually be known: an absent table reads as "no debuffs"
+    // (debuffMultiplier([]) === 1), which would fabricate a group-owned share against a reference
+    // that does carry a real multiplier (or the mirror case: an unknown reference).
+    const debuffsKnown = !!(kill.debuffs && kill.debuffs.known && Array.isArray(ref.debuffs));
     const myDeb = debuffMultiplier(kill.debuffs && kill.debuffs.present, schools), refDeb = debuffMultiplier(ref.debuffs, schools);
-    const debLog = safeLog(refDeb / myDeb);
+    const debLog = debuffsKnown ? safeLog(refDeb / myDeb) : 0;
     const myP = powerParts({ stats: me.stats, auras: (me.consumablesAtPull || []).concat(me.buffsAtPull || []), role });
     const refP = powerParts({ stats: ref.stats, auras: (ref.consumablesAtPull || []).concat(ref.buffsAtPull || []), role });
     const remaining = Math.log(dmg.value) - hitLog - debLog;
@@ -246,7 +252,7 @@ function explainGap(kill, player) {
     // that difference explains is split over the three power sources in proportion to their
     // positive gaps, clipped to what is left after hit and debuffs. What power cannot claim is
     // ability choice and misses: rotation. Without gear power on both sides nothing is claimed.
-    const K = C.POWER_BASE[role] || 670;
+    const K = C.POWER_BASE[role] || C.POWER_BASE.caster;
     let powerLogs = [0, 0, 0];
     if (myP.gear !== null && refP.gear !== null && remaining > 0) {
         const myTot = myP.gear + myP.consumables + myP.buffs, refTot = refP.gear + refP.consumables + refP.buffs;
@@ -255,7 +261,7 @@ function explainGap(kill, player) {
     }
     const rotLog = remaining - powerLogs.reduce((s, x) => s + x, 0);
     dmg.inputs.push(input('hit_under_cap', 'player', hitLog, G, myHit, refHit, 'hit rating'));
-    dmg.inputs.push(input('debuffs', 'group', debLog, G, Math.round(100 * myDeb) / 100, Math.round(100 * refDeb) / 100, 'debuff multiplier'));
+    dmg.inputs.push(input('debuffs', 'group', debLog, G, debuffsKnown ? Math.round(100 * myDeb) / 100 : null, debuffsKnown ? Math.round(100 * refDeb) / 100 : null, 'debuff multiplier'));
     dmg.inputs.push(input('power_gear', 'player', powerLogs[0], G, myP.gear, refP.gear, physical ? 'attack power from gear' : 'spell power from gear'));
     dmg.inputs.push(input('power_consumables', 'player', powerLogs[1], G, myP.consumables, refP.consumables, physical ? 'attack power from consumables' : 'spell power from consumables'));
     dmg.inputs.push(input('power_buffs', 'group', powerLogs[2], G, myP.buffs, refP.buffs, physical ? 'attack power from party buffs' : 'spell power from party buffs'));
