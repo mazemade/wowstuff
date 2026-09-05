@@ -342,6 +342,85 @@ function passRows(facts) {
     return out;
 }
 
+// --- verdict (spec §4.5)
+function fractionWord(p) { return p >= 80 ? 'almost all' : p >= 70 ? 'about three quarters' : p >= 60 ? 'most' : p >= 45 ? 'about half' : p >= 28 ? 'about a third' : p >= 18 ? 'about a quarter' : p >= 8 ? 'a small part' : null; }
+function medianOf(a) { const s = a.slice().sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; }
+function verdictOf(facts) {
+    const acc = liveKills(facts).filter(k => k.gap && k.reference && num(k.me.amount) && num(k.reference.playersDps || k.reference.dps));
+    if (!acc.length) return null;
+    const ratioPercent = Math.round(medianOf(acc.map(k => 100 * k.me.amount / (k.reference.playersDps || k.reference.dps))));
+    const keys = {};
+    acc.forEach(k => ['casts', 'dmg', 'crit'].forEach(f => k.gap.factors[f].inputs.forEach(i => { keys[i.key] = i.owner; })));
+    const sumOwner = owner => Math.max(0, Object.keys(keys).filter(k => keys[k] === owner).reduce((s, k) => s + (averageShare(acc, k) || 0), 0));
+    const onYou = sumOwner('player'), onSetup = sumOwner('group');
+    return { ratioPercent, onYou, onSetup, onRest: Math.max(0, 100 - onYou - onSetup) };
+}
+
+// --- assembly (spec §4.6)
+function buildChecklist(facts, T) {
+    T = Object.assign({}, DEFAULT_T, T || {});
+    const limited = !!(facts && facts.limited);
+    let rows = [].concat(consumableRows(facts, T), limited ? [] : cooldownRows(facts), castingRows(facts, T), limited ? [] : spellRows(facts, T), limited ? [] : nukeRows(facts), gearRows(facts), passRows(facts), groupRows(facts), raidRows(facts));
+    const seen = new Set(); rows = rows.filter(r => r && !seen.has(r.id) && seen.add(r.id));
+    const cat = r => CATEGORY_ORDER.indexOf(r.category);
+    const byValue = (a, b) => ((b.value ?? -1) - (a.value ?? -1)) || (cat(a) - cat(b));
+    const player = rows.filter(r => r.owner === 'player');
+    const fails = player.filter(r => r.verdict === 'fail').sort(byValue), warns = player.filter(r => r.verdict === 'warn').sort(byValue);
+    const fixFirst = fails.slice(0, ROW_CAPS.fixFirst).map(r => r.id);
+    const also = fails.slice(ROW_CAPS.fixFirst).concat(warns).slice(0, ROW_CAPS.also).map(r => r.id);
+    const asks = rows.filter(r => r.owner === 'group' && (r.verdict === 'fail' || r.verdict === 'warn')).sort(byValue).slice(0, ROW_CAPS.asks).map(r => r.id);
+    const fine = FINE_IDS.filter(id => rows.some(r => r.id === id && r.verdict === 'pass'));
+    const live = liveKills(facts);
+    const stand = ((facts.overall && facts.overall.ceiling) || []).map(c => {
+        const k = live.find(x => x.name === c.name && (!c.date || x.date === c.date));
+        return { name: c.name, date: c.date, me: Math.round(c.me), sameClass: k && Array.isArray(k.fight.sameClass) ? k.fight.sameClass.filter(p => !p.isMe).map(p => p.amount) : [], dps: c.dps, topDps: c.topDps };
+    });
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const bad = (facts.overall && facts.overall.badPulls) || [];
+    const groups = [];
+    bad.forEach(b => {
+        let g = groups.find(x => x.name === b.name); if (!g) { g = { name: b.name, count: 0, months: [] }; groups.push(g); }
+        g.count++;
+        if (b.date && live.some(k => k.name === b.name)) g.months.push(MONTHS[parseInt(b.date.slice(5, 7), 10) - 1]);
+    });
+    return { verdict: limited ? null : verdictOf(facts), rows, fixFirst, also, asks, fine, stand,
+             notOnYou: { badPulls: { total: ((facts.kills) || []).length, live: live.length, groups }, rows: rows.filter(r => r.owner === 'raid') } };
+}
+
+// --- the text (spec §5)
+function renderReport(cl, facts) {
+    const p = facts.player || {}, tier = facts.tier || {}, byId = id => cl.rows.find(r => r.id === id);
+    const val = r => (r.value !== null && r.value !== undefined ? ' (~' + r.value + '%)' : '');
+    const line = r => r.text + '. ' + r.fix + val(r);
+    const head = facts.night ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'median parse ' + Math.round(tier.medianPercent);
+    const out = [p.name + ' — ' + (p.spec || '?') + ', ' + (tier.zoneName || '') + ', ' + head];
+    if (cl.verdict) {
+        const v = cl.verdict, parts = [];
+        if (fractionWord(v.onYou)) parts.push(fractionWord(v.onYou) + ' of that gap is on you');
+        if (fractionWord(v.onSetup)) parts.push(fractionWord(v.onSetup) + ' is the raid\'s setup');
+        if (fractionWord(v.onRest)) parts.push('the rest is the raid\'s pulls and luck');
+        out.push('You do ' + v.ratioPercent + '% of what comparable players do (' + GAP.REF_LABEL + ').' + (parts.length ? ' ' + parts.join(', ').replace(/^./, c => c.toUpperCase()) + '.' : ''));
+    }
+    const section = (title, ids, numbered) => { if (!ids.length) return; out.push('', title); ids.forEach((id, i) => out.push((numbered ? (i + 1) + '. ' : '- ') + line(byId(id)))); };
+    section(facts.limited ? 'What\'s holding your healing back' : 'Fix first', cl.fixFirst, true);
+    section('Also', cl.also, false);
+    if (cl.asks.length) { out.push('', 'Ask your raid leader'); cl.asks.forEach(id => { const r = byId(id); out.push('- ' + r.text + '.' + (r.fix ? ' ' + r.fix : '') + val(r)); }); }
+    if (cl.fine.length) out.push('', 'Fine', cl.fine.map(id => byId(id).text).join(', ').replace(/^./, c => c.toUpperCase()) + '.');
+    if (cl.stand.length) {
+        const cls = String(p.class || 'player').toLowerCase();
+        out.push('', 'Where you stand');
+        cl.stand.forEach(s => out.push(s.name + ': you ' + s.me + (s.sameClass.length ? '; ' + cls + 's in your raid ' + s.sameClass.join(' / ') : '') + '; comparable players ' + s.dps + '; the best at your item level ' + s.topDps));
+    }
+    const bp = cl.notOnYou.badPulls;
+    if (bp.groups.length || cl.notOnYou.rows.length) {
+        out.push('', 'Not on you');
+        if (bp.groups.length) out.push((bp.total - bp.live) + ' of ' + bp.total + ' pulls were raid-wide bad pulls (' + bp.groups.map(g => g.name + (g.count > 1 ? ' ×' + g.count : '') + (g.months.length ? ' (' + g.months.join(', ') + ')' : '')).join(', ') + ') and are left out.');
+        cl.notOnYou.rows.forEach(r => out.push(r.text + '.'));
+    }
+    out.push('', 'Pick one thing to change next raid.');
+    return out.join('\n');
+}
+
 module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD,
                    liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
-                   consumableRows, cooldownRows, spellRows, nukeRows, gearRows, passRows };
+                   consumableRows, cooldownRows, spellRows, nukeRows, gearRows, passRows, buildChecklist, renderReport, fractionWord, verdictOf };

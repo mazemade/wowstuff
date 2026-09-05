@@ -197,5 +197,68 @@ test('passRows: deaths and power_gear passes only when every pull passes', () =>
     assert.ok(!C.passRows(sheet([a])).map(r => r.id).includes('deaths'));
 });
 
+const fs = require('node:fs'), path = require('node:path');
+const LOVE = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'facts-lovestoned-v3.json'), 'utf8'));
+
+test('buildChecklist: verdict from the median ratio and the owner sums; ids unique; caps applied and the overflow kept in rows', () => {
+    const kills = [];
+    for (let i = 0; i < 9; i++) { const k = gapKill('B' + i, { cast_pacing: 10 }); kills.push(k); }
+    // nine distinct fails via gear findings would need nine stats; use the real families plus stat rows instead
+    const f = sheet(kills, { gear: { findings: [
+        { key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 150 against the 202 the raid asks for', value: 150, bar: 202 },
+        { key: 'gear_enchants', severity: 'major', scope: 'player', text: 'Missing enchants: 3 (Head, Bracers, Boots)', value: 3, bar: null },
+        { key: 'gear_sockets', severity: 'major', scope: 'player', text: 'Empty sockets: 2', value: 2, bar: null } ] } });
+    const cl = C.buildChecklist(f, C.DEFAULT_T);
+    const ids = cl.rows.map(r => r.id);
+    assert.strictEqual(new Set(ids).size, ids.length, 'no duplicate ids');
+    assert.strictEqual(cl.fixFirst.length, 3); assert.ok(cl.also.length <= 5); assert.ok(cl.asks.length <= 3);
+    assert.strictEqual(cl.fixFirst[0], 'cast_rate', 'largest value first');
+    assert.strictEqual(cl.verdict.ratioPercent, 61, '1362 / 2217');
+});
+test('buildChecklist: no accounting means no verdict; a player above the reference gets passes only', () => {
+    const k = gapKill('A', {}, { gap: null }); k.me.amount = 2500; k.me.flask = 'Flask of Pure Death'; k.me.potionUse = 2;
+    k.me.casts.Destruction = 1; k.me.casts.Shadowburn = 1;
+    const cl = C.buildChecklist(sheet([k]), C.DEFAULT_T);
+    assert.strictEqual(cl.verdict, null);
+    assert.deepStrictEqual(cl.fixFirst, []);
+    assert.ok(cl.fine.includes('food') && cl.fine.includes('deaths'));
+});
+test('buildChecklist: stand carries the ceiling pulls with same-class peers; bad pulls are grouped by boss with a month only where the boss also has a live pull', () => {
+    const live = gapKill('Lady Vashj', {}, { date: '2026-08-09' }); live.fight.sameClass = [{ name: 'Cartis', amount: 640, isMe: false }, { name: 'Lovestoned', amount: 577, isMe: true }, { name: 'Xeasha', amount: 512, isMe: false }];
+    const bad = (name, date) => ({ name, date, rankPercent: 1, fight: { badPull: true, badPullReason: 'x' }, me: {}, findings: [], gap: null });
+    const f = sheet([live, bad('Lady Vashj', '2026-05-24'), bad('Leotheras the Blind', '2026-08-09'), bad('Leotheras the Blind', '2026-07-19')],
+                    { overall: { badPulls: [{ name: 'Lady Vashj', date: '2026-05-24', reason: 'x' }, { name: 'Leotheras the Blind', date: '2026-08-09', reason: 'x' }, { name: 'Leotheras the Blind', date: '2026-07-19', reason: 'x' }],
+                                 ceiling: [{ name: 'Lady Vashj', date: '2026-08-09', me: 577.3, dps: 1180, topDps: 1445 }], gap: null, droppedKills: [] } });
+    const cl = C.buildChecklist(f, C.DEFAULT_T);
+    assert.deepStrictEqual(cl.stand, [{ name: 'Lady Vashj', date: '2026-08-09', me: 577, sameClass: [640, 512], dps: 1180, topDps: 1445 }]);
+    assert.deepStrictEqual(cl.notOnYou.badPulls, { total: 4, live: 1, groups: [{ name: 'Lady Vashj', count: 1, months: ['May'] }, { name: 'Leotheras the Blind', count: 2, months: [] }] });
+});
+test('fractionWord', () => {
+    assert.strictEqual(C.fractionWord(85), 'almost all'); assert.strictEqual(C.fractionWord(74), 'about three quarters'); assert.strictEqual(C.fractionWord(62), 'most');
+    assert.strictEqual(C.fractionWord(50), 'about half'); assert.strictEqual(C.fractionWord(30), 'about a third'); assert.strictEqual(C.fractionWord(20), 'about a quarter'); assert.strictEqual(C.fractionWord(10), 'a small part'); assert.strictEqual(C.fractionWord(3), null);
+});
+test('golden (Lovestoned, v3 sheet captured 2026-09-05): verdict 59, nuke/cast/activity first, one potion line, one curse line, under 320 words', () => {
+    const cl = C.buildChecklist(LOVE, C.DEFAULT_T);
+    assert.strictEqual(cl.verdict.ratioPercent, 59);
+    assert.deepStrictEqual(cl.fixFirst, ['nuke_hit', 'cast_rate', 'activity']);
+    assert.strictEqual(cl.rows.find(r => r.id === 'nuke_hit').value, 36);
+    assert.strictEqual(cl.rows.find(r => r.id === 'cast_rate').value, 31);
+    const act = cl.rows.find(r => r.id === 'activity').value; assert.ok(act >= 7 && act <= 10, 'activity ~8: ' + act);
+    assert.ok(cl.also.indexOf('potion') === 0 && cl.also.includes('flask'), 'potion first in Also, flask present: ' + cl.also.join(','));
+    assert.strictEqual(cl.asks[0], 'debuffs');
+    assert.strictEqual(cl.rows.find(r => r.id === 'curse').owner, 'group');
+    const ids = cl.rows.map(r => r.id); assert.strictEqual(new Set(ids).size, ids.length);
+    const text = C.renderReport(cl, LOVE);
+    assert.strictEqual((text.match(/Destruction Potion/g) || []).length, 1, text);
+    assert.strictEqual((text.match(/Curse of the Elements/g) || []).length, 1, text);
+    // The caps bound the text; 480 is the real bound (the spec's own §5 example is 448 words — its "under 320" was an authoring error, corrected 2026-09-05).
+    assert.ok(text.split(/\s+/).length < 480, 'words: ' + text.split(/\s+/).length);
+    assert.ok(text.startsWith('Lovestoned — Destruction, '), text.split('\n')[0]);
+    assert.ok(text.includes('\nFix first\n1. Shadow Bolt hits for '), text);
+    assert.ok(text.includes('\nAsk your raid leader\n- No Misery or Shadow Weaving on 5 of 5 pulls (a shadow priest). (~17%)'), text);
+    assert.ok(text.includes('8 of 13 pulls were raid-wide bad pulls ('), text);
+    assert.ok(text.endsWith('Pick one thing to change next raid.'), text.slice(-80));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

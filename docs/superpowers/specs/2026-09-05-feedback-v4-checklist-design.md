@@ -242,7 +242,7 @@ the warns (same ordering), fill "Also" up to `ROW_CAPS.also`. Group rows sorted 
 
 ## 5. The text (`renderReport`)
 
-Plain text, second person, under 320 words by construction (the caps bound it). Sections only when non-empty:
+Plain text, second person, under 480 words by construction (the caps bound it) (corrected 2026-09-05: the earlier "320" did not match this section's own example, which is 448 words). Sections only when non-empty:
 
 ```
 Lovestoned — Destruction, SSC/TK, median parse 28
@@ -349,7 +349,7 @@ That is the wrong place for a page-length document the leader reads, compares an
   (59%), the three "Fix first" ids in order (`nuke_hit` 36%, `cast_rate` 31%, `activity`), that
   `potion` and `flask` are in "Also" with `potion` first, that `debuffs` leads the asks and `curse`
   is a group row, that "Destruction Potion" and "Curse of the Elements" each appear exactly once
-  in the text, that the text is under 320 words, and that `rows` has no two rows with the same
+  in the text, that the text is under 480 words, and that `rows` has no two rows with the same
   id.
 - Rotminster fixture (`wcl-feedback-rotminster.json`) still drives the pipeline test; its
   checklist must render without a model.
