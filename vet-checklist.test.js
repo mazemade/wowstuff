@@ -154,5 +154,48 @@ test('spellRows: under_used is a warn on the reference\'s top-3 abilities cast u
     assert.ok(!rows.find(r => r.id === 'unused'));
 });
 
+test('nuke_hit: observed / expected from the accounting\'s power and debuff inputs; fail under 0.9; text explains the split', () => {
+    // me power 1026+78+0 = 1104, ref 1007+103+40 = 1150, K 670 → 0.975; debuffs 1.1/1.21 → 0.909; expected 0.886; observed 3065/3869 = 0.792 → residual 0.894.
+    const k = gapKill('Void Reaver', { rotation: 42 });
+    const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
+    assert.strictEqual(n.verdict, 'fail'); assert.strictEqual(n.value, 42); assert.strictEqual(n.owner, 'player');
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs explain about 9%, the remaining 11% is talents, spell rank or gear that logs cannot show');
+    assert.strictEqual(n.fix, C.NUKE_FIX.Destruction);
+    const fine = gapKill('A', {}); fine.me.abilities[0].avgHit = 3500;
+    assert.strictEqual(C.nukeRows(sheet([fine])).find(r => r.id === 'nuke_hit').verdict, 'pass');
+});
+test('gearRows: hit from the current profile (value/bar) beats the pull; stat rows are warns; enchants/sockets from gear findings', () => {
+    const f = sheet([gapKill('A', { hit_under_cap: -5 })], { gear: { findings: [
+        { key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 185 against the 202 the raid asks for', value: 185, bar: 202 },
+        { key: 'gear_enchants', severity: 'minor', scope: 'player', text: 'Missing enchants: 2 (Bracers, Boots)', value: 2, bar: null },
+    ] } });
+    f.kills[0].findings = [{ key: 'gear_stat', owner: 'player', severity: 'minor', scope: 'player', share: null, stat: 'spellCrit', text: 'Spell crit rating 297 against 354 for players at your item level among the top 2000 parses', me: 297, reference: 354 }];
+    const rows = C.gearRows(f);
+    const hit = rows.find(r => r.id === 'hit');
+    assert.strictEqual(hit.verdict, 'fail'); assert.strictEqual(hit.me, 185); assert.strictEqual(hit.reference, 202); assert.strictEqual(hit.value, 1);
+    assert.strictEqual(hit.text, 'Hit: 185 on your current gear against the 202 cap'); assert.strictEqual(hit.fix, 'Reach 202 hit before any other stat.');
+    const crit = rows.find(r => r.id === 'stat_spellCrit');
+    assert.strictEqual(crit.verdict, 'warn'); assert.strictEqual(crit.text, 'Spell crit rating 297 against 354 for comparable players'); assert.strictEqual(crit.fix, 'Prefer spell crit when upgrading.');
+    const en = rows.find(r => r.id === 'enchants');
+    assert.strictEqual(en.verdict, 'warn'); assert.strictEqual(en.fix, 'Enchant Bracers, Boots.');
+});
+test('gearRows: hit at the cap on the profile is a pass row; no profile hit falls back to the pull\'s hit input', () => {
+    const f = sheet([gapKill('A', {})], { gear: { findings: [] } });
+    assert.ok(!C.gearRows(f).find(r => r.id === 'hit'), 'no hit row without a profile hit or a positive hit share');
+    const g = sheet([gapKill('A', { hit_under_cap: 6 })], { gear: { findings: [] } });
+    g.kills[0].gap.factors.dmg.inputs.find(i => i.key === 'hit_under_cap').me = 150;
+    const h = C.gearRows(g).find(r => r.id === 'hit');
+    assert.strictEqual(h.verdict, 'fail'); assert.strictEqual(h.value, 6); assert.strictEqual(h.text, 'Hit: 150 at the A pull against the 202 cap');
+});
+test('passRows: deaths and power_gear passes only when every pull passes', () => {
+    const a = gapKill('A', {}), b = gapKill('B', { power_gear: 0 });
+    b.gap.factors.dmg.inputs.find(i => i.key === 'power_gear').me = 1006; b.gap.factors.dmg.inputs.find(i => i.key === 'power_gear').reference = 1044;
+    const ids = C.passRows(sheet([a, b])).map(r => r.id);
+    assert.ok(ids.includes('deaths') && !ids.includes('power_gear'));
+    assert.ok(C.passRows(sheet([a])).map(r => r.id).includes('power_gear'));
+    a.me.died = { atSec: 10, by: 'Arcane Orb' };
+    assert.ok(!C.passRows(sheet([a])).map(r => r.id).includes('deaths'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

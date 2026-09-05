@@ -270,6 +270,78 @@ function spellRows(facts, T) {
     return out;
 }
 
+// --- nuke damage (spec §4.3 "Nuke damage"): the rotation remainder, explained as far as logs allow.
+function nukeRows(facts) {
+    const kills = liveKills(facts).filter(k => k.gap && k.reference);
+    const role = (facts.player && facts.player.role) || 'caster', K = GAP.C.POWER_BASE[role] || GAP.C.POWER_BASE.caster;
+    const per = [];
+    kills.forEach(k => {
+        const main = mainAbility(k);
+        const mine = (k.me.abilities || []).find(a => a.name === main), theirs = (k.reference.abilities || []).find(a => a.name === main);
+        if (!mine || !theirs || !num(mine.avgHit) || !num(theirs.avgHit)) return;
+        const sum = side => ['power_gear', 'power_consumables', 'power_buffs'].reduce((s, key) => { const i = inputOf(k, key); return s + (i && num(i[side]) !== null ? i[side] : 0); }, 0);
+        const deb = inputOf(k, 'debuffs'), myDeb = deb && num(deb.me) !== null ? deb.me : 1, refDeb = deb && num(deb.reference) !== null ? deb.reference : 1;
+        const myPower = sum('me'), refPower = sum('reference');
+        const observed = mine.avgHit / theirs.avgHit, expected = ((myPower + K) / (refPower + K)) * (myDeb / refDeb);
+        per.push({ k, main, mine, theirs, residual: observed / expected, debPct: Math.round(100 * (1 - myDeb / refDeb)), samePower: Math.abs(myPower - refPower) / Math.max(refPower, 1) < 0.05, myPower, refPower });
+    });
+    if (!per.length) return [];
+    const avg = per.reduce((s, p) => s + p.residual, 0) / per.length;
+    const worst = per.slice().sort((a, b) => a.residual - b.residual)[0];
+    const verdict = avg < 0.9 ? 'fail' : avg < 0.95 ? 'warn' : 'pass';
+    const share = averageShare(kills, 'rotation');
+    const restPct = Math.max(0, Math.round(100 * (1 - worst.residual)));
+    const label = pullLabel(worst.k, liveKills(facts));
+    return [row({ id: 'nuke_hit', category: 'nuke', verdict, me: worst.mine.avgHit, reference: worst.theirs.avgHit, unit: 'non-crit hit', value: verdict === 'pass' ? null : (share > 0 ? share : null), measuredOn: label,
+                  text: worst.main + ' hits for ' + worst.mine.avgHit + ' non-crit against ' + worst.theirs.avgHit + (worst.samePower ? ' at the same spell power' : ' (you had ' + worst.myPower + ' spell power, they had ' + worst.refPower + ')') + ' on ' + label +
+                        (verdict === 'pass' ? '' : '; raid debuffs explain about ' + worst.debPct + '%, the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show'),
+                  fix: verdict === 'pass' ? '' : (NUKE_FIX[facts.player && facts.player.spec] || 'Check your talents and the rank of ' + worst.main + '.') })];
+}
+
+// --- gear (spec §4.3 "Nuke damage" hit, "Gear")
+function gearRows(facts) {
+    const kills = liveKills(facts), out = [];
+    const role = (facts.player && facts.player.role) || 'caster', physical = role === 'melee' || role === 'ranged' || role === 'tank';
+    const perPct = physical ? GAP.C.MELEE_HIT_RATING_PER_PCT : GAP.C.HIT_RATING_PER_PCT;
+    const gear = (facts.gear && facts.gear.findings) || [];
+    const gearHit = gear.find(g => g.key === 'gear_hit' && num(g.value) !== null && num(g.bar) !== null);
+    const hitShare = averageShare(kills, 'hit_under_cap'), hitBest = largestPull(kills, 'hit_under_cap');
+    if (gearHit) {
+        const under = gearHit.value < gearHit.bar;
+        out.push(row({ id: 'hit', category: 'gear', verdict: under ? 'fail' : 'pass', me: gearHit.value, reference: gearHit.bar, unit: 'hit rating',
+                       value: under ? Math.max(hitShare > 0 ? hitShare : 0, Math.max(1, Math.round((gearHit.bar - gearHit.value) / perPct)) * NOMINAL_VALUE.hit) : null,
+                       text: under ? 'Hit: ' + gearHit.value + ' on your current gear against the ' + gearHit.bar + ' cap' : 'Hit at the cap', fix: under ? 'Reach ' + gearHit.bar + ' hit before any other stat.' : '' }));
+    } else if (hitShare !== null && hitShare >= 3 && hitBest) {
+        const cap = Math.round((physical ? GAP.C.HIT_CAP.melee * GAP.C.MELEE_HIT_RATING_PER_PCT : GAP.C.HIT_CAP.spell * GAP.C.HIT_RATING_PER_PCT));
+        out.push(row({ id: 'hit', category: 'gear', verdict: verdictForShare(hitShare), me: hitBest.input.me, reference: cap, unit: 'hit rating', value: hitShare, measuredOn: pullLabel(hitBest.kill, kills),
+                       text: 'Hit: ' + hitBest.input.me + ' at the ' + pullLabel(hitBest.kill, kills) + ' pull against the ' + cap + ' cap', fix: 'Reach ' + cap + ' hit before any other stat.' }));
+    }
+    // Stat priority rows come per pull from statPriorityFindings (kill.findings, key gear_stat).
+    const byStat = {};
+    kills.forEach(k => (k.findings || []).filter(f => f.key === 'gear_stat' && f.stat && f.stat !== 'spellHit' && f.stat !== 'meleeHit').forEach(f => { (byStat[f.stat] = byStat[f.stat] || []).push({ k, f }); }));
+    Object.keys(byStat).forEach(stat => {
+        const first = byStat[stat][0];
+        out.push(row({ id: 'stat_' + stat, category: 'gear', verdict: 'warn', me: first.f.me, reference: first.f.reference, pulls: { hit: byStat[stat].length, of: kills.length }, measuredOn: pullLabel(first.k, kills),
+                       text: first.f.text.replace(' for ' + GAP.REF_LABEL, ' for comparable players'), fix: 'Prefer ' + (STAT_WORD[stat] || stat) + ' when upgrading.' }));
+    });
+    gear.filter(g => g.key === 'gear_enchants' || g.key === 'gear_sockets').forEach(g => {
+        const slots = /\(([^)]+)\)/.exec(g.text);
+        out.push(row({ id: g.key.replace('gear_', ''), category: 'gear', verdict: g.severity === 'major' ? 'fail' : 'warn', me: num(g.value), text: g.text,
+                       fix: g.key === 'gear_enchants' ? 'Enchant ' + (slots ? slots[1] : 'the missing slots') + '.' : 'Fill every socket.' }));
+    });
+    return out;
+}
+
+// --- pass-only rows for "Fine" (spec §4.3 "Fine")
+function passRows(facts) {
+    const kills = liveKills(facts), out = [];
+    if (kills.length && kills.every(k => !k.me.died)) out.push(row({ id: 'deaths', category: 'casting', verdict: 'pass', text: 'no deaths' }));
+    const acc = kills.filter(k => inputOf(k, 'power_gear'));
+    if (acc.length && acc.every(k => { const i = inputOf(k, 'power_gear'); return num(i.me) !== null && num(i.reference) !== null && i.me >= i.reference; }))
+        out.push(row({ id: 'power_gear', category: 'gear', verdict: 'pass', text: (facts.player && (facts.player.role === 'melee' || facts.player.role === 'ranged' || facts.player.role === 'tank') ? 'attack power' : 'spell power') + ' on par with comparable players' }));
+    return out;
+}
+
 module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD,
                    liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
-                   consumableRows, cooldownRows, spellRows };
+                   consumableRows, cooldownRows, spellRows, nukeRows, gearRows, passRows };
