@@ -184,5 +184,33 @@ test('explainGap (Important 2): a ratio that rounds down to exactly 1 returns nu
     assert.strictEqual(G.explainGap(pull({ me: Object.assign({}, pull().me, { amount: 2199.9 }) }), PLAYER), null, '2200 / 2199.9 rounds to 1.000');
 });
 
+test('gapFindings: one finding per input at or above minShare, with owner, share, numbers and a sentence; luck never becomes a finding', () => {
+    const g = G.explainGap(pull(), PLAYER);
+    const f = G.gapFindings(Object.assign(pull(), { gap: g }), PLAYER, { minShare: 3 });
+    assert.ok(f.every(x => x.share >= 3 && ['player', 'group', 'raid'].includes(x.owner) && typeof x.text === 'string' && x.text.length > 20));
+    assert.ok(!f.some(x => x.key === 'crit_luck'));
+    const keys = f.map(x => x.key);
+    ['raid_activity', 'own_activity', 'channel_time', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs'].forEach(k => assert.ok(keys.includes(k), k + ' in ' + keys.join()));
+    assert.ok(!keys.includes('cast_pacing'), 'pacing is negative on this pull (the reference casts slower while active once activity and channelling are taken out)');
+    const ch = f.find(x => x.key === 'channel_time');
+    assert.strictEqual(ch.text, 'Channelling Drain Soul and other utility 6 seconds of every minute on Morogrim Tidewalker; comparable players 0. Worth ' + ch.share + '% of the gap');
+    const ra = f.find(x => x.key === 'raid_activity');
+    assert.strictEqual(ra.owner, 'raid');
+    assert.ok(/raid was active 70% of Morogrim Tidewalker against 85% for the reference raid/.test(ra.text), ra.text);
+    const pb = f.find(x => x.key === 'power_buffs');
+    assert.ok(/141 spell power from party buffs .* you had 0/.test(pb.text), pb.text);
+    assert.ok(f.every((x, i) => i === 0 || f[i - 1].share >= x.share), 'ordered by share');
+});
+test('statPriorityFindings: hit under the cap hides the stats below it; at the cap, the next stat under its bar shows', () => {
+    const me = { spellHit: 181, spellDamage: 846, spellCrit: 253, spellHaste: 0 }, ref = { spellHit: 202, spellDamage: 1004, spellCrit: 306, spellHaste: 80 };
+    const under = G.statPriorityFindings({ me, reference: ref, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'Morogrim Tidewalker' });
+    assert.deepStrictEqual(under.map(f => f.stat), ['spellHit'], 'only hit while hit is under the cap');
+    assert.strictEqual(under[0].text, 'Hit rating 181 against the 202 the raid asks for; get hit to the cap before any other stat');
+    const capped = G.statPriorityFindings({ me: Object.assign({}, me, { spellHit: 205 }), reference: ref, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'Morogrim Tidewalker' });
+    assert.deepStrictEqual(capped.map(f => f.stat), ['spellDamage', 'spellCrit', 'spellHaste'], 'every stat under its bar, in priority order');
+    assert.strictEqual(capped[0].text, 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses');
+    assert.deepStrictEqual(G.statPriorityFindings({ me, reference: null, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'X' }), []);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

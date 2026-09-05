@@ -293,6 +293,64 @@ function explainGap(kill, player) {
     return { ratio, factors, residualShare: factors.residual.share };
 }
 
+const REF_LABEL = 'players at your item level among the top 2000 parses';
+function pct(x) { return typeof x === 'number' ? Math.round(x * 10) / 10 : x; }
+function gapText(i, boss) {
+    const w = ' Worth ' + i.share + '% of the gap';
+    switch (i.key) {
+        case 'raid_activity': return 'Your raid was active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for the reference raid; phases and downtime, not you.' + w;
+        case 'own_activity': return 'Active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
+        case 'channel_time': return 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + boss + '; comparable players ' + pct(i.reference) + '.' + w;
+        case 'cast_pacing': return pct(i.me) + ' damaging casts a minute on ' + boss + ' while active, against ' + pct(i.reference) + '; the time between casts.' + w;
+        case 'hit_under_cap': return 'Hit rating ' + i.me + ' against ' + i.reference + ' for ' + REF_LABEL + '; misses are wasted casts.' + w;
+        case 'debuffs': return 'Raid debuffs on ' + boss + ' multiplied damage by ' + i.me + ' against ' + i.reference + ' for the reference raid.' + w;
+        case 'power_gear': return 'Spell power from gear ' + i.me + ' against ' + i.reference + ' for ' + REF_LABEL + '.' + w;
+        case 'power_consumables': return i.reference + ' spell power from flask, elixirs, oil and food for ' + REF_LABEL + '; you had ' + i.me + '.' + w;
+        case 'power_buffs': return i.reference + ' spell power from party buffs for ' + REF_LABEL + '; you had ' + i.me + '.' + w;
+        case 'rotation': return 'Damage per cast ' + i.me + ' against ' + i.reference + ' after gear, buffs and debuffs are accounted for: ability choice and misses.' + w;
+        case 'crit_gear': return 'Crit from gear (rating and intellect) ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
+        case 'crit_buffs': return 'Crit from party buffs ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
+        default: return i.key + ' ' + i.me + ' against ' + i.reference + '.' + w;
+    }
+}
+// spec v3 §4: every input at or above minShare becomes one finding; luck never does.
+function gapFindings(kill, player, thresholds) {
+    const g = kill && kill.gap;
+    if (!g) return [];
+    const min = thresholds && typeof thresholds.minShare === 'number' ? thresholds.minShare : 3;
+    const out = [];
+    ['casts', 'dmg', 'crit'].forEach(fk => g.factors[fk].inputs.forEach(i => {
+        if (i.owner === 'noise' || i.share < min) return;
+        const physical = player.role === 'melee' || player.role === 'ranged' || player.role === 'tank';
+        let text = gapText(i, kill.name);
+        if (physical) text = text.replace(/Spell power|spell power/g, m => (m[0] === 'S' ? 'Attack power' : 'attack power'));
+        out.push({ key: i.key, owner: i.owner, severity: i.share >= 15 ? 'major' : 'minor', scope: i.owner === 'raid' ? 'raid' : i.owner, share: i.share, factor: fk, text, me: i.me, reference: i.reference, unit: i.unit });
+    }));
+    return out.sort((a, b) => b.share - a.share);
+}
+const STAT_TEXT = { spellHit: 'Hit rating', meleeHit: 'Hit rating', expertise: 'Expertise rating', spellDamage: 'Spell power from gear', attackPower: 'Attack power from gear', rangedAttackPower: 'Ranged attack power from gear',
+                    spellCrit: 'Spell crit rating', meleeCrit: 'Crit rating', rangedCrit: 'Crit rating', spellHaste: 'Spell haste rating', meleeHaste: 'Haste rating' };
+// spec v3 §4: gear stats in priority order; a stat lower in the list is not reported while a
+// higher one is under its bar. Hit's bar is the raid's cap; the rest use the reference's gear.
+function statPriorityFindings(o) {
+    const { me, reference, spec, role, hitCap, boss } = o;
+    if (!me || !reference) return [];
+    const order = STAT_PRIORITY[spec] || STAT_PRIORITY[role === 'caster' ? 'Destruction' : 'Combat'];
+    const out = [];
+    for (const stat of order) {
+        const mine = me[stat], bar = (stat === 'spellHit' || stat === 'meleeHit') && typeof hitCap === 'number' ? hitCap : reference[stat];
+        if (typeof mine !== 'number' || typeof bar !== 'number' || !bar) continue;
+        const under = (stat === 'spellHit' || stat === 'meleeHit') ? mine < bar : mine < 0.9 * bar;
+        if (!under) continue;
+        const isHit = stat === 'spellHit' || stat === 'meleeHit';
+        const text = isHit ? STAT_TEXT[stat] + ' ' + mine + ' against the ' + bar + ' the raid asks for; get hit to the cap before any other stat'
+                           : STAT_TEXT[stat] + ' ' + mine + ' against ' + bar + ' for ' + REF_LABEL;
+        out.push({ key: 'gear_stat', owner: 'player', severity: isHit ? 'major' : 'minor', scope: 'player', share: 0, stat, text, me: mine, reference: bar, boss });
+        if (isHit) break;
+    }
+    return out;
+}
+
 function averageGap(kills) {
     const gaps = (kills || []).map(k => k && k.gap).filter(Boolean);
     if (!gaps.length) return null;
@@ -300,4 +358,4 @@ function averageGap(kills) {
     return { casts: avg('casts'), dmg: avg('dmg'), crit: avg('crit'), residual: avg('residual') };
 }
 
-module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, FINDING_ANCHOR, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier, explainGap, averageGap };
+module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, FINDING_ANCHOR, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier, explainGap, averageGap, REF_LABEL, gapFindings, statPriorityFindings };

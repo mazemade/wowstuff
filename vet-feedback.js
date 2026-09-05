@@ -21,7 +21,7 @@ const T = {
     unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7,
     critGap: 10, hitRatio: 0.85, resistGap: 10, minAbilityHits: 10,
     statPrimaryRatio: 0.9, statSecondaryRatio: 0.85,
-    debuffUptime: 70, potionMinSec: 60,
+    debuffUptime: 70, potionMinSec: 60, minShare: 3,
     longFightRatio: 2, raidUnderPercent: 5, raidUnderShare: 0.8, raidSpeedLow: 5,
     // Minor 10 (whole-branch review): spec 4.1 has no deaths-based bad-pull rule. Rule 2 (80% of
     // the raid's DPS parsed under 5) needs enough DPS to have actually parsed, and rule 1 needs a
@@ -125,7 +125,7 @@ function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n 
 // Everything the fight-wide tables say about one pull: its length, how the raid itself ranked,
 // where the player sat among their role, active time, death and potions, and whether the pull
 // was so bad raid-wide that it says nothing about the player.
-function fightContext(ctx, playerName, role, refDurationSec, metric) {
+function fightContext(ctx, playerName, role, refDurationSec, metric, name) {
     ctx = ctx || {};
     const fight = Array.isArray(ctx.fights) ? ctx.fights[0] : null;
     const durationSec = fight ? round1((fight.endTime - fight.startTime) / 1000) : null;
@@ -168,7 +168,8 @@ function fightContext(ctx, playerName, role, refDurationSec, metric) {
     const raidSize = dpsGroup.length + groupOf('healers').length + groupOf('tanks').length;
 
     const reasons = [];
-    if (refDurationSec && durationSec > T.longFightRatio * refDurationSec) reasons.push('the pull took ' + Math.round(durationSec) + 's against a typical ' + Math.round(refDurationSec) + 's');
+    if (refDurationSec && durationSec > T.longFightRatio * refDurationSec)
+        reasons.push('the pull took ' + Math.round(durationSec) + 's against the fastest reference kills at ' + Math.round(refDurationSec) + 's' + (GAP.PHASE_BOSSES[name] ? ' (' + GAP.PHASE_BOSSES[name] + ')' : ''));
     if (dpsGroup.length && dpsUnder >= T.raidUnderShare * dpsGroup.length) reasons.push(dpsUnder + ' of ' + dpsGroup.length + ' dps in the raid parsed under ' + T.raidUnderPercent);
     if (speed != null && speed < T.raidSpeedLow && idx >= 0 && idx < group.length / 2) reasons.push('the raid\'s kill speed ranked ' + speed + ' while you were ' + ordinal(idx + 1) + ' of ' + group.length + ' ' + groupKey);
     if (raidSize && deaths.length >= T.raidDeathsShare * raidSize) reasons.push(deaths.length + ' of ' + raidSize + ' in the raid died');
@@ -480,17 +481,9 @@ const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulsto
 function theName(name) { return /^the /i.test(String(name || '')) ? name : 'the ' + name; }
 
 function uptimeFindings(kill) {
-    const f = [], me = kill.me, fight = kill.fight, ref = kill.reference;
-    if (typeof me.activePercent === 'number') {
-        const raidTail = typeof fight.raidActivePercent === 'number' ? ' (raid median ' + fight.raidActivePercent + '%)' : '';
-        if (me.activePercent < T.activeMajor) f.push(finding('active_low', 'major', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
-        else if (typeof fight.raidActivePercent === 'number' && me.activePercent < 92 && fight.raidActivePercent - me.activePercent >= T.activeGap)
-            f.push(finding('active_low', 'minor', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
-    }
+    const f = [], me = kill.me, fight = kill.fight;
     if (me.died && fight.durationSec && me.died.atSec < T.diedBefore * fight.durationSec)
         f.push(finding('died', 'major', 'player', 'Died at ' + me.died.atSec + 's of ' + Math.round(fight.durationSec) + 's on ' + kill.name + (me.died.by ? ' to ' + me.died.by : '')));
-    if (!f.some(x => x.key === 'active_low') && ref && ref.castsPerMinute && typeof me.castsPerMinute === 'number' && me.castsPerMinute < T.castsLowRatio * ref.castsPerMinute)
-        f.push(finding('casts_low', 'minor', 'player', me.castsPerMinute + ' casts per minute on ' + kill.name + '; comparable players manage ' + ref.castsPerMinute));
     return f;
 }
 
@@ -525,30 +518,9 @@ function rotationFindings(kill) {
         }
     });
     Object.keys(kill.me.casts).forEach(name => {
-        if (UTILITY_CAST.test(name) || ref.casts[name]) return;
+        if (ref.casts[name]) return;
         if (kill.me.casts[name] / min >= T.extraPerMin)
             f.push(finding('ability_extra', 'minor', 'player', 'Cast ' + name + ' ' + kill.me.casts[name] + ' times on ' + kill.name + '; comparable players do not use it', { ability: name }));
-    });
-    return f;
-}
-
-function damageFindings(kill) {
-    const f = [], ref = kill.reference;
-    if (!ref) return f;
-    ref.abilities.slice(0, 3).forEach(ra => {
-        const pa = kill.me.abilities.find(a => a.name === ra.name);
-        if (!pa) return;
-        // Important 3: crit/hit/resist need enough casts on both sides, or a two-cast sample reads
-        // as a finding ("Shadowburn is underperforming: crit 50% vs 100%" from 1 of 2 casts).
-        const sampled = typeof pa.hits === 'number' && pa.hits >= T.minAbilityHits && typeof ra.hits === 'number' && ra.hits >= T.minAbilityHits;
-        if (!sampled) return;
-        const x = { ability: ra.name, share: pa.share };
-        if (typeof pa.critPercent === 'number' && typeof ra.critPercent === 'number' && ra.critPercent - pa.critPercent >= T.critGap)
-            f.push(finding('crit_low', 'major', 'player', ra.name + ' crit ' + pa.critPercent + '% of the time on ' + kill.name + '; comparable players crit ' + ra.critPercent + '%', x));
-        if (typeof pa.avgHit === 'number' && typeof ra.avgHit === 'number' && pa.avgHit < T.hitRatio * ra.avgHit)
-            f.push(finding('hit_low', 'major', 'player', ra.name + ' hit for ' + pa.avgHit + ' on ' + kill.name + ' against ' + ra.avgHit + ' for comparable players', x));
-        if (typeof pa.resistPercent === 'number' && typeof ra.resistPercent === 'number' && pa.resistPercent - ra.resistPercent >= T.resistGap)
-            f.push(finding('resist_high', 'minor', 'player', pa.resistPercent + '% of ' + ra.name + ' casts were resisted or partially resisted on ' + kill.name + ' against ' + ra.resistPercent + '% for comparable players; check spell hit and Curse of the Elements', x));
     });
     return f;
 }
@@ -565,27 +537,6 @@ const STAT_LABEL = {
     spellCrit: 'spell crit rating', meleeCrit: 'melee crit rating', rangedCrit: 'ranged crit rating', spellHaste: 'spell haste rating',
     meleeHaste: 'haste rating', spellHit: 'spell hit rating', meleeHit: 'hit rating', mp5: 'mana per five',
 };
-// Minor 15: the player's rating comes from CombatantInfo where WCL reports it (pick(reported, ...)
-// in playerStats), while reference players (no CombatantInfo query, see referenceSummary) are
-// gear-only. Measured on the fixture: 222 reported vs 208 gear-only spell crit, ~7%. Spec 4.8
-// sanctions comparing them (same units, gear-derived on both sides in the end) but with
-// statSecondaryRatio at 0.85 a systematic 7% offset eats a meaningful share of the 15% trigger
-// margin, so a borderline `stat_low` minor could be an artifact of the data source rather than gear.
-function statFindings(kill, role) {
-    const f = [], ref = kill.reference, me = kill.me.stats;
-    const spec = ROLE_STATS[role];
-    if (!ref || !ref.stats || !me || !spec) return f;
-    const cmp = (key, ratio, sev) => {
-        const p = me[key], r = ref.stats[key];
-        if (typeof p !== 'number' || typeof r !== 'number' || !r) return;
-        const label = STAT_LABEL[key];
-        if (p < ratio * r) f.push(finding('stat_low', sev, 'player', label.charAt(0).toUpperCase() + label.slice(1) + ' ' + p + ' against ' + r + ' for comparable players', { stat: key, value: p, reference: r }));
-    };
-    cmp(spec.primary, T.statPrimaryRatio, 'major');
-    spec.secondary.forEach(k => cmp(k, T.statSecondaryRatio, 'minor'));
-    return f;
-}
-
 function consumableFindings(kill) {
     const f = [], me = kill.me, ref = kill.reference;
     if (me.consumablesKnown) {
@@ -666,7 +617,14 @@ function mergeFindings(kills, gear) {
     live.forEach(k => k.findings.forEach(fd => {
         const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
         const cur = byId.get(id);
-        if (cur) { cur.count++; cur.bosses.push(k.name); }
+        if (cur) {
+            cur.count++; cur.bosses.push(k.name);
+            // v3: several pulls can carry the same finding with different shares (the accounting
+            // is per-pull); the pull whose share is largest is the one worth reporting the numbers
+            // from, so its text/numbers/measuredOn replace whatever was kept before, and the larger
+            // share itself is what survives the merge.
+            if ((fd.share || 0) > (cur.share || 0)) { Object.assign(cur, fd); cur.measuredOn = label(k); }
+        }
         // Important 2: the merged record keeps the first-seen finding's text and numbers verbatim
         // (they are one boss's real measurement), while `bosses` can list several. `measuredOn`
         // records which boss the kept numbers actually came from — a live report once attributed
@@ -677,20 +635,13 @@ function mergeFindings(kills, gear) {
     }));
     let merged = Array.from(byId.values());
     // Minor 12: append the "seen on N of M bosses" count — naming the boss the numbers were
-    // measured on, per Important 2 — before folding stat_low into hit_low below, so the count
-    // qualifies hit_low's own sentence rather than trailing after the appended stat numbers
-    // ("...crit rating 222 against 345 for comparable players" reading as the qualified clause).
+    // measured on, per Important 2 — as its own clause.
     merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' ' + unit + ')'; });
-    const hitLow = merged.find(f => f.key === 'hit_low');
-    const statLow = merged.filter(f => f.key === 'stat_low');
-    if (hitLow && statLow.length) {
-        hitLow.text += '. ' + statLow.map(s => s.text).join('; ');
-        hitLow.stats = statLow.map(s => ({ stat: s.stat, value: s.value, reference: s.reference }));
-        merged = merged.filter(f => f.key !== 'stat_low');
-    }
     merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null }, g)));
-    merged.sort((a, b) => (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count) || ((b.share || 0) - (a.share || 0)));
-    return merged.slice(0, 6);
+    // v3: every finding is kept (no cap), ordered by the accounting's own share first — the
+    // number that says how much of the gap it actually explains — then severity, then count.
+    merged.sort((a, b) => ((b.share || 0) - (a.share || 0)) || (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count));
+    return merged;
 }
 
 // Minor 8: with a full roster of kills, listing the same three lines per kill in order and
@@ -732,7 +683,22 @@ function positives(kills, role) {
         else if (statKills.length) out.push((label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on ' + statKills.length + ' of ' + n + ' ' + unit);
     }
 
-    return out.slice(0, 2);
+    // v3: a gap input where the player is consistently ahead of the reference (a negative share:
+    // the accounting is signed so the player's side of a comparison can come out on top too) is a
+    // positive worth calling out, not just silence where a finding would otherwise be.
+    const AHEAD_LABEL = { own_activity: 'activity', cast_pacing: 'cast pacing', power_gear: 'spell power from gear', crit_gear: 'crit from gear', power_consumables: 'consumables' };
+    const gapKills = live.filter(k => k.gap);
+    if (gapKills.length) {
+        Object.keys(AHEAD_LABEL).forEach(key => {
+            const shares = gapKills.map(k => {
+                const inp = ['casts', 'dmg', 'crit'].reduce((found, fk) => found || (k.gap.factors[fk] && k.gap.factors[fk].inputs.find(i => i.key === key)), null);
+                return inp ? inp.share : null;
+            });
+            if (shares.every(s => typeof s === 'number' && s <= -3)) out.push('You are ahead of comparable players on ' + AHEAD_LABEL[key]);
+        });
+    }
+
+    return out.slice(0, 4);
 }
 
 function buildFacts(o) {
@@ -778,9 +744,13 @@ function buildFacts(o) {
 }
 
 function killFindings(kill, player) {
-    let f = uptimeFindings(kill).concat(rotationFindings(kill), damageFindings(kill), statFindings(kill, player.role), consumableFindings(kill), debuffFindings(kill, player));
+    const hitCap = kill.hitCap;
+    let f = uptimeFindings(kill).concat(
+        GAP.gapFindings(kill, player, T),
+        GAP.statPriorityFindings({ me: kill.me.stats, reference: kill.reference && kill.reference.stats, spec: player.spec, role: player.role, hitCap, boss: kill.name }),
+        rotationFindings(kill), consumableFindings(kill), debuffFindings(kill, player));
     if (!kill.reference && kill.referenceNote) f.push(finding('no_reference', 'info', 'player', kill.referenceNote + ' on ' + kill.name));
-    return f;
+    return f.map(x => Object.assign({ owner: x.owner || (x.scope === 'group' ? 'group' : 'player'), share: typeof x.share === 'number' ? x.share : 0 }, x));
 }
 
 function killFacts(input) {
@@ -790,7 +760,7 @@ function killFacts(input) {
     // the pre-existing single-rank call shape.
     const killsOnBoss = typeof input.killsOnBoss === 'number' ? input.killsOnBoss : 1;
     const killIndex = typeof input.killIndex === 'number' ? input.killIndex : 1;
-    const fc = fightContext(context, player.name, player.role, reference ? reference.durationSec : null, player.metric);
+    const fc = fightContext(context, player.name, player.role, reference ? (reference.fastestDurationSec || reference.durationSec) : null, player.metric, name);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
     const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
@@ -814,6 +784,7 @@ function killFacts(input) {
         wclUrl: 'https://classic.warcraftlogs.com/reports/' + rank.report.code + '#fight=' + rank.report.fightID + '&source=' + sourceId,
         fight: fc.fight, debuffs: debuffFacts(context.debuffs, player.schools), me,
         reference: reference || null, referenceNote: referenceNote || null, findings: [], gap: null,
+        hitCap: typeof input.hitCap === 'number' ? input.hitCap : null,
     };
     kill.gap = kill.fight.badPull ? null : GAP.explainGap(kill, player);
     kill.findings = killFindings(kill, player);
@@ -1127,6 +1098,8 @@ async function fetchFeedback(query, o) {
     // Minor 11: `metric` rides along on `player` so fightContext (via killFacts) can label its
     // `me.amount` field correctly instead of always calling it "dps".
     const player = { name: profile.name, classToken: id.class, spec: id.spec, role, schools: schoolsOf(id.class, id.spec, role), metric: profile.parses.metric };
+    const th = V.parseThresholds(thresholds || {});
+    const hitCap = (role === 'caster' || role === 'healer') ? th.spellHit : th.meleeHit;
     const er = await query(encounterRankQuery(killed.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
     const ch = er && er.characterData && er.characterData.character;
     if (!ch) return null;
@@ -1173,7 +1146,7 @@ async function fetchFeedback(query, o) {
                 if (!got) continue;
                 const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
                     : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
-                out.push(killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex }));
+                out.push(killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex, hitCap }));
             } catch (err) {
                 if (err && err.code === 'RATE_LIMIT') throw err;
                 out.push({ dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' });
@@ -1188,4 +1161,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

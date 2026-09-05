@@ -139,7 +139,7 @@ test('fightContext on Kaz\'rogal: an 1131 s pull where all 19 DPS parsed under 5
     const fc = F.fightContext(FX.kills['50620'].context, 'Rotminster', 'caster', 93);
     assert.strictEqual(fc.fight.durationSec, 1130.6);
     assert.strictEqual(fc.fight.badPull, true);
-    assert.ok(/1131s against a typical 93s/.test(fc.fight.badPullReason), fc.fight.badPullReason);
+    assert.ok(/1131s against the fastest reference kills at 93s/.test(fc.fight.badPullReason), fc.fight.badPullReason);
     assert.ok(/19 of 19 dps in the raid parsed under 5/.test(fc.fight.badPullReason), fc.fight.badPullReason);
     assert.strictEqual(fc.me.activePercent, 16.7);
     assert.strictEqual(fc.me.potionUse, 2);
@@ -445,26 +445,20 @@ test('killFacts on Anetheron: identity, url, me, and the player-side findings', 
     assert.strictEqual(k.me.stats.spellCrit, 222);
     assert.deepStrictEqual(k.me.partyBuffs, ['Arcane Brilliance', 'Greater Blessing of Kings', 'Greater Blessing of Wisdom']);
     const keys = keysOf(k.findings);
-    assert.ok(keys.includes('crit_low'), keys.join());
-    assert.ok(keys.includes('hit_low'), keys.join());
-    assert.ok(keys.includes('stat_low'), keys.join());
-    assert.ok(keys.includes('casts_low'), keys.join());
     assert.ok(keys.includes('ability_extra'), keys.join());
     assert.ok(!keys.includes('active_low') && !keys.includes('died') && !keys.includes('ability_unused'), keys.join());
-    const crit = k.findings.find(f => f.key === 'crit_low');
-    assert.strictEqual(crit.severity, 'major');
-    assert.strictEqual(crit.scope, 'player');
-    assert.strictEqual(crit.ability, 'Shadow Bolt');
-    assert.ok(/26\.2%/.test(crit.text) && /58\.8%/.test(crit.text) && /Anetheron/.test(crit.text), crit.text);
-    const hit = k.findings.find(f => f.key === 'hit_low');
-    assert.ok(/3087/.test(hit.text) && /4215/.test(hit.text), hit.text);
-    const stat = k.findings.find(f => f.key === 'stat_low');
-    assert.deepStrictEqual([stat.stat, stat.value, stat.reference, stat.severity], ['spellCrit', 222, 345, 'minor']);
+    assert.ok(!keys.some(x => ['crit_low', 'hit_low', 'resist_high', 'stat_low', 'casts_low', 'active_low'].includes(x)), 'outcome findings are gone');
+    const gapKeys = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_buffs'];
+    const gapF = k.findings.filter(f => gapKeys.includes(f.key));
+    assert.ok(gapF.length >= 3, 'the accounting produces findings on Anetheron: ' + keys.join());
+    assert.ok(gapF.every(f => ['player', 'group', 'raid'].includes(f.owner) && f.share >= 3 && /Worth \d+% of the gap/.test(f.text)), JSON.stringify(gapF));
+    assert.ok(!keys.includes('crit_luck'));
+    const gs = k.findings.filter(f => f.key === 'gear_stat');
+    const order = ['spellHit', 'spellDamage', 'spellCrit', 'spellHaste'];
+    assert.ok(gs.every(f => order.includes(f.stat)) && gs.map(f => order.indexOf(f.stat)).every((v, i, a) => i === 0 || a[i - 1] < v), 'gear stats in priority order: ' + gs.map(f => f.stat).join());
     const extra = k.findings.find(f => f.key === 'ability_extra');
     assert.strictEqual(extra.ability, 'Immolate');
     assert.ok(/5 times/.test(extra.text), extra.text);
-    const casts = k.findings.find(f => f.key === 'casts_low');
-    assert.ok(/25\.2/.test(casts.text) && /30\.5/.test(casts.text), casts.text);
 });
 test('killFacts: killsOnBoss and killIndex reach the kill object for the facts sheet (task-rep-kill)', () => {
     assert.strictEqual(killFor(50619).killsOnBoss, 1, 'every existing caller in this file omits it: defaults to 1, the true count for a single-rank fixture kill');
@@ -481,8 +475,9 @@ test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unus
     assert.strictEqual(k.me.consumablesKnown, false);
     assert.deepStrictEqual(k.me.consumablesAtPull, []);
     assert.strictEqual(k.me.stats, null);   // no CombatantInfo and no gear on this kill
+    assert.strictEqual(k.gap, null, 'no accounting on a bad pull');
+    assert.ok(/1131s/.test(k.fight.badPullReason) && /fastest reference kills/.test(k.fight.badPullReason) && /trash waves/.test(k.fight.badPullReason), k.fight.badPullReason);
     const keys = keysOf(k.findings);
-    assert.ok(keys.includes('active_low'), keys.join());
     assert.ok(k.findings.some(f => f.key === 'ability_unused' && f.ability === 'Curse of Doom'), keys.join());
 });
 test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage share is still "ability_unused" (Minor 20)', () => {
@@ -506,34 +501,11 @@ test('uptimeFindings: a death before 90% of the fight and active time under 85% 
     const base = killFor(50619);
     const dead = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 40, by: 'Carrion Swarm' }, activePercent: 70 }) });
     const f = F.uptimeFindings(dead);
-    assert.deepStrictEqual(keysOf(f), ['active_low', 'died']);
+    assert.ok(!f.some(x => x.key === 'active_low'), 'activity is an accounting input now');
     assert.ok(f.every(x => x.severity === 'major'));
-    assert.ok(/40s of 131s/.test(f[1].text) && /Carrion Swarm/.test(f[1].text), f[1].text);
+    assert.ok(/40s of 131s/.test(f[0].text) && /Carrion Swarm/.test(f[0].text), f[0].text);
     const late = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 125, by: null } }) });
     assert.ok(!keysOf(F.uptimeFindings(late)).includes('died'), 'a death in the last 10% is not a finding');
-});
-test('statFindings: primary stat under 90% is major, nothing without a reference', () => {
-    const base = killFor(50619);
-    const weak = Object.assign({}, base, { me: Object.assign({}, base.me, { stats: Object.assign({}, base.me.stats, { spellDamage: 800 }) }) });
-    const f = F.statFindings(weak, 'caster');
-    const sp = f.find(x => x.stat === 'spellDamage');
-    assert.strictEqual(sp.severity, 'major');
-    assert.ok(/Spell power 800 against 1001/.test(sp.text), sp.text);
-    assert.deepStrictEqual(F.statFindings(Object.assign({}, base, { reference: null }), 'caster'), []);
-});
-test('damageFindings: crit/hit/resist need at least T.minAbilityHits casts on both sides (Important 3)', () => {
-    const mk = (hits, refHits) => ({
-        name: 'TestBoss',
-        me: { abilities: [{ name: 'Shadowburn', share: 40, avgHit: 500, avgCrit: 1000, critPercent: 50, resistPercent: 0, hits }] },
-        reference: { abilities: [{ name: 'Shadowburn', share: 40, avgHit: 1000, avgCrit: 2000, critPercent: 100, resistPercent: 0, hits: refHits }] },
-    });
-    // 1 of 2 casts each side, exactly the "Shadowburn is underperforming: crit 50% vs 100%" case
-    // that reproduced live from a two-cast sample: must not produce a finding.
-    assert.deepStrictEqual(F.damageFindings(mk(1, 2)), []);
-    assert.deepStrictEqual(F.damageFindings(mk(12, 3)), [], 'the reference side also needs the minimum sample');
-    const big = F.damageFindings(mk(12, 12));
-    assert.ok(big.some(f => f.key === 'crit_low'), JSON.stringify(big));
-    assert.ok(big.some(f => f.key === 'hit_low'), JSON.stringify(big));
 });
 
 // --- Task 6: consumables, buffs, debuffs, gear, merge, facts
@@ -577,9 +549,6 @@ test('consumableFindings / uptimeFindings (Minor 7): a boss name already startin
     const lurker = Object.assign({}, base, { name: 'The Lurker Below', me: Object.assign({}, base.me, { flask: null, battleElixir: null, guardianElixir: null, food: null, consumablesAtPull: [] }) });
     const noFlask = F.consumableFindings(lurker).find(x => x.key === 'no_flask_or_elixirs');
     assert.ok(noFlask && /at The Lurker Below pull/.test(noFlask.text) && !/at the The Lurker Below/.test(noFlask.text), noFlask && noFlask.text);
-    const lurkerUptime = Object.assign({}, base, { name: 'The Lurker Below', me: Object.assign({}, base.me, { activePercent: 70 }) });
-    const active = F.uptimeFindings(lurkerUptime).find(x => x.key === 'active_low');
-    assert.ok(active && /of The Lurker Below fight/.test(active.text) && !/of the The Lurker Below/.test(active.text), active && active.text);
     // Anetheron itself does not start with "the": the existing wording is untouched.
     const anet = F.consumableFindings(killFor(50619)).find(x => x.key === 'wrong_elixir');
     assert.ok(anet && /at the Anetheron pull/.test(anet.text), anet && anet.text);
@@ -672,18 +641,13 @@ test('gearFindings: vetting rules that fail or warn become gear_ findings', () =
     assert.ok(!f.some(x => x.key === 'gear_parse' || x.key === 'gear_stale'));
     assert.deepStrictEqual(F.gearFindings(rotProfile(), {}, Date.now()), [], 'no gear data, no gear findings');
 });
-test('mergeFindings: bad pulls dropped, stat_low folded into hit_low, ordered, capped at 6', () => {
+test('mergeFindings: bad pulls dropped, ordered by share then severity, uncapped', () => {
     const kills = [killFor(50619), killFor(50620)];
     const m = F.mergeFindings(kills, []);
-    assert.ok(m.length <= 6);
     assert.ok(!m.some(f => /Kaz'rogal/.test(f.text)), 'nothing from the bad pull');
-    assert.ok(!m.some(f => f.key === 'stat_low'));
-    const hit = m.find(f => f.key === 'hit_low');
-    assert.ok(hit && /Spell crit rating 222 against 345/.test(hit.text), hit && hit.text);
-    assert.deepStrictEqual(hit.stats, [{ stat: 'spellCrit', value: 222, reference: 345 }]);
-    assert.strictEqual(m[0].severity, 'major');
-    const sev = m.map(f => f.severity);
-    assert.ok(sev.indexOf('minor') === -1 || sev.indexOf('minor') > sev.lastIndexOf('major'), sev.join());
+    assert.ok(!m.some(f => f.key === 'stat_low' || f.key === 'hit_low'));
+    assert.ok(m.every((f, i) => i === 0 || (m[i - 1].share || 0) >= (f.share || 0)), 'share descending');
+    assert.ok(m.length >= 7, 'no cap at 6: ' + m.length);
     const withGear = F.mergeFindings(kills, [F.finding('gear_sockets', 'major', 'player', 'Empty sockets: 3')]);
     assert.ok(withGear.some(f => f.key === 'gear_sockets'));
 });
@@ -691,7 +655,7 @@ test('mergeFindings: the same finding on two bosses is one line with a count, na
     const a = killFor(50619);
     const b = Object.assign({}, a, { name: 'Archimonde' });
     const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'crit_low');
+    const crit = m.find(f => f.key === 'rotation');
     assert.strictEqual(crit.count, 2);
     // Important 2: `bosses` names both, but the kept text and numbers are Anetheron's (first
     // seen) verbatim — `measuredOn` records that explicitly instead of leaving it to the model.
@@ -705,7 +669,7 @@ test('mergeFindings (Minor 6): a multi-pull boss with no date prints just the bo
     const a = Object.assign({}, killFor(50619), { date: null });
     const b = Object.assign({}, killFor(50619), { date: null });
     const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'crit_low');
+    const crit = m.find(f => f.key === 'rotation');
     assert.strictEqual(crit.measuredOn, 'Anetheron', 'no date on the kill: the label falls back to the bare boss name');
     assert.ok(!/null/.test(crit.text), crit.text);
 });
@@ -713,7 +677,7 @@ test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls a
     const a = killFor(50619);
     const b = Object.assign({}, a, { date: '2026-09-01' });
     const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'crit_low');
+    const crit = m.find(f => f.key === 'rotation');
     assert.strictEqual(crit.count, 2);
     assert.strictEqual(crit.measuredOn, 'Anetheron (' + a.date + ')');
     assert.ok(crit.text.endsWith(' (numbers measured on Anetheron (' + a.date + '); seen on 2 of 2 pulls)'), crit.text);
@@ -732,7 +696,7 @@ test('buildFacts: the sheet the model reads', () => {
     assert.strictEqual(facts.kills.length, 2);
     assert.deepStrictEqual(facts.overall.badPulls.map(b => b.name), ["Kaz'rogal"]);
     assert.ok(/19 of 19/.test(facts.overall.badPulls[0].reason));
-    assert.ok(facts.overall.findings.length >= 3 && facts.overall.findings.length <= 6);
+    assert.ok(facts.overall.findings.length >= 3, 'no cap at 6 any more: ' + facts.overall.findings.length);
     assert.ok(facts.overall.positives.includes('Active 91.6% on Anetheron'), facts.overall.positives.join(' | '));
     assert.ok(facts.overall.positives.includes('No death on Anetheron'));
     assert.strictEqual(facts.limited, false);
@@ -747,7 +711,7 @@ test('positives: dedupes and aggregates across a full roster instead of repeatin
     });
     const kills = Array.from({ length: 8 }, (_, i) => mk('Boss' + i, i < 2 ? { me: { activePercent: 60, died: { atSec: 5 } } } : null));
     const out = F.positives(kills, 'caster');
-    assert.ok(out.length <= 2, 'spec 5.1 wants one or two lines, not one per kind that happens to be true: ' + out.join(' | '));
+    assert.ok(out.length <= 4, 'spec 5.1 wants a short list, not one per kind that happens to be true: ' + out.join(' | '));
     assert.strictEqual(new Set(out).size, out.length, 'no repeated lines');
     assert.ok(out.some(l => /6 of 8 bosses/.test(l)), out.join(' | '));
     assert.ok(!out.some(l => /Boss2|Boss3|Boss4/.test(l)), 'aggregated, not one line per boss: ' + out.join(' | '));
@@ -1158,7 +1122,7 @@ test('fetchFeedback: a healer gets the limited sheet with no reference queries',
     assert.strictEqual(facts.limited, true);
     assert.ok(facts.kills.every(k => k.reference === null));
     assert.strictEqual(s.calls.filter(c => c.q.includes('characterRankings(')).length, 0);
-    assert.ok(!facts.overall.findings.some(f => ['crit_low', 'hit_low', 'stat_low', 'ability_unused'].includes(f.key)));
+    assert.ok(!facts.overall.findings.some(f => ['crit_low', 'hit_low', 'stat_low', 'ability_unused', 'power_gear', 'crit_gear'].includes(f.key)));
 });
 test('fetchFeedback: no parses gives null; WCL errors propagate', async () => {
     const s = stubQuery();
@@ -1333,6 +1297,23 @@ test('buildPrompt (v2 §3): "comparable players" are defined as the middle of th
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const p = F.buildPrompt(facts, RULES);
     assert.ok(/middle of the leaderboard/.test(p.system) && /reference\.topDps/.test(p.system), p.system);
+});
+
+test('rotationFindings (v3): a utility cast the reference never makes is an extra when the player makes it once a minute', () => {
+    const k = killFor(50619);
+    const casts = Object.assign({}, k.me.casts, { 'Drain Soul': 7 });
+    const f = F.rotationFindings(Object.assign({}, k, { me: Object.assign({}, k.me, { casts }) }));
+    const x = f.find(y => y.key === 'ability_extra' && y.ability === 'Drain Soul');
+    assert.ok(x && /Cast Drain Soul 7 times on Anetheron; comparable players do not use it/.test(x.text), x && x.text);
+    const lt = f.find(y => y.key === 'ability_extra' && y.ability === 'Life Tap');
+    assert.strictEqual(lt, undefined, 'the reference casts Life Tap too');
+});
+test('positives (v3): an input where the player is ahead of the reference is a positive', () => {
+    const k = killFor(50619);
+    const g = JSON.parse(JSON.stringify(k.gap));
+    g.factors.casts.inputs.find(i => i.key === 'own_activity').share = -5;
+    const pos = F.positives([Object.assign({}, k, { gap: g })], 'caster');
+    assert.ok(pos.some(p => /ahead of comparable players on activity/.test(p)), pos.join(' | '));
 });
 
 Promise.all(pending).then(() => {
