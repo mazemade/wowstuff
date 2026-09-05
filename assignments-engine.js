@@ -376,14 +376,15 @@
         // A maintained 5-stack debuff, not passive coverage. +2% frost crit per stack.
         // Does not conflict with Improved Scorch — different schools entirely.
         { id: 'wc', name: "Winter's Chill", category: 'debuffs', class: 'MAGE', requireSpec: 'Frost', requireTalent: 'wintersChill' },
-        // Strongest applies, they do not stack. Talented, Demo Shout and CoW tie at -420;
-        // untalented, CoW (-350) actually beats Demo Shout (-300). improvedBy now makes the
-        // ordering among warriors talent-aware, but the choice between providers — Demo
-        // Shout vs Curse of Weakness vs Demo Roar vs Screech — is still a spec-level guess
-        // the override exists to correct.
+        // Strongest applies, they do not stack. Curse of Weakness is deliberately NOT a
+        // provider here: a warlock's curse slot is worth far more spent on Elements, Reck,
+        // Agony or Doom than on -350 melee AP the boss will out-scale anyway, and listing it
+        // only ever tempted the assigner into trading a real curse for it. With it gone a
+        // comp holding none of these three simply reads as missing, which is the truth.
+        // improvedBy keeps the ordering among warriors talent-aware; the choice between
+        // providers is still a spec-level guess the override exists to correct.
         { id: 'ap', name: 'Attack power reduction', category: 'debuffs', providers: [
             { name: 'Demoralizing Shout', class: 'WARRIOR', preferSpecs: ['Arms', 'Fury'], improvedBy: 'impDemoShout' },
-            { name: 'Curse of Weakness', class: 'WARLOCK', preferSpecs: [], group: 'curse' },
             { name: 'Demoralizing Roar', class: 'DRUID', preferSpecs: ['Guardian', 'Feral'], improvedBy: 'feralAggression' },
             { name: 'Screech (pet)', class: 'HUNTER', preferSpecs: ['Beast Mastery'] },
         ] },
@@ -609,9 +610,15 @@
             uncovered.missing.push({ id: entry.id, name: entry.name });
         });
 
-        // Spare warlocks keep a personal DPS curse
+        // Warlocks left without a curse take a personal DPS curse, in order: the raid runs
+        // Elements, then Recklessness, then Agony, then Doom. Only one of each can sit on a
+        // target, so a fifth warlock has nothing left to cast and gets no row rather than a
+        // duty that cannot land. These are not tracked (no TRACK_AURAS entry) — a DPS curse
+        // is part of the caster's own rotation, not something to police uptime on.
+        const PERSONAL_CURSES = ['Curse of Agony', 'Curse of Doom'];
         roster.filter(p => p.class === 'WARLOCK' && !groupUsed['curse:' + p.name])
-            .forEach(p => duties.push({ id: 'curse:' + p.name, name: 'Curse of Doom/Agony (personal)', category: 'debuffs', player: p.name }));
+            .slice(0, PERSONAL_CURSES.length)
+            .forEach((p, i) => duties.push({ id: 'curse:' + p.name, name: PERSONAL_CURSES[i], category: 'debuffs', player: p.name }));
 
         // Innervates: one row per druid; last druid (or a lone druid) reserves for healers
         const druids = roster.filter(p => p.class === 'DRUID');
@@ -907,7 +914,6 @@
         'Improved Scorch':           { auras: 'Fire Vulnerability' },
         "Winter's Chill":            { auras: "Winter's Chill" },
         'Demoralizing Shout':        { auras: 'Demoralizing Shout' },
-        'Curse of Weakness':         { auras: 'Curse of Weakness' },
         'Demoralizing Roar':         { auras: 'Demoralizing Roar' },
         'Screech (pet)':             { auras: 'Screech', noattrib: true },
         'Thunder Clap':              { auras: 'Thunder Clap' },

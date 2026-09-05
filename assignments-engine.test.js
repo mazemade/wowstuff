@@ -190,12 +190,26 @@ test('autoAssign: full comp covers all core debuffs with right players', () => {
     assert.strictEqual(duty(r, 'ap').player, 'Smashy');        // arms/fury preferred over tank
     assert.strictEqual(r.uncovered.missing.length, 0);
 });
-test('autoAssign: one curse per warlock, spare lock gets personal curse', () => {
+test('autoAssign: one curse per warlock, the third lock takes Curse of Agony', () => {
     const r = E.autoAssign(fullRoster(), {});
     const curseHolders = new Set(r.duties.filter(d => ['coe', 'cor'].includes(d.id)).map(d => d.player));
     assert.strictEqual(curseHolders.size, 2);
     const spare = ['Bob', 'Grimshade', 'Doomlord'].find(n => !curseHolders.has(n));
-    assert.ok(duty(r, 'curse:' + spare));
+    assert.strictEqual(duty(r, 'curse:' + spare).name, 'Curse of Agony');
+});
+test('autoAssign: curses run elements, reck, agony, doom in roster order', () => {
+    const locks = ['Alock', 'Block', 'Clock', 'Dlock'].map(n => P(n, 'WARLOCK', 'Affliction'));
+    const r = E.autoAssign(locks, {});
+    assert.strictEqual(duty(r, 'coe').player, 'Alock');
+    assert.strictEqual(duty(r, 'cor').player, 'Block');
+    assert.strictEqual(duty(r, 'curse:Clock').name, 'Curse of Agony');
+    assert.strictEqual(duty(r, 'curse:Dlock').name, 'Curse of Doom');
+});
+test('autoAssign: a fifth warlock gets no curse row, all four are taken', () => {
+    const locks = ['Alock', 'Block', 'Clock', 'Dlock', 'Elock'].map(n => P(n, 'WARLOCK', 'Affliction'));
+    const r = E.autoAssign(locks, {});
+    assert.ok(!duty(r, 'curse:Elock'), 'only four curses exist, the fifth lock has none left');
+    assert.strictEqual(r.duties.filter(d => d.id.startsWith('curse:')).length, 2);
 });
 test('autoAssign: no paladins puts judgements in missing, joc is not applicable', () => {
     const roster = fullRoster().filter(p => p.class !== 'PALADIN');
@@ -213,13 +227,18 @@ test('autoAssign: with two paladins including a ret, both judgements are covered
     assert.ok(!r.uncovered.missing.some(u => u.id === 'jow'));
     assert.ok(!r.uncovered.notApplicable.some(u => u.id === 'joc'));
 });
-test('autoAssign: no warriors falls back demo shout to Curse of Weakness', () => {
+test('autoAssign: no warriors falls demo shout through to Demoralizing Roar', () => {
     const roster = fullRoster().filter(p => p.class !== 'WARRIOR');
     const r = E.autoAssign(roster, {});
     const demo = duty(r, 'ap');
-    assert.strictEqual(demo.name, 'Curse of Weakness');
-    assert.strictEqual(r.duties.filter(d => d.player === demo.player && ['coe', 'cor', 'ap'].includes(d.id)).length, 1);
+    assert.strictEqual(demo.name, 'Demoralizing Roar');
     assert.strictEqual(duty(r, 'armor').player, 'Stabby'); // rogue still covers armor with no warriors
+});
+test('autoAssign: a warlock is never pulled onto attack power reduction', () => {
+    const locks = ['Alock', 'Block', 'Clock', 'Dlock'].map(n => P(n, 'WARLOCK', 'Affliction'));
+    const r = E.autoAssign(locks, {});
+    assert.ok(!duty(r, 'ap'), 'no warlock can reduce attack power');
+    assert.ok(r.uncovered.missing.some(u => u.id === 'ap'));
 });
 test('autoAssign: manual override wins and displaced lock still gets a curse duty', () => {
     const r = E.autoAssign(fullRoster(), { coe: { player: 'Grimshade' } });
@@ -454,14 +473,15 @@ test('autoAssign: override with only a player key still gets its default target'
     assert.strictEqual(d.target, 'Frostina'); // default target expression still applies
 });
 
-// --- Task 9: whole-branch review fixes — demo override to a warlock respects curse exclusivity ---
-test('autoAssign: overriding demo to a warlock records Curse of Weakness and skips the personal curse', () => {
+// --- Task 9: whole-branch review fixes — demo override to an off-list class ---
+// No warlock provider survives on the ap row, so an override onto one is an off-list
+// pick: it takes the first provider's label and costs the warlock no curse.
+test('autoAssign: overriding demo to a warlock is off-list and leaves their curse alone', () => {
     const r = E.autoAssign(fullRoster(), { ap: { player: 'Grimshade' } });
     const demo = duty(r, 'ap');
-    assert.strictEqual(demo.name, 'Curse of Weakness');
+    assert.strictEqual(demo.name, 'Demoralizing Shout');
     assert.strictEqual(demo.player, 'Grimshade');
-    assert.ok(!r.duties.some(d => d.id === 'curse:Grimshade'));
-    assert.strictEqual(r.duties.filter(d => d.player === 'Grimshade' && ['coe', 'cor', 'ap'].includes(d.id)).length, 1);
+    assert.ok(r.duties.some(d => d.player === 'Grimshade' && (d.id === 'cor' || d.id === 'curse:Grimshade')));
 });
 test('autoAssign: overriding demo to a warrior is untouched, still Demoralizing Shout', () => {
     const r = E.autoAssign(fullRoster(), { ap: { player: 'Thunderfist' } });
@@ -550,13 +570,15 @@ test('buildAddonWhispers: mark tokens survive verbatim', () => {
     assert.ok(E.buildAddonWhispers(roster, sheet).includes('Polymorph on {moon}'));
 });
 test('buildAddonWhispers: duty text containing ; / and parentheses survives intact', () => {
-    const { roster, sheet } = sampleSheet();
-    const lines = E.buildAddonWhispers(roster, sheet).split('\n').slice(1);
-    const personal = lines.find(l => l.includes('Curse of Doom/Agony (personal)'));
-    assert.ok(personal, 'expected a spare warlock to carry the personal curse');
+    const sheet = {
+        duties: [{ id: 'odd', name: 'Curse of Doom/Agony (personal); hold it', category: 'debuffs', player: 'Bob' }],
+        uncovered: [], passives: [], cc: [],
+    };
+    const line = E.buildAddonWhispers([], sheet).split('\n').slice(1)[0];
+    assert.ok(line.includes('Curse of Doom/Agony (personal); hold it'), line);
     // The name/body split is on the FIRST '=', so a body may contain anything else.
-    const name = personal.slice(0, personal.indexOf('='));
-    assert.ok(name.length > 0 && name.indexOf(' ') === -1);
+    const name = line.slice(0, line.indexOf('='));
+    assert.strictEqual(name, 'Bob');
 });
 test('buildAddonWhispers: a heavily loaded player splits across lines, all within 255', () => {
     const sheet = {
@@ -658,14 +680,15 @@ test('buildAddonWhispers: noattrib flag rides on Sunder Armor', () => {
     assert.ok(lines.includes('@T D|armor|Sunder Armor|Sunder Armor|Tank|noattrib'));
 });
 test('buildAddonWhispers: unassigned/untrackable duties emit no @T line', () => {
-    // Personal curses ('Curse of Doom/Agony (personal)') and cooldowns must not appear.
+    // Personal DPS curses (Curse of Agony/Doom) and cooldowns must not appear.
     const roster = [
         { name: 'Zug', class: 'WARLOCK', spec: 'Affliction', flags: [] },
         { name: 'Bob', class: 'WARLOCK', spec: 'Destruction', flags: [] },
     ];
     const sheet = E.autoAssign(roster);
     const tLines = E.buildAddonWhispers(roster, sheet, null).split('\n').filter(l => l.startsWith('@T'));
-    assert.ok(!tLines.some(l => l.includes('personal')), tLines.join('\n'));
+    assert.ok(!tLines.some(l => l.includes('Curse of Agony')), tLines.join('\n'));
+    assert.ok(!tLines.some(l => l.includes('Curse of Doom')), tLines.join('\n'));
     assert.ok(!tLines.some(l => l.includes('Soulstone')), tLines.join('\n'));
 });
 test('buildAddonWhispers: shaman group gets earth/water totem @T B lines', () => {
@@ -823,10 +846,10 @@ test('autoAssign: an entry-level caution reaches the duty even on a providers en
 test('autoAssign: an override cannot give one warlock two curses', () => {
     const locks = [P('Bob', 'WARLOCK', 'Affliction'), P('Grimshade', 'WARLOCK', 'Destruction'),
                    P('Doomlord', 'WARLOCK', 'Demonology')];
-    const r = E.autoAssign(locks, { cor: { player: 'Grimshade' }, ap: { player: 'Grimshade' } });
-    assert.strictEqual(duty(r, 'cor').player, 'Grimshade');   // first in catalog order, honoured
-    assert.notStrictEqual(duty(r, 'ap').player, 'Grimshade'); // second is refused, not stacked
-    const curseHolders = ['coe', 'cor', 'ap']
+    const r = E.autoAssign(locks, { coe: { player: 'Grimshade' }, cor: { player: 'Grimshade' } });
+    assert.strictEqual(duty(r, 'coe').player, 'Grimshade');   // first in catalog order, honoured
+    assert.notStrictEqual(duty(r, 'cor').player, 'Grimshade'); // second is refused, not stacked
+    const curseHolders = ['coe', 'cor']
         .map(id => duty(r, id))
         .filter(d => d && d.player === 'Grimshade');
     assert.strictEqual(curseHolders.length, 1);
@@ -1877,14 +1900,12 @@ test('autoAssign: a rogue with an unknown armor talent protects the row even wit
     assert.strictEqual(duty(r, 'armor').player, 'Aunk');
     assert.strictEqual(duty(r, 'armor').qualifier, 'talent unknown');
 });
-test('autoAssign: an ap warrior known to lack imp demo shout loses the row to curse of weakness', () => {
-    // THREE locks: coe and cor each burn one via the curse-exclusivity group before the ap
-    // row runs, so a third is needed for Curse of Weakness to have an eligible caster.
-    function dslock(name) { return P(name, 'WARLOCK', 'Affliction'); }
+test('autoAssign: an ap warrior known to lack imp demo shout loses the row to the druid', () => {
     const war = P('Awar', 'WARRIOR', 'Arms');
     war.talents = { impDemoShout: 0 };
-    const r = E.autoAssign([war, dslock('Block'), dslock('Clock'), dslock('Dlock')], {});
-    assert.strictEqual(duty(r, 'ap').name, 'Curse of Weakness');
+    const r = E.autoAssign([war, P('Bear', 'DRUID', 'Guardian')], {});
+    assert.strictEqual(duty(r, 'ap').name, 'Demoralizing Roar');
+    assert.strictEqual(duty(r, 'ap').player, 'Bear');
 });
 
 test('SELECTABLE_SPECS: druids can be marked Guardian, other classes are unchanged', () => {
