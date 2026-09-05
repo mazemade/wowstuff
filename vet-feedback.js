@@ -4,6 +4,7 @@
 // function is injected, as in vet-profile.js: the server passes wclQuery, the tests pass a stub.
 const V = require('./vet-engine.js');
 const GAP = require('./vet-gap.js');
+const Checklist = require('./vet-checklist.js');
 
 const KILL_LIMIT = 8;
 // Reference selection (spec v2 §3): same spec, same boss, same region, item level within `band`
@@ -683,157 +684,6 @@ function gearFindings(profile, thresholds, now) {
     return f;
 }
 
-// One list for the whole report: bad pulls contribute nothing, the same finding on several
-// bosses is one line, stat shortfalls attach to the weak-hit line they explain, majors first.
-const SEVERITY_ORDER = { major: 0, minor: 1, info: 2 };
-// Final review item 5: the grouped rotation findings already name every ability on one line per
-// boss, so they merge by boss rather than by their first ability (which would fold two bosses'
-// different ability lists into one sentence naming only the first boss's abilities).
-const GROUPED_KEYS = new Set(['ability_unused', 'ability_extra']);
-function findingId(fd, kill) {
-    return GROUPED_KEYS.has(fd.key) ? fd.key + '|' + kill.name : fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
-}
-function mergeFindings(kills, gear) {
-    const live = kills.filter(k => !k.fight.badPull);
-    // Final review item 3: a share is a share OF THE GAP, and the gap is measured per pull. The
-    // merged number is therefore the average over every live pull that has an accounting — a pull
-    // where the finding never appeared contributes 0 — not the largest pull's own share, which
-    // over-stated a one-pull problem as if it held all night.
-    const accounted = live.filter(k => k.gap).length;
-    // v2 §4: with more than one pull of a boss in the sheet, counts are over pulls and the
-    // measured-on label carries the pull's date; with one pull per boss the v1 wording stands.
-    const multi = new Set(live.map(k => k.name)).size < live.length;
-    const unit = multi ? 'pulls' : 'bosses';
-    // Minor 6 (whole-branch review): a rank with no startTime has k.date === null; without the
-    // guard this printed the literal string "Boss (null)".
-    const label = k => (multi && live.filter(x => x.name === k.name).length > 1) ? (k.date ? k.name + ' (' + k.date + ')' : k.name) : k.name;
-    const byId = new Map(), shareSum = new Map();
-    live.forEach(k => k.findings.forEach(fd => {
-        const id = findingId(fd, k);
-        if (typeof fd.share === 'number') shareSum.set(id, (shareSum.get(id) || 0) + fd.share);
-        const cur = byId.get(id);
-        if (cur) {
-            cur.count++; cur.bosses.push(k.name);
-            // v3: several pulls can carry the same finding with different shares (the accounting
-            // is per-pull); the pull whose share is largest is the one worth reporting the numbers
-            // from, so its text/numbers/measuredOn replace whatever was kept before, and the larger
-            // share itself is what survives the merge.
-            if ((typeof fd.share === 'number' ? fd.share : -1) > (typeof cur.share === 'number' ? cur.share : -1)) { Object.assign(cur, fd); cur.measuredOn = label(k); }
-        }
-        // Important 2: the merged record keeps the first-seen finding's text and numbers verbatim
-        // (they are one boss's real measurement), while `bosses` can list several. `measuredOn`
-        // records which boss the kept numbers actually came from — a live report once attributed
-        // one boss's crit numbers to another because the merged record named several bosses with
-        // only one boss's figures attached, and the number guard cannot catch that (both figures
-        // are genuine facts, just misattributed).
-        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name], measuredOn: label(k) }));
-    }));
-    // Final review item 3: average the accounting shares over the pulls that have an accounting
-    // before anything reads them (ordering, text, the sheet).
-    if (accounted) byId.forEach((f, id) => { if (typeof f.share === 'number' && shareSum.has(id)) f.share = Math.round(shareSum.get(id) / accounted); });
-    let merged = Array.from(byId.values());
-    // Minor 12: append the "seen on N of M bosses" count — naming the boss the numbers were
-    // measured on, per Important 2 — as its own clause.
-    merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' ' + unit + ')'; });
-    // The per-pull text carries the per-pull share ("Worth 46% of the gap"); once the share is an
-    // average, the sentence has to say the number the sheet now holds, and say what it averages.
-    merged.forEach(f => {
-        if (typeof f.share !== 'number') return;
-        f.text = f.text.replace(/ Worth \d+% of the gap/, ' Worth ' + f.share + '% of the gap' + (accounted > 1 ? ', averaged over ' + accounted + ' pulls' : ''));
-    });
-    // Final review item 6: one hit line, not two. The live note said "Hit rating is 188 vs the
-    // raid's 202 target" and, two paragraphs later, "spell hit 69 vs 202" for the same player — the
-    // profile figure and the pull's own measurement, read as a contradiction. The profile figure is
-    // folded into the pull's line as a parenthetical instead of standing beside it.
-    const gearList = (gear || []).slice();
-    const hitLine = merged.find(f => f.key === 'hit_under_cap' || (f.key === 'gear_stat' && (f.stat === 'spellHit' || f.stat === 'meleeHit')));
-    const gearHit = gearList.find(g => g.key === 'gear_hit');
-    if (hitLine && gearHit) {
-        const v = numbersIn(gearHit.text)[0];
-        if (typeof v === 'number') hitLine.text += ' (your current profile shows ' + v + ')';
-        gearList.splice(gearList.indexOf(gearHit), 1);
-    }
-    merged = merged.concat(gearList.map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null, share: null }, g)));
-    // v3: every finding is kept (no cap), ordered by the accounting's own share first — the
-    // number that says how much of the gap it actually explains — then severity, then count.
-    // Final review item 2: a share-less finding sorts after every share, including a share of 0.
-    merged.sort((a, b) => ((b.share ?? -1) - (a.share ?? -1)) || (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count));
-    return merged;
-}
-
-// Minor 8: with a full roster of kills, listing the same three lines per kill in order and
-// slicing at 6 only ever surfaced the two worst bosses (the earliest in kill order) and repeated
-// itself. Spec 5.1 wants one or two lines for "What's fine", so this dedupes by kind and
-// aggregates a count across the live (non-bad-pull) kills; a single-kill sheet keeps the old
-// per-boss phrasing since there is nothing to aggregate. Also reads ROLE_STATS[role].primary
-// instead of hardcoding spellDamage, so melee and hunters can earn the primary-stat line too.
-function positives(kills, role) {
-    const live = kills.filter(k => !k.fight.badPull);
-    if (!live.length) return [];
-    const n = live.length;
-    // v2 §4: with more than one pull of a boss in the sheet, the wording counts pulls, not bosses.
-    const multi = new Set(live.map(k => k.name)).size < n;
-    const unit = multi ? 'pulls' : 'bosses', one = multi ? 'pull' : 'boss';
-    const out = [];
-
-    const activeKills = live.filter(k => typeof k.me.activePercent === 'number' && k.me.activePercent >= 90);
-    if (activeKills.length === n) out.push(n === 1 ? 'Active ' + activeKills[0].me.activePercent + '% on ' + activeKills[0].name : 'Active 90%+ on every ' + one);
-    else if (activeKills.length) out.push('Active 90%+ on ' + activeKills.length + ' of ' + n + ' ' + unit);
-
-    const noDeathKills = live.filter(k => !k.me.died);
-    if (noDeathKills.length === n) out.push(n === 1 ? 'No death on ' + noDeathKills[0].name : 'No deaths on any of the ' + n + ' ' + unit);
-    else if (noDeathKills.length) out.push('No deaths on ' + noDeathKills.length + ' of ' + n + ' ' + unit);
-
-    const consumableKills = live.filter(k => k.me.consumablesKnown && (k.me.flask || (k.me.battleElixir && k.me.guardianElixir)) && k.me.food);
-    if (consumableKills.length === n) out.push(n === 1 ? 'Flask or elixirs and food at the ' + consumableKills[0].name + ' pull' : 'Flask and food at every pull');
-    else if (consumableKills.length) out.push('Flask and food at ' + consumableKills.length + ' of ' + n + ' pulls');
-
-    const spec = ROLE_STATS[role];
-    if (spec) {
-        const label = STAT_LABEL[spec.primary];
-        const statKills = live.filter(k => k.reference && k.reference.stats && k.me.stats &&
-            typeof k.me.stats[spec.primary] === 'number' && typeof k.reference.stats[spec.primary] === 'number' &&
-            k.me.stats[spec.primary] >= k.reference.stats[spec.primary]);
-        if (statKills.length === n) out.push(n === 1
-            ? label.charAt(0).toUpperCase() + label.slice(1) + ' ' + statKills[0].me.stats[spec.primary] + ' matches comparable players on ' + statKills[0].name
-            : (label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on every ' + one);
-        else if (statKills.length) out.push((label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on ' + statKills.length + ' of ' + n + ' ' + unit);
-    }
-
-    // v3: a gap input where the player is consistently ahead of the reference (a negative share:
-    // the accounting is signed so the player's side of a comparison can come out on top too) is a
-    // positive worth calling out, not just silence where a finding would otherwise be.
-    const AHEAD_LABEL = { own_activity: 'activity', cast_pacing: 'cast pacing', power_gear: 'spell power from gear', crit_gear: 'crit from gear', power_consumables: 'consumables' };
-    // A physical role's "power" is attack power, not spell power: the same substitution
-    // gapFindings applies to its own text (vet-gap.js), built here at use time instead of a
-    // second hardcoded table.
-    const physical = role === 'melee' || role === 'ranged' || role === 'tank';
-    const aheadLabel = key => (physical ? AHEAD_LABEL[key].replace(/spell power/, 'attack power') : AHEAD_LABEL[key]);
-    const gapKills = live.filter(k => k.gap);
-    if (gapKills.length) {
-        Object.keys(AHEAD_LABEL).forEach(key => {
-            const shares = gapKills.map(k => {
-                const inp = ['casts', 'dmg', 'crit'].reduce((found, fk) => found || (k.gap.factors[fk] && k.gap.factors[fk].inputs.find(i => i.key === key)), null);
-                return inp ? inp.share : null;
-            });
-            if (shares.every(s => typeof s === 'number' && s <= -3)) out.push('You are ahead of comparable players on ' + aheadLabel(key));
-        });
-    }
-
-    // Final review item 8: a pull with a reference and no accounting is one the player matched or
-    // beat (explainGap returns null once the ratio is not above 1). That is worth saying plainly,
-    // next to the boss it happened on.
-    live.forEach(k => {
-        const ref = k.reference;
-        if (!ref || k.gap) return;
-        const bar = typeof ref.playersDps === 'number' ? ref.playersDps : ref.dps;
-        if (typeof k.me.amount !== 'number' || typeof bar !== 'number' || k.me.amount < bar) return;
-        out.push('Above ' + GAP.REF_LABEL + ' on ' + k.name + ': ' + k.me.amount + ' against ' + bar + ' DPS');
-    });
-
-    return out.slice(0, 4);
-}
-
 function buildFacts(o) {
     const { profile, player, kills, thresholds, now, limited, droppedKills, nights, night } = o;
     const th = V.parseThresholds(thresholds || {});
@@ -852,7 +702,7 @@ function buildFacts(o) {
         .sort((a, b) => pct(a) - pct(b)).slice(0, 2)
         .map(k => ({ name: k.name, date: k.date, me: k.me.amount, dps: k.reference.dps, topDps: k.reference.topDps }));
 
-    return {
+    const facts = {
         player: { name: profile.name, class: player.classToken, spec: player.spec, role: player.role, metric: profile.parses.metric,
                   itemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null, gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null,
                   talentSplit: profile.identity ? profile.identity.talentSplit : null },
@@ -867,13 +717,17 @@ function buildFacts(o) {
             // as a GraphQL error rather than `report: null`), so the page can say why a boss the
             // player killed is missing from the sheet rather than silently having fewer kills.
             droppedKills: droppedKills || [],
-            findings: mergeFindings(slim, gear), positives: positives(slim, player.role), ceiling,
+            ceiling,
             gap: GAP.averageGap(slim.filter(k => !k.fight.badPull)),
         },
         limited: !!limited,
         nights: Array.isArray(o.nights) ? o.nights : [],
         night: o.night || null,
     };
+    // v4: the checklist replaces the model-written findings/positives — a deterministic report
+    // built straight from the finished sheet (vet-checklist.js never requires this module back).
+    facts.overall.checklist = Checklist.buildChecklist(facts, T);
+    return facts;
 }
 
 // Final review item 6: the accounting line and the stat line are the same topic said twice — the
@@ -938,151 +792,6 @@ function killFacts(input) {
     kill.gap = kill.fight.badPull ? null : GAP.explainGap(kill, player);
     kill.findings = killFindings(kill, player);
     return kill;
-}
-
-// The model writes, the sheet decides. Every claim it may make is in `facts`; the system prompt
-// forbids anything else, and checkNumbers() enforces the part that matters most.
-function buildPrompt(facts, rulesLines) {
-    const system = [
-        'You are writing a short note to a World of Warcraft TBC Anniversary raider on behalf of their raid leader, about why their parses are low and what to do about it.',
-        'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
-        'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
-        '"Comparable players" means ' + GAP.REF_LABEL + ' on the same boss (each kill\'s reference). reference.topDps is what the best players at that item level reach.',
-        'Every finding carries an owner and, when it comes from the accounting, a share. owner is "player" for things the player can change themselves; owner is "group" for party buffs, raid debuffs and Bloodlust, which are things to ask the raid leader for and never the player\'s failing; owner is "raid" for kill speed, phases and deaths, which are not on the player. share is the percentage of the DPS gap that input accounts for. A finding whose share is null has no share: never give it a percentage, not even 0%.',
-        // Important 2: a merged finding can name several bosses in `bosses` while its text and
-        // numbers belong to only one of them (kept verbatim from where they were first measured).
-        // A live report once attributed one boss's crit numbers to another for exactly this reason.
-        'A finding\'s numbers were measured on the boss named in its measuredOn field. Never attach them to another boss, even one also listed in that finding\'s bosses array.',
-        'Anniversary rules that differ from original TBC:',
-    ].concat(rulesLines || [], [
-        'Structure, in this order, plain text:',
-        '1. One header line: name, spec, tier, then "median parse P" using tier.medianPercent — or, when night is not null, "raid night of <night.date>, median parse that night P" using night.medianPercent.',
-        '2. If overall.gap is not null, a line "Where the gap comes from", then one sentence per factor from overall.gap with its share: casting less (casts), weaker casts (dmg), crit (crit), and "the rest is luck or unexplained" for residual when it is 3 or more.',
-        // Final review item 4: the live note wandered off overall.findings into kills[] (it wrote a
-        // paragraph per boss per ability), invented comparable-player numbers for findings that have
-        // none, and printed the sheet's own field names ("1300.7 dps (me), 2152 (dps)").
-        '3. If any entry of overall.findings has owner "player", a line "What you can fix", then every entry of overall.findings whose owner is "player", in that order — never findings from kills[] — each as one short paragraph: what it is, your number, the comparable-player number when the finding has one (when it has none, state only your number), the share when it has one, one concrete fix. Do not drop any.',
-        '4. If any entry of overall.findings has owner "group", a line "Ask your raid leader", then every entry of overall.findings whose owner is "group" — never findings from kills[] — each phrased as a request to the raid leader, with its share when it has one.',
-        '5. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives.',
-        '6. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: "<boss>: you did <me> DPS; ' + GAP.REF_LABEL + ' do <dps>; the best reach <topDps>" — write the numbers, never the field names.',
-        '7. If overall.badPulls is not empty or any entry of overall.findings has owner "raid", a line "Not on you", then one line per bad pull with its reason and one line per entry of overall.findings whose owner is "raid" — never findings from kills[]. Name the boss each line is about, and include the date when the sheet lists that boss more than once.',
-        'Under 450 words.',
-        facts && facts.limited ? 'This player is a healer: the sheet has no gap accounting, so write only about uptime, deaths, consumables, buffs and gear.' : '',
-    ]).filter(Boolean).join('\n');
-    return { system, user: 'Facts sheet:\n' + JSON.stringify(facts) };
-}
-
-function numbersIn(s) {
-    return (String(s).replace(/(\d),(\d{3})\b/g, '$1$2').match(/\d+(?:\.\d+)?/g) || []).map(Number);
-}
-// Important 7 (widening 2): walk the facts sheet's actual VALUES rather than its serialised JSON
-// text. `JSON.stringify(facts)` mixes numeric facts with digits that live inside strings — report
-// codes ("BcZWRDk2..." -> 2), `wclUrl` ("#fight=57&source=12" -> 57, 12), dates ("2026-08-30" ->
-// 2026, 8, 30) — and all of those entered the allowed set. Only real numbers count as facts.
-// Important 7: facts are read from real numbers, never harvested out of arbitrary JSON strings
-// (a wclUrl's fight/source ids must not become numbers the model may quote). Two string shapes
-// are facts nonetheless (v2 Task 9): the numbers inside a finding's own `text` (a threshold such
-// as "the 202 the raid asks for" lives only there), and the year/month/day of an ISO date — but
-// only at the five places the v2 sheet actually carries a date (night.date, kills[].date,
-// overall.ceiling[].date, overall.badPulls[].date, nights[].date), tracked here by key-path with
-// array indices collapsed. A bare `date` field anywhere else (or in a hand-built object a caller
-// assembles for its own purposes) stays a plain string: matching by value shape alone (any string
-// that merely looks like YYYY-MM-DD) would also swallow a bare top-level `date` nobody meant as
-// one of the sheet's five fact-bearing dates, silently widening what a reply may invent.
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const DATE_PATHS = new Set(['night.date', 'kills.date', 'overall.ceiling.date', 'overall.badPulls.date', 'nights.date']);
-function collectFactNumbers(value, out, path) {
-    if (typeof value === 'number') { if (isFinite(value)) out.push(value); return; }
-    if (typeof value === 'string') {
-        const lastKey = path ? path.split('.').pop() : '';
-        if (lastKey === 'text') numbersIn(value).forEach(n => out.push(n));
-        else if (DATE_PATHS.has(path) && ISO_DATE.test(value)) value.split('-').forEach(p => out.push(Number(p)));
-        return;
-    }
-    if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out, path)); return; }
-    Object.keys(value).forEach(k => collectFactNumbers(value[k], out, path ? path + '.' + k : k));
-}
-// spec v3 §5: the model must not drop a finding. Any finding whose numbers and/or anchor word are
-// absent from the reply is appended verbatim under "Also:" instead of rejecting the reply.
-//
-// Fix round 1: review proved the number check alone accepts an unrelated nearby number (a
-// channel_time finding with me: 6 was satisfied by "You died 6 times less than last week"), and
-// several FINDING_ANCHOR words are common enough to pass even when the specific finding was never
-// written (ability_extra/ability_ratio both anchored on "comparable"; raid_activity -> "raid";
-// buffs_missing -> "group"; debuff_uptime_low -> "up"). anchorOf() now prefers a finding's own
-// distinctive token (its ability, or the first of its buffs/debuffs, or its debuff) over the
-// key-level FINDING_ANCHOR fallback, and every one of a finding's numbers (me AND reference, not
-// just me) must appear — with the anchor required in addition whenever any of those numbers is
-// small enough (<=10) to plausibly appear by coincidence.
-// Fix round 2: gear_stat findings (statPriorityFindings) carry no ability/buffs/debuffs/debuff
-// field and share one key ('gear_stat') across every stat, so FINDING_ANCHOR can't tell them
-// apart; STAT_ANCHOR maps the finding's own `stat` to the word STAT_TEXT (vet-gap.js) actually put
-// in its text, checked before the shared table lookup.
-const STAT_ANCHOR = { spellHit: 'Hit rating', meleeHit: 'Hit rating', expertise: 'Expertise', spellDamage: 'power from gear', attackPower: 'power from gear', rangedAttackPower: 'power from gear', spellCrit: 'crit rating', meleeCrit: 'Crit rating', rangedCrit: 'Crit rating', spellHaste: 'haste rating', meleeHaste: 'Haste rating' };
-function anchorOf(f) {
-    // Final review item 5: a grouped rotation finding names several abilities; the first one is the
-    // token a reply that covered it will have written.
-    if (Array.isArray(f.abilities) && f.abilities[0]) return f.abilities[0];
-    if (f.ability) return f.ability;
-    if (Array.isArray(f.buffs) && f.buffs[0]) return f.buffs[0];
-    if (Array.isArray(f.debuffs) && f.debuffs[0]) return f.debuffs[0];
-    if (f.debuff) return f.debuff;
-    if (f.key === 'gear_stat' && f.stat) return STAT_ANCHOR[f.stat] || null;
-    // v4: FINDING_ANCHOR retired from vet-gap.js with the completeness guard (Task 8 removes this
-    // whole function); guard the lookup so a live caller through server.js degrades to "no anchor"
-    // instead of throwing, until anchorOf itself goes away.
-    return (GAP.FINDING_ANCHOR && GAP.FINDING_ANCHOR[f.key]) || null;
-}
-function completeReply(text, facts) {
-    const findings = facts && facts.overall && Array.isArray(facts.overall.findings) ? facts.overall.findings : [];
-    const body = String(text || '');
-    const bodyNums = numbersIn(body);
-    // Fix round 3: a small number's ±1-or-round tolerance is far too loose — a debuffs finding
-    // whose me/reference are a damage multiplier near 1.0 (1.1 vs 1.15) was satisfied by almost
-    // any stray 0, 1 or 2 digit in the reply. Below 10, only the literal figure (an exact string
-    // match, or a same-magnitude decimal within 0.05 — 1.1 vs 1.15 in the reply's own rounding)
-    // counts; the loose ±1-or-round rule stays for numbers large enough that a coincidental match
-    // is implausible.
-    const numPresent = x => {
-        if (Math.abs(x) < 10) return bodyNums.some(v => Math.abs(v - x) <= 0.05) || body.includes(String(x));
-        const n = Math.round(x);
-        return bodyNums.some(v => Math.abs(v - n) <= 1) || body.includes(String(x));
-    };
-    const present = f => {
-        // Final review item 10: an anchor can be a list of acceptable phrases; any one is enough.
-        const anchor = anchorOf(f);
-        const anchors = anchor === null || anchor === undefined ? [] : [].concat(anchor);
-        const anchorPresent = anchors.some(a => body.toLowerCase().includes(String(a).toLowerCase()));
-        const nums = [f.me, f.reference].filter(x => typeof x === 'number');
-        // Fix round 2: every key gapFindings/statPriorityFindings can emit now has an anchor
-        // (FINDING_ANCHOR or STAT_ANCHOR above), so `!anchor` here is reached only for a key
-        // nobody has taught this guard about yet — a genuinely unknown finding shape, not the
-        // gap-accounting keys the round-1 waiver was covering for (crit_buffs, power_gear, ...).
-        // Numbers still both have to appear in that case; the waiver only skips the extra
-        // small-number-needs-an-anchor check when there is structurally no anchor to check.
-        if (nums.length) return nums.every(numPresent) && (!anchors.length || nums.every(x => Math.abs(x) > 10) || anchorPresent);
-        return anchors.length ? anchorPresent : body.includes(f.text);
-    };
-    const appended = findings.filter(f => !present(f)).map(f => f.text);
-    return { text: appended.length ? body + '\n\nAlso:\n' + appended.join('\n') : body, appended };
-}
-
-// Every figure over 10 in the reply must appear in the sheet, give or take 1 for rounding (spec
-// 5.2). Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also
-// holds in one form or another, so they are not worth a false alarm.
-function checkNumbers(text, facts) {
-    const facNums = [];
-    collectFactNumbers(facts, facNums);
-    // Important 7 (widening 1): comparing rounded forms of both sides ({round,floor,ceil} of each
-    // fact against {r-1,r,r+1} of the reply number) composes to roughly +/-2. Compare the reply
-    // number directly against each raw fact instead, so only a true +/-1 passes (round1(91.6) vs
-    // a reply of 93 is a 1.4 gap and must fail, where the old composed tolerance let it through).
-    const foreign = numbersIn(text).filter(n => {
-        if (n <= 10) return false;
-        return !facNums.some(f => Math.abs(n - f) <= 1);
-    });
-    return { ok: foreign.length === 0, foreign: Array.from(new Set(foreign)) };
 }
 
 // --- WCL queries (verified live 2026-09-04, spec §9). The metric, class, spec, region and
@@ -1377,4 +1086,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

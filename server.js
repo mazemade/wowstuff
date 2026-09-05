@@ -220,9 +220,8 @@ app.get('/api/vet/player', async (req, res) => {
   }
 });
 
-// Parse feedback report: measured facts from WCL plus a model-written, facts-only note.
-// A model failure never fails the request — the facts sheet is the product, the prose is a
-// convenience — so `report` may be null with `reportError` saying why.
+// Parse feedback report: measured facts from WCL plus a deterministic checklist report rendered
+// straight from those facts (vet-checklist.js) — no model call, so no failure mode to report.
 const VetFeedback = require('./vet-feedback.js');
 const FEEDBACK_CACHE_MS = 15 * 60 * 1000;
 const feedbackCache = new Map();     // key(identity only, see Critical 1 below) -> { at, facts, thresholdsKey, body }
@@ -310,38 +309,20 @@ app.get('/api/vet/feedback', async (req, res) => {
     }
 
     // Reapply this request's own thresholds to the (possibly reused/shared) facts: gearFindings
-    // and its effect on the ranked overall list are the only things thresholds ever change (see
-    // the cache-key comment above) — everything else in `facts` is thresholds-independent.
+    // and its effect on the checklist are the only things thresholds ever change (see the
+    // cache-key comment above) — everything else in `facts` is thresholds-independent.
+    // v4: gear rows depend on the request's thresholds, so the checklist and the text are rebuilt
+    // here on the (possibly cached) sheet. No model: the text is rendered from the checklist.
     const gear = VetFeedback.gearFindings(profile, thresholds, Date.now());
-    facts = Object.assign({}, facts, {
-      tier: Object.assign({}, facts.tier, { threshold: thresholds.parse }),
-      gear: Object.assign({}, facts.gear, { findings: gear }),
-      overall: Object.assign({}, facts.overall, { findings: VetFeedback.mergeFindings(facts.kills, gear) }),
-    });
-
-    let reportText = null, reportError = null;
-    try {
-      const { system, user } = VetFeedback.buildPrompt(facts, ANNIVERSARY_RULES);
-      const text = await openaiChat(system, user, 60000);
-      const check = VetFeedback.checkNumbers(text, facts);
-      if (check.ok) reportText = VetFeedback.completeReply(text, facts).text;
-      else reportError = 'The model introduced figures not in the facts (' + check.foreign.join(', ') + '); showing the facts only';
-    } catch (err) {
-      console.error('feedback report model failed:', err);
-      if (err.code === 'NO_KEY') reportError = 'No OPENAI_API_KEY configured; showing the facts only';
-      else if (err.name === 'AbortError' || err.name === 'TimeoutError') reportError = 'The model timed out; showing the facts only';
-      else reportError = 'The model failed; showing the facts only';
-    }
-    const body = { facts, report: reportText, reportError, generatedAt: new Date().toISOString() };
+    facts = Object.assign({}, facts, { tier: Object.assign({}, facts.tier, { threshold: thresholds.parse }), gear: Object.assign({}, facts.gear, { findings: gear }) });
+    facts.overall = Object.assign({}, facts.overall, { checklist: VetFeedback.Checklist.buildChecklist(facts, VetFeedback.T) });
+    const body = { facts, report: VetFeedback.Checklist.renderReport(facts.overall.checklist, facts), generatedAt: new Date().toISOString() };
     for (const [k, v] of feedbackCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) feedbackCache.delete(k);
     feedbackCache.set(key, { at: Date.now(), facts, thresholdsKey, body });
-    // X-Vet-Cache reflects whether THIS response required a fresh (paid) OpenAI call, not merely
-    // whether the WCL pipeline's facts were reused — the person reading this header is debugging
-    // model spend, not WCL traffic. The only 'hit' is the early return above, where the stored
-    // body (model report included) is served unchanged. Every path that reaches here just made a
-    // model-call attempt above, whether or not `fresh` reused the WCL facts (same identity,
-    // different thresholds — see Critical 1 above) or not (a cold pipeline run), so it's always a
-    // 'miss' by that definition.
+    // X-Vet-Cache: 'hit' is the early return above, serving a stored body unchanged. 'miss' means
+    // the sheet was (re)built here — either a cold WCL pipeline run, or (same identity, different
+    // thresholds — see Critical 1 above) a reused WCL sheet whose checklist/report were rebuilt
+    // for this request's own thresholds.
     res.set('X-Vet-Cache', 'miss');
     res.json(body);
   } catch (err) {

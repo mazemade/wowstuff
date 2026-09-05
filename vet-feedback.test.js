@@ -605,18 +605,6 @@ test('killFindings (final review item 6): one line per stat topic — the accoun
     assert.ok(!k.findings.some(f => f.key === 'gear_stat' && f.stat === 'spellCrit'),
         'the crit_gear line carries the share; the stat line adds nothing: ' + JSON.stringify(k.findings.map(f => f.key + (f.stat ? ':' + f.stat : ''))));
 });
-test('mergeFindings (final review item 6): the profile hit line folds into the pull\'s hit line instead of standing beside it', () => {
-    const k = killFor(50619);
-    const me = Object.assign({}, k.me, { stats: Object.assign({}, k.me.stats, { spellHit: 69 }) });
-    const clone = Object.assign({}, k, { me });
-    clone.gap = G.explainGap(clone, PLAYER);
-    clone.findings = F.killFindings(clone, PLAYER);
-    const m = F.mergeFindings([clone], [F.finding('gear_hit', 'major', 'player', 'Hit rating 188 against the 202 the raid asks for')]);
-    const hit = m.filter(f => f.key === 'hit_under_cap' || (f.key === 'gear_stat' && f.stat === 'spellHit'));
-    assert.strictEqual(hit.length, 1, 'one hit line: ' + JSON.stringify(m.map(f => f.key + (f.stat ? ':' + f.stat : ''))));
-    assert.ok(/69 .* \(your current profile shows 188\)/.test(hit[0].text), hit[0].text);
-    assert.ok(!m.some(f => f.key === 'gear_hit'), 'the profile line is folded in, not listed twice');
-});
 test('killFindings (final review item 9): the group ask is one line — the accounting names the missing buffs and debuffs itself', () => {
     const k = killFor(50619);
     assert.ok(k.findings.some(f => f.key === 'crit_buffs' || f.key === 'power_buffs'), 'fixture sanity');
@@ -659,14 +647,6 @@ test('uptimeFindings (final review item 7): a pull with no accounting still repo
     // The softer rule: above the major bar but well under the raid's own median.
     const soft = Object.assign({}, base, { gap: null, fight: Object.assign({}, base.fight, { raidActivePercent: 95 }), me: Object.assign({}, base.me, { activePercent: 86 }) });
     assert.ok(F.uptimeFindings(soft).some(x => x.key === 'active_low' && x.severity === 'minor'), 'a minor line when the raid was far more active');
-});
-test('positives (final review item 8): a pull where the player beat comparable players is said out loud', () => {
-    const k = killFor(50619);
-    const ahead = Object.assign({}, k, { gap: null, me: Object.assign({}, k.me, { amount: 3000 }) });
-    const pos = F.positives([ahead], 'caster');
-    assert.ok(pos.some(p => /Above players at your item level among the top 2000 parses on Anetheron: 3000 against 2768 DPS/.test(p)), pos.join(' | '));
-    // Below the reference: no such line (the accounting explains the gap instead).
-    assert.ok(!F.positives([k], 'caster').some(p => /^Above /.test(p)), F.positives([k], 'caster').join(' | '));
 });
 // --- Task 6: consumables, buffs, debuffs, gear, merge, facts
 function rotProfile() {
@@ -803,71 +783,6 @@ test('gearFindings: vetting rules that fail or warn become gear_ findings', () =
     assert.ok(!f.some(x => x.key === 'gear_parse' || x.key === 'gear_stale'));
     assert.deepStrictEqual(F.gearFindings(rotProfile(), {}, Date.now()), [], 'no gear data, no gear findings');
 });
-test('mergeFindings: bad pulls dropped, ordered by share then severity, uncapped', () => {
-    const kills = [killFor(50619), killFor(50620)];
-    const m = F.mergeFindings(kills, []);
-    assert.ok(!m.some(f => /Kaz'rogal/.test(f.text)), 'nothing from the bad pull');
-    assert.ok(!m.some(f => f.key === 'stat_low' || f.key === 'hit_low'));
-    assert.ok(m.every((f, i) => i === 0 || (m[i - 1].share || 0) >= (f.share || 0)), 'share descending');
-    assert.ok(m.length >= 7, 'no cap at 6: ' + m.length);
-    assert.strictEqual(m[0].severity, 'major');
-    const sev = m.map(f => f.severity);
-    assert.ok(sev.indexOf('minor') === -1 || sev.indexOf('minor') > sev.lastIndexOf('major'), sev.join());
-    const withGear = F.mergeFindings(kills, [F.finding('gear_sockets', 'major', 'player', 'Empty sockets: 3')]);
-    assert.ok(withGear.some(f => f.key === 'gear_sockets'));
-});
-test('mergeFindings: equal share breaks the tie by severity, major before minor', () => {
-    const k = killFor(50619);
-    const gapKeys = ['rotation', 'cast_pacing', 'crit_buffs', 'power_buffs', 'crit_gear'];
-    const gapF = k.findings.filter(f => gapKeys.includes(f.key)).slice(0, 2);
-    assert.strictEqual(gapF.length, 2, 'fixture must carry at least two gap findings to build the tie');
-    const findings = [Object.assign({}, gapF[0], { share: 10, severity: 'minor' }), Object.assign({}, gapF[1], { share: 10, severity: 'major' })];
-    const kill = Object.assign({}, k, { findings });
-    const m = F.mergeFindings([kill], []);
-    const tied = m.filter(f => f.share === 10);
-    assert.strictEqual(tied.length, 2);
-    assert.strictEqual(tied[0].severity, 'major', 'equal share: major sorts first');
-    assert.strictEqual(tied[1].severity, 'minor');
-});
-test('mergeFindings: the same finding on two bosses is one line with a count, naming which boss the numbers came from (Important 2, Minor 12)', () => {
-    const a = killFor(50619);
-    const b = Object.assign({}, a, { name: 'Archimonde' });
-    const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'rotation');
-    assert.strictEqual(crit.count, 2);
-    // Important 2: `bosses` names both, but the kept text and numbers are Anetheron's (first
-    // seen) verbatim — `measuredOn` records that explicitly instead of leaving it to the model.
-    assert.strictEqual(crit.measuredOn, 'Anetheron');
-    assert.deepStrictEqual(crit.bosses, ['Anetheron', 'Archimonde']);
-    // Minor 12: the count suffix names the boss it was measured on and lands as its own clause,
-    // not trailing right after a folded-in stat sentence where it could read as qualifying that.
-    assert.ok(/\(numbers measured on Anetheron; seen on 2 of 2 bosses\)/.test(crit.text), crit.text);
-});
-test('mergeFindings (Minor 6): a multi-pull boss with no date prints just the boss name, not "Boss (null)"', () => {
-    const a = Object.assign({}, killFor(50619), { date: null });
-    const b = Object.assign({}, killFor(50619), { date: null });
-    const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'rotation');
-    assert.strictEqual(crit.measuredOn, 'Anetheron', 'no date on the kill: the label falls back to the bare boss name');
-    assert.ok(!/null/.test(crit.text), crit.text);
-});
-test('mergeFindings (v3): a later pull with a larger share for the same finding replaces the numbers and measuredOn', () => {
-    const a = killFor(50619);
-    const bDate = '2026-09-01';
-    const bigger = a.findings.find(f => f.key === 'rotation').share + 10;
-    const bFindings = a.findings.map(f => f.key === 'rotation' ? Object.assign({}, f, { share: bigger, me: 9999, reference: 8888 }) : f);
-    const b = Object.assign({}, a, { date: bDate, findings: bFindings });
-    const m = F.mergeFindings([a, b], []);
-    const rot = m.find(f => f.key === 'rotation');
-    assert.strictEqual(rot.count, 2);
-    assert.strictEqual(rot.measuredOn, 'Anetheron (' + bDate + ')', 'the larger-share pull\'s numbers win');
-    assert.strictEqual(rot.me, 9999);
-    assert.strictEqual(rot.reference, 8888);
-    // Final review item 3: the merged share is now the AVERAGE over the accounted pulls, so the
-    // larger pull's numbers/text/measuredOn still win while the reported share is the mean of the
-    // two — a share is a share of the gap, and the gap is measured per pull.
-    assert.strictEqual(rot.share, Math.round((a.findings.find(f => f.key === 'rotation').share + bigger) / 2), 'the average over the two accounted pulls');
-});
 test('killFindings (final review item 2): a finding that does not come from the accounting carries share null, never 0', () => {
     const k = killFor(50619);
     // (gear_stat is not on this kill any more: final review item 6 drops the spellCrit stat line
@@ -879,60 +794,7 @@ test('killFindings (final review item 2): a finding that does not come from the 
     });
     k.findings.filter(x => ['rotation', 'cast_pacing', 'crit_buffs'].includes(x.key)).forEach(f => assert.strictEqual(typeof f.share, 'number', f.key));
 });
-test('mergeFindings (final review item 2): numeric shares sort first, share-less findings after them', () => {
-    const m = F.mergeFindings([killFor(50619)], []);
-    const lastNumeric = m.map(f => typeof f.share === 'number').lastIndexOf(true);
-    const firstNull = m.findIndex(f => typeof f.share !== 'number');
-    assert.ok(lastNumeric >= 0 && firstNull >= 0, m.map(f => f.key + ':' + f.share).join(' | '));
-    assert.ok(lastNumeric < firstNull, 'every accounted finding comes before every share-less one: ' + m.map(f => f.key + ':' + f.share).join(' | '));
-});
-test('mergeFindings (final review item 3): a share is the average over the pulls that have an accounting, with the numbers from the biggest pull', () => {
-    const a = killFor(50619);
-    const at = share => a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share }) : f));
-    const low = Object.assign({}, a, { findings: at(10) });
-    const high = Object.assign({}, a, { date: '2026-09-01', findings: at(30).map(f => (f.key === 'rotation' ? Object.assign({}, f, { me: 9999, reference: 8888 }) : f)) });
-    const m = F.mergeFindings([low, high], []);
-    const rot = m.find(f => f.key === 'rotation');
-    assert.strictEqual(rot.share, 20, '(10 + 30) / 2 accounted pulls');
-    assert.ok(/Worth 20% of the gap, averaged over 2 pulls/.test(rot.text), rot.text);
-    assert.strictEqual(rot.measuredOn, 'Anetheron (2026-09-01)', 'text and numbers still come from the biggest-share pull');
-    assert.strictEqual(rot.me, 9999);
-    assert.strictEqual(rot.reference, 8888);
-});
-test('mergeFindings (final review item 3): a finding seen on one of two accounted pulls is halved, not reported at its own pull\'s share', () => {
-    const a = killFor(50619);
-    const one = Object.assign({}, a, { findings: a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share: 30 }) : f)) });
-    const other = Object.assign({}, a, { name: 'Archimonde', findings: a.findings.filter(f => f.key !== 'rotation') });
-    const m = F.mergeFindings([one, other], []);
-    const rot = m.find(f => f.key === 'rotation');
-    assert.strictEqual(rot.count, 1, 'seen on one pull only');
-    assert.strictEqual(rot.share, 15, '30 over the two pulls that carry an accounting');
-    assert.ok(/Worth 15% of the gap, averaged over 2 pulls/.test(rot.text), rot.text);
-});
-test('mergeFindings (final review item 3): the number guard still accepts a reply quoting the averaged share', () => {
-    const a = killFor(50619);
-    const at = share => a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share }) : f));
-    const kills = [Object.assign({}, a, { findings: at(10) }), Object.assign({}, a, { date: '2026-09-01', findings: at(30) })];
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills, thresholds: {}, now: Date.now(), limited: false });
-    const rot = facts.overall.findings.find(f => f.key === 'rotation');
-    assert.strictEqual(rot.share, 20);
-    assert.strictEqual(F.checkNumbers('Your rotation is worth 20% of the gap.', facts).ok, true);
-});
-test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls and name the date; one pull per boss keeps the v1 wording', () => {
-    const a = killFor(50619);
-    const b = Object.assign({}, a, { date: '2026-09-01' });
-    const m = F.mergeFindings([a, b], []);
-    const crit = m.find(f => f.key === 'rotation');
-    assert.strictEqual(crit.count, 2);
-    assert.strictEqual(crit.measuredOn, 'Anetheron (' + a.date + ')');
-    assert.ok(crit.text.endsWith(' (numbers measured on Anetheron (' + a.date + '); seen on 2 of 2 pulls)'), crit.text);
-    const pos = F.positives([a, b], 'caster');
-    assert.ok(pos.includes('Active 90%+ on every pull'), pos.join(' | '));
-    assert.ok(pos.includes('No deaths on any of the 2 pulls'), pos.join(' | '));
-    const one = F.positives([a, Object.assign({}, a, { name: 'Archimonde' })], 'caster');
-    assert.ok(one.includes('Active 90%+ on every boss'), 'one pull per boss: v1 wording untouched');
-});
-test('buildFacts: the sheet the model reads', () => {
+test('buildFacts (v4): the sheet the checklist reads', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual([facts.player.name, facts.player.class, facts.player.spec, facts.player.role, facts.player.metric], ['Rotminster', 'WARLOCK', 'Destruction', 'caster', 'dps']);
     assert.strictEqual(facts.tier.zone, 1060);
@@ -941,57 +803,20 @@ test('buildFacts: the sheet the model reads', () => {
     assert.strictEqual(facts.kills.length, 2);
     assert.deepStrictEqual(facts.overall.badPulls.map(b => b.name), ["Kaz'rogal"]);
     assert.ok(/19 of 19/.test(facts.overall.badPulls[0].reason));
-    assert.ok(facts.overall.findings.length >= 3, 'no cap at 6 any more: ' + facts.overall.findings.length);
-    assert.ok(facts.overall.positives.includes('Active 91.6% on Anetheron'), facts.overall.positives.join(' | '));
-    assert.ok(facts.overall.positives.includes('No death on Anetheron'));
+    // v4: findings/positives are gone; overall.checklist.rows carries the same information, and
+    // renderReport turns it into the report text without a model call.
+    assert.ok(facts.overall.checklist.rows.length >= 3, 'no cap: ' + facts.overall.checklist.rows.length);
+    assert.ok(facts.overall.checklist.fine.includes('activity'), JSON.stringify(facts.overall.checklist.fine));
+    assert.ok(facts.overall.checklist.fine.includes('deaths'), JSON.stringify(facts.overall.checklist.fine));
     assert.strictEqual(facts.limited, false);
     assert.deepStrictEqual(facts.overall.droppedKills, [], 'no kills errored, so nothing to record here (Important 5)');
-    assert.ok(JSON.stringify(facts).length < 60000, 'sheet stays small enough to send to the model');
-});
-test('positives: dedupes and aggregates across a full roster instead of repeating the same lines per kill (Minor 8)', () => {
-    const mk = (name, over) => ({ name, fight: { badPull: false },
-        me: Object.assign({ activePercent: 95, died: null, consumablesKnown: true, flask: 'Flask of Pure Death', battleElixir: null, guardianElixir: null, food: 'Well Fed', stats: {} },
-                           over && over.me),
-        reference: 'reference' in (over || {}) ? over.reference : null,
-    });
-    const kills = Array.from({ length: 8 }, (_, i) => mk('Boss' + i, i < 2 ? { me: { activePercent: 60, died: { atSec: 5 } } } : null));
-    const out = F.positives(kills, 'caster');
-    assert.ok(out.length <= 4, 'spec 5.1 wants a short list, not one per kind that happens to be true: ' + out.join(' | '));
-    assert.strictEqual(new Set(out).size, out.length, 'no repeated lines');
-    assert.ok(out.some(l => /6 of 8 bosses/.test(l)), out.join(' | '));
-    assert.ok(!out.some(l => /Boss2|Boss3|Boss4/.test(l)), 'aggregated, not one line per boss: ' + out.join(' | '));
-
-    // The old code hardcoded me.stats.spellDamage, so a melee player's matching attack power could
-    // never produce a positive. Isolate the stat line by suppressing the other three candidates.
-    const meleeKills = [mk('Gruul', {
-        me: { activePercent: 50, died: { atSec: 3 }, consumablesKnown: false, stats: { attackPower: 1200 } },
-        reference: { stats: { attackPower: 1000 } },
-    })];
-    const meleeOut = F.positives(meleeKills, 'melee');
-    assert.ok(meleeOut.some(l => /[Aa]ttack power 1200 matches comparable players on Gruul/.test(l)), meleeOut.join(' | '));
+    assert.ok(JSON.stringify(facts).length < 60000, 'sheet stays small enough to send to the page');
+    assert.strictEqual(typeof F.Checklist.renderReport(facts.overall.checklist, facts), 'string');
 });
 
-// --- Task 7: prompt and number guard
+// --- Task 7/8: the checklist replaces the model prompt and number guard
 const RULES = ['- Bloodlust/Heroism is RAID-wide.', '- Everything else is party-scoped.'];
-test('buildPrompt (final review item 4): the note is written from overall.findings alone, with numbers rather than field names', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system), p.system);
-    assert.ok(/never findings from kills/.test(p.system), p.system);
-    assert.ok(/never the field names/.test(p.system), p.system);
-    assert.ok(/state only your number/.test(p.system), p.system);
-    assert.ok(/include the date/.test(p.system), p.system);
-    assert.ok(/Under 450 words/.test(p.system), p.system);
-});
-test('buildPrompt (final review item 7): a healer sheet keeps the healer note and has no accounting to explain', () => {
-    const kills = [Object.assign({}, killFor(50619), { gap: null, reference: null })];
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills, thresholds: {}, now: Date.now(), limited: true });
-    assert.strictEqual(facts.overall.gap, null, 'no accounting on a healer sheet');
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/This player is a healer/.test(p.system), p.system);
-    assert.ok(/If overall\.gap is not null, a line "Where the gap comes from"/.test(p.system), 'the gap section stays conditional, so a healer note never opens one');
-});
-test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling reach the sheet; the prompt asks for every finding and a "Where you stand" line', () => {
+test('buildFacts (v4): the two worst live pulls with a ceiling reach the sheet and render in "Where you stand"', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const ref = refFor(50619);
     assert.deepStrictEqual(facts.overall.ceiling, [{ name: 'Anetheron', date: killFor(50619).date, me: 1300.7, dps: ref.dps, topDps: ref.topDps }], 'Kaz\'rogal is a bad pull and stays out');
@@ -1007,77 +832,12 @@ test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling
     // An all-bad-pull sheet (Kaz'rogal only) has no live pull to stand on at all.
     const allBad = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual(allBad.overall.ceiling, [], 'an all-bad-pull sheet gives no ceiling entries either');
-    const p = F.buildPrompt(facts, RULES);
-    // v3: findings are no longer a flat "overall.findings" dump — section 3 now lists player-owned
-    // findings by owner, biggest share first, but keeps the same "do not drop any" guarantee.
-    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system) && /Do not drop any/.test(p.system), p.system);
-    // v3: the ceiling section moved from 3b to 6 in the new seven-section structure.
-    assert.ok(/6\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
-    assert.ok(!/at most 5/.test(p.system));
-    assert.strictEqual(F.checkNumbers('Where you stand: on Anetheron you did ' + Math.round(facts.overall.ceiling[0].me) + ' against ' + ref.dps + ' typical and ' + ref.topDps + ' at best.', facts).ok, true);
+    // v4: overall.checklist.stand is built straight from overall.ceiling and is what renderReport's
+    // "Where you stand" section reads — the same coverage the retired buildPrompt test held.
+    assert.deepStrictEqual(facts.overall.checklist.stand.map(s => ({ name: s.name, me: s.me, dps: s.dps, topDps: s.topDps })),
+        [{ name: 'Anetheron', me: Math.round(facts.overall.ceiling[0].me), dps: ref.dps, topDps: ref.topDps }]);
+    assert.ok(/Where you stand/.test(F.Checklist.renderReport(facts.overall.checklist, facts)));
 });
-test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note only when limited', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/Use ONLY the facts/.test(p.system));
-    assert.ok(/Bloodlust\/Heroism is RAID-wide/.test(p.system));
-    // v3: the metric-dependent "What's holding your damage/healing back" heading is gone — the
-    // owner-based sections have fixed names regardless of metric.
-    assert.ok(p.system.includes('What you can fix') && /What's fine/.test(p.system) && /Not on you/.test(p.system));
-    assert.ok(/Under 450 words/.test(p.system));
-    assert.ok(!/healer/i.test(p.system));
-    assert.ok(p.user.startsWith('Facts sheet:\n{'));
-    assert.ok(p.user.includes('"Rotminster"'));
-    const h = F.buildPrompt(Object.assign({}, facts, { limited: true }), RULES);
-    assert.ok(/healer/i.test(h.system));
-    // Important 2: the system prompt tells the model not to move a merged finding's numbers to a
-    // different boss than the one they were measured on.
-    assert.ok(/measuredOn/.test(p.system) && /never attach them to another boss/i.test(p.system), p.system);
-});
-test('buildPrompt (v3): the owner-based section names no longer vary with the player\'s metric (was Minor 9)', () => {
-    // v3 retires the metric-dependent "What's holding your damage/healing back" heading in favour
-    // of fixed owner-based section names ("What you can fix" etc.) that read the same for hps and
-    // dps facts alike; the healer-only note (facts.limited) is the only metric-driven wording left.
-    const dpsFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    assert.strictEqual(dpsFacts.player.metric, 'dps');
-    assert.ok(!/What's holding your damage back/.test(F.buildPrompt(dpsFacts, RULES).system));
-    const hpsFacts = Object.assign({}, dpsFacts, { player: Object.assign({}, dpsFacts.player, { metric: 'hps' }) });
-    const p = F.buildPrompt(hpsFacts, RULES);
-    assert.ok(!/What's holding your healing back/.test(p.system), p.system);
-    assert.ok(!/What's holding your damage back/.test(p.system), p.system);
-    assert.ok(p.system.includes('What you can fix'), p.system);
-});
-test('buildPrompt: sections tell the model to skip themselves when the facts sheet has nothing for them (Minor 14)', () => {
-    const badPullOnlyFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
-    assert.deepStrictEqual(badPullOnlyFacts.overall.findings, []);
-    assert.deepStrictEqual(badPullOnlyFacts.overall.positives, []);
-    assert.ok(badPullOnlyFacts.overall.badPulls.length >= 1);
-    const p = F.buildPrompt(badPullOnlyFacts, RULES);
-    // v3: the old wording unconditionally ordered "What's holding your damage back" and "What's
-    // fine", which for a bad-pull-only player produced a heading with nothing under it. Section 3
-    // ("What you can fix") now lists every finding whose owner is "player" — naturally empty when
-    // overall.findings is empty, with no separate skip instruction needed. Sections 5 ("What's
-    // fine") and 7 ("Not on you") still guard explicitly on their source arrays being non-empty.
-    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system), p.system);
-    assert.ok(/If overall\.positives is not empty, a line "What\'s fine"/.test(p.system), p.system);
-    assert.ok(/a line "Not on you"/.test(p.system) && /owner is "raid"/.test(p.system), p.system);
-});
-test('buildPrompt (v3): six owner-based sections, the gap summary, the relabelled reference, no cap on findings', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const p = F.buildPrompt(facts, RULES);
-    ['Where the gap comes from', 'What you can fix', 'Ask your raid leader', "What's fine", 'Where you stand', 'Not on you'].forEach(s => assert.ok(p.system.includes(s), s));
-    assert.ok(/overall\.gap/.test(p.system) && /unexplained/.test(p.system));
-    assert.ok(/among the top 2000 parses/.test(p.system));
-    assert.ok(/owner is "player"/.test(p.system) && /owner is "group"/.test(p.system) && /owner is "raid"/.test(p.system));
-    assert.ok(/Under 450 words/.test(p.system) && !/at most 5/.test(p.system));
-    assert.ok(/share/.test(p.system), 'the model is told what share means');
-});
-test('buildPrompt (final review item 2): the model is told that a share of null is not a percentage', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/share is null/.test(p.system), p.system);
-});
-
 // --- v2 Task 1: leaderboard geometry (spec v2 §3)
 // A synthetic leaderboard: `pages` pages of 100 ranks, DPS falling with rank, item level cycling
 // through `levels` so every band is spread evenly across the board. `calls` records the page
@@ -1349,12 +1109,12 @@ test('fetchFeedback (v2 §5.1): encounterRankings is asked for every killed boss
     const q = s.calls.find(c => c.q.includes('encounterRankings(')).q;
     assert.strictEqual((q.match(/encounterRankings\(/g) || []).length, 10, 'ten killed bosses, ten aliases, although only KILL_LIMIT are analysed');
 });
-test('buildPrompt (v2 §5.2): the header rule covers the raid-night case', () => {
+test('buildFacts (v4): the header rule covers the raid-night case', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false, night: { code: 'X', date: '2026-09-01', medianPercent: 20 }, nights: [] });
     assert.deepStrictEqual(facts.night, { code: 'X', date: '2026-09-01', medianPercent: 20 });
     assert.deepStrictEqual(facts.nights, []);
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/raid night of/.test(p.system) && /median parse that night/.test(p.system), p.system);
+    const report = F.Checklist.renderReport(facts.overall.checklist, facts);
+    assert.ok(/raid night of/.test(report) && /median parse that night/.test(report), report);
 });
 test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
     const s = stubQuery();
@@ -1364,7 +1124,9 @@ test('fetchFeedback: a healer gets the limited sheet with no reference queries',
     assert.strictEqual(facts.limited, true);
     assert.ok(facts.kills.every(k => k.reference === null));
     assert.strictEqual(s.calls.filter(c => c.q.includes('characterRankings(')).length, 0);
-    assert.ok(!facts.overall.findings.some(f => ['crit_low', 'hit_low', 'stat_low', 'ability_unused', 'power_gear', 'crit_gear'].includes(f.key)));
+    // v4: a limited (healer) sheet's checklist never runs cooldownRows/spellRows/nukeRows (no
+    // reference to compare a rotation against), so no row from those categories can appear.
+    assert.ok(!facts.overall.checklist.rows.some(r => ['cooldowns', 'spells', 'nuke'].includes(r.category)), JSON.stringify(facts.overall.checklist.rows.map(r => r.id)));
     // Final review item 7: with no accounting to carry activity, a healer who spent 40% of the
     // fight doing nothing must still be told — that was the whole point of the v2 active_low line.
     const fx2 = JSON.parse(JSON.stringify(MID));
@@ -1375,7 +1137,7 @@ test('fetchFeedback: a healer gets the limited sheet with no reference queries',
     });
     const s2 = stubQuery(fx2);
     const lazy = await F.fetchFeedback(s2.query, { profile: p, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
-    assert.ok(lazy.overall.findings.some(f => f.key === 'active_low'), JSON.stringify(lazy.overall.findings.map(f => f.key)));
+    assert.ok(lazy.overall.checklist.rows.some(r => r.id === 'activity' && r.verdict !== 'pass'), JSON.stringify(lazy.overall.checklist.rows.map(r => r.id + ':' + r.verdict)));
 });
 test('fetchFeedback: no parses gives null; WCL errors propagate', async () => {
     const s = stubQuery();
@@ -1546,14 +1308,6 @@ test('getReference (v2 §3): the leaderboard length is cached for a week and sha
     await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 100, dbIndex: db, refCache, now: now + F.REF.lengthCacheMs + 1 });
     assert.ok(lb.calls.slice(before + 2).includes(32), 'after a week the length is walked again');
 });
-test('buildPrompt (v3): "comparable players" are relabelled as the top-2000-parses reference at the player\'s item level', () => {
-    // v3 relabels the reference definition from "middle of the leaderboard" wording to
-    // GAP.REF_LABEL ("players at your item level among the top 2000 parses").
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const p = F.buildPrompt(facts, RULES);
-    assert.ok(/among the top 2000 parses/.test(p.system) && /reference\.topDps/.test(p.system), p.system);
-});
-
 test('rotationFindings (v3): a utility cast the reference never makes is an extra when the player makes it once a minute', () => {
     const k = killFor(50619);
     const casts = Object.assign({}, k.me.casts, { 'Drain Soul': 7 });
@@ -1564,14 +1318,6 @@ test('rotationFindings (v3): a utility cast the reference never makes is an extr
     assert.ok(x.abilities.includes('Drain Soul'), x.abilities.join());
     assert.ok(!x.abilities.includes('Life Tap'), 'the reference casts Life Tap too');
 });
-test('positives (v3): an input where the player is ahead of the reference is a positive', () => {
-    const k = killFor(50619);
-    const g = JSON.parse(JSON.stringify(k.gap));
-    g.factors.casts.inputs.find(i => i.key === 'own_activity').share = -5;
-    const pos = F.positives([Object.assign({}, k, { gap: g })], 'caster');
-    assert.ok(pos.some(p => /ahead of comparable players on activity/.test(p)), pos.join(' | '));
-});
-
 test('fightContext (v4 §3): fight.sameClass lists every same-class player row by DPS, pets excluded, the player flagged', () => {
     const ctx = {
         fights: [{ id: 1, startTime: 0, endTime: 100000 }],
@@ -1599,6 +1345,15 @@ test('gearFindings (v4): every row carries the measured value and the bar it was
     assert.ok(hit, 'a hit row is emitted for 185 against 202');
     assert.strictEqual(hit.value, 185);
     assert.strictEqual(hit.bar, 202);
+});
+
+test('buildFacts (v4): overall.checklist replaces findings/positives; the report text renders from it', () => {
+    const facts = F.buildFacts({ profile: { name: 'Rotminster', gearSummary: {}, gear: [], parses: { metric: 'dps', zone: 1060, zoneName: 'BT/Hyjal', medianPercent: 14 }, identity: {} },
+                                 player: { name: 'Rotminster', classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', metric: 'dps' }, kills: [], thresholds: {}, now: Date.now(), limited: false, droppedKills: [], nights: [], night: null });
+    assert.ok(facts.overall.checklist && Array.isArray(facts.overall.checklist.rows));
+    assert.strictEqual(facts.overall.findings, undefined); assert.strictEqual(facts.overall.positives, undefined);
+    assert.strictEqual(typeof F.Checklist.renderReport(facts.overall.checklist, facts), 'string');
+    assert.strictEqual(F.buildPrompt, undefined); assert.strictEqual(F.checkNumbers, undefined); assert.strictEqual(F.completeReply, undefined); assert.strictEqual(F.mergeFindings, undefined); assert.strictEqual(F.positives, undefined);
 });
 
 Promise.all(pending).then(() => {

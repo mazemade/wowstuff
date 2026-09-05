@@ -113,11 +113,13 @@ function stubQuery(fx) {
 
 // Resets all server-side caches, installs a fresh WCL stub and OpenAI stub, and seeds a profile
 // cache hit for Rotminster so loadProfile never needs the WCL calls stubQuery() doesn't answer.
-function setupPipeline(openaiReply, fx) {
+function setupPipeline(fx) {
     app.__test.resetCaches();
     const s = stubQuery(fx);
     app.__test.setWclQuery(s.query);
-    app.__test.setOpenaiChat(openaiReply || (async () => 'Solid work out there. Keep it up and ask your leader about buffs.'));
+    // v4: /api/vet/feedback never calls the model any more — the report is rendered from the
+    // checklist. A stub that throws catches any regression that reintroduces a model call.
+    app.__test.setOpenaiChat(async () => { throw new Error('the feedback route must not call the model'); });
     app.__test.caches.vetCache.set(IDENTITY_KEY, { at: Date.now(), profile: rotProfile() });
     return s;
 }
@@ -131,7 +133,8 @@ test('GET /api/vet/feedback: response shape, and X-Vet-Cache is a true hit on a 
     assert.strictEqual(r1.headers.get('x-vet-cache'), 'miss');
     const body1 = await r1.json();
     assert.ok(body1.facts && typeof body1.facts === 'object', 'facts sheet present');
-    assert.ok('report' in body1 && 'reportError' in body1 && typeof body1.generatedAt === 'string', 'response shape');
+    assert.ok(typeof body1.report === 'string' && body1.report.startsWith('Rotminster — Destruction'), body1.report);
+    assert.ok(!('reportError' in body1) && typeof body1.generatedAt === 'string', 'response shape');
     const callsAfterFirst = s.calls.length;
     assert.ok(callsAfterFirst > 0, 'the pipeline actually queried WCL');
 
@@ -158,16 +161,6 @@ test('GET /api/vet/feedback: the 15-minute cache expires and the pipeline re-run
     assert.strictEqual(r2.status, 200);
     assert.strictEqual(r2.headers.get('x-vet-cache'), 'miss', 'an expired entry is a miss, not a hit');
     assert.ok(s.calls.length > callsAfterFirst, 'the pipeline actually re-ran rather than serving stale data');
-});
-
-test('GET /api/vet/feedback: a model failure is HTTP 200 with report:null, reportError set, facts intact', async () => {
-    setupPipeline(async () => { const e = new Error('No OPENAI_API_KEY configured'); e.code = 'NO_KEY'; throw e; });
-    const r = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);
-    assert.strictEqual(r.status, 200);
-    const body = await r.json();
-    assert.strictEqual(body.report, null);
-    assert.strictEqual(body.reportError, 'No OPENAI_API_KEY configured; showing the facts only');
-    assert.ok(body.facts && Array.isArray(body.facts.kills) && body.facts.kills.length > 0, 'facts sheet is still the full product');
 });
 
 test('GET /api/vet/feedback: a 429 from WCL anywhere in the pipeline aborts the whole request with 429', async () => {
@@ -201,24 +194,6 @@ test('GET /api/vet/feedback: a kill whose report errors is dropped with a reason
     assert.strictEqual(body.facts.kills[0].name, 'Anetheron');
     assert.deepStrictEqual(body.facts.overall.droppedKills, [{ name: "Kaz'rogal", reason: 'GraphQL error: report is private' }],
         'the route surfaces wave A\'s droppedKills rather than a silently thinner sheet');
-});
-
-test('GET /api/vet/feedback: a reply with a figure not in the facts is rejected by the number guard', async () => {
-    setupPipeline(async () => 'You did an incredible 9999 damage out there, more than anyone else in the raid.');
-    const r = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);
-    assert.strictEqual(r.status, 200);
-    const body = await r.json();
-    assert.strictEqual(body.report, null);
-    assert.ok(/figures not in the facts/.test(body.reportError) && /9999/.test(body.reportError), body.reportError);
-});
-
-test('GET /api/vet/feedback (v3): a model reply missing findings is completed under "Also:" and still returned as the report', async () => {
-    setupPipeline(async () => 'Rotminster, Destruction, BT / Hyjal, median parse 14\n\nWhat\'s fine\nNo deaths.');
-    const r = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);
-    const body = await r.json();
-    assert.strictEqual(body.reportError, null);
-    assert.ok(body.report.includes('\n\nAlso:\n'), body.report);
-    assert.ok(body.facts.overall.findings.every(f => body.report.includes(f.text)), 'every finding text appears');
 });
 
 test('GET /api/vet/feedback: a cross-origin browser request is rejected; curl and the app itself are not (Critical 1)', async () => {
@@ -279,12 +254,11 @@ test('GET /api/vet/feedback: different thresholds reuse the cached pipeline and 
     assert.strictEqual(body2.facts.tier.threshold, 77, 'the response does reflect the requested threshold');
     assert.strictEqual(s.calls.length, callsAfterFirst, 'a different thresholds value must not trigger a second WCL pipeline run');
     // fix-d: the WCL facts were reused (no new WCL calls, asserted above) but this response still
-    // required its own fresh OpenAI call to reflect thresholds=77's gear findings — a paid call
-    // that a bare "did the cache help" header would hide. X-Vet-Cache must report 'miss' here too,
-    // not 'hit', because it is scoped to whether THIS response's model call was fresh, not to
-    // whether the (unrelated) WCL pipeline was reused.
+    // required its own fresh checklist/report rebuild to reflect thresholds=77's gear findings.
+    // X-Vet-Cache must report 'miss' here too, not 'hit', because it is scoped to whether THIS
+    // response's sheet was freshly (re)built, not to whether the (unrelated) WCL pipeline was reused.
     assert.strictEqual(r2.headers.get('x-vet-cache'), 'miss',
-        'a fresh model call for this request\'s own thresholds must not be reported as a cache hit, even though the WCL pipeline was reused');
+        'a fresh rebuild for this request\'s own thresholds must not be reported as a cache hit, even though the WCL pipeline was reused');
 });
 
 test('GET /api/vet/feedback: a missing item table on a profile cache hit is 500 with the specific message (Minor 17)', async () => {
@@ -330,7 +304,7 @@ test('GET /api/vet/feedback (v2 §5.2): report= must be 16 alphanumerics', async
     assert.deepStrictEqual(await r.json(), { error: 'Invalid report code' });
 });
 test('GET /api/vet/feedback (v2 §5.2): a night is analysed and cached apart from the default report', async () => {
-    const s = setupPipeline(null, twoNights());
+    const s = setupPipeline(twoNights());
     const kazCode = FX.kills['50620'].code;
     const all = await (await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN)).json();
     assert.strictEqual(all.facts.night, null);
