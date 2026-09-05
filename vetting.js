@@ -184,7 +184,7 @@ function pause() {
 }
 
 // --- feedback report ---
-async function requestFeedback(key) {
+async function requestFeedback(key, reportCode) {
     const player = state.players.find(p => p.name.toLowerCase() === key);
     if (!player || feedbackInFlight.has(key)) return;
     delete feedbackErrors[key];
@@ -193,13 +193,20 @@ async function requestFeedback(key) {
     renderTable();
     try {
         const url = '/api/vet/feedback?name=' + encodeURIComponent(player.name) + '&server=' + encodeURIComponent(wcl.server) +
-            '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds));
+            '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds)) +
+            (reportCode ? '&report=' + encodeURIComponent(reportCode) : '');
         const res = await fetch(url);
         if (!state.players.some(p => p.name.toLowerCase() === key)) return;
         if (res.status === 429) { feedbackErrors[key] = 'Warcraft Logs rate limit reached — try again after the pause'; pause(); return; }
         const body = await res.json().catch(() => ({}));
         if (!res.ok) { feedbackErrors[key] = body.error || ('HTTP ' + res.status); return; }
-        state.feedback[key] = { report: body.report || null, reportError: body.reportError || null, generatedAt: body.generatedAt, facts: body.facts };
+        const got = { report: body.report || null, reportError: body.reportError || null, generatedAt: body.generatedAt, facts: body.facts };
+        const prev = state.feedback[key] || {};
+        // v2 §8: the across-kills report and the last fetched night live side by side; `selected`
+        // remembers which one the box shows.
+        state.feedback[key] = reportCode
+            ? Object.assign({}, prev, { night: Object.assign({ code: reportCode }, got), selected: reportCode })
+            : Object.assign({}, prev, got, { selected: 'all' });
         try { save(); } catch (err) { feedbackErrors[key] = 'Report shown but could not be saved locally: ' + err.message; }
     } catch (err) {
         feedbackErrors[key] = 'Network error: ' + err.message;
@@ -220,7 +227,10 @@ function copyText(text, btn) {
 }
 // The facts sheet's findings as plain text, for when the model wrote nothing usable.
 function fallbackReport(facts) {
-    const lines = [facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName + ', median parse ' + Math.round(facts.tier.medianPercent)];
+    const head = facts.night
+        ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent)
+        : 'median parse ' + Math.round(facts.tier.medianPercent);
+    const lines = [facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName + ', ' + head];
     // Mirrors vet-feedback.js's buildPrompt: label the section by metric so a healer does not
     // read "damage" over their HPS findings.
     const holdingBackHeading = facts.player.metric === 'hps' ? "What's holding your healing back" : "What's holding your damage back";
@@ -232,10 +242,14 @@ function fallbackReport(facts) {
         facts.overall.findings.forEach((f, i) => lines.push((i + 1) + '. ' + f.text));
     }
     if (facts.overall.positives.length) lines.push('', "What's fine", facts.overall.positives.join('. ') + '.');
+    if (facts.overall.ceiling && facts.overall.ceiling.length) {
+        lines.push('', 'Where you stand');
+        facts.overall.ceiling.forEach(c => lines.push(c.name + ': you ' + c.me + ', players at your item level ' + c.dps + ', the best at your item level ' + c.topDps));
+    }
     if (!facts.overall.findings.length && !facts.overall.positives.length) {
         lines.push('', facts.overall.badPulls.length ? 'Nothing to flag beyond the bad pulls below.' : 'Nothing to flag.');
     }
-    if (facts.overall.badPulls.length) { lines.push('', 'Not on you'); facts.overall.badPulls.forEach(b => lines.push(b.name + ' (' + b.rankPercent + '): ' + b.reason)); }
+    if (facts.overall.badPulls.length) { lines.push('', 'Not on you'); facts.overall.badPulls.forEach(b => lines.push(b.name + (b.date ? ' ' + b.date : '') + ' (' + b.rankPercent + '): ' + b.reason)); }
     return lines.join('\n');
 }
 
@@ -444,6 +458,7 @@ function factsTable(facts) {
     // vet-feedback.js was meant to remove, just moved from the model's prose into this header).
     const metricLabel = facts.player.metric === 'hps' ? 'HPS' : 'DPS';
     t.innerHTML = '<tr><th>Boss</th><th>Parse</th><th>Length</th><th>Active</th><th>Raid rank</th><th>' + metricLabel + ' vs band</th><th>Crit vs band</th><th>Pull consumables</th><th>Log</th></tr>';
+    const multi = new Set(facts.kills.map(k => k.name)).size < facts.kills.length;
     facts.kills.forEach(k => {
         const tr = document.createElement('tr');
         if (k.fight.badPull) { tr.className = 'bad-pull'; tr.title = k.fight.badPullReason; }
@@ -452,7 +467,8 @@ function factsTable(facts) {
         const fmt = x => (x == null ? '—' : x);
         const cells = [
             escapeHtml(k.name) + (k.killsOnBoss > 1 ? ' <span class="cell-unknown">(kill ' + escapeHtml(String(k.killIndex)) + ' of ' + escapeHtml(String(k.killsOnBoss)) + ' kills)</span>' : '') +
-                (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : ''),
+                (k.fight.badPull ? ' <span class="cell-unknown">(bad pull)</span>' : '') +
+                (multi && k.date ? ' <span class="cell-unknown">' + escapeHtml(k.date) + '</span>' : ''),
             fmt(k.rankPercent == null ? null : Math.round(k.rankPercent)),
             fmt(k.fight.durationSec == null ? null : Math.round(k.fight.durationSec) + 's') + (ref && ref.durationSec != null ? ' / ' + Math.round(ref.durationSec) + 's' : ''),
             fmt(k.me.activePercent == null ? null : k.me.activePercent + '%'),
@@ -475,17 +491,32 @@ function feedbackBox(r) {
     box.className = 'feedback-box';
     const fb = state.feedback[r.key];
     const busy = feedbackInFlight.has(r.key);
+    // v2 §8: the default (across-kills) sheet lists the player's raid nights; the select picks
+    // which report the box shows and which one the button fetches.
+    const nights = fb && fb.facts && Array.isArray(fb.facts.nights) ? fb.facts.nights : [];
+    const selected = fb && fb.selected && fb.selected !== 'all' && nights.some(n => n.code === fb.selected) ? fb.selected : 'all';
+    const shown = selected === 'all' ? fb : (fb.night && fb.night.code === selected ? fb.night : null);
+    if (nights.length) {
+        const sel = document.createElement('select');
+        sel.className = 'feedback-night';
+        sel.innerHTML = '<option value="all">Across kills</option>' + nights.map(n =>
+            '<option value="' + escapeHtml(n.code) + '">' + escapeHtml(n.date + ' · ' + n.bosses.length + (n.bosses.length === 1 ? ' boss' : ' bosses') + ' · median ' + Math.round(n.medianPercent)) + '</option>').join('');
+        sel.value = selected;
+        sel.addEventListener('click', e => e.stopPropagation());
+        sel.addEventListener('change', e => { e.stopPropagation(); fb.selected = sel.value; try { save(); } catch (err) { feedbackErrors[r.key] = 'Could not save locally: ' + err.message; } renderTable(); });
+        box.appendChild(sel);
+    }
     const btn = document.createElement('button');
     btn.className = 'btn';
-    btn.textContent = busy ? 'Analysing…' : (fb ? 'Refresh report' : 'Feedback report');
+    btn.textContent = busy ? 'Analysing…' : (shown ? 'Refresh report' : 'Feedback report');
     btn.disabled = busy || !r.profile.parses;
     if (!r.profile.parses) btn.title = 'No parses to analyse';
-    btn.addEventListener('click', e => { e.stopPropagation(); requestFeedback(r.key); });
+    btn.addEventListener('click', e => { e.stopPropagation(); requestFeedback(r.key, selected === 'all' ? null : selected); });
     box.appendChild(btn);
     if (feedbackErrors[r.key]) box.insertAdjacentHTML('beforeend', '<div class="status error feedback-status">' + escapeHtml(feedbackErrors[r.key]) + '</div>');
-    if (!fb) return box;
-    const text = fb.report || (fb.facts ? fallbackReport(fb.facts) : '');
-    if (fb.reportError) box.insertAdjacentHTML('beforeend', '<div class="status feedback-status">' + escapeHtml(fb.reportError) + '</div>');
+    if (!shown) return box;
+    const text = shown.report || (shown.facts ? fallbackReport(shown.facts) : '');
+    if (shown.reportError) box.insertAdjacentHTML('beforeend', '<div class="status feedback-status">' + escapeHtml(shown.reportError) + '</div>');
     const pre = document.createElement('pre');
     pre.className = 'feedback-report';
     pre.textContent = text;
@@ -496,12 +527,15 @@ function feedbackBox(r) {
     copy.className = 'btn btn-primary'; copy.textContent = 'Copy';
     copy.addEventListener('click', e => { e.stopPropagation(); copyText(text, copy); });
     actions.appendChild(copy);
-    if (fb.generatedAt) actions.insertAdjacentHTML('beforeend', '<span class="status">' + escapeHtml(new Date(fb.generatedAt).toLocaleString()) + '</span>');
+    if (shown.generatedAt) actions.insertAdjacentHTML('beforeend', '<span class="status">' + escapeHtml(new Date(shown.generatedAt).toLocaleString()) + '</span>');
     box.appendChild(actions);
-    if (fb.facts) {
+    if (shown.facts) {
         const det = document.createElement('details');
         det.innerHTML = '<summary>Facts</summary>';
-        det.appendChild(factsTable(fb.facts));
+        const ceiling = shown.facts.overall && Array.isArray(shown.facts.overall.ceiling) ? shown.facts.overall.ceiling : [];
+        if (ceiling.length) det.insertAdjacentHTML('beforeend', '<div class="status feedback-ceiling">Where you stand: ' + ceiling.map(c =>
+            escapeHtml(c.name) + ' ' + escapeHtml(String(c.me)) + ' vs ' + escapeHtml(String(c.dps)) + ' typical, ' + escapeHtml(String(c.topDps)) + ' best at your item level').join(' · ') + '</div>');
+        det.appendChild(factsTable(shown.facts));
         box.appendChild(det);
     }
     return box;
