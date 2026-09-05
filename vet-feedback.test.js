@@ -653,7 +653,7 @@ test('completeReply (final review item 10): the phrasings a live note actually u
     assert.deepStrictEqual(F.completeReply('You are missing 1 debuff; the raid needs 2 more uptime on it.', withFindings([debuffs])).appended, [debuffs.text]);
     assert.deepStrictEqual(F.completeReply('5 of 7 pulls', withFindings([{ key: 'crit_buffs', me: 5, reference: 7, text: 'Crit from party buffs 5% against 7%.' }])).appended.length, 1);
 });
-test('uptimeFindings: a death before 90% of the fight and active time under 85% are major', () => {
+test('uptimeFindings: a death before 90% of the fight is major; on a pull with an accounting, activity is an input rather than a finding', () => {
     const base = killFor(50619);
     const dead = Object.assign({}, base, { me: Object.assign({}, base.me, { died: { atSec: 40, by: 'Carrion Swarm' }, activePercent: 70 }) });
     const f = F.uptimeFindings(dead);
@@ -664,6 +664,30 @@ test('uptimeFindings: a death before 90% of the fight and active time under 85% 
     assert.ok(!keysOf(F.uptimeFindings(late)).includes('died'), 'a death in the last 10% is not a finding');
 });
 
+test('uptimeFindings (final review item 7): a pull with no accounting still reports low activity, a pull with one does not', () => {
+    const base = killFor(50619);
+    const noGap = Object.assign({}, base, { gap: null, me: Object.assign({}, base.me, { activePercent: 70 }) });
+    const f = F.uptimeFindings(noGap);
+    const low = f.find(x => x.key === 'active_low');
+    assert.ok(low && low.severity === 'major', JSON.stringify(f.map(x => x.key)));
+    assert.ok(/Active 70% of the Anetheron fight/.test(low.text), low.text);
+    assert.strictEqual(F.T.activeMajor, 85);
+    assert.strictEqual(F.T.activeGap, 8);
+    const withGap = Object.assign({}, base, { me: Object.assign({}, base.me, { activePercent: 70 }) });
+    assert.ok(withGap.gap, 'fixture sanity: this pull has an accounting');
+    assert.ok(!F.uptimeFindings(withGap).some(x => x.key === 'active_low'), 'own_activity carries it instead');
+    // The softer rule: above the major bar but well under the raid's own median.
+    const soft = Object.assign({}, base, { gap: null, fight: Object.assign({}, base.fight, { raidActivePercent: 95 }), me: Object.assign({}, base.me, { activePercent: 86 }) });
+    assert.ok(F.uptimeFindings(soft).some(x => x.key === 'active_low' && x.severity === 'minor'), 'a minor line when the raid was far more active');
+});
+test('positives (final review item 8): a pull where the player beat comparable players is said out loud', () => {
+    const k = killFor(50619);
+    const ahead = Object.assign({}, k, { gap: null, me: Object.assign({}, k.me, { amount: 3000 }) });
+    const pos = F.positives([ahead], 'caster');
+    assert.ok(pos.some(p => /Above players at your item level among the top 2000 parses on Anetheron: 3000 against 2768 DPS/.test(p)), pos.join(' | '));
+    // Below the reference: no such line (the accounting explains the gap instead).
+    assert.ok(!F.positives([k], 'caster').some(p => /^Above /.test(p)), F.positives([k], 'caster').join(' | '));
+});
 // --- Task 6: consumables, buffs, debuffs, gear, merge, facts
 function rotProfile() {
     const rankings = { medianPerformanceAverage: 14.0, bestPerformanceAverage: 14.0, rankings: [
@@ -969,6 +993,24 @@ test('positives: dedupes and aggregates across a full roster instead of repeatin
 
 // --- Task 7: prompt and number guard
 const RULES = ['- Bloodlust/Heroism is RAID-wide.', '- Everything else is party-scoped.'];
+test('buildPrompt (final review item 4): the note is written from overall.findings alone, with numbers rather than field names', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system), p.system);
+    assert.ok(/never findings from kills/.test(p.system), p.system);
+    assert.ok(/never the field names/.test(p.system), p.system);
+    assert.ok(/state only your number/.test(p.system), p.system);
+    assert.ok(/include the date/.test(p.system), p.system);
+    assert.ok(/Under 450 words/.test(p.system), p.system);
+});
+test('buildPrompt (final review item 7): a healer sheet keeps the healer note and has no accounting to explain', () => {
+    const kills = [Object.assign({}, killFor(50619), { gap: null, reference: null })];
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills, thresholds: {}, now: Date.now(), limited: true });
+    assert.strictEqual(facts.overall.gap, null, 'no accounting on a healer sheet');
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/This player is a healer/.test(p.system), p.system);
+    assert.ok(/If overall\.gap is not null, a line "Where the gap comes from"/.test(p.system), 'the gap section stays conditional, so a healer note never opens one');
+});
 test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling reach the sheet; the prompt asks for every finding and a "Where you stand" line', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const ref = refFor(50619);
@@ -988,7 +1030,7 @@ test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling
     const p = F.buildPrompt(facts, RULES);
     // v3: findings are no longer a flat "overall.findings" dump — section 3 now lists player-owned
     // findings by owner, biggest share first, but keeps the same "do not drop any" guarantee.
-    assert.ok(/every finding whose owner is "player"/.test(p.system) && /Do not drop any/.test(p.system), p.system);
+    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system) && /Do not drop any/.test(p.system), p.system);
     // v3: the ceiling section moved from 3b to 6 in the new seven-section structure.
     assert.ok(/6\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
     assert.ok(!/at most 5/.test(p.system));
@@ -1036,9 +1078,9 @@ test('buildPrompt: sections tell the model to skip themselves when the facts she
     // ("What you can fix") now lists every finding whose owner is "player" — naturally empty when
     // overall.findings is empty, with no separate skip instruction needed. Sections 5 ("What's
     // fine") and 7 ("Not on you") still guard explicitly on their source arrays being non-empty.
-    assert.ok(/every finding whose owner is "player"/.test(p.system), p.system);
+    assert.ok(/every entry of overall\.findings whose owner is "player"/.test(p.system), p.system);
     assert.ok(/If overall\.positives is not empty, a line "What\'s fine"/.test(p.system), p.system);
-    assert.ok(/If overall\.badPulls is not empty or any finding has owner "raid", a line "Not on you"/.test(p.system), p.system);
+    assert.ok(/a line "Not on you"/.test(p.system) && /owner is "raid"/.test(p.system), p.system);
 });
 test('buildPrompt (v3): six owner-based sections, the gap summary, the relabelled reference, no cap on findings', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
@@ -1483,6 +1525,17 @@ test('fetchFeedback: a healer gets the limited sheet with no reference queries',
     assert.ok(facts.kills.every(k => k.reference === null));
     assert.strictEqual(s.calls.filter(c => c.q.includes('characterRankings(')).length, 0);
     assert.ok(!facts.overall.findings.some(f => ['crit_low', 'hit_low', 'stat_low', 'ability_unused', 'power_gear', 'crit_gear'].includes(f.key)));
+    // Final review item 7: with no accounting to carry activity, a healer who spent 40% of the
+    // fight doing nothing must still be told — that was the whole point of the v2 active_low line.
+    const fx2 = JSON.parse(JSON.stringify(MID));
+    Object.keys(fx2.kills).forEach(e => {
+        const d = fx2.kills[e].context.dmgAll.data;
+        const row = d.entries.find(r => F.lower(r.name) === 'rotminster');
+        if (row) row.activeTime = Math.round(d.totalTime * 0.6);
+    });
+    const s2 = stubQuery(fx2);
+    const lazy = await F.fetchFeedback(s2.query, { profile: p, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.ok(lazy.overall.findings.some(f => f.key === 'active_low'), JSON.stringify(lazy.overall.findings.map(f => f.key)));
 });
 test('fetchFeedback: no parses gives null; WCL errors propagate', async () => {
     const s = stubQuery();

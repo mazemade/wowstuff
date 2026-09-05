@@ -20,6 +20,11 @@ const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, 
 // they gated (Task 4): the gap accounting (vet-gap.js) and its `minShare` now decide what is worth
 // reporting instead.
 const T = {
+    // Final review item 7: activity thresholds are back. The accounting's own_activity input only
+    // exists on a pull that HAS an accounting; a healer, a pull with no reference and a pull the
+    // player was ahead on all lose the "you were standing still for a third of the fight" line
+    // entirely without these.
+    activeMajor: 85, activeGap: 8,
     diedBefore: 0.9,
     unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7,
     debuffUptime: 70, potionMinSec: 60, minShare: 3,
@@ -510,6 +515,15 @@ function theName(name) { return /^the /i.test(String(name || '')) ? name : 'the 
 
 function uptimeFindings(kill) {
     const f = [], me = kill.me, fight = kill.fight;
+    // v2's active_low, restored for the pulls the accounting cannot speak for (kill.gap is null:
+    // healers, no reference, a pull the player was ahead on, a bad pull). Where there IS an
+    // accounting, own_activity carries the same fact with its share and this would double it.
+    if (!kill.gap && typeof me.activePercent === 'number') {
+        const raidTail = typeof fight.raidActivePercent === 'number' ? ' (raid median ' + fight.raidActivePercent + '%)' : '';
+        if (me.activePercent < T.activeMajor) f.push(finding('active_low', 'major', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
+        else if (typeof fight.raidActivePercent === 'number' && me.activePercent < 92 && fight.raidActivePercent - me.activePercent >= T.activeGap)
+            f.push(finding('active_low', 'minor', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
+    }
     if (me.died && fight.durationSec && me.died.atSec < T.diedBefore * fight.durationSec)
         f.push(finding('died', 'major', 'player', 'Died at ' + me.died.atSec + 's of ' + Math.round(fight.durationSec) + 's on ' + kill.name + (me.died.by ? ' to ' + me.died.by : '')));
     return f;
@@ -802,6 +816,17 @@ function positives(kills, role) {
         });
     }
 
+    // Final review item 8: a pull with a reference and no accounting is one the player matched or
+    // beat (explainGap returns null once the ratio is not above 1). That is worth saying plainly,
+    // next to the boss it happened on.
+    live.forEach(k => {
+        const ref = k.reference;
+        if (!ref || k.gap) return;
+        const bar = typeof ref.playersDps === 'number' ? ref.playersDps : ref.dps;
+        if (typeof k.me.amount !== 'number' || typeof bar !== 'number' || k.me.amount < bar) return;
+        out.push('Above ' + GAP.REF_LABEL + ' on ' + k.name + ': ' + k.me.amount + ' against ' + bar + ' DPS');
+    });
+
     return out.slice(0, 4);
 }
 
@@ -929,11 +954,14 @@ function buildPrompt(facts, rulesLines) {
         'Structure, in this order, plain text:',
         '1. One header line: name, spec, tier, then "median parse P" using tier.medianPercent — or, when night is not null, "raid night of <night.date>, median parse that night P" using night.medianPercent.',
         '2. If overall.gap is not null, a line "Where the gap comes from", then one sentence per factor from overall.gap with its share: casting less (casts), weaker casts (dmg), crit (crit), and "the rest is luck or unexplained" for residual when it is 3 or more.',
-        '3. A line "What you can fix", then every finding whose owner is "player", biggest share first, each as one short paragraph: what it is, your number next to the comparable-player number, its share of the gap, one concrete fix. Do not drop any.',
-        '4. If any finding has owner "group", a line "Ask your raid leader", then each of them with its share, phrased as a request to the raid leader.',
+        // Final review item 4: the live note wandered off overall.findings into kills[] (it wrote a
+        // paragraph per boss per ability), invented comparable-player numbers for findings that have
+        // none, and printed the sheet's own field names ("1300.7 dps (me), 2152 (dps)").
+        '3. If any entry of overall.findings has owner "player", a line "What you can fix", then every entry of overall.findings whose owner is "player", in that order — never findings from kills[] — each as one short paragraph: what it is, your number, the comparable-player number when the finding has one (when it has none, state only your number), the share when it has one, one concrete fix. Do not drop any.',
+        '4. If any entry of overall.findings has owner "group", a line "Ask your raid leader", then every entry of overall.findings whose owner is "group" — never findings from kills[] — each phrased as a request to the raid leader, with its share when it has one.',
         '5. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives.',
-        '6. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: your number (me), what ' + GAP.REF_LABEL + ' do (dps), and what the best at your item level reach (topDps) on that boss.',
-        '7. If overall.badPulls is not empty or any finding has owner "raid", a line "Not on you", then one line per bad pull with its reason and one per raid finding.',
+        '6. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: "<boss>: you did <me> DPS; ' + GAP.REF_LABEL + ' do <dps>; the best reach <topDps>" — write the numbers, never the field names.',
+        '7. If overall.badPulls is not empty or any entry of overall.findings has owner "raid", a line "Not on you", then one line per bad pull with its reason and one line per entry of overall.findings whose owner is "raid" — never findings from kills[]. Name the boss each line is about, and include the date when the sheet lists that boss more than once.',
         'Under 450 words.',
         facts && facts.limited ? 'This player is a healer: the sheet has no gap accounting, so write only about uptime, deaths, consumables, buffs and gear.' : '',
     ]).filter(Boolean).join('\n');
