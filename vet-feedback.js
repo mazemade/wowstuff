@@ -153,7 +153,11 @@ function fightContext(ctx, playerName, role, refDurationSec, metric) {
     const activeOf = row => (totalTime && row && typeof row.activeTime === 'number') ? round1(100 * row.activeTime / totalTime) : null;
     const meRow = rows.find(r => lower(r.name) === me) || null;
     const groupNames = new Set(group.map(c => lower(c.name)));
-    const raidActivePercent = round1(median(rows.filter(r => r.type !== 'Pet' && groupNames.has(lower(r.name))).map(activeOf)));
+    const groupRows = rows.filter(r => r.type !== 'Pet' && groupNames.has(lower(r.name)));
+    // v3: a fight whose rankings carry no role groups (reference players' contexts in the
+    // captured fixture; any report WCL has not ranked) still has a raid: use every player row.
+    const activeRows = groupRows.length ? groupRows : rows.filter(r => r.type !== 'Pet');
+    const raidActivePercent = round1(median(activeRows.map(activeOf)));
 
     const deaths = (ctx.deaths && ctx.deaths.data && Array.isArray(ctx.deaths.data.entries)) ? ctx.deaths.data.entries : [];
     const myDeath = deaths.find(d => lower(d.name) === me);

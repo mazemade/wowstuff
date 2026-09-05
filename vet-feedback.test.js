@@ -155,6 +155,16 @@ test('fightContext: a death is reported with time and killing blow; missing tabl
     assert.strictEqual(empty.me.activePercent, null);
     assert.strictEqual(empty.meRow, null);
 });
+test('fightContext (v3): with no role groups in the rankings the raid median active share falls back to every non-pet player row', () => {
+    const K = FX.kills['50619'];
+    const ctx = JSON.parse(JSON.stringify(K.context));
+    ctx.rankings = null;
+    const fc = F.fightContext(ctx, 'Rotminster', 'caster', null, 'dps');
+    assert.strictEqual(typeof fc.fight.raidActivePercent, 'number');
+    assert.strictEqual(fc.fight.raidGroupRank, null, 'no rankings, no rank');
+    const withRanks = F.fightContext(K.context, 'Rotminster', 'caster', null, 'dps');
+    assert.strictEqual(typeof withRanks.fight.raidActivePercent, 'number');
+});
 test('fightContext: healers are ranked among healers, tanks among tanks', () => {
     const ctx = { fights: [{ startTime: 0, endTime: 100000 }], rankings: { data: [{ speed: { rankPercent: 50 }, execution: { rankPercent: 50 },
         roles: { dps: { characters: [{ name: 'D', amount: 1000, rankPercent: 50 }] }, healers: { characters: [{ name: 'H1', amount: 900, rankPercent: 60 }, { name: 'H2', amount: 700, rankPercent: 2 }] }, tanks: { characters: [] } } }] } };
@@ -325,13 +335,7 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
 });
 test('v3 measurements: me and reference carry damaging casts, damage per cast, crit rate, channel time, raid activity, consumables and debuffs', () => {
     const ref = refFor(50619);
-    ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
-    // The reference fixture's players carry only {fights, dmgAll, masterData} on `context` (captured
-    // before v3), not the `rankings` a live reference fetch gets from FIGHT_QUERY. fightContext's
-    // raid-group lookup needs `rankings` to find who else is in the raid, so with none it can't form
-    // a group and correctly reports null here — the same nullable shape `uptimeFindings` already
-    // guards for `fight.raidActivePercent` (`typeof fight.raidActivePercent === 'number'`).
-    assert.strictEqual(ref.raidActivePercent, null, 'the reference fixture has no rankings to build a raid group from');
+    ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin', 'raidActivePercent'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
     assert.ok(ref.damagingCastsPerMinute < ref.castsPerMinute, 'Life Tap is not a damaging cast');
     assert.ok(Array.isArray(ref.consumablesAtPull) && ref.consumablesAtPull.includes('Flask of Pure Death'));
     assert.ok(Array.isArray(ref.debuffs) && ref.debuffs.every(d => typeof d.name === 'string' && typeof d.uptimePercent === 'number'));
