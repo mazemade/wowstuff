@@ -1,0 +1,98 @@
+'use strict';
+const assert = require('node:assert');
+let passed = 0, failed = 0;
+function test(name, fn) {
+    try { fn(); passed++; } catch (e) { failed++; console.error('FAIL: ' + name + '\n  ' + e.message); }
+}
+
+const C = require('./vet-checklist.js');
+
+// A minimal accounting pull: only the inputs a test names carry a share; everything else is 0.
+function gapKill(name, inputs, extra) {
+    const mk = (key, owner, share, me, reference, unit) => ({ key, owner, share, me, reference, unit });
+    const get = (k, d) => (inputs[k] !== undefined ? inputs[k] : d);
+    const casts = [mk('raid_activity', 'raid', get('raid_activity', 0), 95, 96, 'raid median active %'), mk('own_activity', 'player', get('own_activity', 0), 90, 95, 'active %'),
+                   mk('channel_time', 'player', get('channel_time', 0), 1, 0, 'seconds a minute channelling'), mk('cast_pacing', 'player', get('cast_pacing', 0), 20, 24, 'damaging casts a minute')];
+    const dmg = [mk('hit_under_cap', 'player', get('hit_under_cap', 0), 202, 160, 'hit rating'), mk('debuffs', 'group', get('debuffs', 0), 1.1, 1.21, 'debuff multiplier'),
+                 mk('power_gear', 'player', get('power_gear', 0), 1026, 1007, 'spell power from gear'), mk('power_consumables', 'player', get('power_consumables', 0), 78, 103, 'spell power from consumables'),
+                 mk('power_buffs', 'group', get('power_buffs', 0), 0, 40, 'spell power from party buffs'), mk('rotation', 'player', get('rotation', 0), 3065, 3869, 'damage per cast (crits included)')];
+    const crit = [mk('crit_gear', 'player', get('crit_gear', 0), 20, 22, 'crit % from gear'), mk('crit_buffs', 'group', get('crit_buffs', 0), 0, 5, 'crit % from party buffs'), mk('crit_luck', 'noise', get('crit_luck', 0), 35, 44, 'measured crit %')];
+    const sum = arr => arr.reduce((s, i) => s + i.share, 0);
+    return Object.assign({
+        name, date: '2026-08-20', rankPercent: 20,
+        fight: { durationSec: 186, badPull: false, badPullReason: null, raidActivePercent: 96, sameClass: [] },
+        debuffs: { known: true, present: [{ name: 'Curse of the Elements', uptimePercent: 98 }], missing: [{ name: 'Misery', value: '5% spell hit', source: 'a shadow priest' }, { name: 'Shadow Weaving', value: '10% more shadow damage', source: 'a shadow priest' }] },
+        me: { amount: 1362, activePercent: 94.5, died: null, potionUse: 0, consumablesKnown: true, consumablesAtPull: ['Well Fed', 'Major Shadow Power'], buffsAtPull: ['Arcane Brilliance'], partyBuffs: ['Arcane Brilliance'],
+              flask: null, battleElixir: 'Major Shadow Power', guardianElixir: null, food: 'Well Fed', casts: { 'Shadow Bolt': 65, 'Life Tap': 6, 'Curse of the Elements': 1 },
+              abilities: [{ name: 'Shadow Bolt', share: 99, hits: 64, avgHit: 3065, avgCrit: 6261, critPercent: 35.9, resistPercent: 17 }],
+              bloodlustPercent: 22, burst: [], stats: { spellHit: 203, spellCrit: 293, spellDamage: 1026 }, damagingCastsPerMinute: 21.3, damagePerDamagingCast: 3841, critRate: 35.4, channelSecPerMin: 0.4 },
+        reference: { playersDps: 2217, dps: 2217, topDps: 2600, castsDurationSec: 140, flaskShare: 1, flask: 'Flask of Pure Death', consumablesAtPull: ['Well Fed', 'Flask of Pure Death'],
+                     buffsAtPull: ['Moonkin Aura', 'Arcane Brilliance'], casts: { 'Shadow Bolt': 54, 'Curse of Doom': 2, 'Shadowburn': 1, Destruction: 1, 'Life Tap': 6 },
+                     abilities: [{ name: 'Shadow Bolt', share: 91, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 54 }, { name: 'Curse of Doom', share: 7.2, avgHit: null, hits: 0 }],
+                     bloodlustPercent: 28, burst: [{ name: 'Destruction', uses: 1, insideBloodlust: 1 }], damagingCastsPerMinute: 24.3, damagePerDamagingCast: 5474, critRate: 43.6, channelSecPerMin: 0, raidActivePercent: 96.7, debuffs: [], stats: { spellHit: 164, spellCrit: 370, spellDamage: 1007 } },
+        findings: [],
+        gap: { ratio: 1.63, factors: { casts: { value: 1.14, share: sum(casts), inputs: casts }, dmg: { value: 1.3, share: sum(dmg), inputs: dmg }, crit: { value: 1.06, share: sum(crit), inputs: crit }, residual: { value: 1, share: 0, inputs: [] } } },
+    }, extra || {});
+}
+function sheet(kills, extra) {
+    return Object.assign({ player: { name: 'Lovestoned', class: 'WARLOCK', spec: 'Destruction', role: 'caster', metric: 'dps', itemLevel: 126 },
+        tier: { zoneName: 'SSC/TK', medianPercent: 28.1 }, gear: { findings: [] }, kills,
+        overall: { badPulls: [], ceiling: [], gap: null, droppedKills: [] }, limited: false, nights: [], night: null }, extra || {});
+}
+
+test('averageShare / largestPull: absent pulls count 0; the biggest pull supplies the numbers', () => {
+    const kills = [gapKill('A', { cast_pacing: 40 }), gapKill('B', { cast_pacing: 20 }), gapKill('C', {}, { gap: null })];
+    assert.strictEqual(C.averageShare(kills, 'cast_pacing'), 30, 'averaged over the two accounting pulls only');
+    assert.strictEqual(C.largestPull(kills, 'cast_pacing').kill.name, 'A');
+    assert.strictEqual(C.averageShare([gapKill('C', {}, { gap: null })], 'cast_pacing'), null);
+});
+test('verdictForShare applies the floor once, to the average; verdictForHabit is the half-of-pulls rule', () => {
+    assert.strictEqual(C.verdictForShare(5), 'fail'); assert.strictEqual(C.verdictForShare(3), 'warn'); assert.strictEqual(C.verdictForShare(2), 'pass'); assert.strictEqual(C.verdictForShare(-4), 'pass');
+    assert.strictEqual(C.verdictForHabit(3, 5), 'fail'); assert.strictEqual(C.verdictForHabit(2, 5), 'warn'); assert.strictEqual(C.verdictForHabit(0, 5), 'pass'); assert.strictEqual(C.verdictForHabit(0, 0), null);
+});
+test('castingRows: cast_rate from cast_pacing with the spec\'s filler, activity with the raid median, channel, life_taps info', () => {
+    const f = sheet([gapKill('Void Reaver', { cast_pacing: 22, own_activity: 4, channel_time: 1 })]);
+    const rows = C.castingRows(f, C.DEFAULT_T);
+    const cr = rows.find(r => r.id === 'cast_rate');
+    assert.strictEqual(cr.verdict, 'fail'); assert.strictEqual(cr.value, 22); assert.strictEqual(cr.owner, 'player'); assert.strictEqual(cr.category, 'casting');
+    assert.strictEqual(cr.text, '20 damaging casts a minute while active against 24 on Void Reaver');
+    assert.strictEqual(cr.fix, 'Queue the next Shadow Bolt before the current one lands; move only when you must, and use Shadowburn or Life Tap while moving.');
+    const act = rows.find(r => r.id === 'activity');
+    assert.strictEqual(act.verdict, 'warn'); assert.strictEqual(act.text, 'Active 90% against 95% for comparable players (your raid: 96%) on Void Reaver');
+    assert.strictEqual(rows.find(r => r.id === 'channel').verdict, 'pass');
+    const lt = rows.find(r => r.id === 'life_taps');
+    assert.strictEqual(lt.verdict, 'info'); assert.strictEqual(lt.value, null); assert.strictEqual(lt.text, 'Life Tap 1.9 a minute; comparable players 2.6');
+});
+test('castingRows: without an accounting the v2 active_low rule gives a habit row, never a share', () => {
+    const k = gapKill('Al\'ar', {}, { gap: null }); k.me.activePercent = 70; k.fight.raidActivePercent = 90;
+    const rows = C.castingRows(sheet([k]), C.DEFAULT_T);
+    const act = rows.find(r => r.id === 'activity');
+    assert.strictEqual(act.verdict, 'fail'); assert.strictEqual(act.value, null); assert.deepStrictEqual(act.pulls, { hit: 1, of: 1 });
+    assert.ok(!rows.find(r => r.id === 'cast_rate'), 'no cast_rate row without an accounting');
+});
+test('groupRows: debuffs names what is missing on how many pulls and who brings it; party_buffs sums crit and power shares; curse is a warn ask', () => {
+    const f = sheet([gapKill('Void Reaver', { debuffs: 19, crit_buffs: 8, power_buffs: 3 }), gapKill('Morogrim Tidewalker', { debuffs: 15, crit_buffs: 6 })]);
+    const rows = C.groupRows(f);
+    const d = rows.find(r => r.id === 'debuffs');
+    assert.strictEqual(d.owner, 'group'); assert.strictEqual(d.verdict, 'fail'); assert.strictEqual(d.value, 17);
+    assert.strictEqual(d.text, 'No Misery or Shadow Weaving on 2 of 2 pulls (a shadow priest)');
+    const b = rows.find(r => r.id === 'party_buffs');
+    assert.strictEqual(b.value, 9, 'crit 7 + power 2, each averaged over the accounting pulls first');
+    assert.strictEqual(b.text, 'No Moonkin Aura in your group on 2 of 2 pulls (a moonkin)');
+    const c = rows.find(r => r.id === 'curse');
+    assert.strictEqual(c.verdict, 'warn'); assert.strictEqual(c.owner, 'group'); assert.strictEqual(c.value, null);
+    assert.strictEqual(c.text, 'You run Curse of the Elements (assignment); comparable players run Curse of Doom, 7% of their damage');
+    assert.strictEqual(c.fix, 'Rotate the assignment or give it to the warlock with the lowest DPS.');
+});
+test('groupRows: bloodlust ask only when the reference had it and the player did not', () => {
+    const k = gapKill('Void Reaver', {}); k.me.bloodlustPercent = 0;
+    assert.strictEqual(C.groupRows(sheet([k])).find(r => r.id === 'bloodlust').text, 'No Bloodlust on 1 of 1 pulls while comparable players had it');
+    assert.ok(!C.groupRows(sheet([gapKill('Void Reaver', {})])).find(r => r.id === 'bloodlust'));
+});
+test('raidRows: raid_activity is a row only at 3% or more', () => {
+    assert.strictEqual(C.raidRows(sheet([gapKill('Al\'ar', { raid_activity: 6 })]))[0].text, 'Your raid was active 95% of Al\'ar against 96% for the reference raid; phases and downtime, not you');
+    assert.deepStrictEqual(C.raidRows(sheet([gapKill('Al\'ar', { raid_activity: 2 })])), []);
+});
+
+console.log(passed + ' passed, ' + failed + ' failed');
+if (failed) process.exit(1);
