@@ -9,8 +9,11 @@ const KILL_LIMIT = 8;
 // of the player (widened once to `wideBand` when fewer than `min` ranks are found), taken from
 // the MIDDLE of the leaderboard, whose length is found by a binary search over at most
 // `maxSearchPages` pages and cached for `lengthCacheMs`. `topPages` bounds the ceiling read.
+// Minor 5 (whole-branch review): findLastPage's binary search needs ceil(log2(n+1)) probes for a
+// range of n pages — 7 for 64, 6 for 63 — but spec §3 and §9 both promise "6 queries". 63 is the
+// largest bound that actually holds that promise.
 const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, cacheMs: 24 * 60 * 60 * 1000,
-              topPages: 3, maxSearchPages: 64, lengthCacheMs: 7 * 24 * 60 * 60 * 1000 };
+              topPages: 3, maxSearchPages: 63, lengthCacheMs: 7 * 24 * 60 * 60 * 1000 };
 // Finding thresholds (spec §4). Not user-editable in v1.
 const T = {
     activeMajor: 85, activeGap: 8, castsLowRatio: 0.85, diedBefore: 0.9,
@@ -230,6 +233,14 @@ function lustPercent(buffsTable) { const a = buffUptime(buffsTable, 'Bloodlust')
 // effect: the fixture's Casts table has "Destruction: 1" for a Destruction Potion) and as an aura
 // with one band per use. Procs have no cast; long buffs (armors) fail the length cap.
 const BURST_MAX_SEC = 30;
+// Important 1 (whole-branch review): a short self-buff with a same-named cast is not automatically
+// a burst. Any class self-buff at or under BURST_MAX_SEC also qualifies by the (a)/(b) rule above —
+// Drain Soul (a DoT that also shows as a short "buff" band per tick), Cannibalize, First Aid, Fel
+// Domination, Bloodrage, Power Word: Shield, Fade, Barkskin, Sprint, Shield Wall, Ice Block and the
+// rest below all cleared it live and produced nonsense findings ("Never used Death Wish (on-use
+// item)" for a class spell; burst_outside_bloodlust firing on a warrior's Bloodrage). Named by
+// aura, case-insensitive.
+const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion/i;
 const LUST = ['Bloodlust', 'Heroism'];
 const POTION_LABEL = { Destruction: 'Destruction Potion', Haste: 'Haste Potion', 'Insane Strength': 'Insane Strength Potion' };
 function auraBands(buffsTable, names) {
@@ -243,7 +254,8 @@ function burstStats(buffsTable, castsTable) {
     const lust = auraBands(buffsTable, LUST);
     const inside = b => lust.some(l => b.startTime < l.endTime && b.endTime > l.startTime);
     return d.auras
-        .filter(a => a && Array.isArray(a.bands) && a.bands.length && casts[a.name] && !LUST.includes(a.name) && a.bands.every(b => (b.endTime - b.startTime) / 1000 <= BURST_MAX_SEC))
+        .filter(a => a && Array.isArray(a.bands) && a.bands.length && casts[a.name] && !LUST.includes(a.name) && a.bands.every(b => (b.endTime - b.startTime) / 1000 <= BURST_MAX_SEC)
+            && !UTILITY_CAST.test(a.name) && !BURST_EXCLUDE.test(a.name))
         .map(a => ({ name: a.name, uses: a.bands.length, insideBloodlust: a.bands.filter(inside).length }));
 }
 function burstLabel(name) { return POTION_LABEL[name] || name; }
@@ -373,8 +385,13 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
         dps: Math.round(median(amounts)),
         // v2 §3: the ceiling comes from the top pages (getReference) when given; the median over
-        // the benchmark ranks is what "comparable players" do.
-        topDps: typeof topDps === 'number' ? topDps : (amounts.length ? Math.round(Math.max.apply(null, amounts)) : null),
+        // the benchmark ranks is what "comparable players" do. Important 2 (whole-branch review):
+        // `getReference` passes an explicit `null` when the band never appeared on the top pages
+        // (spec §3 step 4) — that must stay null, not fall back to the benchmark's own max, which
+        // is exactly the middle-of-the-leaderboard number the ceiling line exists to NOT show.
+        // `undefined` (no 7th argument at all — the legacy shape every test that isn't exercising
+        // the ceiling still calls with) is the only case that keeps the old fallback.
+        topDps: topDps === undefined ? (amounts.length ? Math.round(Math.max.apply(null, amounts)) : null) : topDps,
         benchmark: 'median',
         durationSec: round1(median(ranks.map(r => r.duration / 1000))), castsDurationSec: medOf(per.map(p => p.dur)),
         activePercent: medOf(per.map(p => p.activePercent)), castsPerMinute: medOf(per.map(p => p.castsPerMinute)),
@@ -425,13 +442,18 @@ function debuffFacts(debuffTable, schools) {
 // Casts that are upkeep rather than rotation: never "unused" or "extra".
 const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
 
+// Minor 7 (whole-branch review): "at the " + name + " pull" reads as "at the The Lurker Below
+// pull" for a boss whose own name already starts with "The". Only prefix the article when the
+// name does not already carry one.
+function theName(name) { return /^the /i.test(String(name || '')) ? name : 'the ' + name; }
+
 function uptimeFindings(kill) {
     const f = [], me = kill.me, fight = kill.fight, ref = kill.reference;
     if (typeof me.activePercent === 'number') {
         const raidTail = typeof fight.raidActivePercent === 'number' ? ' (raid median ' + fight.raidActivePercent + '%)' : '';
-        if (me.activePercent < T.activeMajor) f.push(finding('active_low', 'major', 'player', 'Active ' + me.activePercent + '% of the ' + kill.name + ' fight' + raidTail));
+        if (me.activePercent < T.activeMajor) f.push(finding('active_low', 'major', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
         else if (typeof fight.raidActivePercent === 'number' && me.activePercent < 92 && fight.raidActivePercent - me.activePercent >= T.activeGap)
-            f.push(finding('active_low', 'minor', 'player', 'Active ' + me.activePercent + '% of the ' + kill.name + ' fight' + raidTail));
+            f.push(finding('active_low', 'minor', 'player', 'Active ' + me.activePercent + '% of ' + theName(kill.name) + ' fight' + raidTail));
     }
     if (me.died && fight.durationSec && me.died.atSec < T.diedBefore * fight.durationSec)
         f.push(finding('died', 'major', 'player', 'Died at ' + me.died.atSec + 's of ' + Math.round(fight.durationSec) + 's on ' + kill.name + (me.died.by ? ' to ' + me.died.by : '')));
@@ -454,11 +476,15 @@ function rotationFindings(kill) {
             // per fight — the second clause is what catches a once-per-fight cooldown like Curse of
             // Doom even when it is not one of the reference's top-3 abilities by damage share.
             if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown) {
-                // v2 §6: on-use items and potions stay in the comparison (they are a large, cheap
-                // DPS gain) but are named for what they are, so the model does not call them spells.
+                // v2 §6, revised by Important 1 (whole-branch review): on-use items and potions stay
+                // in the comparison (they are a large, cheap DPS gain) but are named for what they
+                // are via burstLabel — no "(on-use item)" suffix, since with BURST_EXCLUDE removing
+                // the class self-buffs that used to slip into `ref.burst`, everything left in it is
+                // already an on-use item or a potion and the label alone (a potion's already says
+                // "Potion") is enough not to call it a spell.
                 const isBurst = Array.isArray(ref.burst) && ref.burst.some(b => b.name === name);
                 const text = isBurst
-                    ? 'Never used ' + burstLabel(name) + (POTION_LABEL[name] ? '' : ' (on-use item)') + ' on ' + kill.name + '; comparable players use it ' + fmt(r) + ' times a minute'
+                    ? 'Never used ' + burstLabel(name) + ' on ' + kill.name + '; comparable players use it ' + fmt(r) + ' times a minute'
                     : 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute';
                 f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', text, { ability: name }));
             }
@@ -532,10 +558,10 @@ function consumableFindings(kill) {
     const f = [], me = kill.me, ref = kill.reference;
     if (me.consumablesKnown) {
         if (!me.flask && !(me.battleElixir && me.guardianElixir))
-            f.push(finding('no_flask_or_elixirs', 'major', 'player', 'No flask and no battle plus guardian elixir at the ' + kill.name + ' pull' + (me.consumablesAtPull.length ? ' (had ' + me.consumablesAtPull.join(', ') + ')' : '')));
+            f.push(finding('no_flask_or_elixirs', 'major', 'player', 'No flask and no battle plus guardian elixir at ' + theName(kill.name) + ' pull' + (me.consumablesAtPull.length ? ' (had ' + me.consumablesAtPull.join(', ') + ')' : '')));
         else if (!me.flask && me.guardianElixir && isUtilityGuardian(me.guardianElixir) && ref && ref.flaskShare >= 0.5 && ref.flask)
-            f.push(finding('wrong_elixir', 'minor', 'player', me.guardianElixir + ' at the ' + kill.name + ' pull, while comparable players ran ' + ref.flask + '; a flask does more for your damage'));
-        if (!me.food) f.push(finding('no_food', 'minor', 'player', 'No food buff at the ' + kill.name + ' pull'));
+            f.push(finding('wrong_elixir', 'minor', 'player', me.guardianElixir + ' at ' + theName(kill.name) + ' pull, while comparable players ran ' + ref.flask + '; a flask does more for your damage'));
+        if (!me.food) f.push(finding('no_food', 'minor', 'player', 'No food buff at ' + theName(kill.name) + ' pull'));
         if (ref && ref.buffsAtPull.length) {
             const missing = ref.buffsAtPull.filter(b => !me.partyBuffs.includes(b));
             if (missing.length) f.push(finding('buffs_missing', 'minor', 'group', 'Group buffs comparable players had at the pull that you did not on ' + kill.name + ': ' + missing.join(', ') + '. Worth asking to be grouped with them', { buffs: missing }));
@@ -601,7 +627,9 @@ function mergeFindings(kills, gear) {
     // measured-on label carries the pull's date; with one pull per boss the v1 wording stands.
     const multi = new Set(live.map(k => k.name)).size < live.length;
     const unit = multi ? 'pulls' : 'bosses';
-    const label = k => (multi && live.filter(x => x.name === k.name).length > 1) ? k.name + ' (' + k.date + ')' : k.name;
+    // Minor 6 (whole-branch review): a rank with no startTime has k.date === null; without the
+    // guard this printed the literal string "Boss (null)".
+    const label = k => (multi && live.filter(x => x.name === k.name).length > 1) ? (k.date ? k.name + ' (' + k.date + ')' : k.name) : k.name;
     const byId = new Map();
     live.forEach(k => k.findings.forEach(fd => {
         const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
@@ -1065,7 +1093,18 @@ async function fetchFeedback(query, o) {
             .sort((a, b) => (a.rank.rankPercent == null ? 101 : a.rank.rankPercent) - (b.rank.rankPercent == null ? 101 : b.rank.rankPercent)).slice(0, KILL_LIMIT);
         if (!targets.length) return { noKills: true };
         const n = nights.find(x => x.code === o.report);
-        night = { code: o.report, date: n ? n.date : null, medianPercent: n ? n.medianPercent : null };
+        // Minor 4 (whole-branch review): `nights` is capped at NIGHT_LIMIT, so a night older than
+        // the ten listed still resolves via ranksOf/targets above but misses here. Rather than fall
+        // back to null (and render "raid night of null"), derive date and medianPercent straight
+        // from the ranks that were actually selected for this report.
+        if (n) {
+            night = { code: o.report, date: n.date, medianPercent: n.medianPercent };
+        } else {
+            const rk = targets.map(t => t.rank);
+            const earliest = rk.reduce((min, r) => (typeof r.startTime === 'number' && (min == null || r.startTime < min) ? r.startTime : min), null);
+            night = { code: o.report, date: earliest != null ? new Date(earliest).toISOString().slice(0, 10) : null,
+                      medianPercent: round1(median(rk.map(r => round1(r.rankPercent)))) };
+        }
     } else {
         targets = pickKills(profile);
     }

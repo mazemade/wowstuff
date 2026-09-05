@@ -37,7 +37,7 @@ Verified live on 2026-09-05 against Dotwin (Destruction, Spineshatter EU) and Ro
 
 - `characterRankings` has no total count: the response carries only `page`, `hasMorePages`,
   `count` (page size, 100) and `rankings`. A page past the end returns `rankings: undefined`.
-  Leaderboard length is therefore found by walking `hasMorePages` (binary search, ≤ 64 pages,
+  Leaderboard length is therefore found by walking `hasMorePages` (binary search, ≤ 63 pages,
   6 queries, 2 points each).
 - `characterRankings` rows carry `name, class, spec, amount, duration, startTime, report{code,
   fightID}, guild, server, bracketData, faction, size`. No `rankPercent`.
@@ -61,7 +61,8 @@ Verified live on 2026-09-05 against Dotwin (Destruction, Spineshatter EU) and Ro
 ## 3. Reference selection (replaces v1 §3.4 steps 2–4)
 
 Per `(encounterId, class, spec, region)` the **leaderboard length** `L` (last non-empty page):
-binary search over `hasMorePages` in pages 1..64, cached in `refCache` under key
+binary search over `hasMorePages` in pages 1..63 (63 keeps the walk's worst case at 6 probes; 64
+pushes it to 7), cached in `refCache` under key
 `<encounterId>/<class>/<spec>/<region>/length` for `REF.lengthCacheMs` = 7 days. Independent of
 item level, so every player of the spec shares it.
 
@@ -154,7 +155,16 @@ For the player and each reference player, from the Buffs table:
   player's Casts table — true for on-use items and for potions alike, because WCL names a potion
   cast after its effect (the fixture's Casts table holds `Destruction: 1` for a Destruction
   Potion); `POTION_LABEL` maps those effect names back to the potion for the report text — and
-  (c) is not Bloodlust. Procs never satisfy (b).
+  (c) is not Bloodlust. Procs never satisfy (b). Whole-branch review (Important 1): (b) alone is
+  not enough — a channelled DoT (Drain Soul), a self-heal cast (First Aid, Cannibalize), or a
+  defensive/utility class self-buff at or under `BURST_MAX_SEC` (Bloodrage, Power Word: Shield,
+  Fade, Barkskin, Sprint, Shield Wall, Ice Block, Fel Domination, Shadowmeld, Stealth, Vanish,
+  Evasion, Feign Death, Deterrence, Last Stand, Frenzied Regeneration, Nature's Grasp, Inner
+  Focus, Spirit Tap, Berserker Rage, Bladestorm, Cloak of Shadows, Dispersion) also has a
+  same-named cast and a short band, and none of those is an on-use item or a potion. A name
+  matching `UTILITY_CAST` (the same upkeep-cast pattern `rotationFindings` already excludes from
+  "unused"/"extra") or the new `BURST_EXCLUDE` pattern (the list above) is never a burst, live
+  data or not.
 - Per burst: `{ name, uses: bands.length, insideBloodlust: bands whose [start, end] overlaps any
   Bloodlust band }`.
 
@@ -171,12 +181,14 @@ Findings (`consumableFindings`):
   line it up with Bloodlust" for more. One finding per burst, `ability: name`.
 - `ability_unused` (v1 §4.3) keeps flagging on-use items the reference casts and the player never
   does — they are a large DPS gain and stay in. Only the wording changes: when the unused name is
-  a burst for the reference (`reference.burst` has it), the text reads "Never used `<label>` (on-use
-  item) on `<boss>`; comparable players use it `<r>` times a minute", with `<label>` again
-  `POTION_LABEL[name] || name` — except a potion (a name present in `POTION_LABEL`) drops the
-  "(on-use item)" suffix, since `<label>` already says "Potion": "Never used `<label>` on
-  `<boss>`; comparable players use it `<r>` times a minute". Either way the model is not left to
-  call a trinket or a potion a spell.
+  a burst for the reference (`reference.burst` has it), the text reads "Never used `<label>` on
+  `<boss>`; comparable players use it `<r>` times a minute", with `<label>` = `POTION_LABEL[name]
+  || name`. Whole-branch review (Important 1): no "(on-use item)" suffix is added for anything —
+  the original wording used it to keep a plain spell name from being mistaken for a spell when
+  `reference.burst` could still hold class self-buffs; now that `BURST_EXCLUDE` (and `UTILITY_CAST`)
+  keep those out of `reference.burst` in the first place, everything left in it already is an
+  on-use item or a potion, and `<label>` alone (a potion's already says "Potion") is enough that
+  the model is not left to call a trinket or a potion a spell.
 
 ## 7. Ceiling and completeness
 
@@ -243,7 +255,9 @@ The 429 path (pause on the page, abort on the server) is unchanged.
   Bloodlust band → no finding; the same band moved outside, with the reference's median inside
   ≥ 1 → `burst_outside_bloodlust` with the exact text; no Bloodlust on the fight → no finding; a
   proc aura (no matching cast) is never a burst; `ability_unused` for `Blessing of the Silver
-  Crescent` reads "Never used … (on-use item)".
+  Crescent` reads "Never used …" with no "(on-use item)" suffix. Whole-branch review (Important 1):
+  a short-banded class self-buff with a matching cast (Drain Soul, Bloodrage) is excluded by
+  `UTILITY_CAST`/`BURST_EXCLUDE` and never appears in `burstStats`'s result.
 - **Ceiling and prompt**: `overall.ceiling` picks the two lowest live pulls with `topDps`; the
   prompt text contains "Where you stand", "do not drop any", and the new comparable-players
   definition; `checkNumbers` accepts a reply quoting ceiling numbers.

@@ -243,8 +243,12 @@ function fallbackReport(facts) {
     }
     if (facts.overall.positives.length) lines.push('', "What's fine", facts.overall.positives.join('. ') + '.');
     if (facts.overall.ceiling && facts.overall.ceiling.length) {
+        // Minor 3 (whole-branch review): with more than one pull of a boss in the sheet (the same
+        // `multi` rule factsTable uses), two pulls of the same boss render as two identical-looking
+        // "Where you stand" lines unless the date tells them apart.
+        const multi = new Set(facts.kills.map(k => k.name)).size < facts.kills.length;
         lines.push('', 'Where you stand');
-        facts.overall.ceiling.forEach(c => lines.push(c.name + ': you ' + c.me + ', players at your item level ' + c.dps + ', the best at your item level ' + c.topDps));
+        facts.overall.ceiling.forEach(c => lines.push((multi && c.date ? c.name + ' (' + c.date + ')' : c.name) + ': you ' + c.me + ', players at your item level ' + c.dps + ', the best at your item level ' + c.topDps));
     }
     if (!facts.overall.findings.length && !facts.overall.positives.length) {
         lines.push('', facts.overall.badPulls.length ? 'Nothing to flag beyond the bad pulls below.' : 'Nothing to flag.');
@@ -499,8 +503,10 @@ function feedbackBox(r) {
     if (nights.length) {
         const sel = document.createElement('select');
         sel.className = 'feedback-night';
+        // Minor 10 (whole-branch review): Math.round(null) is 0, which read as "median 0" for a
+        // night whose medianPercent could not be determined.
         sel.innerHTML = '<option value="all">Across kills</option>' + nights.map(n =>
-            '<option value="' + escapeHtml(n.code) + '">' + escapeHtml(n.date + ' · ' + n.bosses.length + (n.bosses.length === 1 ? ' boss' : ' bosses') + ' · median ' + Math.round(n.medianPercent)) + '</option>').join('');
+            '<option value="' + escapeHtml(n.code) + '">' + escapeHtml(n.date + ' · ' + n.bosses.length + (n.bosses.length === 1 ? ' boss' : ' bosses') + ' · median ' + (n.medianPercent == null ? '—' : Math.round(n.medianPercent))) + '</option>').join('');
         sel.value = selected;
         sel.addEventListener('click', e => e.stopPropagation());
         sel.addEventListener('change', e => { e.stopPropagation(); fb.selected = sel.value; try { save(); } catch (err) { feedbackErrors[r.key] = 'Could not save locally: ' + err.message; } renderTable(); });
@@ -532,9 +538,17 @@ function feedbackBox(r) {
     if (shown.facts) {
         const det = document.createElement('details');
         det.innerHTML = '<summary>Facts</summary>';
+        // Minor 3 (whole-branch review): same multi-pull rule as factsTable/fallbackReport, so two
+        // pulls of one boss are told apart by date instead of rendering as identical lines.
+        const multi = new Set(shown.facts.kills.map(k => k.name)).size < shown.facts.kills.length;
         const ceiling = shown.facts.overall && Array.isArray(shown.facts.overall.ceiling) ? shown.facts.overall.ceiling : [];
         if (ceiling.length) det.insertAdjacentHTML('beforeend', '<div class="status feedback-ceiling">Where you stand: ' + ceiling.map(c =>
-            escapeHtml(c.name) + ' ' + escapeHtml(String(c.me)) + ' vs ' + escapeHtml(String(c.dps)) + ' typical, ' + escapeHtml(String(c.topDps)) + ' best at your item level').join(' · ') + '</div>');
+            escapeHtml(multi && c.date ? c.name + ' (' + c.date + ')' : c.name) + ' ' + escapeHtml(String(c.me)) + ' vs ' + escapeHtml(String(c.dps)) + ' typical, ' + escapeHtml(String(c.topDps)) + ' best at your item level').join(' · ') + '</div>');
+        // Minor 9 (whole-branch review): droppedKills (a kill dropped by a caught per-kill WCL
+        // error, Important 5) was computed into the facts sheet but never rendered anywhere.
+        const dropped = shown.facts.overall && Array.isArray(shown.facts.overall.droppedKills) ? shown.facts.overall.droppedKills : [];
+        if (dropped.length) det.insertAdjacentHTML('beforeend', '<div class="status">Not analysed: ' +
+            dropped.map(d => escapeHtml(d.name) + ' (' + escapeHtml(d.reason) + ')').join(', ') + '</div>');
         det.appendChild(factsTable(shown.facts));
         box.appendChild(det);
     }

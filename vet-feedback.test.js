@@ -233,12 +233,17 @@ test('burstStats (v2 §6): on-use items and potions are short self-buffs that al
         { name: 'Blessing of the Silver Crescent', totalUptime: s(40), totalUses: 2, bands: [{ startTime: s(10), endTime: s(30) }, { startTime: s(150), endTime: s(170) }] },
         { name: 'Fel Armor', totalUptime: s(180), totalUses: 1, bands: [{ startTime: 0, endTime: s(180) }] },
         { name: 'Spell Haste', totalUptime: s(6), totalUses: 1, bands: [{ startTime: s(112), endTime: s(118) }] },
+        // Important 1 (whole-branch review): a class self-buff with a same-named cast (Drain Soul's
+        // channel shows as both an aura and a cast; Bloodrage likewise) must never read as a burst,
+        // no matter how short its bands are — live data caught 7 Drain Soul "uses" on Lady Vashj.
+        { name: 'Drain Soul', totalUptime: s(14), totalUses: 7, bands: Array.from({ length: 7 }, (_, i) => ({ startTime: s(20 + i * 5), endTime: s(20 + i * 5 + 2) })) },
+        { name: 'Bloodrage', totalUptime: s(10), totalUses: 1, bands: [{ startTime: s(60), endTime: s(70) }] },
     ] } };
-    const casts = { data: { entries: [{ name: 'Destruction', total: 1 }, { name: 'Blessing of the Silver Crescent', total: 2 }, { name: 'Fel Armor', total: 1 }, { name: 'Shadow Bolt', total: 40 }] } };
+    const casts = { data: { entries: [{ name: 'Destruction', total: 1 }, { name: 'Blessing of the Silver Crescent', total: 2 }, { name: 'Fel Armor', total: 1 }, { name: 'Shadow Bolt', total: 40 }, { name: 'Drain Soul', total: 7 }, { name: 'Bloodrage', total: 1 }] } };
     assert.deepStrictEqual(F.burstStats(buffs, casts), [
         { name: 'Destruction', uses: 1, insideBloodlust: 1 },
         { name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 },
-    ]);
+    ], 'Drain Soul and Bloodrage have a matching cast and short bands too, but BURST_EXCLUDE keeps them out');
     assert.deepStrictEqual(F.burstStats(null, casts), []);
     assert.deepStrictEqual(F.burstStats({ data: { totalTime: 1, auras: [] } }, casts), []);
     assert.strictEqual(F.POTION_LABEL.Destruction, 'Destruction Potion');
@@ -483,6 +488,18 @@ test('consumableFindings: no flask or elixirs, no food, no potion, when the pull
     const unknown = Object.assign({}, base, { me: Object.assign({}, base.me, { consumablesKnown: false, potionUse: 0 }) });
     assert.deepStrictEqual(keysOf(F.consumableFindings(unknown)), ['no_potion'], 'unknown consumables are not missing consumables');
 });
+test('consumableFindings / uptimeFindings (Minor 7): a boss name already starting with "The" is not doubled into "the The Lurker Below"', () => {
+    const base = killFor(50619);
+    const lurker = Object.assign({}, base, { name: 'The Lurker Below', me: Object.assign({}, base.me, { flask: null, battleElixir: null, guardianElixir: null, food: null, consumablesAtPull: [] }) });
+    const noFlask = F.consumableFindings(lurker).find(x => x.key === 'no_flask_or_elixirs');
+    assert.ok(noFlask && /at The Lurker Below pull/.test(noFlask.text) && !/at the The Lurker Below/.test(noFlask.text), noFlask && noFlask.text);
+    const lurkerUptime = Object.assign({}, base, { name: 'The Lurker Below', me: Object.assign({}, base.me, { activePercent: 70 }) });
+    const active = F.uptimeFindings(lurkerUptime).find(x => x.key === 'active_low');
+    assert.ok(active && /of The Lurker Below fight/.test(active.text) && !/of the The Lurker Below/.test(active.text), active && active.text);
+    // Anetheron itself does not start with "the": the existing wording is untouched.
+    const anet = F.consumableFindings(killFor(50619)).find(x => x.key === 'wrong_elixir');
+    assert.ok(anet && /at the Anetheron pull/.test(anet.text), anet && anet.text);
+});
 // v2 §6: the captured fixture's auras carry no `bands` (slimmed at capture). Build them on a
 // clone: Rotminster's real Bloodlust window on Anetheron ran 14.7 s to 54.7 s into the fight.
 function withBands(rotBlessingInside) {
@@ -542,14 +559,14 @@ test('burst timing (v2 §6 fix): a Heroism-only fight (Alliance shaman) still op
     assert.strictEqual(f.length, 1);
     assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; comparable players line it up with Bloodlust');
 });
-test('rotationFindings (v2 §6): an on-use item the reference uses and the player never did reads "Never used … (on-use item)", a potion by its potion name', () => {
+test('rotationFindings (v2 §6, Important 1 whole-branch review): an on-use item the reference uses and the player never did reads "Never used …", a potion by its potion name; neither carries "(on-use item)" any more', () => {
     const kill = killWithBands(withBands(true));
     const casts = Object.assign({}, kill.me.casts);
     delete casts['Blessing of the Silver Crescent'];
     delete casts.Destruction;
     const f = F.rotationFindings(Object.assign({}, kill, { me: Object.assign({}, kill.me, { casts }) }));
     const item = f.find(x => x.key === 'ability_unused' && x.ability === 'Blessing of the Silver Crescent');
-    assert.ok(item && /^Never used Blessing of the Silver Crescent \(on-use item\) on Anetheron; comparable players use it [\d.]+ times a minute$/.test(item.text), item && item.text);
+    assert.ok(item && /^Never used Blessing of the Silver Crescent on Anetheron; comparable players use it [\d.]+ times a minute$/.test(item.text), item && item.text);
     const potion = f.find(x => x.key === 'ability_unused' && x.ability === 'Destruction');
     assert.ok(potion && /^Never used Destruction Potion on Anetheron; comparable players use it [\d.]+ times a minute$/.test(potion.text), potion && potion.text);
 });
@@ -599,6 +616,14 @@ test('mergeFindings: the same finding on two bosses is one line with a count, na
     // Minor 12: the count suffix names the boss it was measured on and lands as its own clause,
     // not trailing right after a folded-in stat sentence where it could read as qualifying that.
     assert.ok(/\(numbers measured on Anetheron; seen on 2 of 2 bosses\)/.test(crit.text), crit.text);
+});
+test('mergeFindings (Minor 6): a multi-pull boss with no date prints just the boss name, not "Boss (null)"', () => {
+    const a = Object.assign({}, killFor(50619), { date: null });
+    const b = Object.assign({}, killFor(50619), { date: null });
+    const m = F.mergeFindings([a, b], []);
+    const crit = m.find(f => f.key === 'crit_low');
+    assert.strictEqual(crit.measuredOn, 'Anetheron', 'no date on the kill: the label falls back to the bare boss name');
+    assert.ok(!/null/.test(crit.text), crit.text);
 });
 test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls and name the date; one pull per boss keeps the v1 wording', () => {
     const a = killFor(50619);
@@ -663,6 +688,14 @@ test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling
     assert.deepStrictEqual(three.overall.ceiling.map(c => c.name), ['B', 'Anetheron'], 'lowest rankPercent first, capped at two');
     const none = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [Object.assign({}, killFor(50619), { reference: null })], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual(none.overall.ceiling, []);
+    // Important 2 (whole-branch review): a reference IS present but its topDps is explicitly null
+    // (the band never appeared on the top pages, spec §3 step 4) must not fall back to a number —
+    // that is exactly the "best of the middle sample" bug the reviewer flagged.
+    const withNullTopDps = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [Object.assign({}, killFor(50619), { reference: Object.assign({}, killFor(50619).reference, { topDps: null }) })], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(withNullTopDps.overall.ceiling, [], 'a reference with an explicit null topDps yields no ceiling entry, not a middle-sample number');
+    // An all-bad-pull sheet (Kaz'rogal only) has no live pull to stand on at all.
+    const allBad = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(allBad.overall.ceiling, [], 'an all-bad-pull sheet gives no ceiling entries either');
     const p = F.buildPrompt(facts, RULES);
     assert.ok(/every entry of overall\.findings/.test(p.system) && /do not drop any/.test(p.system), p.system);
     assert.ok(/3b\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
@@ -995,6 +1028,27 @@ test('fetchFeedback (v2 §5): the default sheet lists the nights; report=<code> 
     assert.deepStrictEqual(night.nights.map(n => n.code), all.nights.map(n => n.code), 'the list rides along in night mode too');
     assert.deepStrictEqual(await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: 'ZZZZZZZZZZZZZZZZ' }), { noKills: true });
 });
+test('fetchFeedback (Minor 4, whole-branch review): a requested night older than the ten listed still gets its own date and medianPercent, not null', async () => {
+    const fx2 = twoNights();
+    const anetRank = fx2.encounterRankings['50619'].ranks[0];
+    const anetCode = anetRank.report.code;
+    const later = anetRank.startTime + 500000;
+    // Eleven newer decoy report codes, one boss reference apiece, so buildNights's NIGHT_LIMIT (10)
+    // pushes anetCode's own night entry off the list entirely; none of these decoys resolve to any
+    // fixture data, which is fine since only facts.night is asserted below.
+    for (let i = 0; i < 11; i++) {
+        fx2.encounterRankings['50619'].ranks.push({
+            rankPercent: 50, duration: 90000, amount: 1000, bracketData: 124, spec: 'Destruction',
+            startTime: later + i * 1000, report: { code: 'DECOY' + String(i).padStart(11, '0'), fightID: 1 },
+        });
+    }
+    const s = stubQuery(fx2);
+    const night = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: anetCode });
+    assert.ok(!night.nights.some(n => n.code === anetCode), 'sanity: the requested night really was pushed out of the ten listed');
+    assert.strictEqual(night.night.code, anetCode);
+    assert.strictEqual(night.night.date, new Date(anetRank.startTime).toISOString().slice(0, 10), 'derived from the requested night\'s own ranks, not null');
+    assert.strictEqual(night.night.medianPercent, F.round1(F.round1(anetRank.rankPercent)), 'derived from the requested night\'s own ranks, not null');
+});
 test('fetchFeedback (v2 §5.1): encounterRankings is asked for every killed boss of the zone, not only the picked ones', async () => {
     const rankings = { medianPerformanceAverage: 20, bestPerformanceAverage: 20, rankings: Array.from({ length: 10 }, (_, i) => (
         { encounter: { id: 50600 + i, name: 'B' + i }, medianPercent: 10 + i, rankPercent: 10 + i, totalKills: 1, spec: 'Destruction', bestSpec: 'Destruction' })) };
@@ -1147,6 +1201,34 @@ test('getReference (v2 §3): reference players are the in-band ranks nearest the
     assert.strictEqual(ref.summary.benchmark, 'median');
     assert.deepStrictEqual(ref.summary.itemLevelBand, [122, 126]);
     assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 10, 1], 'length walk, one benchmark page (page 10 alone clears REF.target), one ceiling page');
+});
+test('getReference (Important 2, whole-branch review): topDps is null, not the benchmark\'s own max, when the band never appears on the top pages', async () => {
+    // Every rank on this board is item level 124 (in band for a 124 player), so the benchmark
+    // pages (around the middle, page 10) find plenty. Pages 1-3 (the ceiling read) are patched to
+    // report every rank as item level 60 — out of band — so the ceiling read finds nothing.
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => {
+        const m = /page:(\d+)/.exec(q);
+        const res = await lb.query(q, vars);
+        if (m && +m[1] <= 3) {
+            const cr = res.worldData.encounter.characterRankings;
+            if (Array.isArray(cr.rankings)) cr.rankings = cr.rankings.map(r => Object.assign({}, r, { bracketData: 60 }));
+        }
+        return res;
+    };
+    const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.ok(ref.summary, 'sanity: the benchmark itself still found in-band ranks around the middle');
+    assert.strictEqual(ref.summary.topDps, null, 'the band never appeared on pages 1-3: null, not the benchmark\'s own max');
+    assert.strictEqual(typeof ref.summary.dps, 'number', 'dps (the benchmark median) is unaffected by the ceiling read finding nothing');
+});
+test('referenceSummary (Important 2): an explicit null topDps stays null; the legacy 6-argument call (no topDps) keeps falling back to the benchmark max', () => {
+    const ranks = [{ amount: 100 }, { amount: 200 }, { amount: 300 }];
+    const withNull = F.referenceSummary(ranks, [], db, 'WARLOCK', 'caster', [122, 126], null);
+    assert.strictEqual(withNull.topDps, null);
+    const legacy = F.referenceSummary(ranks, [], db, 'WARLOCK', 'caster', [122, 126]);
+    assert.strictEqual(legacy.topDps, 300, 'no 7th argument at all: old callers (and these tests) keep the fallback');
+    const explicit = F.referenceSummary(ranks, [], db, 'WARLOCK', 'caster', [122, 126], 999);
+    assert.strictEqual(explicit.topDps, 999);
 });
 test('getReference (v2 §3): the leaderboard length is cached for a week and shared across bands', async () => {
     const lb = leaderboard(20, [120, 124, 128]);
