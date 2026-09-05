@@ -630,7 +630,7 @@ function positives(kills, role) {
 }
 
 function buildFacts(o) {
-    const { profile, player, kills, thresholds, now, limited, droppedKills } = o;
+    const { profile, player, kills, thresholds, now, limited, droppedKills, nights, night } = o;
     const th = V.parseThresholds(thresholds || {});
     const gear = gearFindings(profile, th, now);
     const gs = profile.gearSummary || {};
@@ -657,6 +657,8 @@ function buildFacts(o) {
             findings: mergeFindings(slim, gear), positives: positives(slim, player.role),
         },
         limited: !!limited,
+        nights: Array.isArray(o.nights) ? o.nights : [],
+        night: o.night || null,
     };
 }
 
@@ -716,7 +718,7 @@ function buildPrompt(facts, rulesLines) {
         'Anniversary rules that differ from original TBC:',
     ].concat(rulesLines || [], [
         'Structure, in this order:',
-        '1. One header line: name, spec, tier, median parse percentile.',
+        '1. One header line: name, spec, tier, then "median parse P" using tier.medianPercent — or, when night is not null, "raid night of <night.date>, median parse that night P" using night.medianPercent.',
         // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives, yet
         // the old wording ordered these sections unconditionally, producing a heading with nothing
         // under it. Each section now says explicitly to skip itself when its source array is empty.
@@ -939,28 +941,66 @@ async function getReference(query, o) {
     } catch (e) { o.refCache.delete(key); throw e; }
 }
 
+// v2 §5.1: the player's raid nights — every kill of the zone grouped by report code — read off
+// the same encounterRankings answer the pipeline already needs. Newest first, capped.
+const NIGHT_LIMIT = 10;
+function buildNights(rankBlobs, bosses) {
+    const byCode = new Map();
+    (bosses || []).forEach(b => {
+        const blob = rankBlobs && rankBlobs['e' + b.encounterId];
+        (blob && Array.isArray(blob.ranks) ? blob.ranks : []).forEach(r => {
+            if (!r || !r.report || !r.report.code) return;
+            const n = byCode.get(r.report.code) || { code: r.report.code, startTime: Infinity, bosses: [] };
+            n.startTime = Math.min(n.startTime, typeof r.startTime === 'number' ? r.startTime : Infinity);
+            n.bosses.push({ encounterId: b.encounterId, name: b.name, rankPercent: round1(r.rankPercent) });
+            byCode.set(r.report.code, n);
+        });
+    });
+    const pct = b => (b.rankPercent == null ? 101 : b.rankPercent);
+    return Array.from(byCode.values()).sort((a, b) => b.startTime - a.startTime).slice(0, NIGHT_LIMIT).map(n => ({
+        code: n.code, date: isFinite(n.startTime) ? new Date(n.startTime).toISOString().slice(0, 10) : null,
+        bosses: n.bosses.slice().sort((a, b) => pct(a) - pct(b)),
+        medianPercent: round1(median(n.bosses.map(b => b.rankPercent))),
+    }));
+}
+
 // The whole pipeline for one player (spec §3.1 steps 2–5). Returns null when there is nothing
 // to analyse; WCL errors (including rate limits) propagate to the route.
 async function fetchFeedback(query, o) {
     const { profile, dbIndex, refCache, thresholds, now } = o;
     if (!profile || !profile.parses) return null;
-    const targets = pickKills(profile);
-    if (!targets.length) return null;
+    // v2 §5.1: rankings for every killed boss of the zone (the nights list needs them all), not
+    // only the KILL_LIMIT picked for analysis.
+    const killed = profile.parses.bosses.filter(b => b && b.kills > 0 && b.encounterId).map(b => ({ encounterId: b.encounterId, name: b.name, medianPercent: b.medianPercent }));
+    if (!killed.length) return null;
     const id = profile.identity || {};
     const role = id.role || 'caster';
     const limited = profile.parses.metric === 'hps';
     // Minor 11: `metric` rides along on `player` so fightContext (via killFacts) can label its
     // `me.amount` field correctly instead of always calling it "dps".
     const player = { name: profile.name, classToken: id.class, spec: id.spec, role, schools: schoolsOf(id.class, id.spec, role), metric: profile.parses.metric };
-    const er = await query(encounterRankQuery(targets.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
+    const er = await query(encounterRankQuery(killed.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
     const ch = er && er.characterData && er.characterData.character;
     if (!ch) return null;
+    const nights = buildNights(ch, killed);
+    const ranksOf = t => { const blob = ch['e' + t.encounterId]; return blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : []; };
+    let targets, night = null;
+    if (o.report) {
+        // v2 §5.2: one raid night — every boss with a kill in that report, worst first.
+        targets = killed.map(t => Object.assign({ rank: ranksOf(t).find(r => r.report.code === o.report) }, t)).filter(t => t.rank)
+            .sort((a, b) => (a.rank.rankPercent == null ? 101 : a.rank.rankPercent) - (b.rank.rankPercent == null ? 101 : b.rank.rankPercent)).slice(0, KILL_LIMIT);
+        if (!targets.length) return { noKills: true };
+        const n = nights.find(x => x.code === o.report);
+        night = { code: o.report, date: n ? n.date : null, medianPercent: n ? n.medianPercent : null };
+    } else {
+        targets = pickKills(profile);
+    }
+    if (!targets.length) return null;
     const results = await mapLimit(targets, 3, async t => {
-        const blob = ch['e' + t.encounterId];
-        const ranks = blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : [];
+        const ranks = ranksOf(t);
         // v2 §4: analyse up to KILLS_PER_BOSS pulls per boss — the representative rank (task-rep-kill;
         // see pickRank's own comment for the selection rules) plus the most recent one.
-        const chosen = pickRanks(ranks, t.medianPercent);
+        const chosen = t.rank ? [t.rank] : pickRanks(ranks, t.medianPercent);
         const byTime = ranks.slice().sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
         const out = [];
         for (const rank of chosen) {
@@ -986,7 +1026,7 @@ async function fetchFeedback(query, o) {
     const kills = flat.filter(k => k && !k.dropped);
     const droppedKills = flat.filter(k => k && k.dropped).map(k => ({ name: k.name, reason: k.reason }));
     kills.sort((a, b) => (a.rankPercent == null ? 101 : a.rankPercent) - (b.rankPercent == null ? 101 : b.rankPercent));
-    return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
+    return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

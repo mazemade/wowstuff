@@ -822,6 +822,69 @@ test('fetchFeedback (v2 §4): a boss with several ranks analyses the representat
     const bad = facts.overall.badPulls.find(b => b.name === 'Anetheron');
     assert.ok(bad && bad.date === new Date(original.startTime + 100000).toISOString().slice(0, 10), 'the decoy pull is Kaz\'rogal\'s 1131 s fight, a bad pull, listed with its date');
 });
+// v2 §5: a fixture clone where Anetheron has a second kill inside Kaz'rogal's report, so the two
+// captured reports form two raid nights, Kaz'rogal's being the newer.
+// NOTE (deviation from the brief, disclosed in task-4-report.md): the captured fixture's
+// Anetheron and Kaz'rogal kills are both logged under ONE real WCL report code (the same player
+// killed both in one raid session), so FX.kills['50619'].code === FX.kills['50620'].code already,
+// before this helper runs. Reusing az.code verbatim (as the brief's twoNights did) therefore left
+// every rank on the same code, so buildNights's Map (one entry per distinct code) could only ever
+// produce ONE night, not two. Giving Anetheron's original rank a report code of its own is the
+// minimal change that actually realizes "two raid nights" the tests below exercise.
+function twoNights() {
+    const fx2 = JSON.parse(JSON.stringify(MID));
+    const az = FX.kills['50620'];
+    const anet = fx2.encounterRankings['50619'].ranks[0];
+    anet.report = Object.assign({}, anet.report, { code: anet.report.code + '_OLDER_NIGHT' });
+    const later = anet.startTime + 100000;
+    fx2.encounterRankings['50620'].ranks[0].startTime = later;
+    fx2.encounterRankings['50619'].ranks.push({ rankPercent: 90, duration: 90000, amount: 4000, bracketData: 124, spec: 'Destruction', startTime: later + 5000, report: { code: az.code, fightID: az.fightID } });
+    return fx2;
+}
+test('buildNights (v2 §5.1): kills grouped by report code, newest first, bosses worst first, with the night\'s median', () => {
+    const fx2 = twoNights();
+    const ch = { e50619: fx2.encounterRankings['50619'], e50620: fx2.encounterRankings['50620'] };
+    const nights = F.buildNights(ch, [{ encounterId: 50619, name: 'Anetheron' }, { encounterId: 50620, name: "Kaz'rogal" }]);
+    const kazCode = FX.kills['50620'].code, anetCode = fx2.encounterRankings['50619'].ranks[0].report.code;
+    const kazPct = F.round1(FX.encounterRankings['50620'].ranks[0].rankPercent);
+    assert.deepStrictEqual(nights.map(n => n.code), [kazCode, anetCode]);
+    assert.strictEqual(nights[0].date, new Date(fx2.encounterRankings['50620'].ranks[0].startTime).toISOString().slice(0, 10), 'the earliest kill of the night dates it');
+    assert.deepStrictEqual(nights[0].bosses.map(b => b.name), ["Kaz'rogal", 'Anetheron']);
+    assert.strictEqual(nights[0].medianPercent, F.round1((kazPct + 90) / 2));
+    assert.deepStrictEqual(nights[1].bosses.map(b => [b.name, b.rankPercent]), [['Anetheron', F.round1(FX.encounterRankings['50619'].ranks[0].rankPercent)]]);
+    assert.strictEqual(F.NIGHT_LIMIT, 10);
+    assert.deepStrictEqual(F.buildNights({}, [{ encounterId: 1, name: 'X' }]), []);
+});
+test('fetchFeedback (v2 §5): the default sheet lists the nights; report=<code> analyses only that night; an unknown code gives noKills', async () => {
+    const fx2 = twoNights();
+    const kazCode = FX.kills['50620'].code, anetCode = fx2.encounterRankings['50619'].ranks[0].report.code;
+    const s = stubQuery(fx2);
+    const all = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.strictEqual(all.night, null);
+    assert.deepStrictEqual(all.nights.map(n => n.code), [kazCode, anetCode]);
+    const night = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: kazCode });
+    assert.deepStrictEqual(night.kills.map(k => [k.name, k.reportCode, k.killIndex, k.killsOnBoss]), [["Kaz'rogal", kazCode, 1, 1], ['Anetheron', kazCode, 2, 2]], 'only that report\'s ranks, worst first');
+    assert.deepStrictEqual(night.night, { code: kazCode, date: all.nights[0].date, medianPercent: all.nights[0].medianPercent });
+    assert.deepStrictEqual(night.nights.map(n => n.code), all.nights.map(n => n.code), 'the list rides along in night mode too');
+    assert.deepStrictEqual(await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: 'ZZZZZZZZZZZZZZZZ' }), { noKills: true });
+});
+test('fetchFeedback (v2 §5.1): encounterRankings is asked for every killed boss of the zone, not only the picked ones', async () => {
+    const rankings = { medianPerformanceAverage: 20, bestPerformanceAverage: 20, rankings: Array.from({ length: 10 }, (_, i) => (
+        { encounter: { id: 50600 + i, name: 'B' + i }, medianPercent: 10 + i, rankPercent: 10 + i, totalKills: 1, spec: 'Destruction', bestSpec: 'Destruction' })) };
+    const profile = P.buildProfile({ name: 'Rotminster', server: 'spineshatter', region: 'eu', zone: 1060, classToken: 'WARLOCK', combatant: null, report: null,
+                                     rankings, rankingsZone: 1060, fallback: false, metric: 'dps', otherRankings: null, otherZone: 1056, specRankings: rankings, dbIndex: db });
+    const s = stubQuery();
+    await F.fetchFeedback(s.query, { profile, dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    const q = s.calls.find(c => c.q.includes('encounterRankings(')).q;
+    assert.strictEqual((q.match(/encounterRankings\(/g) || []).length, 10, 'ten killed bosses, ten aliases, although only KILL_LIMIT are analysed');
+});
+test('buildPrompt (v2 §5.2): the header rule covers the raid-night case', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false, night: { code: 'X', date: '2026-09-01', medianPercent: 20 }, nights: [] });
+    assert.deepStrictEqual(facts.night, { code: 'X', date: '2026-09-01', medianPercent: 20 });
+    assert.deepStrictEqual(facts.nights, []);
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/raid night of/.test(p.system) && /median parse that night/.test(p.system), p.system);
+});
 test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
     const s = stubQuery();
     const p = rotProfile();
