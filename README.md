@@ -22,18 +22,17 @@ groups, and checks live whether assignments were actually done.
   fail / unverified verdict against editable thresholds. Gear is scored primarily with GearScore
   (the same TacoTip formula TBC players run), with average item level shown alongside it. Needs
   the WCL credentials below.
-  - **Feedback report** (button in a player's expanded row): a short note you can paste to the
-    player saying what is holding their parses back, biggest first, with the measured number next
-    to what same-spec players within two item levels do on the same boss, and a fix for each.
-    The server measures every figure from Warcraft Logs (`/api/vet/feedback`, see
-    `vet-feedback.js`); the prose is written by OpenAI under a facts-only prompt and rejected if
-    it introduces numbers the facts do not hold, in which case the findings are shown as a plain
-    list. Raid-wide bad pulls (an 18-minute kill where every DPS parsed 0) are listed under
-    "Not on you". Needs `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET` and, for the prose, `OPENAI_API_KEY`
-    (`OPENAI_MODEL` optional) in `.env`. Optional `report=<WCL report code>` analyses one raid
-    night; the default response's `facts.nights` lists the codes. The facts sheet carries
-    `overall.gap` and per-pull `gap` with the DPS-gap accounting, and findings the model omits are
-    appended under "Also:".
+  - **Feedback report** (`Report` link in a player's row, opens `feedback.html`): a checklist of
+    what is holding their parses back — one row per habit, aggregated over their live pulls,
+    each with the measured number, what same-spec players within two item levels do on the same
+    boss, and a fixed fix. A verdict line says what share of the gap is theirs, the raid's setup,
+    or nobody's; "Fix first" holds the three biggest items, "Ask your raid leader" the group
+    asks, "Where you stand" shows their DPS next to the other same-class players in their raid.
+    Raid-wide bad pulls are counted under "Not on you". Everything is measured from Warcraft Logs
+    (`/api/vet/feedback`, `vet-feedback.js`, `vet-gap.js`, `vet-checklist.js`) and rendered
+    deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
+    `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`. Optional `report=<WCL report code>` analyses one raid
+    night. The facts sheet carries `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
@@ -69,7 +68,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 ## Tests
 
 ```bash
-npm test                          # engine, WCL multiplier, positions, item table, vetting and feedback suites (node, no deps)
+npm test                          # engine, WCL multiplier, positions, item table, vetting, feedback, gap, checklist and server suites (node, no deps)
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking
