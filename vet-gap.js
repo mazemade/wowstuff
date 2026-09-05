@@ -206,8 +206,17 @@ function explainGap(kill, player) {
     const need = ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate'];
     // A literal 0 on any of these would divide to Infinity below, so they must be positive, not
     // merely non-null.
-    if (need.some(k => num(me[k]) === null || !(me[k] > 0) || num(ref[k]) === null) || num(me.amount) === null || !(me.amount > 0) || num(ref.dps) === null) return null;
-    const rawRatio = ref.dps / me.amount;
+    if (need.some(k => num(me[k]) === null || !(me[k] > 0) || num(ref[k]) === null) || num(me.amount) === null || !(me.amount > 0)) return null;
+    // Controller ruling (cross-task): the ratio is measured against the same players the factors
+    // below (casts, damage per cast, crit) are measured on — the three fetched reference players —
+    // not `reference.dps`, the median of the wider (typically eight) collected ranks. Mixing the
+    // two over-explained the gap (the fixture's residual sat at -49%: the factors, measured on the
+    // three, multiplied out past a ratio measured on the eight). `reference.dps` stays in the facts
+    // sheet as the displayed "typical" number; `playersDps` falls back to it only when a caller
+    // (a hand-built pull, or a legacy referenceSummary call) never computed it.
+    const refDps = num(ref.playersDps) !== null ? ref.playersDps : num(ref.dps);
+    if (refDps === null || !(refDps > 0)) return null;
+    const rawRatio = refDps / me.amount;
     // Round once, here, and use the rounded ratio for every downstream computation (the >1 gate,
     // G, and the residual factor below). Gating on the unrounded ratio while reporting the rounded
     // one let a ratio that rounds down to exactly 1 (e.g. 2200/2199.9) through as an all-zero

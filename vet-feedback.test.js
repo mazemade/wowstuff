@@ -324,7 +324,7 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
     assert.strictEqual(ref.abilities[0].name, 'Shadow Bolt');
     assert.strictEqual(ref.abilities[0].critPercent, 58.8);
     assert.strictEqual(ref.abilities[0].avgHit, 4215);
-    assert.strictEqual(ref.abilities[0].hits, 36, 'Important 3: median hits carried through so damageFindings can gate on sample size');
+    assert.strictEqual(ref.abilities[0].hits, 36, 'Important 3: median hits carried through as a per-ability fact');
     assert.strictEqual(ref.stats.spellDamage, 1001);
     assert.strictEqual(ref.stats.spellCrit, 345);
     assert.ok(ref.buffsAtPull.includes('Moonkin Aura') && ref.buffsAtPull.includes('Prayer of Spirit'));
@@ -344,6 +344,9 @@ test('referenceSummary (v3 fix): no damaging casts on any reference player gives
 test('v3 measurements: me and reference carry damaging casts, damage per cast, crit rate, channel time, raid activity, consumables and debuffs', () => {
     const ref = refFor(50619);
     ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin', 'raidActivePercent'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
+    // Controller ruling (cross-task): playersDps is the median amount of the same fetched players
+    // the other factors are measured on, distinct from `dps` (the wider rank list's median).
+    assert.strictEqual(typeof ref.playersDps, 'number');
     assert.ok(ref.damagingCastsPerMinute < ref.castsPerMinute, 'Life Tap is not a damaging cast');
     assert.ok(Array.isArray(ref.consumablesAtPull) && ref.consumablesAtPull.includes('Flask of Pure Death'));
     // Important 1 fix round: none of the Anetheron reference players in this fixture carry a
@@ -648,8 +651,24 @@ test('mergeFindings: bad pulls dropped, ordered by share then severity, uncapped
     assert.ok(!m.some(f => f.key === 'stat_low' || f.key === 'hit_low'));
     assert.ok(m.every((f, i) => i === 0 || (m[i - 1].share || 0) >= (f.share || 0)), 'share descending');
     assert.ok(m.length >= 7, 'no cap at 6: ' + m.length);
+    assert.strictEqual(m[0].severity, 'major');
+    const sev = m.map(f => f.severity);
+    assert.ok(sev.indexOf('minor') === -1 || sev.indexOf('minor') > sev.lastIndexOf('major'), sev.join());
     const withGear = F.mergeFindings(kills, [F.finding('gear_sockets', 'major', 'player', 'Empty sockets: 3')]);
     assert.ok(withGear.some(f => f.key === 'gear_sockets'));
+});
+test('mergeFindings: equal share breaks the tie by severity, major before minor', () => {
+    const k = killFor(50619);
+    const gapKeys = ['rotation', 'cast_pacing', 'crit_buffs', 'power_buffs', 'crit_gear'];
+    const gapF = k.findings.filter(f => gapKeys.includes(f.key)).slice(0, 2);
+    assert.strictEqual(gapF.length, 2, 'fixture must carry at least two gap findings to build the tie');
+    const findings = [Object.assign({}, gapF[0], { share: 10, severity: 'minor' }), Object.assign({}, gapF[1], { share: 10, severity: 'major' })];
+    const kill = Object.assign({}, k, { findings });
+    const m = F.mergeFindings([kill], []);
+    const tied = m.filter(f => f.share === 10);
+    assert.strictEqual(tied.length, 2);
+    assert.strictEqual(tied[0].severity, 'major', 'equal share: major sorts first');
+    assert.strictEqual(tied[1].severity, 'minor');
 });
 test('mergeFindings: the same finding on two bosses is one line with a count, naming which boss the numbers came from (Important 2, Minor 12)', () => {
     const a = killFor(50619);
@@ -672,6 +691,20 @@ test('mergeFindings (Minor 6): a multi-pull boss with no date prints just the bo
     const crit = m.find(f => f.key === 'rotation');
     assert.strictEqual(crit.measuredOn, 'Anetheron', 'no date on the kill: the label falls back to the bare boss name');
     assert.ok(!/null/.test(crit.text), crit.text);
+});
+test('mergeFindings (v3): a later pull with a larger share for the same finding replaces the numbers and measuredOn', () => {
+    const a = killFor(50619);
+    const bDate = '2026-09-01';
+    const bigger = a.findings.find(f => f.key === 'rotation').share + 10;
+    const bFindings = a.findings.map(f => f.key === 'rotation' ? Object.assign({}, f, { share: bigger, me: 9999, reference: 8888 }) : f);
+    const b = Object.assign({}, a, { date: bDate, findings: bFindings });
+    const m = F.mergeFindings([a, b], []);
+    const rot = m.find(f => f.key === 'rotation');
+    assert.strictEqual(rot.count, 2);
+    assert.strictEqual(rot.measuredOn, 'Anetheron (' + bDate + ')', 'the larger-share pull\'s numbers win');
+    assert.strictEqual(rot.me, 9999);
+    assert.strictEqual(rot.reference, 8888);
+    assert.strictEqual(rot.share, bigger, 'the larger share survives the merge');
 });
 test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls and name the date; one pull per boss keeps the v1 wording', () => {
     const a = killFor(50619);

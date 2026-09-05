@@ -98,7 +98,7 @@ function pull(over) {
         debuffs: { known: true, present: [{ name: 'Curse of the Elements', uptimePercent: 100 }], missing: [] },
         me: { amount: 1000, activePercent: 60, damagingCastsPerMinute: 17, damagePerDamagingCast: 2900, critRate: 32, channelSecPerMin: 6,
               consumablesAtPull: [], buffsAtPull: ['Moonkin Aura'], stats: { spellDamage: 846, spellCrit: 253, spellHit: 181, intellect: 490 } },
-        reference: { dps: 2200, raidActivePercent: 85, activePercent: 85, damagingCastsPerMinute: 24, damagePerDamagingCast: 4000, critRate: 46, channelSecPerMin: 0,
+        reference: { dps: 2200, playersDps: 2200, raidActivePercent: 85, activePercent: 85, damagingCastsPerMinute: 24, damagePerDamagingCast: 4000, critRate: 46, channelSecPerMin: 0,
                      consumablesAtPull: ['Flask of Pure Death', 'Well Fed'], buffsAtPull: ['Moonkin Aura', 'Chain of the Twilight Owl', 'Prayer of Spirit', 'Wrath of Air Totem'],
                      stats: { spellDamage: 1004, spellCrit: 306, spellHit: 202, intellect: 490 },
                      debuffs: [{ name: 'Curse of the Elements', uptimePercent: 100 }, { name: 'Shadow Weaving', uptimePercent: 100 }] },
@@ -182,6 +182,11 @@ test('explainGap (Important 1): an unknown debuff table on either side puts noth
 });
 test('explainGap (Important 2): a ratio that rounds down to exactly 1 returns null, not an all-zero accounting', () => {
     assert.strictEqual(G.explainGap(pull({ me: Object.assign({}, pull().me, { amount: 2199.9 }) }), PLAYER), null, '2200 / 2199.9 rounds to 1.000');
+});
+test('explainGap (controller ruling): the ratio is measured against playersDps, the same players the factors come from, not the wider reference.dps', () => {
+    const p = pull({ reference: Object.assign({}, pull().reference, { playersDps: 2400, dps: 2200 }) });
+    const g = G.explainGap(p, PLAYER);
+    assert.strictEqual(g.ratio, 2.4, 'me.amount is 1000: 2400 / 1000, not 2200 / 1000');
 });
 
 test('gapFindings: one finding per input at or above minShare, with owner, share, numbers and a sentence; luck never becomes a finding', () => {

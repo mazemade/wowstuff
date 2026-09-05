@@ -15,12 +15,13 @@ const KILL_LIMIT = 8;
 // largest bound that actually holds that promise.
 const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, cacheMs: 24 * 60 * 60 * 1000,
               topPages: 3, maxSearchPages: 63, lengthCacheMs: 7 * 24 * 60 * 60 * 1000 };
-// Finding thresholds (spec §4). Not user-editable in v1.
+// Finding thresholds (spec §4). Not user-editable in v1. The outcome-based thresholds (active %,
+// crit/hit/resist gaps, primary/secondary stat ratios) were retired in v3 along with the findings
+// they gated (Task 4): the gap accounting (vet-gap.js) and its `minShare` now decide what is worth
+// reporting instead.
 const T = {
-    activeMajor: 85, activeGap: 8, castsLowRatio: 0.85, diedBefore: 0.9,
+    diedBefore: 0.9,
     unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7,
-    critGap: 10, hitRatio: 0.85, resistGap: 10, minAbilityHits: 10,
-    statPrimaryRatio: 0.9, statSecondaryRatio: 0.85,
     debuffUptime: 70, potionMinSec: 60, minShare: 3,
     longFightRatio: 2, raidUnderPercent: 5, raidUnderShare: 0.8, raidSpeedLow: 5,
     // Minor 10 (whole-branch review): spec 4.1 has no deaths-based bad-pull rule. Rule 2 (80% of
@@ -357,6 +358,16 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         const ci = p.tables.ci && p.tables.ci.data && p.tables.ci.data[0];
         const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
         const df = debuffFacts(p.context.debuffs, schoolsOf(classToken, p.rank.spec, role));
+        // Controller ruling (cross-task): the accounting's ratio must be measured against the same
+        // players the other factors (casts, damage per cast, crit) are measured on, not the wider
+        // rank list's median DPS — reuse this player's own fightContext call for both raidActive
+        // and their own amount, rather than computing it twice. fightContext's `me.amount` needs
+        // the fight's own rankings to carry role groups the player's name resolves in; a reference
+        // player's captured fight context does not always have that (verified on this fixture: all
+        // three Anetheron reference players come back with `raidGroupCount: 0`, no role groups at
+        // all), so `me.amount` is null there — fall back to the leaderboard rank's own `amount`,
+        // the same field the wider `dps` median already reads off `ranks`.
+        const fc = fightContext(p.context, p.rank.name, role, null, 'dps');
         return {
             dur, activePercent: row && dmg.totalTime && typeof row.activeTime === 'number' ? round1(100 * row.activeTime / dmg.totalTime) : null,
             casts, castsPerMinute: castsPerMinute(casts, dur), abilities: abilityStats(p.tables.dmg), aur,
@@ -366,7 +377,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
             dcs: GAP.damagingCastStats(casts, abilityStats(p.tables.dmg)),
             channelSec: GAP.channelSeconds(p.tables.buffs),
             consumables: aur ? aur.consumables : [],
-            raidActive: fightContext(p.context, p.rank.name, role, null, 'dps').fight.raidActivePercent,
+            raidActive: fc.fight.raidActivePercent, amount: typeof fc.me.amount === 'number' ? fc.me.amount : p.rank.amount,
             debuffs: df.present, debuffsKnown: df.known,
         };
     });
@@ -379,7 +390,8 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
     const abilities = Object.keys(abilityNames).filter(nm => abilityNames[nm] >= majority).map(nm => {
         const rows = per.map(p => p.abilities.find(a => a.name === nm)).filter(Boolean);
         // Important 3: carry the reference's sample size (median hits across the reference players)
-        // through, so damageFindings can refuse to compare crit/hit/resist on a two-cast sample.
+        // through as a per-ability fact, even though no finding function compares crit/hit/resist
+        // on it any more (v3 Task 4 retired damageFindings in favour of the gap accounting).
         return { name: nm, share: medOf(rows.map(r => r.share)), avgHit: medOf(rows.map(r => r.avgHit)), avgCrit: medOf(rows.map(r => r.avgCrit)),
                  critPercent: medOf(rows.map(r => r.critPercent)), resistPercent: medOf(rows.map(r => r.resistPercent)), hits: medOf(rows.map(r => r.hits)) };
     }).sort((a, b) => (b.share || 0) - (a.share || 0));
@@ -398,6 +410,10 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
     // guard a reference with no damaging casts on any player would silently report 0 rather than
     // null for damagePerDamagingCast.
     const dpc = median(per.map(p => p.dcs.casts ? p.dcs.damage / p.dcs.casts : null));
+    // Controller ruling (cross-task): median amount over the same fetched players the casts/damage
+    // per cast/crit factors are measured on, not the wider `ranks` list's own dps (which explainGap
+    // uses only as the displayed "typical" number) — same null-guard pattern as damagePerDamagingCast.
+    const playersDpsMed = median(per.map(p => p.amount));
     return {
         itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
         dps: Math.round(median(amounts)),
@@ -430,6 +446,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
                 .map(n => ({ name: n, uptimePercent: medOf(per.map(p => { const d = p.debuffs.find(x => x.name === n); return d ? d.uptimePercent : null; })) }))
             : null,
         fastestDurationSec: typeof o.fastestDurationSec === 'number' ? o.fastestDurationSec : null,
+        playersDps: typeof playersDpsMed === 'number' ? Math.round(playersDpsMed) : null,
         stats,
     };
 }
@@ -687,6 +704,11 @@ function positives(kills, role) {
     // the accounting is signed so the player's side of a comparison can come out on top too) is a
     // positive worth calling out, not just silence where a finding would otherwise be.
     const AHEAD_LABEL = { own_activity: 'activity', cast_pacing: 'cast pacing', power_gear: 'spell power from gear', crit_gear: 'crit from gear', power_consumables: 'consumables' };
+    // A physical role's "power" is attack power, not spell power: the same substitution
+    // gapFindings applies to its own text (vet-gap.js), built here at use time instead of a
+    // second hardcoded table.
+    const physical = role === 'melee' || role === 'ranged' || role === 'tank';
+    const aheadLabel = key => (physical ? AHEAD_LABEL[key].replace(/spell power/, 'attack power') : AHEAD_LABEL[key]);
     const gapKills = live.filter(k => k.gap);
     if (gapKills.length) {
         Object.keys(AHEAD_LABEL).forEach(key => {
@@ -694,7 +716,7 @@ function positives(kills, role) {
                 const inp = ['casts', 'dmg', 'crit'].reduce((found, fk) => found || (k.gap.factors[fk] && k.gap.factors[fk].inputs.find(i => i.key === key)), null);
                 return inp ? inp.share : null;
             });
-            if (shares.every(s => typeof s === 'number' && s <= -3)) out.push('You are ahead of comparable players on ' + AHEAD_LABEL[key]);
+            if (shares.every(s => typeof s === 'number' && s <= -3)) out.push('You are ahead of comparable players on ' + aheadLabel(key));
         });
     }
 
