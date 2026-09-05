@@ -863,6 +863,28 @@ test('completeReply (v3): findings the model left out are appended under "Also:"
     assert.deepStrictEqual(F.completeReply('You had no food on the pull.', facts2).appended, [], 'the anchor word is enough for a finding without a number');
     assert.deepStrictEqual(F.completeReply('Nice work.', facts2).appended, ['No food buff at the Anetheron pull']);
 });
+test('completeReply (fix round 1): both of a finding\'s numbers must appear, and a finding\'s own token beats a generic key-level anchor', () => {
+    const withFindings = findings => ({ overall: { findings } });
+
+    // Review repro 1: a channel_time finding's headline number (me: 6) was satisfied by an
+    // unrelated "6" elsewhere in the reply, and its reference (0) was never checked at all.
+    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
+    assert.deepStrictEqual(F.completeReply('You died 6 times less than last week.', withFindings([channel])).appended, [channel.text]);
+    assert.deepStrictEqual(F.completeReply('You channel 6 seconds a minute; comparable players channel about 0.', withFindings([channel])).appended, []);
+
+    // Review repro 2: ability_extra/ability_ratio both anchored on the generic word "comparable",
+    // which appears in almost any reply. A finding carrying its own `ability` field now anchors on
+    // that ability name instead of the key-level fallback.
+    const drainSoul = { key: 'ability_extra', ability: 'Drain Soul', text: 'Cast Drain Soul 7 times on Anetheron; comparable players do not use it' };
+    assert.deepStrictEqual(F.completeReply('Your crit rating is 222 against the 345 comparable players carry.', withFindings([drainSoul])).appended, [drainSoul.text]);
+    assert.deepStrictEqual(F.completeReply('You cast Drain Soul seven times.', withFindings([drainSoul])).appended, [], 'anchor \'Drain Soul\'');
+
+    // A finding with two real numbers and no anchor at all (power_gear, crit_buffs, ...): both
+    // numbers must appear; either one missing means the finding was dropped.
+    const powerGear = { key: 'power_gear', me: 846, reference: 1004, text: 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses.' };
+    assert.deepStrictEqual(F.completeReply('846 against 1004', withFindings([powerGear])).appended, []);
+    assert.deepStrictEqual(F.completeReply('846 spell power', withFindings([powerGear])).appended, [powerGear.text], 'reference missing');
+});
 test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const good = 'Rotminster, Destruction warlock, BT/Hyjal, median parse 14.\n1. Crit: your Shadow Bolts crit 26% of the time; comparable players crit 59%. Your crit rating is 222 against 345.\n2. Shadow Bolt hit for 3,087 against 4215.\nWhat\'s fine: active 92%, no deaths.';

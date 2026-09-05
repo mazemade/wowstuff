@@ -96,9 +96,9 @@ const BURST_VALUE = { default: 0.02, Destruction: 0.03, Haste: 0.03 };
 // A word the note must contain for each finding without a headline number (completeness guard).
 const FINDING_ANCHOR = {
     no_flask_or_elixirs: 'flask', wrong_elixir: 'flask', no_food: 'food', no_oil: 'oil', no_potion: 'potion', died: 'died',
-    buffs_missing: 'group', debuff_missing: 'debuff', bloodlust_uptime: 'Bloodlust', gear_enchants: 'enchant', gear_sockets: 'socket',
-    burst_outside_bloodlust: 'Bloodlust', ability_unused: 'never', ability_extra: 'comparable', ability_ratio: 'comparable',
-    raid_activity: 'raid', channel_time: 'channel', cast_pacing: 'between casts', debuff_uptime_low: 'up',
+    buffs_missing: 'grouped', debuff_missing: 'debuff', bloodlust_uptime: 'Bloodlust', gear_enchants: 'enchant', gear_sockets: 'socket',
+    burst_outside_bloodlust: 'Bloodlust', ability_unused: 'Never', ability_extra: 'do not use it', ability_ratio: 'times a minute',
+    raid_activity: 'phases', channel_time: 'channel', cast_pacing: 'between casts', debuff_uptime_low: 'keep it up',
 };
 
 function share(logValue, G) { return G > 0 ? Math.round(100 * logValue / G) : 0; }

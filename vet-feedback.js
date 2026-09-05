@@ -873,15 +873,44 @@ function collectFactNumbers(value, out, path) {
     if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out, path)); return; }
     Object.keys(value).forEach(k => collectFactNumbers(value[k], out, path ? path + '.' + k : k));
 }
-// spec v3 §5: the model must not drop a finding. Any finding whose headline number (me) or anchor
-// word is absent from the reply is appended verbatim under "Also:" instead of rejecting the reply.
+// spec v3 §5: the model must not drop a finding. Any finding whose numbers and/or anchor word are
+// absent from the reply is appended verbatim under "Also:" instead of rejecting the reply.
+//
+// Fix round 1: review proved the number check alone accepts an unrelated nearby number (a
+// channel_time finding with me: 6 was satisfied by "You died 6 times less than last week"), and
+// several FINDING_ANCHOR words are common enough to pass even when the specific finding was never
+// written (ability_extra/ability_ratio both anchored on "comparable"; raid_activity -> "raid";
+// buffs_missing -> "group"; debuff_uptime_low -> "up"). anchorOf() now prefers a finding's own
+// distinctive token (its ability, or the first of its buffs/debuffs, or its debuff) over the
+// key-level FINDING_ANCHOR fallback, and every one of a finding's numbers (me AND reference, not
+// just me) must appear — with the anchor required in addition whenever any of those numbers is
+// small enough (<=10) to plausibly appear by coincidence.
+function anchorOf(f) {
+    if (f.ability) return f.ability;
+    if (Array.isArray(f.buffs) && f.buffs[0]) return f.buffs[0];
+    if (Array.isArray(f.debuffs) && f.debuffs[0]) return f.debuffs[0];
+    if (f.debuff) return f.debuff;
+    return GAP.FINDING_ANCHOR[f.key] || null;
+}
 function completeReply(text, facts) {
     const findings = facts && facts.overall && Array.isArray(facts.overall.findings) ? facts.overall.findings : [];
     const body = String(text || '');
+    const bodyNums = numbersIn(body);
+    const numPresent = x => { const n = Math.round(x); return bodyNums.some(v => Math.abs(v - n) <= 1) || body.includes(String(x)); };
     const present = f => {
-        if (typeof f.me === 'number') { const n = Math.round(f.me); return numbersIn(body).some(x => Math.abs(x - n) <= 1) || body.includes(String(f.me)); }
-        const anchor = GAP.FINDING_ANCHOR[f.key];
-        return anchor ? body.toLowerCase().includes(anchor.toLowerCase()) : body.includes(f.text);
+        const anchor = anchorOf(f);
+        const anchorPresent = anchor ? body.toLowerCase().includes(String(anchor).toLowerCase()) : false;
+        const nums = [f.me, f.reference].filter(x => typeof x === 'number');
+        // Some gap-accounting findings (crit_buffs, power_buffs, power_gear, power_consumables,
+        // crit_gear, own_activity, hit_under_cap, gear_stat) carry no distinctive token at all —
+        // no ability/buffs/debuffs/debuff field and no FINDING_ANCHOR entry — and their numbers
+        // are routinely small (a 0% buff contribution is the common case, not the exception). With
+        // no anchor to require, the small-number safety net has nothing to check against, so it is
+        // skipped rather than making such a finding impossible to ever match: both of its numbers
+        // (me AND reference, not just one) already have to appear, which is the guard the review
+        // actually asked for.
+        if (nums.length) return nums.every(numPresent) && (!anchor || nums.every(x => Math.abs(x) > 10) || anchorPresent);
+        return anchor ? anchorPresent : body.includes(f.text);
     };
     const appended = findings.filter(f => !present(f)).map(f => f.text);
     return { text: appended.length ? body + '\n\nAlso:\n' + appended.join('\n') : body, appended };
