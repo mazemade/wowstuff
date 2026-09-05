@@ -25,6 +25,8 @@ const BUFF_SOURCE = { 'Moonkin Aura': 'a moonkin', 'Totem of Wrath': 'an element
                       'Unleashed Rage': 'an enhancement shaman', 'Greater Blessing of Might': 'a paladin', 'Windfury Totem': 'a shaman' };
 const STAT_WORD = { spellCrit: 'spell crit', spellHaste: 'spell haste', spellDamage: 'spell power', meleeCrit: 'crit', meleeHaste: 'haste', attackPower: 'attack power', rangedAttackPower: 'ranged attack power', expertise: 'expertise', spellHit: 'spell hit', meleeHit: 'hit', rangedCrit: 'crit' };
 
+const isCurse = n => /^curse of /i.test(n);
+
 // --- helpers (spec §4.2)
 const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
 const pct = x => (typeof x === 'number' ? Math.round(x * 10) / 10 : x);
@@ -138,7 +140,6 @@ function groupRows(facts) {
     if (noLust.length) out.push(row({ id: 'bloodlust', category: 'group', owner: 'group', verdict: verdictForHabit(noLust.length, lustKills.length), pulls: { hit: noLust.length, of: lustKills.length }, measuredOn: pullLabel(noLust[0], kills),
         text: 'No Bloodlust on ' + pullsText(noLust.length, lustKills.length) + ' while comparable players had it' }));
     // Curse: an assignment question, one row, only when the two sides' most-cast curse differ.
-    const isCurse = n => /^curse of /i.test(n);
     const most = casts => Object.keys(casts || {}).filter(isCurse).filter(n => casts[n] > 0).sort((a, b) => casts[b] - casts[a])[0] || null;
     const differ = kills.filter(k => k.reference && most(k.me.casts) && most(k.reference.casts) && most(k.me.casts) !== most(k.reference.casts) && !(k.me.casts || {})[most(k.reference.casts)]);
     if (differ.length) {
@@ -224,6 +225,51 @@ function cooldownRows(facts) {
                   text: names.join(' and ') + ' used outside Bloodlust on ' + pullsText(failing.length, lustKills.length) + '; comparable players line it up with Bloodlust', fix: 'Hold ' + names.join(' and ') + ' for Bloodlust.' })];
 }
 
+// --- spell choice (spec §4.3 "Spell choice"; the v3 rotationFindings rules, aggregated)
+const offLimits = n => isCurse(n) || GAP.RACIAL.test(n) || GAP.ENCOUNTER_ITEM.test(n) || GAP.UTILITY_CAST.test(n) || !!GAP.POTION_LABEL[n];
+function spellRows(facts, T) {
+    T = Object.assign({}, DEFAULT_T, T || {});
+    const kills = liveKills(facts).filter(k => k.reference && k.fight.durationSec && k.reference.castsDurationSec);
+    const out = [];
+    const fmt = x => Math.round(x * 10) / 10;
+    // unused: per ability, the pulls the reference used it on vs the pulls the player never cast it.
+    const used = {}, unusedOn = {}, rates = {};
+    kills.forEach(k => {
+        const refMin = k.reference.castsDurationSec / 60;
+        Object.keys(k.reference.casts || {}).forEach(n => {
+            if (offLimits(n)) return;
+            const r = k.reference.casts[n] / refMin;
+            if (!(r >= T.unusedPerMin || k.reference.casts[n] >= T.unusedPerFightCooldown)) return;
+            used[n] = (used[n] || 0) + 1;
+            if (!(k.me.casts || {})[n]) { unusedOn[n] = (unusedOn[n] || 0) + 1; (rates[n] = rates[n] || []).push(fmt(r)); }
+        });
+    });
+    const names = Object.keys(unusedOn).filter(n => unusedOn[n] * 2 >= used[n]).sort((a, b) => unusedOn[b] - unusedOn[a]);
+    if (names.length) {
+        const failing = kills.filter(k => names.some(n => (k.reference.casts || {})[n] && !(k.me.casts || {})[n]));
+        const range = n => { const r = rates[n].slice().sort((a, b) => a - b); return r[0] === r[r.length - 1] ? String(r[0]) : r[0] + '–' + r[r.length - 1]; };
+        out.push(row({ id: 'unused', category: 'spells', verdict: verdictForHabit(failing.length, kills.length), pulls: { hit: failing.length, of: kills.length }, value: NOMINAL_VALUE.unused, measuredOn: pullLabel(failing[0], kills),
+                       text: 'Never cast: ' + names.map((n, i) => n + ' (' + (i === 0 ? 'comparable players ' : '') + range(n) + ' a minute)').join(', '),
+                       fix: ABILITY_FIX[names[0]] || 'Use it as comparable players do.' }));
+    }
+    // under_used: a top-3 reference ability the player casts under ratioLow of the reference rate.
+    const under = [];
+    kills.forEach(k => {
+        const top3 = (k.reference.abilities || []).slice(0, 3).map(a => a.name), min = k.fight.durationSec / 60, refMin = k.reference.castsDurationSec / 60;
+        top3.forEach(n => { const r = (k.reference.casts || {})[n], p = (k.me.casts || {})[n]; if (r && p && p / min < T.ratioLow * (r / refMin)) under.push({ k, n, p: fmt(p / min), r: fmt(r / refMin) }); });
+    });
+    if (under.length) {
+        const u = under[0];
+        out.push(row({ id: 'under_used', category: 'spells', verdict: 'warn', pulls: { hit: new Set(under.map(x => x.k)).size, of: kills.length }, me: u.p, reference: u.r, unit: 'a minute', measuredOn: pullLabel(u.k, kills),
+                       text: u.n + ' ' + u.p + ' a minute against ' + u.r + ' for comparable players on ' + pullLabel(u.k, kills), fix: ABILITY_FIX[u.n] || 'Use it as often as comparable players do.' }));
+    }
+    // extra: cast at least extraPerMin a minute while the reference never casts it — info only.
+    const extra = [];
+    kills.forEach(k => { const min = k.fight.durationSec / 60; Object.keys(k.me.casts || {}).forEach(n => { if ((k.reference.casts || {})[n] || offLimits(n)) return; if (k.me.casts[n] / min >= T.extraPerMin) extra.push(n + ' (' + k.me.casts[n] + ' on ' + pullLabel(k, kills) + ')'); }); });
+    if (extra.length) out.push(row({ id: 'extra', category: 'spells', verdict: 'info', text: 'Cast while comparable players do not: ' + extra.join(', ') }));
+    return out;
+}
+
 module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD,
                    liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
-                   consumableRows, cooldownRows };
+                   consumableRows, cooldownRows, spellRows };

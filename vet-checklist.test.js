@@ -132,5 +132,27 @@ test('cooldownRows: burst_timing names the item fired outside Bloodlust', () => 
     assert.ok(!C.cooldownRows(sheet([gapKill('A', {})])).find(r => r.id === 'burst_timing'));
 });
 
+test('spellRows: one unused row over all pulls, curses/racials/utility/potions excluded, reference rates as a range', () => {
+    const k1 = gapKill('Void Reaver', {}), k2 = gapKill('Lady Vashj', {});
+    k2.reference.casts = { 'Shadow Bolt': 83, Shadowburn: 9, 'Curse of Agony': 7, 'Blood Fury': 1, 'Life Tap': 14, Destruction: 1 }; k2.reference.castsDurationSec = 420; k2.fight.durationSec = 465;
+    const rows = C.spellRows(sheet([k1, k2]), C.DEFAULT_T);
+    const u = rows.find(r => r.id === 'unused');
+    assert.strictEqual(u.verdict, 'fail'); assert.strictEqual(u.value, 2); assert.deepStrictEqual(u.pulls, { hit: 2, of: 2 });
+    assert.strictEqual(u.text, 'Never cast: Shadowburn (comparable players 0.4–1.3 a minute)');
+    assert.strictEqual(u.fix, 'Use it while moving and under 25% boss health when you have shards.');
+    assert.strictEqual(rows.filter(r => r.id === 'unused').length, 1);
+});
+test('spellRows: under_used is a warn on the reference\'s top-3 abilities cast under 70% of their rate; extra is info', () => {
+    const k = gapKill('Lady Vashj', {}); k.me.casts = { 'Shadow Bolt': 71, Shadowburn: 5, 'Seed of Corruption': 8, 'Curse of the Elements': 8 }; k.fight.durationSec = 465;
+    k.reference.casts = { 'Shadow Bolt': 83, Shadowburn: 9 }; k.reference.castsDurationSec = 420;
+    k.reference.abilities = [{ name: 'Shadow Bolt', share: 86 }, { name: 'Shadowburn', share: 5 }];
+    const rows = C.spellRows(sheet([k]), C.DEFAULT_T);
+    const uu = rows.find(r => r.id === 'under_used');
+    assert.strictEqual(uu.verdict, 'warn'); assert.strictEqual(uu.text, 'Shadowburn 0.6 a minute against 1.3 for comparable players on Lady Vashj');
+    const ex = rows.find(r => r.id === 'extra');
+    assert.strictEqual(ex.verdict, 'info'); assert.strictEqual(ex.text, 'Cast while comparable players do not: Seed of Corruption (8 on Lady Vashj)');
+    assert.ok(!rows.find(r => r.id === 'unused'));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
