@@ -387,6 +387,14 @@ test('getReference (v3 fix): fastestDurationSec still finds the fastest among th
     const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
     assert.strictEqual(ref.summary.fastestDurationSec, 100, 'the surviving half of the rows still last 100 s');
 });
+test('v3: killFacts carries kill.gap for a pull below its reference; buildFacts carries overall.gap', () => {
+    const k = killFor(50619);
+    assert.ok(k.gap && k.gap.ratio > 1, 'Rotminster is below the reference on Anetheron');
+    const product = ['casts', 'dmg', 'crit', 'residual'].reduce((p, f) => p * k.gap.factors[f].value, 1);
+    assert.ok(Math.abs(product - k.gap.ratio) < 1e-6);
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(facts.overall.gap, { casts: k.gap.factors.casts.share, dmg: k.gap.factors.dmg.share, crit: k.gap.factors.crit.share, residual: k.gap.factors.residual.share }, 'Kaz\'rogal is a bad pull: only Anetheron counts');
+});
 
 // --- Task 5: kill facts and player findings
 function killFor(enc) {

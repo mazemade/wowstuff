@@ -189,4 +189,109 @@ function debuffMultiplier(present, schools) {
     }, 1);
 }
 
-module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, FINDING_ANCHOR, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier };
+// --- The accounting (spec v3 §3). Everything is on the log scale so factor shares add up.
+const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
+const safeLog = r => (r > 0 && isFinite(r) ? Math.log(r) : 0);
+function input(key, owner, logValue, G, me, reference, unit) {
+    return { key, owner, share: share(logValue, G), me, reference, unit: unit || null, log: logValue };
+}
+function finish(factor, G) {
+    factor.share = share(Math.log(factor.value), G);
+    factor.inputs.forEach(i => delete i.log);
+    return factor;
+}
+
+function explainGap(kill, player) {
+    const me = kill && kill.me, ref = kill && kill.reference, fight = kill && kill.fight;
+    if (!me || !ref || !fight) return null;
+    const need = ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate'];
+    if (need.some(k => num(me[k]) === null || num(ref[k]) === null) || num(me.amount) === null || num(ref.dps) === null) return null;
+    const rawRatio = ref.dps / me.amount;
+    if (!(rawRatio > 1)) return null;
+    // Round once, here, and use the rounded ratio for every downstream computation (G, and the
+    // residual factor below). Rounding only the returned `ratio` while computing residual from the
+    // unrounded value broke the product-multiplies-back-to-the-ratio contract on real (non-clean)
+    // numbers: residual.value * casts.value * dmg.value * crit.value equalled the raw ratio, which
+    // could differ from the displayed (rounded) ratio by more than the 1e-6 test tolerance.
+    const ratio = Math.round(rawRatio * 1000) / 1000;
+    const G = Math.log(ratio);
+    const role = player.role, spec = player.spec, schools = player.schools || [];
+    const physical = role === 'melee' || role === 'ranged' || role === 'tank';
+
+    // Casts factor: raid activity, own activity, channel time, pacing (remainder).
+    const casts = { value: ref.damagingCastsPerMinute / me.damagingCastsPerMinute, inputs: [] };
+    const myRaid = num(fight.raidActivePercent), refRaid = num(ref.raidActivePercent), myAct = num(me.activePercent), refAct = num(ref.activePercent);
+    const raidLog = myRaid && refRaid ? safeLog(refRaid / myRaid) : 0;
+    const ownLog = myRaid && refRaid && myAct && refAct ? safeLog((refAct / refRaid) / (myAct / myRaid)) : 0;
+    const myCh = num(me.channelSecPerMin) || 0, refCh = num(ref.channelSecPerMin) || 0;
+    const chLog = safeLog((60 - refCh) / (60 - myCh));
+    const paceLog = Math.log(casts.value) - raidLog - ownLog - chLog;
+    casts.inputs.push(input('raid_activity', 'raid', raidLog, G, myRaid, refRaid, 'raid median active %'));
+    casts.inputs.push(input('own_activity', 'player', ownLog, G, myAct, refAct, 'active %'));
+    casts.inputs.push(input('channel_time', 'player', chLog, G, myCh, refCh, 'seconds a minute channelling'));
+    casts.inputs.push(input('cast_pacing', 'player', paceLog, G, me.damagingCastsPerMinute, ref.damagingCastsPerMinute, 'damaging casts a minute'));
+
+    // Damage-per-cast factor: hit, debuffs, power split (gear / consumables / buffs), rotation.
+    const dmg = { value: ref.damagePerDamagingCast / me.damagePerDamagingCast, inputs: [] };
+    const hitKey = physical ? 'meleeHit' : 'spellHit', perPct = physical ? C.MELEE_HIT_RATING_PER_PCT : C.HIT_RATING_PER_PCT, cap = physical ? C.HIT_CAP[role === 'ranged' ? 'ranged' : 'melee'] : C.HIT_CAP.spell;
+    const myHit = me.stats && num(me.stats[hitKey]), refHit = ref.stats && num(ref.stats[hitKey]);
+    const miss = h => Math.max(0, cap - h / perPct) / 100;
+    const hitLog = myHit !== null && refHit !== null ? safeLog((1 - miss(refHit)) / (1 - miss(myHit))) : 0;
+    const myDeb = debuffMultiplier(kill.debuffs && kill.debuffs.present, schools), refDeb = debuffMultiplier(ref.debuffs, schools);
+    const debLog = safeLog(refDeb / myDeb);
+    const myP = powerParts({ stats: me.stats, auras: (me.consumablesAtPull || []).concat(me.buffsAtPull || []), role });
+    const refP = powerParts({ stats: ref.stats, auras: (ref.consumablesAtPull || []).concat(ref.buffsAtPull || []), role });
+    const remaining = Math.log(dmg.value) - hitLog - debLog;
+    // Damage per cast scales with total power plus the ability's base (POWER_BASE): the log factor
+    // that difference explains is split over the three power sources in proportion to their
+    // positive gaps, clipped to what is left after hit and debuffs. What power cannot claim is
+    // ability choice and misses: rotation. Without gear power on both sides nothing is claimed.
+    const K = C.POWER_BASE[role] || 670;
+    let powerLogs = [0, 0, 0];
+    if (myP.gear !== null && refP.gear !== null && remaining > 0) {
+        const myTot = myP.gear + myP.consumables + myP.buffs, refTot = refP.gear + refP.consumables + refP.buffs;
+        const total = Math.min(remaining, Math.max(0, safeLog((refTot + K) / (myTot + K))));
+        powerLogs = splitLog(total, [refP.gear - myP.gear, refP.consumables - myP.consumables, refP.buffs - myP.buffs]);
+    }
+    const rotLog = remaining - powerLogs.reduce((s, x) => s + x, 0);
+    dmg.inputs.push(input('hit_under_cap', 'player', hitLog, G, myHit, refHit, 'hit rating'));
+    dmg.inputs.push(input('debuffs', 'group', debLog, G, Math.round(100 * myDeb) / 100, Math.round(100 * refDeb) / 100, 'debuff multiplier'));
+    dmg.inputs.push(input('power_gear', 'player', powerLogs[0], G, myP.gear, refP.gear, physical ? 'attack power from gear' : 'spell power from gear'));
+    dmg.inputs.push(input('power_consumables', 'player', powerLogs[1], G, myP.consumables, refP.consumables, physical ? 'attack power from consumables' : 'spell power from consumables'));
+    dmg.inputs.push(input('power_buffs', 'group', powerLogs[2], G, myP.buffs, refP.buffs, physical ? 'attack power from party buffs' : 'spell power from party buffs'));
+    dmg.inputs.push(input('rotation', 'player', rotLog, G, me.damagePerDamagingCast, ref.damagePerDamagingCast, 'damage per cast'));
+
+    // Crit factor: expected from gear / consumables / buffs, the rest is luck.
+    const B = typeof C.CRIT_BONUS[spec] === 'number' ? C.CRIT_BONUS[spec] : 0.5;
+    const crit = { value: (1 + ref.critRate / 100 * B) / (1 + me.critRate / 100 * B), inputs: [] };
+    const myE = expectedCrit({ stats: me.stats, auras: (me.consumablesAtPull || []).concat(me.buffsAtPull || []), classToken: player.classToken, spec, role });
+    const refE = expectedCrit({ stats: ref.stats, auras: (ref.consumablesAtPull || []).concat(ref.buffsAtPull || []), classToken: player.classToken, spec, role });
+    const critLogOf = (a, b) => safeLog((1 + b / 100 * B) / (1 + a / 100 * B));
+    let gearLog = 0, buffLog = 0;
+    if (myE && refE) {
+        // Walk the expected chance up one input at a time, so each input's log is its own step.
+        // Consumable crit rating is not an input: the player's reported rating already holds it, a
+        // reference player's gear-derived rating does not, so it stays with luck (Task 1 ruling).
+        const noCons = e => e.total - e.consumables;
+        const afterGear = noCons(myE) + (refE.gear - myE.gear);
+        gearLog = critLogOf(noCons(myE), afterGear);
+        buffLog = critLogOf(afterGear, noCons(refE));
+    }
+    const luckLog = Math.log(crit.value) - gearLog - buffLog;
+    crit.inputs.push(input('crit_gear', 'player', gearLog, G, myE ? Math.round(myE.gear * 10) / 10 : null, refE ? Math.round(refE.gear * 10) / 10 : null, 'crit % from gear'));
+    crit.inputs.push(input('crit_buffs', 'group', buffLog, G, myE ? Math.round(myE.buffs * 10) / 10 : null, refE ? Math.round(refE.buffs * 10) / 10 : null, 'crit % from party buffs'));
+    crit.inputs.push(input('crit_luck', 'noise', luckLog, G, me.critRate, ref.critRate, 'measured crit %'));
+
+    const residual = { value: ratio / (casts.value * dmg.value * crit.value), inputs: [] };
+    const factors = { casts: finish(casts, G), dmg: finish(dmg, G), crit: finish(crit, G), residual: finish(residual, G) };
+    return { ratio, factors, residualShare: factors.residual.share };
+}
+
+function averageGap(kills) {
+    const gaps = (kills || []).map(k => k && k.gap).filter(Boolean);
+    if (!gaps.length) return null;
+    const avg = key => Math.round(gaps.reduce((s, g) => s + g.factors[key].share, 0) / gaps.length);
+    return { casts: avg('casts'), dmg: avg('dmg'), crit: avg('crit'), residual: avg('residual') };
+}
+
+module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, FINDING_ANCHOR, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier, explainGap, averageGap };

@@ -89,5 +89,87 @@ test('debuffMultiplier: uptime-weighted product over the schools that matter', (
     assert.ok(Math.abs(G.debuffMultiplier(present, ['physical']) - 1.18) < 1e-9, 'Sunder only');
 });
 
+// A hand-built pull in the shape killFacts produces, with a reference twice as strong in every
+// measured way, so every factor is exercised.
+function pull(over) {
+    const base = {
+        name: 'Morogrim Tidewalker', rankPercent: 19,
+        fight: { durationSec: 200, raidActivePercent: 70, badPull: false },
+        debuffs: { known: true, present: [{ name: 'Curse of the Elements', uptimePercent: 100 }], missing: [] },
+        me: { amount: 1000, activePercent: 60, damagingCastsPerMinute: 17, damagePerDamagingCast: 2900, critRate: 32, channelSecPerMin: 6,
+              consumablesAtPull: [], buffsAtPull: ['Moonkin Aura'], stats: { spellDamage: 846, spellCrit: 253, spellHit: 181, intellect: 490 } },
+        reference: { dps: 2200, raidActivePercent: 85, activePercent: 85, damagingCastsPerMinute: 24, damagePerDamagingCast: 4000, critRate: 46, channelSecPerMin: 0,
+                     consumablesAtPull: ['Flask of Pure Death', 'Well Fed'], buffsAtPull: ['Moonkin Aura', 'Chain of the Twilight Owl', 'Prayer of Spirit', 'Wrath of Air Totem'],
+                     stats: { spellDamage: 1004, spellCrit: 306, spellHit: 202, intellect: 490 },
+                     debuffs: [{ name: 'Curse of the Elements', uptimePercent: 100 }, { name: 'Shadow Weaving', uptimePercent: 100 }] },
+    };
+    return Object.assign(base, over || {});
+}
+const PLAYER = { classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', schools: ['shadow'] };
+const sumShares = inputs => inputs.reduce((s, i) => s + i.share, 0);
+test('explainGap: factors multiply back to the ratio and shares sum to 100', () => {
+    const g = G.explainGap(pull(), PLAYER);
+    assert.ok(g && Math.abs(g.ratio - 2.2) < 1e-9);
+    const product = g.factors.casts.value * g.factors.dmg.value * g.factors.crit.value * g.factors.residual.value;
+    assert.ok(Math.abs(product - g.ratio) < 1e-6, 'product ' + product);
+    const total = ['casts', 'dmg', 'crit', 'residual'].reduce((s, k) => s + g.factors[k].share, 0);
+    assert.ok(Math.abs(total - 100) <= 1, 'shares sum ' + total);
+    ['casts', 'dmg', 'crit'].forEach(k => assert.ok(Math.abs(sumShares(g.factors[k].inputs) - g.factors[k].share) <= 1, k + ' inputs ' + sumShares(g.factors[k].inputs) + ' vs ' + g.factors[k].share));
+    assert.ok(Math.abs(g.factors.casts.value - 24 / 17) < 1e-9);
+    assert.ok(Math.abs(g.factors.dmg.value - 4000 / 2900) < 1e-9);
+    assert.ok(Math.abs(g.factors.crit.value - 1.46 / 1.32) < 1e-9, 'Ruin doubles crits');
+});
+test('explainGap: input owners and the meaning of each input', () => {
+    const g = G.explainGap(pull(), PLAYER);
+    const by = f => Object.fromEntries(g.factors[f].inputs.map(i => [i.key, i]));
+    const c = by('casts');
+    assert.deepStrictEqual(Object.keys(c), ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing']);
+    assert.strictEqual(c.raid_activity.owner, 'raid'); assert.strictEqual(c.own_activity.owner, 'player');
+    assert.deepStrictEqual([c.raid_activity.me, c.raid_activity.reference], [70, 85]);
+    assert.deepStrictEqual([c.own_activity.me, c.own_activity.reference], [60, 85]);
+    assert.deepStrictEqual([c.channel_time.me, c.channel_time.reference, c.channel_time.unit], [6, 0, 'seconds a minute channelling']);
+    const d = by('dmg');
+    assert.deepStrictEqual(Object.keys(d), ['hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation']);
+    assert.strictEqual(d.debuffs.owner, 'group'); assert.strictEqual(d.power_buffs.owner, 'group'); assert.strictEqual(d.power_gear.owner, 'player');
+    assert.deepStrictEqual([d.power_gear.me, d.power_gear.reference], [846, 1004]);
+    assert.deepStrictEqual([d.power_consumables.me, d.power_consumables.reference], [0, 103]);
+    assert.deepStrictEqual([d.power_buffs.me, d.power_buffs.reference], [0, 141]);
+    assert.deepStrictEqual([d.hit_under_cap.me, d.hit_under_cap.reference], [181, 202]);
+    assert.ok(d.hit_under_cap.share >= 1 && d.hit_under_cap.share <= 3, '21 rating under the cap is a 1.7% miss chance: ' + d.hit_under_cap.share);
+    assert.ok(d.debuffs.share >= 10 && d.debuffs.share <= 14, 'Shadow Weaving missing is a 1.10 multiplier: ' + d.debuffs.share);
+    assert.ok(d.power_gear.share > 0 && d.power_consumables.share > 0 && d.power_buffs.share > 0, 'all three power sources are behind');
+    assert.ok(d.rotation.share >= 0 && d.rotation.share <= 2, 'power explains the rest of the per-cast gap here: ' + d.rotation.share);
+    const k = by('crit');
+    assert.deepStrictEqual(Object.keys(k), ['crit_gear', 'crit_buffs', 'crit_luck']);
+    assert.strictEqual(k.crit_luck.owner, 'noise');
+    assert.ok(k.crit_gear.share >= 0 && k.crit_buffs.share >= 0, 'both sides of the expectation move up: gear ' + k.crit_gear.share + ' buffs ' + k.crit_buffs.share);
+    assert.ok(k.crit_luck.share > k.crit_gear.share + k.crit_buffs.share, 'expected 32.1 vs 36.5 against measured 32 vs 46: luck carries most of the crit gap: luck ' + k.crit_luck.share);
+});
+test('explainGap: no accounting without a gap, a reference, or the measurements; missing stats leave power on rotation', () => {
+    assert.strictEqual(G.explainGap(pull({ reference: null }), PLAYER), null);
+    assert.strictEqual(G.explainGap(pull({ me: Object.assign({}, pull().me, { amount: 2500 }) }), PLAYER), null, 'above the reference');
+    assert.strictEqual(G.explainGap(pull({ me: Object.assign({}, pull().me, { damagingCastsPerMinute: null }) }), PLAYER), null);
+    const p = pull(); p.me = Object.assign({}, p.me, { stats: null }); p.reference = Object.assign({}, p.reference, { stats: null });
+    const g = G.explainGap(p, PLAYER);
+    const d = Object.fromEntries(g.factors.dmg.inputs.map(i => [i.key, i]));
+    assert.strictEqual(d.power_gear.share, 0); assert.strictEqual(d.hit_under_cap.share, 0);
+    assert.ok(d.rotation.share > 0);
+    assert.strictEqual(g.factors.crit.inputs.find(i => i.key === 'crit_luck').share, g.factors.crit.share, 'no stats: the whole crit factor is unexplained');
+});
+test('explainGap: a raid at the reference raid median with the player at his raid median puts nothing on activity', () => {
+    const p = pull(); p.fight = Object.assign({}, p.fight, { raidActivePercent: 85 }); p.me = Object.assign({}, p.me, { activePercent: 85 });
+    const g = G.explainGap(p, PLAYER);
+    const c = Object.fromEntries(g.factors.casts.inputs.map(i => [i.key, i]));
+    assert.strictEqual(c.raid_activity.share, 0); assert.strictEqual(c.own_activity.share, 0);
+    assert.ok(c.channel_time.share > 0 && c.cast_pacing.share > 0);
+});
+test('averageGap: mean factor shares over pulls with an accounting; null when none', () => {
+    const a = G.explainGap(pull(), PLAYER), b = G.explainGap(pull({ me: Object.assign({}, pull().me, { critRate: 46 }) }), PLAYER);
+    const avg = G.averageGap([{ gap: a }, { gap: b }, { gap: null }]);
+    assert.strictEqual(avg.crit, Math.round((a.factors.crit.share + b.factors.crit.share) / 2));
+    assert.strictEqual(avg.casts, Math.round((a.factors.casts.share + b.factors.casts.share) / 2));
+    assert.strictEqual(G.averageGap([{ gap: null }]), null);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

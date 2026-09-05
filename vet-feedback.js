@@ -762,6 +762,7 @@ function buildFacts(o) {
             // player killed is missing from the sheet rather than silently having fewer kills.
             droppedKills: droppedKills || [],
             findings: mergeFindings(slim, gear), positives: positives(slim, player.role), ceiling,
+            gap: GAP.averageGap(slim.filter(k => !k.fight.badPull)),
         },
         limited: !!limited,
         nights: Array.isArray(o.nights) ? o.nights : [],
@@ -805,8 +806,9 @@ function killFacts(input) {
         reportCode: rank.report.code, fightId: rank.report.fightID,
         wclUrl: 'https://classic.warcraftlogs.com/reports/' + rank.report.code + '#fight=' + rank.report.fightID + '&source=' + sourceId,
         fight: fc.fight, debuffs: debuffFacts(context.debuffs, player.schools), me,
-        reference: reference || null, referenceNote: referenceNote || null, findings: [],
+        reference: reference || null, referenceNote: referenceNote || null, findings: [], gap: null,
     };
+    kill.gap = kill.fight.badPull ? null : GAP.explainGap(kill, player);
     kill.findings = killFindings(kill, player);
     return kill;
 }
