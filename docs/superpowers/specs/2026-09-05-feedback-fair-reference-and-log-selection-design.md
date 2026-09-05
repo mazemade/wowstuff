@@ -151,11 +151,12 @@ For the player and each reference player, from the Buffs table:
 
 - `bloodlustBands`: bands of the aura named `Bloodlust` (or `Heroism`).
 - A **burst** is an aura that (a) has at least one band, (b) whose name also appears in the
-  player's Casts table (an on-use item) **or** is the effect of a potion in the `POTION_EFFECT`
-  table (`'Destruction Potion' → 'Destruction'`, `'Haste Potion' → 'Haste'`; the plan verifies
-  the melee entries live before adding them), and (c) is not Bloodlust. Procs never satisfy (b).
+  player's Casts table — true for on-use items and for potions alike, because WCL names a potion
+  cast after its effect (the fixture's Casts table holds `Destruction: 1` for a Destruction
+  Potion); `POTION_LABEL` maps those effect names back to the potion for the report text — and
+  (c) is not Bloodlust. Procs never satisfy (b).
 - Per burst: `{ name, uses: bands.length, insideBloodlust: bands whose [start, end] overlaps any
-  Bloodlust band, source: 'potion' | 'item' }`.
+  Bloodlust band }`.
 
 `me.burst: [...]`; `reference.burst: [{ name, uses (median), insideBloodlust (median) }]` for
 bursts a majority of reference players have.

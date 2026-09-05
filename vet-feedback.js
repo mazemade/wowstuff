@@ -224,6 +224,29 @@ function buffUptime(buffsTable, name) {
     return a ? Math.round(100 * a.totalUptime / d.totalTime) : 0;
 }
 
+// --- Burst timing (spec v2 §6). A burst is a short self-buff the player triggers — an on-use
+// item or a potion. Both show as a cast of the same name (WCL names a potion cast after its
+// effect: the fixture's Casts table has "Destruction: 1" for a Destruction Potion) and as an aura
+// with one band per use. Procs have no cast; long buffs (armors) fail the length cap.
+const BURST_MAX_SEC = 30;
+const LUST = ['Bloodlust', 'Heroism'];
+const POTION_LABEL = { Destruction: 'Destruction Potion', Haste: 'Haste Potion', 'Insane Strength': 'Insane Strength Potion' };
+function auraBands(buffsTable, names) {
+    const d = buffsTable && buffsTable.data;
+    return (d && Array.isArray(d.auras) ? d.auras : []).filter(a => a && names.includes(a.name)).flatMap(a => Array.isArray(a.bands) ? a.bands : []);
+}
+function burstStats(buffsTable, castsTable) {
+    const d = buffsTable && buffsTable.data;
+    if (!d || !Array.isArray(d.auras)) return [];
+    const casts = castCounts(castsTable);
+    const lust = auraBands(buffsTable, LUST);
+    const inside = b => lust.some(l => b.startTime < l.endTime && b.endTime > l.startTime);
+    return d.auras
+        .filter(a => a && Array.isArray(a.bands) && a.bands.length && casts[a.name] && !LUST.includes(a.name) && a.bands.every(b => (b.endTime - b.startTime) / 1000 <= BURST_MAX_SEC))
+        .map(a => ({ name: a.name, uses: a.bands.length, insideBloodlust: a.bands.filter(inside).length }));
+}
+function burstLabel(name) { return POTION_LABEL[name] || name; }
+
 // Consumables as WCL names them in CombatantInfo auras. WCL drops "Elixir of" from some elixirs
 // ("Major Shadow Power") and Shattrath flasks read "<flask> of Shattrath", so these are patterns.
 const CONSUMABLE = {
@@ -317,6 +340,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
             dur, activePercent: row && dmg.totalTime && typeof row.activeTime === 'number' ? round1(100 * row.activeTime / dmg.totalTime) : null,
             casts, castsPerMinute: castsPerMinute(casts, dur), abilities: abilityStats(p.tables.dmg), aur,
             buffs: aur ? canonBuffs(aur.buffs, role) : [], bloodlust: buffUptime(p.tables.buffs, 'Bloodlust'),
+            burst: burstStats(p.tables.buffs, p.tables.casts),
             stats: playerStats(ci, row, dbIndex, classToken),
         };
     });
@@ -338,6 +362,11 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
     const flasks = per.filter(p => p.aur && p.aur.flask).map(p => p.aur.flask);
     const stats = {};
     STAT_KEYS.forEach(k => { stats[k] = medOf(per.map(p => p.stats && p.stats[k])); });
+    const burstNames = countNames(per.map(p => p.burst.map(b => b.name)));
+    const burst = Object.keys(burstNames).filter(nm => burstNames[nm] >= majority).map(nm => {
+        const rows = per.map(p => p.burst.find(b => b.name === nm)).filter(Boolean);
+        return { name: nm, uses: medOf(rows.map(r => r.uses)), insideBloodlust: medOf(rows.map(r => r.insideBloodlust)) };
+    });
     const amounts = ranks.map(r => r.amount);
     return {
         itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
@@ -350,7 +379,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         activePercent: medOf(per.map(p => p.activePercent)), castsPerMinute: medOf(per.map(p => p.castsPerMinute)),
         casts, abilities, buffsAtPull: Object.keys(buffCounts).filter(b => buffCounts[b] >= majority),
         flaskShare: withCi ? round1(flasks.length / withCi) : 0, flask: mostCommon(flasks),
-        bloodlustPercent: medOf(per.map(p => p.bloodlust)), stats,
+        bloodlustPercent: medOf(per.map(p => p.bloodlust)), burst, stats,
     };
 }
 
@@ -423,8 +452,15 @@ function rotationFindings(kill) {
             // Minor 20 (spec 4.3): unused when the reference casts it >= 1.5/min OR at least once
             // per fight — the second clause is what catches a once-per-fight cooldown like Curse of
             // Doom even when it is not one of the reference's top-3 abilities by damage share.
-            if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown)
-                f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute', { ability: name }));
+            if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown) {
+                // v2 §6: on-use items and potions stay in the comparison (they are a large, cheap
+                // DPS gain) but are named for what they are, so the model does not call them spells.
+                const isBurst = Array.isArray(ref.burst) && ref.burst.some(b => b.name === name);
+                const text = isBurst
+                    ? 'Never used ' + burstLabel(name) + (POTION_LABEL[name] ? '' : ' (on-use item)') + ' on ' + kill.name + '; comparable players use it ' + fmt(r) + ' times a minute'
+                    : 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute';
+                f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', text, { ability: name }));
+            }
         } else if (top3.includes(name) && p < T.ratioLow * r) {
             f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
         }
@@ -508,6 +544,15 @@ function consumableFindings(kill) {
         f.push(finding('no_potion', 'minor', 'player', 'No potion used on ' + kill.name + ' (' + Math.round(kill.fight.durationSec) + 's)'));
     if (ref && ref.bloodlustPercent > 0 && me.bloodlustPercent === 0)
         f.push(finding('bloodlust_uptime', 'minor', 'group', 'No Bloodlust on ' + kill.name + ' while comparable players had it'));
+    // v2 §6: a burst the player fires only outside Bloodlust, on a fight that had it, where
+    // comparable players fire it inside.
+    if (ref && Array.isArray(ref.burst) && me.bloodlustPercent > 0) {
+        (me.burst || []).forEach(b => {
+            const r = ref.burst.find(x => x.name === b.name);
+            if (r && r.insideBloodlust >= 1 && b.uses >= 1 && b.insideBloodlust === 0)
+                f.push(finding('burst_outside_bloodlust', 'minor', 'player', 'Used ' + burstLabel(b.name) + ' ' + (b.uses === 1 ? 'once' : b.uses + ' times') + ' on ' + kill.name + ', never inside Bloodlust; comparable players line it up with Bloodlust', { ability: b.name }));
+        });
+    }
     return f;
 }
 
@@ -684,7 +729,8 @@ function killFacts(input) {
         partyBuffs: aur ? canonBuffs(aur.buffs, player.role) : [],
         flask: aur ? aur.flask : null, battleElixir: aur ? aur.battleElixir : null, guardianElixir: aur ? aur.guardianElixir : null, food: aur ? aur.food : null,
         castsPerMinute: castsPerMinute(casts, fc.fight.durationSec), casts, abilities: abilityStats(tables.dmg),
-        bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
+        bloodlustPercent: buffUptime(tables.buffs, 'Bloodlust'), burst: burstStats(tables.buffs, tables.casts),
+        stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
     });
     const kill = {
         encounterId, name, killsOnBoss, killIndex, rankPercent: round1(rank.rankPercent),
@@ -1029,4 +1075,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

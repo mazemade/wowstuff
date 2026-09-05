@@ -217,6 +217,24 @@ test('buffUptime: Bloodlust 31% on Anetheron, 0 when absent, null without a tabl
     assert.strictEqual(F.buffUptime(K19.tables.buffs, 'Not A Buff'), 0);
     assert.strictEqual(F.buffUptime(null, 'Bloodlust'), null);
 });
+test('burstStats (v2 §6): on-use items and potions are short self-buffs that also appear as casts; procs and long buffs are not bursts', () => {
+    const s = x => x * 1000;
+    const buffs = { data: { totalTime: s(180), auras: [
+        { name: 'Bloodlust', totalUptime: s(40), totalUses: 1, bands: [{ startTime: s(100), endTime: s(140) }] },
+        { name: 'Destruction', totalUptime: s(15), totalUses: 1, bands: [{ startTime: s(110), endTime: s(125) }] },
+        { name: 'Blessing of the Silver Crescent', totalUptime: s(40), totalUses: 2, bands: [{ startTime: s(10), endTime: s(30) }, { startTime: s(150), endTime: s(170) }] },
+        { name: 'Fel Armor', totalUptime: s(180), totalUses: 1, bands: [{ startTime: 0, endTime: s(180) }] },
+        { name: 'Spell Haste', totalUptime: s(6), totalUses: 1, bands: [{ startTime: s(112), endTime: s(118) }] },
+    ] } };
+    const casts = { data: { entries: [{ name: 'Destruction', total: 1 }, { name: 'Blessing of the Silver Crescent', total: 2 }, { name: 'Fel Armor', total: 1 }, { name: 'Shadow Bolt', total: 40 }] } };
+    assert.deepStrictEqual(F.burstStats(buffs, casts), [
+        { name: 'Destruction', uses: 1, insideBloodlust: 1 },
+        { name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 },
+    ]);
+    assert.deepStrictEqual(F.burstStats(null, casts), []);
+    assert.deepStrictEqual(F.burstStats({ data: { totalTime: 1, auras: [] } }, casts), []);
+    assert.strictEqual(F.POTION_LABEL.Destruction, 'Destruction Potion');
+});
 test('classifyAuras: elixirs, food, flask forms, everything else is a buff', () => {
     const c = F.classifyAuras(K19.tables.ci.data[0].auras.map(a => a.name));
     assert.strictEqual(c.flask, null);
@@ -456,6 +474,66 @@ test('consumableFindings: no flask or elixirs, no food, no potion, when the pull
     assert.ok(!keys.includes('wrong_elixir'));
     const unknown = Object.assign({}, base, { me: Object.assign({}, base.me, { consumablesKnown: false, potionUse: 0 }) });
     assert.deepStrictEqual(keysOf(F.consumableFindings(unknown)), ['no_potion'], 'unknown consumables are not missing consumables');
+});
+// v2 §6: the captured fixture's auras carry no `bands` (slimmed at capture). Build them on a
+// clone: Rotminster's real Bloodlust window on Anetheron ran 14.7 s to 54.7 s into the fight.
+function withBands(rotBlessingInside) {
+    const fx2 = JSON.parse(JSON.stringify(FX));
+    const k = fx2.kills['50619'];
+    const t0 = k.context.fights[0].startTime;
+    const band = (a, b) => ({ startTime: t0 + a * 1000, endTime: t0 + b * 1000 });
+    const set = (auras, name, bands) => { const a = auras.find(x => x.name === name); if (a) a.bands = bands; };
+    set(k.tables.buffs.data.auras, 'Bloodlust', [band(14.7, 54.7)]);
+    set(k.tables.buffs.data.auras, 'Destruction', [band(16, 31)]);
+    set(k.tables.buffs.data.auras, 'Blessing of the Silver Crescent', [rotBlessingInside ? band(20, 40) : band(70, 90)]);
+    fx2.reference['50619'].players.forEach(p => {
+        const f0 = p.context.fights[0].startTime;
+        const pb = (a, b) => ({ startTime: f0 + a * 1000, endTime: f0 + b * 1000 });
+        const auras = p.tables.buffs.data.auras;
+        const ensure = (name, bands) => { let a = auras.find(x => x.name === name); if (!a) { a = { name, totalUptime: 1, totalUses: 1 }; auras.push(a); } a.bands = bands; };
+        ensure('Bloodlust', [pb(10, 50)]);
+        ensure('Destruction', [pb(12, 27)]);
+        ensure('Blessing of the Silver Crescent', [pb(15, 35)]);
+        const casts = p.tables.casts.data.entries;
+        ['Destruction', 'Blessing of the Silver Crescent'].forEach(n => { if (!casts.some(c => c.name === n)) casts.push({ name: n, total: 1 }); });
+    });
+    return fx2;
+}
+function killWithBands(fx2) {
+    const K = fx2.kills['50619'], R = fx2.reference['50619'];
+    const ranks = R.pages.flatMap(p => p.rankings);
+    const reference = F.referenceSummary(F.bandRanks(ranks, 124, 2).slice(0, 8), R.players, db, 'WARLOCK', 'caster', [122, 126]);
+    return F.killFacts({ encounterId: 50619, name: 'Anetheron', rank: fx2.encounterRankings['50619'].ranks[0], context: K.context, tables: K.tables, sourceId: K.sourceID, player: PLAYER, reference, referenceNote: null, dbIndex: db });
+}
+test('burst timing (v2 §6): a burst used only outside Bloodlust, where comparable players use it inside, is a minor player finding', () => {
+    const kill = killWithBands(withBands(false));
+    const byName = (a, b) => a.name.localeCompare(b.name);   // aura order in the tables is not part of the contract
+    assert.deepStrictEqual(kill.me.burst.slice().sort(byName), [{ name: 'Blessing of the Silver Crescent', uses: 1, insideBloodlust: 0 }, { name: 'Destruction', uses: 1, insideBloodlust: 1 }]);
+    assert.deepStrictEqual(kill.reference.burst.slice().sort(byName), [{ name: 'Blessing of the Silver Crescent', uses: 1, insideBloodlust: 1 }, { name: 'Destruction', uses: 1, insideBloodlust: 1 }]);
+    const f = kill.findings.filter(x => x.key === 'burst_outside_bloodlust');
+    assert.strictEqual(f.length, 1);
+    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; comparable players line it up with Bloodlust');
+    assert.deepStrictEqual([f[0].severity, f[0].scope, f[0].ability], ['minor', 'player', 'Blessing of the Silver Crescent']);
+});
+test('burst timing (v2 §6): inside the window, or a fight with no Bloodlust, gives no finding', () => {
+    assert.deepStrictEqual(killWithBands(withBands(true)).findings.filter(x => x.key === 'burst_outside_bloodlust'), []);
+    const fx2 = withBands(false);
+    const lust = fx2.kills['50619'].tables.buffs.data.auras.find(a => a.name === 'Bloodlust');
+    lust.totalUptime = 0; lust.bands = [];
+    const kill = killWithBands(fx2);
+    assert.strictEqual(kill.me.bloodlustPercent, 0);
+    assert.deepStrictEqual(kill.findings.filter(x => x.key === 'burst_outside_bloodlust'), []);
+});
+test('rotationFindings (v2 §6): an on-use item the reference uses and the player never did reads "Never used … (on-use item)", a potion by its potion name', () => {
+    const kill = killWithBands(withBands(true));
+    const casts = Object.assign({}, kill.me.casts);
+    delete casts['Blessing of the Silver Crescent'];
+    delete casts.Destruction;
+    const f = F.rotationFindings(Object.assign({}, kill, { me: Object.assign({}, kill.me, { casts }) }));
+    const item = f.find(x => x.key === 'ability_unused' && x.ability === 'Blessing of the Silver Crescent');
+    assert.ok(item && /^Never used Blessing of the Silver Crescent \(on-use item\) on Anetheron; comparable players use it [\d.]+ times a minute$/.test(item.text), item && item.text);
+    const potion = f.find(x => x.key === 'ability_unused' && x.ability === 'Destruction');
+    assert.ok(potion && /^Never used Destruction Potion on Anetheron; comparable players use it [\d.]+ times a minute$/.test(potion.text), potion && potion.text);
 });
 test('debuffFindings: missing shadow debuffs are a group finding; a low uptime on your own curse is yours', () => {
     const a = F.debuffFindings(killFor(50619), PLAYER);
