@@ -816,33 +816,28 @@ function killFacts(input) {
 // The model writes, the sheet decides. Every claim it may make is in `facts`; the system prompt
 // forbids anything else, and checkNumbers() enforces the part that matters most.
 function buildPrompt(facts, rulesLines) {
-    // Minor 9: healers get told what is holding their HEALING back, not their damage — the
-    // `limited` note two lines below already tells the model this is a healer, so the plumbing to
-    // branch on the metric was already there.
-    const holdingBack = facts && facts.player && facts.player.metric === 'hps' ? "What's holding your healing back" : "What's holding your damage back";
     const system = [
         'You are writing a short note to a World of Warcraft TBC Anniversary raider on behalf of their raid leader, about why their parses are low and what to do about it.',
         'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
         'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
-        'Findings with scope "group" are about raid composition (party buffs, raid debuffs, Bloodlust): phrase them as things to ask the raid leader for, never as the player\'s failing.',
-        '"Comparable players" means players of the same spec on the same boss, at the player\'s item level (each kill\'s reference.itemLevelBand), who parse around the middle of the leaderboard (reference.benchmark is "median"). reference.topDps is what the best players at that item level reach on that boss.',
+        '"Comparable players" means ' + GAP.REF_LABEL + ' on the same boss (each kill\'s reference). reference.topDps is what the best players at that item level reach.',
+        'Every finding carries an owner and a share. owner is "player" for things the player can change themselves; owner is "group" for party buffs, raid debuffs and Bloodlust, which are things to ask the raid leader for and never the player\'s failing; owner is "raid" for kill speed, phases and deaths, which are not on the player. share is the percentage of the DPS gap that input accounts for.',
         // Important 2: a merged finding can name several bosses in `bosses` while its text and
         // numbers belong to only one of them (kept verbatim from where they were first measured).
         // A live report once attributed one boss's crit numbers to another for exactly this reason.
         'A finding\'s numbers were measured on the boss named in its measuredOn field. Never attach them to another boss, even one also listed in that finding\'s bosses array.',
         'Anniversary rules that differ from original TBC:',
     ].concat(rulesLines || [], [
-        'Structure, in this order:',
+        'Structure, in this order, plain text:',
         '1. One header line: name, spec, tier, then "median parse P" using tier.medianPercent — or, when night is not null, "raid night of <night.date>, median parse that night P" using night.medianPercent.',
-        // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives, yet
-        // the old wording ordered these sections unconditionally, producing a heading with nothing
-        // under it. Each section now says explicitly to skip itself when its source array is empty.
-        '2. If overall.findings is not empty, a line "' + holdingBack + '", then every entry of overall.findings, in that order (it holds at most 6; do not drop any), each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix. If overall.findings is empty, skip this section entirely.',
-        '3. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives. If overall.positives is empty, skip this section entirely.',
-        '3b. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: your number (me), what players at your item level around the middle do (dps), and what the best at your item level reach (topDps) on that boss. If overall.ceiling is empty, skip this section entirely.',
-        '4. If overall.badPulls is not empty, a line "Not on you", then one line per bad pull with its reason.',
-        'Under 350 words.',
-        facts && facts.limited ? 'This player is a healer: the sheet has no per-cast comparison, so write only about uptime, deaths, consumables, buffs and gear.' : '',
+        '2. If overall.gap is not null, a line "Where the gap comes from", then one sentence per factor from overall.gap with its share: casting less (casts), weaker casts (dmg), crit (crit), and "the rest is luck or unexplained" for residual when it is 3 or more.',
+        '3. A line "What you can fix", then every finding whose owner is "player", biggest share first, each as one short paragraph: what it is, your number next to the comparable-player number, its share of the gap, one concrete fix. Do not drop any.',
+        '4. If any finding has owner "group", a line "Ask your raid leader", then each of them with its share, phrased as a request to the raid leader.',
+        '5. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives.',
+        '6. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: your number (me), what ' + GAP.REF_LABEL + ' do (dps), and what the best at your item level reach (topDps) on that boss.',
+        '7. If overall.badPulls is not empty or any finding has owner "raid", a line "Not on you", then one line per bad pull with its reason and one per raid finding.',
+        'Under 450 words.',
+        facts && facts.limited ? 'This player is a healer: the sheet has no gap accounting, so write only about uptime, deaths, consumables, buffs and gear.' : '',
     ]).filter(Boolean).join('\n');
     return { system, user: 'Facts sheet:\n' + JSON.stringify(facts) };
 }
@@ -878,6 +873,20 @@ function collectFactNumbers(value, out, path) {
     if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out, path)); return; }
     Object.keys(value).forEach(k => collectFactNumbers(value[k], out, path ? path + '.' + k : k));
 }
+// spec v3 §5: the model must not drop a finding. Any finding whose headline number (me) or anchor
+// word is absent from the reply is appended verbatim under "Also:" instead of rejecting the reply.
+function completeReply(text, facts) {
+    const findings = facts && facts.overall && Array.isArray(facts.overall.findings) ? facts.overall.findings : [];
+    const body = String(text || '');
+    const present = f => {
+        if (typeof f.me === 'number') { const n = Math.round(f.me); return numbersIn(body).some(x => Math.abs(x - n) <= 1) || body.includes(String(f.me)); }
+        const anchor = GAP.FINDING_ANCHOR[f.key];
+        return anchor ? body.toLowerCase().includes(anchor.toLowerCase()) : body.includes(f.text);
+    };
+    const appended = findings.filter(f => !present(f)).map(f => f.text);
+    return { text: appended.length ? body + '\n\nAlso:\n' + appended.join('\n') : body, appended };
+}
+
 // Every figure over 10 in the reply must appear in the sheet, give or take 1 for rounding (spec
 // 5.2). Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also
 // holds in one form or another, so they are not worth a false alarm.
@@ -1183,4 +1192,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

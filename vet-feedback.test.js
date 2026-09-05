@@ -785,8 +785,11 @@ test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling
     const allBad = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual(allBad.overall.ceiling, [], 'an all-bad-pull sheet gives no ceiling entries either');
     const p = F.buildPrompt(facts, RULES);
-    assert.ok(/every entry of overall\.findings/.test(p.system) && /do not drop any/.test(p.system), p.system);
-    assert.ok(/3b\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
+    // v3: findings are no longer a flat "overall.findings" dump — section 3 now lists player-owned
+    // findings by owner, biggest share first, but keeps the same "do not drop any" guarantee.
+    assert.ok(/every finding whose owner is "player"/.test(p.system) && /Do not drop any/.test(p.system), p.system);
+    // v3: the ceiling section moved from 3b to 6 in the new seven-section structure.
+    assert.ok(/6\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
     assert.ok(!/at most 5/.test(p.system));
     assert.strictEqual(F.checkNumbers('Where you stand: on Anetheron you did ' + Math.round(facts.overall.ceiling[0].me) + ' against ' + ref.dps + ' typical and ' + ref.topDps + ' at best.', facts).ok, true);
 });
@@ -795,8 +798,10 @@ test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note o
     const p = F.buildPrompt(facts, RULES);
     assert.ok(/Use ONLY the facts/.test(p.system));
     assert.ok(/Bloodlust\/Heroism is RAID-wide/.test(p.system));
-    assert.ok(/What's holding your damage back/.test(p.system) && /What's fine/.test(p.system) && /Not on you/.test(p.system));
-    assert.ok(/Under 350 words/.test(p.system));
+    // v3: the metric-dependent "What's holding your damage/healing back" heading is gone — the
+    // owner-based sections have fixed names regardless of metric.
+    assert.ok(p.system.includes('What you can fix') && /What's fine/.test(p.system) && /Not on you/.test(p.system));
+    assert.ok(/Under 450 words/.test(p.system));
     assert.ok(!/healer/i.test(p.system));
     assert.ok(p.user.startsWith('Facts sheet:\n{'));
     assert.ok(p.user.includes('"Rotminster"'));
@@ -806,14 +811,18 @@ test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note o
     // different boss than the one they were measured on.
     assert.ok(/measuredOn/.test(p.system) && /never attach them to another boss/i.test(p.system), p.system);
 });
-test('buildPrompt: the "holding you back" heading names healing for hps facts, damage for dps facts (Minor 9)', () => {
+test('buildPrompt (v3): the owner-based section names no longer vary with the player\'s metric (was Minor 9)', () => {
+    // v3 retires the metric-dependent "What's holding your damage/healing back" heading in favour
+    // of fixed owner-based section names ("What you can fix" etc.) that read the same for hps and
+    // dps facts alike; the healer-only note (facts.limited) is the only metric-driven wording left.
     const dpsFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     assert.strictEqual(dpsFacts.player.metric, 'dps');
-    assert.ok(/What's holding your damage back/.test(F.buildPrompt(dpsFacts, RULES).system));
+    assert.ok(!/What's holding your damage back/.test(F.buildPrompt(dpsFacts, RULES).system));
     const hpsFacts = Object.assign({}, dpsFacts, { player: Object.assign({}, dpsFacts.player, { metric: 'hps' }) });
     const p = F.buildPrompt(hpsFacts, RULES);
-    assert.ok(/What's holding your healing back/.test(p.system), p.system);
+    assert.ok(!/What's holding your healing back/.test(p.system), p.system);
     assert.ok(!/What's holding your damage back/.test(p.system), p.system);
+    assert.ok(p.system.includes('What you can fix'), p.system);
 });
 test('buildPrompt: sections tell the model to skip themselves when the facts sheet has nothing for them (Minor 14)', () => {
     const badPullOnlyFacts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620)], thresholds: {}, now: Date.now(), limited: false });
@@ -821,10 +830,38 @@ test('buildPrompt: sections tell the model to skip themselves when the facts she
     assert.deepStrictEqual(badPullOnlyFacts.overall.positives, []);
     assert.ok(badPullOnlyFacts.overall.badPulls.length >= 1);
     const p = F.buildPrompt(badPullOnlyFacts, RULES);
-    // The old wording unconditionally ordered "What's holding your damage back" and "What's fine",
-    // which for a bad-pull-only player produced a heading with nothing under it.
-    assert.ok(/If overall\.findings is empty, skip this section/.test(p.system), p.system);
-    assert.ok(/If overall\.positives is empty, skip this section/.test(p.system), p.system);
+    // v3: the old wording unconditionally ordered "What's holding your damage back" and "What's
+    // fine", which for a bad-pull-only player produced a heading with nothing under it. Section 3
+    // ("What you can fix") now lists every finding whose owner is "player" — naturally empty when
+    // overall.findings is empty, with no separate skip instruction needed. Sections 5 ("What's
+    // fine") and 7 ("Not on you") still guard explicitly on their source arrays being non-empty.
+    assert.ok(/every finding whose owner is "player"/.test(p.system), p.system);
+    assert.ok(/If overall\.positives is not empty, a line "What\'s fine"/.test(p.system), p.system);
+    assert.ok(/If overall\.badPulls is not empty or any finding has owner "raid", a line "Not on you"/.test(p.system), p.system);
+});
+test('buildPrompt (v3): six owner-based sections, the gap summary, the relabelled reference, no cap on findings', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const p = F.buildPrompt(facts, RULES);
+    ['Where the gap comes from', 'What you can fix', 'Ask your raid leader', "What's fine", 'Where you stand', 'Not on you'].forEach(s => assert.ok(p.system.includes(s), s));
+    assert.ok(/overall\.gap/.test(p.system) && /unexplained/.test(p.system));
+    assert.ok(/among the top 2000 parses/.test(p.system));
+    assert.ok(/owner is "player"/.test(p.system) && /owner is "group"/.test(p.system) && /owner is "raid"/.test(p.system));
+    assert.ok(/Under 450 words/.test(p.system) && !/at most 5/.test(p.system));
+    assert.ok(/share/.test(p.system), 'the model is told what share means');
+});
+test('completeReply (v3): findings the model left out are appended under "Also:"; nothing appended when all are present', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const all = facts.overall.findings;
+    assert.ok(all.length >= 5);
+    const full = all.map(f => f.text).join(' ');
+    assert.deepStrictEqual(F.completeReply(full, facts).appended, []);
+    const partial = all.slice(1).map(f => f.text).join(' ');
+    const r = F.completeReply(partial, facts);
+    assert.deepStrictEqual(r.appended, [all[0].text]);
+    assert.ok(r.text.endsWith('\n\nAlso:\n' + all[0].text));
+    const facts2 = Object.assign({}, facts, { overall: Object.assign({}, facts.overall, { findings: [{ key: 'no_food', text: 'No food buff at the Anetheron pull', me: null }] }) });
+    assert.deepStrictEqual(F.completeReply('You had no food on the pull.', facts2).appended, [], 'the anchor word is enough for a finding without a number');
+    assert.deepStrictEqual(F.completeReply('Nice work.', facts2).appended, ['No food buff at the Anetheron pull']);
 });
 test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
@@ -1333,10 +1370,12 @@ test('getReference (v2 §3): the leaderboard length is cached for a week and sha
     await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 100, dbIndex: db, refCache, now: now + F.REF.lengthCacheMs + 1 });
     assert.ok(lb.calls.slice(before + 2).includes(32), 'after a week the length is walked again');
 });
-test('buildPrompt (v2 §3): "comparable players" are defined as the middle of the leaderboard at the player\'s item level', () => {
+test('buildPrompt (v3): "comparable players" are relabelled as the top-2000-parses reference at the player\'s item level', () => {
+    // v3 relabels the reference definition from "middle of the leaderboard" wording to
+    // GAP.REF_LABEL ("players at your item level among the top 2000 parses").
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const p = F.buildPrompt(facts, RULES);
-    assert.ok(/middle of the leaderboard/.test(p.system) && /reference\.topDps/.test(p.system), p.system);
+    assert.ok(/among the top 2000 parses/.test(p.system) && /reference\.topDps/.test(p.system), p.system);
 });
 
 test('rotationFindings (v3): a utility cast the reference never makes is an extra when the player makes it once a minute', () => {

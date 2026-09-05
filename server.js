@@ -324,7 +324,7 @@ app.get('/api/vet/feedback', async (req, res) => {
       const { system, user } = VetFeedback.buildPrompt(facts, ANNIVERSARY_RULES);
       const text = await openaiChat(system, user, 60000);
       const check = VetFeedback.checkNumbers(text, facts);
-      if (check.ok) reportText = text;
+      if (check.ok) reportText = VetFeedback.completeReply(text, facts).text;
       else reportError = 'The model introduced figures not in the facts (' + check.foreign.join(', ') + '); showing the facts only';
     } catch (err) {
       console.error('feedback report model failed:', err);

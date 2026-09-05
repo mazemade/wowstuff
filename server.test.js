@@ -212,6 +212,15 @@ test('GET /api/vet/feedback: a reply with a figure not in the facts is rejected 
     assert.ok(/figures not in the facts/.test(body.reportError) && /9999/.test(body.reportError), body.reportError);
 });
 
+test('GET /api/vet/feedback (v3): a model reply missing findings is completed under "Also:" and still returned as the report', async () => {
+    setupPipeline(async () => 'Rotminster, Destruction, BT / Hyjal, median parse 14\n\nWhat\'s fine\nNo deaths.');
+    const r = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);
+    const body = await r.json();
+    assert.strictEqual(body.reportError, null);
+    assert.ok(body.report.includes('\n\nAlso:\n'), body.report);
+    assert.ok(body.facts.overall.findings.every(f => body.report.includes(f.text)), 'every finding text appears');
+});
+
 test('GET /api/vet/feedback: a cross-origin browser request is rejected; curl and the app itself are not (Critical 1)', async () => {
     setupPipeline();
     const crossSite = await fetch(`${base}/api/vet/feedback?${QS}`, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
