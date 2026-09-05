@@ -142,10 +142,11 @@ Pack 5; consumables: Adept's Elixir 24 rating, Brilliant Wizard Oil 14 rating). 
 agility buffs (Arcane Brilliance, Kings, Grace of Air) are already inside the intellect WCL
 reports for the player and unknowable for reference players, so neither side counts them again. Inputs, in order:
 1. **Crit rating and intellect from gear** (player): expected chance from own rating/int vs the
-   reference's.
-2. **Consumables** (player): Adept's, oils, food with crit.
-3. **Party buffs** (group).
-4. **Luck** (noise): `measured − expected` on each side; reported as a share but never as a
+   reference's. The player's reported rating already contains elixir and oil rating while a
+   reference player's gear-derived rating does not, so consumables are not a separate crit input;
+   the ≤ 2-point asymmetry stays with luck.
+2. **Party buffs** (group).
+3. **Luck** (noise): `measured − expected` on each side; reported as a share but never as a
    finding ("the rest is luck: your Shadow Bolt crit 32% where your gear and buffs predict 33%").
 
 ### 3.4 Fight factor

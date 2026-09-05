@@ -468,7 +468,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces: `explainGap(kill, player) → gap | null` with `gap = { ratio, factors: { casts, dmg, crit, residual }, residualShare }`, each factor `{ value, share, inputs: [{ key, owner, share, me, reference, unit }] }`; `averageGap(kills) → { casts, dmg, crit, residual } shares | null`.
-- Input keys (fixed strings): casts factor → `raid_activity` (raid), `own_activity` (player), `channel_time` (player), `cast_pacing` (player); dmg factor → `hit_under_cap` (player), `debuffs` (group), `power_gear` (player), `power_consumables` (player), `power_buffs` (group), `rotation` (player); crit factor → `crit_gear` (player), `crit_consumables` (player), `crit_buffs` (group), `crit_luck` (noise).
+- Input keys (fixed strings): casts factor → `raid_activity` (raid), `own_activity` (player), `channel_time` (player), `cast_pacing` (player); dmg factor → `hit_under_cap` (player), `debuffs` (group), `power_gear` (player), `power_consumables` (player), `power_buffs` (group), `rotation` (player); crit factor → `crit_gear` (player), `crit_buffs` (group), `crit_luck` (noise). (No consumables input: the player's reported crit rating already contains elixir and oil rating, a reference player's gear-derived rating does not; the asymmetry stays in luck.)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -526,7 +526,7 @@ test('explainGap: input owners and the meaning of each input', () => {
     assert.ok(d.power_gear.share > 0 && d.power_consumables.share > 0 && d.power_buffs.share > 0, 'all three power sources are behind');
     assert.ok(d.rotation.share >= 0 && d.rotation.share <= 2, 'power explains the rest of the per-cast gap here: ' + d.rotation.share);
     const k = by('crit');
-    assert.deepStrictEqual(Object.keys(k), ['crit_gear', 'crit_consumables', 'crit_buffs', 'crit_luck']);
+    assert.deepStrictEqual(Object.keys(k), ['crit_gear', 'crit_buffs', 'crit_luck']);
     assert.strictEqual(k.crit_luck.owner, 'noise');
     assert.ok(k.crit_gear.share >= 0 && k.crit_buffs.share >= 0, 'both sides of the expectation move up: gear ' + k.crit_gear.share + ' buffs ' + k.crit_buffs.share);
     assert.ok(k.crit_luck.share > k.crit_gear.share + k.crit_buffs.share, 'expected 32.1 vs 36.5 against measured 32 vs 46: luck carries most of the crit gap: luck ' + k.crit_luck.share);
@@ -653,17 +653,18 @@ function explainGap(kill, player) {
     const myE = expectedCrit({ stats: me.stats, auras: (me.consumablesAtPull || []).concat(me.buffsAtPull || []), classToken: player.classToken, spec, role });
     const refE = expectedCrit({ stats: ref.stats, auras: (ref.consumablesAtPull || []).concat(ref.buffsAtPull || []), classToken: player.classToken, spec, role });
     const critLogOf = (a, b) => safeLog((1 + b / 100 * B) / (1 + a / 100 * B));
-    let gearLog = 0, consLog = 0, buffLog = 0;
+    let gearLog = 0, buffLog = 0;
     if (myE && refE) {
         // Walk the expected chance up one input at a time, so each input's log is its own step.
-        const afterGear = myE.total + (refE.gear - myE.gear), afterCons = afterGear + (refE.consumables - myE.consumables);
-        gearLog = critLogOf(myE.total, afterGear);
-        consLog = critLogOf(afterGear, afterCons);
-        buffLog = critLogOf(afterCons, refE.total);
+        // Consumable crit rating is not an input: the player's reported rating already holds it, a
+        // reference player's gear-derived rating does not, so it stays with luck (Task 1 ruling).
+        const noCons = e => e.total - e.consumables;
+        const afterGear = noCons(myE) + (refE.gear - myE.gear);
+        gearLog = critLogOf(noCons(myE), afterGear);
+        buffLog = critLogOf(afterGear, noCons(refE));
     }
-    const luckLog = Math.log(crit.value) - gearLog - consLog - buffLog;
+    const luckLog = Math.log(crit.value) - gearLog - buffLog;
     crit.inputs.push(input('crit_gear', 'player', gearLog, G, myE ? Math.round(myE.gear * 10) / 10 : null, refE ? Math.round(refE.gear * 10) / 10 : null, 'crit % from gear'));
-    crit.inputs.push(input('crit_consumables', 'player', consLog, G, myE ? Math.round(myE.consumables * 10) / 10 : null, refE ? Math.round(refE.consumables * 10) / 10 : null, 'crit % from consumables'));
     crit.inputs.push(input('crit_buffs', 'group', buffLog, G, myE ? Math.round(myE.buffs * 10) / 10 : null, refE ? Math.round(refE.buffs * 10) / 10 : null, 'crit % from party buffs'));
     crit.inputs.push(input('crit_luck', 'noise', luckLog, G, me.critRate, ref.critRate, 'measured crit %'));
 
@@ -707,7 +708,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces: `gapFindings(kill, player, thresholds) → finding[]` where each finding is `{ key, owner, severity, scope, share, factor, text, me, reference, unit, ability? }`; `owner` ∈ player/group/raid; `scope` mirrors owner for the prompt's existing rule (`player` or `group`; raid findings use scope `raid`).
-- Removed keys: `crit_low`, `hit_low`, `resist_high`, `stat_low`, `casts_low`, `active_low`. New keys: `raid_activity`, `own_activity`, `channel_time`, `cast_pacing`, `hit_under_cap`, `power_gear`, `power_consumables`, `power_buffs`, `rotation`, `crit_gear`, `crit_consumables`, `crit_buffs`, `gear_stat` (one per stat, `stat` field), `debuffs`.
+- Removed keys: `crit_low`, `hit_low`, `resist_high`, `stat_low`, `casts_low`, `active_low`. New keys: `raid_activity`, `own_activity`, `channel_time`, `cast_pacing`, `hit_under_cap`, `power_gear`, `power_consumables`, `power_buffs`, `rotation`, `crit_gear`, `crit_buffs`, `gear_stat` (one per stat, `stat` field), `debuffs`.
 - `mergeFindings` returns every finding (no cap) ordered by `share` desc, then severity, then count; v2's "seen on N of M pulls/bosses" suffix and `measuredOn` rules stay, with `measuredOn` = the pull where the finding's share was largest.
 
 - [ ] **Step 1: Write the failing tests**
@@ -749,7 +750,7 @@ In `vet-feedback.test.js`, make these named changes:
 1. Test `killFacts on Anetheron: identity, url, me, and the player-side findings` (line ~355): replace the three `assert.ok(keys.includes('crit_low'|'hit_low'|'stat_low'))` lines and the `crit`/`hit`/`stat` blocks after them with:
 ```js
     assert.ok(!keys.some(x => ['crit_low', 'hit_low', 'resist_high', 'stat_low', 'casts_low', 'active_low'].includes(x)), 'outcome findings are gone');
-    const gapKeys = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_consumables', 'crit_buffs'];
+    const gapKeys = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_buffs'];
     const gapF = k.findings.filter(f => gapKeys.includes(f.key));
     assert.ok(gapF.length >= 3, 'the accounting produces findings on Anetheron: ' + keys.join());
     assert.ok(gapF.every(f => ['player', 'group', 'raid'].includes(f.owner) && f.share >= 3 && /Worth \d+% of the gap/.test(f.text)), JSON.stringify(gapF));
@@ -816,7 +817,6 @@ function gapText(i, boss) {
         case 'power_buffs': return i.reference + ' spell power from party buffs for ' + REF_LABEL + '; you had ' + i.me + '.' + w;
         case 'rotation': return 'Damage per cast ' + i.me + ' against ' + i.reference + ' after gear, buffs and debuffs are accounted for: ability choice and misses.' + w;
         case 'crit_gear': return 'Crit from gear (rating and intellect) ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
-        case 'crit_consumables': return 'Crit from consumables ' + pct(i.me) + '% against ' + pct(i.reference) + '%.' + w;
         case 'crit_buffs': return 'Crit from party buffs ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
         default: return i.key + ' ' + i.me + ' against ' + i.reference + '.' + w;
     }
