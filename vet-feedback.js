@@ -96,6 +96,16 @@ function pickRank(ranks, medianPercent) {
     return best;
 }
 
+// v2 §4: analyse up to KILLS_PER_BOSS pulls per boss — the representative rank (pickRank) and
+// the most recent one, deduplicated — so a habit can be told from a one-off.
+const KILLS_PER_BOSS = 2;
+function pickRanks(ranks, medianPercent) {
+    const rep = pickRank(ranks, medianPercent);
+    if (!rep) return [];
+    const recent = ranks.slice().sort((a, b) => (b.startTime || 0) - (a.startTime || 0))[0];
+    return (recent && recent !== rep ? [rep, recent] : [rep]).slice(0, KILLS_PER_BOSS);
+}
+
 function median(values) {
     const v = (values || []).filter(x => typeof x === 'number').sort((a, b) => a - b);
     if (!v.length) return null;
@@ -541,6 +551,11 @@ function gearFindings(profile, thresholds, now) {
 const SEVERITY_ORDER = { major: 0, minor: 1, info: 2 };
 function mergeFindings(kills, gear) {
     const live = kills.filter(k => !k.fight.badPull);
+    // v2 §4: with more than one pull of a boss in the sheet, counts are over pulls and the
+    // measured-on label carries the pull's date; with one pull per boss the v1 wording stands.
+    const multi = new Set(live.map(k => k.name)).size < live.length;
+    const unit = multi ? 'pulls' : 'bosses';
+    const label = k => (multi && live.filter(x => x.name === k.name).length > 1) ? k.name + ' (' + k.date + ')' : k.name;
     const byId = new Map();
     live.forEach(k => k.findings.forEach(fd => {
         const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
@@ -552,14 +567,14 @@ function mergeFindings(kills, gear) {
         // one boss's crit numbers to another because the merged record named several bosses with
         // only one boss's figures attached, and the number guard cannot catch that (both figures
         // are genuine facts, just misattributed).
-        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name], measuredOn: k.name }));
+        else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name], measuredOn: label(k) }));
     }));
     let merged = Array.from(byId.values());
     // Minor 12: append the "seen on N of M bosses" count — naming the boss the numbers were
     // measured on, per Important 2 — before folding stat_low into hit_low below, so the count
     // qualifies hit_low's own sentence rather than trailing after the appended stat numbers
     // ("...crit rating 222 against 345 for comparable players" reading as the qualified clause).
-    merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' bosses)'; });
+    merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' ' + unit + ')'; });
     const hitLow = merged.find(f => f.key === 'hit_low');
     const statLow = merged.filter(f => f.key === 'stat_low');
     if (hitLow && statLow.length) {
@@ -582,15 +597,18 @@ function positives(kills, role) {
     const live = kills.filter(k => !k.fight.badPull);
     if (!live.length) return [];
     const n = live.length;
+    // v2 §4: with more than one pull of a boss in the sheet, the wording counts pulls, not bosses.
+    const multi = new Set(live.map(k => k.name)).size < n;
+    const unit = multi ? 'pulls' : 'bosses', one = multi ? 'pull' : 'boss';
     const out = [];
 
     const activeKills = live.filter(k => typeof k.me.activePercent === 'number' && k.me.activePercent >= 90);
-    if (activeKills.length === n) out.push(n === 1 ? 'Active ' + activeKills[0].me.activePercent + '% on ' + activeKills[0].name : 'Active 90%+ on every boss');
-    else if (activeKills.length) out.push('Active 90%+ on ' + activeKills.length + ' of ' + n + ' bosses');
+    if (activeKills.length === n) out.push(n === 1 ? 'Active ' + activeKills[0].me.activePercent + '% on ' + activeKills[0].name : 'Active 90%+ on every ' + one);
+    else if (activeKills.length) out.push('Active 90%+ on ' + activeKills.length + ' of ' + n + ' ' + unit);
 
     const noDeathKills = live.filter(k => !k.me.died);
-    if (noDeathKills.length === n) out.push(n === 1 ? 'No death on ' + noDeathKills[0].name : 'No deaths on any of the ' + n + ' bosses');
-    else if (noDeathKills.length) out.push('No deaths on ' + noDeathKills.length + ' of ' + n + ' bosses');
+    if (noDeathKills.length === n) out.push(n === 1 ? 'No death on ' + noDeathKills[0].name : 'No deaths on any of the ' + n + ' ' + unit);
+    else if (noDeathKills.length) out.push('No deaths on ' + noDeathKills.length + ' of ' + n + ' ' + unit);
 
     const consumableKills = live.filter(k => k.me.consumablesKnown && (k.me.flask || (k.me.battleElixir && k.me.guardianElixir)) && k.me.food);
     if (consumableKills.length === n) out.push(n === 1 ? 'Flask or elixirs and food at the ' + consumableKills[0].name + ' pull' : 'Flask and food at every pull');
@@ -604,8 +622,8 @@ function positives(kills, role) {
             k.me.stats[spec.primary] >= k.reference.stats[spec.primary]);
         if (statKills.length === n) out.push(n === 1
             ? label.charAt(0).toUpperCase() + label.slice(1) + ' ' + statKills[0].me.stats[spec.primary] + ' matches comparable players on ' + statKills[0].name
-            : (label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on every boss');
-        else if (statKills.length) out.push((label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on ' + statKills.length + ' of ' + n + ' bosses');
+            : (label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on every ' + one);
+        else if (statKills.length) out.push((label.charAt(0).toUpperCase() + label.slice(1)) + ' matches or beats comparable players on ' + statKills.length + ' of ' + n + ' ' + unit);
     }
 
     return out.slice(0, 2);
@@ -631,7 +649,7 @@ function buildFacts(o) {
                 emptySockets: typeof gs.emptySockets === 'number' ? gs.emptySockets : null, findings: gear },
         kills: slim,
         overall: {
-            badPulls: slim.filter(k => k.fight.badPull).map(k => ({ name: k.name, rankPercent: k.rankPercent, reason: k.fight.badPullReason })),
+            badPulls: slim.filter(k => k.fight.badPull).map(k => ({ name: k.name, date: k.date, rankPercent: k.rankPercent, reason: k.fight.badPullReason })),
             // Important 5: kills dropped by a caught per-kill WCL error (a report that comes back
             // as a GraphQL error rather than `report: null`), so the page can say why a boss the
             // player killed is missing from the sheet rather than silently having fewer kills.
@@ -940,34 +958,35 @@ async function fetchFeedback(query, o) {
     const results = await mapLimit(targets, 3, async t => {
         const blob = ch['e' + t.encounterId];
         const ranks = blob && Array.isArray(blob.ranks) ? blob.ranks.filter(r => r && r.report && r.report.code) : [];
-        // task-rep-kill: analyse the kill representative of the median that flagged this boss,
-        // not the most recent one — see pickRank's own comment for the selection rules.
-        const rank = pickRank(ranks, t.medianPercent);
-        if (!rank) return null;
-        // Which pull (oldest first) the chosen rank is, so the facts table can say "kill 3 of 7"
-        // in the order a raid leader reads a boss's kill history, not in whatever order WCL
-        // happened to return ranks.
-        const killIndex = ranks.slice().sort((a, b) => (a.startTime || 0) - (b.startTime || 0)).indexOf(rank) + 1;
-        // Important 5: a report that errors (a GraphQL error on a deleted/restricted report, not
-        // the already-handled `report: null`) drops this one kill instead of 502ing the whole
-        // request. A 429 anywhere still aborts everything (spec §3.2). The reason is recorded
-        // rather than dropped silently with `.filter(Boolean)`, so the page can say why a killed
-        // boss is missing from the sheet.
-        try {
-            const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
-            if (!got) return null;
-            const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
-                : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
-            return killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex });
-        } catch (err) {
-            if (err && err.code === 'RATE_LIMIT') throw err;
-            return { dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' };
+        // v2 §4: analyse up to KILLS_PER_BOSS pulls per boss — the representative rank (task-rep-kill;
+        // see pickRank's own comment for the selection rules) plus the most recent one.
+        const chosen = pickRanks(ranks, t.medianPercent);
+        const byTime = ranks.slice().sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+        const out = [];
+        for (const rank of chosen) {
+            // Which pull (oldest first) this rank is, so the facts table can say "kill 3 of 7".
+            const killIndex = byTime.indexOf(rank) + 1;
+            // Important 5: a report that errors (a GraphQL error on a deleted/restricted report, not
+            // the already-handled `report: null`) drops this one pull instead of 502ing the whole
+            // request. A 429 anywhere still aborts everything (spec §3.2).
+            try {
+                const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
+                if (!got) continue;
+                const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
+                    : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
+                out.push(killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex }));
+            } catch (err) {
+                if (err && err.code === 'RATE_LIMIT') throw err;
+                out.push({ dropped: true, name: t.name, reason: (err && err.message) ? err.message : 'WCL error fetching this kill' });
+            }
         }
+        return out;
     });
-    const kills = results.filter(k => k && !k.dropped);
-    const droppedKills = results.filter(k => k && k.dropped).map(k => ({ name: k.name, reason: k.reason }));
+    const flat = results.flat();
+    const kills = flat.filter(k => k && !k.dropped);
+    const droppedKills = flat.filter(k => k && k.dropped).map(k => ({ name: k.name, reason: k.reason }));
     kills.sort((a, b) => (a.rankPercent == null ? 101 : a.rankPercent) - (b.rankPercent == null ? 101 : b.rankPercent));
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, fetchFeedback };

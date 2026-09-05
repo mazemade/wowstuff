@@ -101,9 +101,10 @@ reference (shared per boss through the cache) and findings.
 
 Consequences, all deterministic:
 
-- `mergeFindings` counts across **pulls**: the suffix reads "seen on N of M pulls" (`M` = live,
-  non-bad pulls in the sheet). `measuredOn` becomes "`<boss>` (`<date>`)" when the sheet holds
-  more than one pull of that boss, else the boss name as today.
+- `mergeFindings` counts across **pulls** whenever the sheet holds more than one pull of any boss:
+  the suffix reads "seen on N of M pulls" and `measuredOn` becomes "`<boss>` (`<date>`)" for a
+  boss with several pulls. With one pull per boss the v1 wording ("bosses", boss name only) is
+  kept verbatim.
 - `positives` says "pulls" instead of "bosses" whenever any boss has more than one pull; with one
   pull per boss the v1 wording is kept verbatim (existing assertions stay green).
 - `overall.badPulls` lists pulls, each with its date.

@@ -93,6 +93,18 @@ test('pickRank: when no rank carries a rankPercent, falls back to the most recen
     assert.strictEqual(F.pickRank([older, newer], 40), newer);
 });
 
+test('pickRanks (v2 §4): the representative rank plus the most recent one, deduplicated, at most KILLS_PER_BOSS', () => {
+    const oldest = { rankPercent: 5, duration: 100000, startTime: 100, report: { code: 'A', fightID: 1 } };
+    const rep = { rankPercent: 30, duration: 100000, startTime: 200, report: { code: 'B', fightID: 1 } };
+    const newest = { rankPercent: 90, duration: 100000, startTime: 300, report: { code: 'C', fightID: 1 } };
+    assert.strictEqual(F.KILLS_PER_BOSS, 2);
+    assert.deepStrictEqual(F.pickRanks([oldest, rep, newest], 31).map(r => r.report.code), ['B', 'C'], 'representative first, then the most recent');
+    assert.deepStrictEqual(F.pickRanks([oldest, rep], 31).map(r => r.report.code), ['B'], 'the most recent rank here is the representative itself, so one pull');
+    assert.deepStrictEqual(F.pickRanks([oldest, newest], 89).map(r => r.report.code), ['C']);
+    assert.deepStrictEqual(F.pickRanks([rep], 31).map(r => r.report.code), ['B']);
+    assert.deepStrictEqual(F.pickRanks([], 31), []);
+});
+
 test('median and round1', () => {
     assert.strictEqual(F.median([3, 1, 2]), 2);
     assert.strictEqual(F.median([4, 1, 2, 3]), 2.5);
@@ -492,6 +504,20 @@ test('mergeFindings: the same finding on two bosses is one line with a count, na
     // not trailing right after a folded-in stat sentence where it could read as qualifying that.
     assert.ok(/\(numbers measured on Anetheron; seen on 2 of 2 bosses\)/.test(crit.text), crit.text);
 });
+test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls and name the date; one pull per boss keeps the v1 wording', () => {
+    const a = killFor(50619);
+    const b = Object.assign({}, a, { date: '2026-09-01' });
+    const m = F.mergeFindings([a, b], []);
+    const crit = m.find(f => f.key === 'crit_low');
+    assert.strictEqual(crit.count, 2);
+    assert.strictEqual(crit.measuredOn, 'Anetheron (' + a.date + ')');
+    assert.ok(crit.text.endsWith(' (numbers measured on Anetheron (' + a.date + '); seen on 2 of 2 pulls)'), crit.text);
+    const pos = F.positives([a, b], 'caster');
+    assert.ok(pos.includes('Active 90%+ on every pull'), pos.join(' | '));
+    assert.ok(pos.includes('No deaths on any of the 2 pulls'), pos.join(' | '));
+    const one = F.positives([a, Object.assign({}, a, { name: 'Archimonde' })], 'caster');
+    assert.ok(one.includes('Active 90%+ on every boss'), 'one pull per boss: v1 wording untouched');
+});
 test('buildFacts: the sheet the model reads', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual([facts.player.name, facts.player.class, facts.player.spec, facts.player.role, facts.player.metric], ['Rotminster', 'WARLOCK', 'Destruction', 'caster', 'dps']);
@@ -779,6 +805,22 @@ test('fetchFeedback (task-rep-kill): a boss with several ranks analyses the one 
     // The reference band must still come from the CHOSEN rank's bracketData (124), not either
     // decoy's (110 or 118); the fixture only has reference pages for the 124 band.
     assert.deepStrictEqual(anetheron.reference.itemLevelBand, [122, 126]);
+});
+test('fetchFeedback (v2 §4): a boss with several ranks analyses the representative AND the most recent pull; one-rank bosses are unchanged', async () => {
+    const fx2 = JSON.parse(JSON.stringify(MID));
+    const az = FX.kills['50620'];
+    const original = fx2.encounterRankings['50619'].ranks[0];
+    // The most recent decoy resolves to Kaz'rogal's real report so it fetches like a genuine kill.
+    fx2.encounterRankings['50619'].ranks.push(
+        { rankPercent: 90, duration: 90000, amount: 4000, bracketData: 124, spec: 'Destruction', startTime: original.startTime + 100000, report: { code: az.code, fightID: az.fightID } },
+        { rankPercent: 5, duration: 95000, amount: 500, bracketData: 118, spec: 'Destruction', startTime: original.startTime - 100000, report: { code: 'FAKE_OLDEST_NEVER_FETCHED', fightID: 999 } },
+    );
+    const s = stubQuery(fx2);
+    const facts = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.deepStrictEqual(facts.kills.map(k => [k.name, k.killIndex, k.killsOnBoss]), [["Kaz'rogal", 1, 1], ['Anetheron', 2, 3], ['Anetheron', 3, 3]], 'worst parse first; the representative (2nd oldest) and the most recent (3rd) Anetheron pulls');
+    assert.strictEqual(s.calls.filter(c => c.q === F.FIGHT_QUERY && c.vars.c === 'FAKE_OLDEST_NEVER_FETCHED').length, 0, 'the oldest decoy is neither representative nor most recent');
+    const bad = facts.overall.badPulls.find(b => b.name === 'Anetheron');
+    assert.ok(bad && bad.date === new Date(original.startTime + 100000).toISOString().slice(0, 10), 'the decoy pull is Kaz\'rogal\'s 1131 s fight, a bad pull, listed with its date');
 });
 test('fetchFeedback: a healer gets the limited sheet with no reference queries', async () => {
     const s = stubQuery();
