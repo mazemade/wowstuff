@@ -55,7 +55,9 @@ the wrong label. v3 relabels it.
 
 ## 3. The accounting (deterministic, module `vet-gap.js`, Node-only, pure functions)
 
-All logs are natural logs. For a pull with a reference: `R = reference.dps / me.amount`,
+All logs are natural logs. For a pull with a reference: `R = reference.playersDps / me.amount` —
+the median DPS of the fetched reference players, the same players every other measurement comes
+from; `reference.dps` (the median over the collected ranks) stays the displayed typical number,
 `G = ln R`. A factor `f` contributes share `ln f / G` (so shares sum to 1 when the factors
 multiply to `R`); an input inside a factor gets a share of that factor's share. Every share is
 rounded to whole percent and carried on the finding. When `me.amount` or `reference.dps` is
@@ -71,7 +73,8 @@ excludes Life Tap, drains used for mana, healthstones, potions, trinkets — see
 Inputs, in order:
 1. **Raid activity** (raid): `refRaidActive / myRaidActive` — the median active share of the
    player's role group in each raid. Captures phases the reference raid skipped (Lurker's
-   submerge) and raid-wide downtime.
+   submerge) and raid-wide downtime. When a fight's rankings carry no role groups, the raid
+   median is taken over every non-pet player row.
 2. **Own activity** (player): `(refActive / refRaidActive) / (myActive / myRaidActive)` — how far
    the player sits below their own raid's median, and how far the reference player sits above
    theirs.
@@ -84,7 +87,9 @@ Inputs, in order:
 
 ### 3.2 Damage-per-cast factor
 
-`dmgFactor = reference.damagePerDamagingCast / me.damagePerDamagingCast`, with damage per damaging
+`dmgFactor = reference.damagePerDamagingCast / me.damagePerDamagingCast`, each side normalised
+by its own crit multiplier, `dpc / (1 + critRate/100 · B)`, because damage per cast is measured
+with crits in it and the crit factor (§3.3) must count them once, with damage per damaging
 cast = total damage / damaging casts (this includes ability mix and misses).
 
 Inputs, in order:
@@ -97,7 +102,8 @@ Inputs, in order:
    Misery: +5% hit (goes to 3.2.1 as hit), Curse of Recklessness / Sunder Armor / Faerie Fire /
    Expose Armor / Blood Frenzy 1.04 (physical, armour only approximated by the last three). Each
    multiplier `m` with uptime `u` gives `1 + (m − 1)·u`; the input is the ratio of the reference
-   fight's product to the player's.
+   fight's product to the player's. Claimed only when both sides' debuff tables are known;
+   otherwise nothing.
 3. **Spell power / attack power** (three inputs sharing one split): damage per cast scales with
    total power plus the main ability's base damage expressed in power points (`POWER_BASE`:
    caster 670 ≈ Shadow Bolt's 575 average base at a 0.857 coefficient; melee/ranged 1000). The

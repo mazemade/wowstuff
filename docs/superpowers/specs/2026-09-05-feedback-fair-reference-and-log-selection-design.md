@@ -60,6 +60,8 @@ Verified live on 2026-09-05 against Dotwin (Destruction, Spineshatter EU) and Ro
 
 ## 3. Reference selection (replaces v1 §3.4 steps 2–4)
 
+Superseded label (v3): the reference is the middle of the top 2000 parses; see the v3 spec §1.
+
 Per `(encounterId, class, spec, region)` the **leaderboard length** `L` (last non-empty page):
 binary search over `hasMorePages` in pages 1..63 (63 keeps the walk's worst case at 6 probes; 64
 pushes it to 7), cached in `refCache` under key
