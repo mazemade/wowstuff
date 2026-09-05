@@ -253,6 +253,37 @@ test('statPriorityFindings (final review item 11): without a hitCap the bar is t
     const melee = G.statPriorityFindings({ me: { meleeHit: 50, attackPower: 1000 }, reference: { meleeHit: 100, attackPower: 2000 }, spec: 'Combat', role: 'melee', boss: 'Gruul' });
     assert.ok(/against the 142 the raid asks for/.test(melee[0].text), melee[0].text);
 });
+test('gapText (final review item 9): the group asks name what was actually missing, and the anchors still hold with those clauses appended', () => {
+    const p = pull({ debuffs: { known: true, present: [{ name: 'Curse of the Elements', uptimePercent: 100 }], missing: [{ name: 'Shadow Weaving', value: '10% more shadow damage', source: 'a shadow priest' }] } });
+    p.me = Object.assign({}, p.me, { partyBuffs: ['Moonkin Aura'] });
+    p.gap = G.explainGap(p, PLAYER);
+    const f = G.gapFindings(p, PLAYER, { minShare: 3 });
+    const deb = f.find(x => x.key === 'debuffs');
+    assert.ok(/missing: Shadow Weaving/.test(deb.text), deb.text);
+    const pb = f.find(x => x.key === 'power_buffs');
+    assert.ok(/missing at your pull: Chain of the Twilight Owl, Prayer of Spirit, Wrath of Air Totem/.test(pb.text), pb.text);
+    f.forEach(x => {
+        const anchors = [].concat(G.FINDING_ANCHOR[x.key]);
+        assert.ok(anchors.some(a => x.text.toLowerCase().includes(String(a).toLowerCase())), x.key + ': no anchor in "' + x.text + '"');
+    });
+});
+test('FINDING_ANCHOR (final review item 10): the anchors a live reply tripped over accept the phrasings a raid-leader note actually uses', () => {
+    const has = (key, phrase) => [].concat(G.FINDING_ANCHOR[key]).some(a => phrase.toLowerCase().includes(String(a).toLowerCase()));
+    assert.ok(has('debuffs', 'your multiplier was 1.1 versus 1.21, worth 11%'), 'debuffs');
+    assert.ok(has('crit_buffs', 'Please provide party crit buffs: 0% versus 7%'), 'crit_buffs');
+    assert.ok(has('power_buffs', 'Please provide party spell power buffs: 0 versus 40'), 'power_buffs');
+    assert.ok(has('crit_buffs', 'ask for a group with a moonkin'), 'crit_buffs also takes "group"');
+    assert.ok(has('own_activity', 'your uptime was low'), 'own_activity also takes "uptime"');
+    assert.ok(has('rotation', 'your damage per cast is behind'), 'rotation');
+    assert.ok(has('power_consumables', 'bring a flask'), 'power_consumables');
+    assert.strictEqual(G.FINDING_ANCHOR.curse_choice, 'assignment');
+});
+test('gapText (final review item 11): the rotation line says what it is measuring instead of naming only ability choice', () => {
+    const g = G.explainGap(pull(), PLAYER);
+    const f = G.gapFindings(Object.assign(pull(), { gap: g }), PLAYER, { minShare: 0 });
+    const rot = f.find(x => x.key === 'rotation');
+    assert.ok(/^Damage per cast \d+ against \d+: what gear, buffs, debuffs and crit do not explain — ability choice, misses and anything unmeasured\./.test(rot.text), rot.text);
+});
 test('FINDING_ANCHOR (fix round 2): every key gapFindings can emit has an anchor phrase that is actually in its own text', () => {
     const KEYS = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_buffs'];
     KEYS.forEach(k => assert.ok(k in G.FINDING_ANCHOR, k + ' has no anchor'));
@@ -268,8 +299,12 @@ test('FINDING_ANCHOR (fix round 2): every key gapFindings can emit has an anchor
     const findings = G.gapFindings({ name: 'TestBoss', gap }, { role: 'caster' }, { minShare: 3 });
     assert.strictEqual(findings.length, KEYS.length, 'every key produced a finding: ' + findings.map(f => f.key).join());
     findings.forEach(f => {
-        const anchor = G.FINDING_ANCHOR[f.key];
-        assert.ok(f.text.toLowerCase().includes(anchor.toLowerCase()), f.key + ': anchor "' + anchor + '" not in "' + f.text + '"');
+        // Final review item 10: an anchor may now be a LIST of acceptable phrases (a model that
+        // writes "group" instead of "party", or "multiplier" instead of "multiplied damage", has
+        // not dropped the finding); at least one of them must be in the text the module itself
+        // writes for that key.
+        const anchors = [].concat(G.FINDING_ANCHOR[f.key]);
+        assert.ok(anchors.some(a => f.text.toLowerCase().includes(String(a).toLowerCase())), f.key + ': no anchor of [' + anchors.join(', ') + '] in "' + f.text + '"');
     });
 });
 

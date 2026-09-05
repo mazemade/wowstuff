@@ -493,7 +493,15 @@ function debuffFacts(debuffTable, schools) {
 }
 
 // Casts that are upkeep rather than rotation: never "unused" or "extra".
-const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
+// Final review item 5: Soulshatter is threat management, not damage — the live note asked a
+// warlock to add it "without delaying damage", which is advice nobody can act on.
+const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|soulshatter|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
+// Final review item 5: two more families that are never the player's rotation. A racial belongs to
+// the reference player's RACE (a note telling an undead to use Blood Fury is nonsense), and an
+// encounter item is handed out by the fight itself ("Never cast Mental Protection Field" on
+// Kael'thas, where the reference player happened to be given one).
+const RACIAL = /blood fury|berserking|arcane torrent|stoneform|will of the forsaken|war stomp|escape artist|perception|shadowmeld|gift of the naaru/i;
+const ENCOUNTER_ITEM = /mental protection field|staff of disintegration|phaseshift bulwark|netherstrand longbow|infinity blade|warp slicer|cosmic infuser/i;
 
 // Minor 7 (whole-branch review): "at the " + name + " pull" reads as "at the The Lurker Below
 // pull" for a boss whose own name already starts with "The". Only prefix the article when the
@@ -513,35 +521,71 @@ function rotationFindings(kill) {
     const min = kill.fight.durationSec / 60, refMin = ref.castsDurationSec / 60;
     const top3 = ref.abilities.slice(0, 3).map(a => a.name);
     const fmt = x => Math.round(x * 10) / 10;
+    // Final review item 5: names nobody should be asked about at all.
+    const offLimits = name => RACIAL.test(name) || ENCOUNTER_ITEM.test(name);
+    const isCurse = name => /^curse of /i.test(name);
+    const myCasts = kill.me.casts || {};
+    const myCurses = Object.keys(myCasts).filter(n => isCurse(n) && myCasts[n] > 0);
+    // The live note listed every unused ability as its own paragraph ("Never cast Curse of Doom…",
+    // "Shadowburn…", "Soulshatter…", one after another) which buried the two that mattered. One
+    // line per boss, naming them all, with the reference rate next to each.
+    const unused = [];
     Object.keys(ref.casts).forEach(name => {
-        if (UTILITY_CAST.test(name)) return;
-        const r = ref.casts[name] / refMin, p = (kill.me.casts[name] || 0) / min;
-        if (!kill.me.casts[name]) {
+        if (UTILITY_CAST.test(name) || offLimits(name)) return;
+        const r = ref.casts[name] / refMin, p = (myCasts[name] || 0) / min;
+        if (!myCasts[name]) {
+            // Curses are one family: a warlock runs the curse they are assigned, so "you never cast
+            // Curse of Doom" is wrong advice for someone already keeping Curse of the Elements up.
+            if (myCurses.length && isCurse(name)) return;
             // Minor 20 (spec 4.3): unused when the reference casts it >= 1.5/min OR at least once
             // per fight — the second clause is what catches a once-per-fight cooldown like Curse of
             // Doom even when it is not one of the reference's top-3 abilities by damage share.
             if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown) {
                 // v2 §6, revised by Important 1 (whole-branch review): on-use items and potions stay
                 // in the comparison (they are a large, cheap DPS gain) but are named for what they
-                // are via burstLabel — no "(on-use item)" suffix, since with BURST_EXCLUDE removing
-                // the class self-buffs that used to slip into `ref.burst`, everything left in it is
-                // already an on-use item or a potion and the label alone (a potion's already says
-                // "Potion") is enough not to call it a spell.
-                const isBurst = Array.isArray(ref.burst) && ref.burst.some(b => b.name === name);
-                const text = isBurst
-                    ? 'Never used ' + burstLabel(name) + ' on ' + kill.name + '; comparable players use it ' + fmt(r) + ' times a minute'
-                    : 'Never cast ' + name + ' on ' + kill.name + '; comparable players cast it ' + fmt(r) + ' times a minute';
-                f.push(finding('ability_unused', top3.includes(name) ? 'major' : 'minor', 'player', text, { ability: name }));
+                // are via burstLabel. A potion is a burst even when the captured Buffs table carries
+                // no bands to prove it (POTION_LABEL), so the line reads "Destruction Potion".
+                const isBurst = (Array.isArray(ref.burst) && ref.burst.some(b => b.name === name)) || !!POTION_LABEL[name];
+                unused.push({ name, rate: fmt(r), isBurst, top3: top3.includes(name) });
             }
         } else if (top3.includes(name) && p < T.ratioLow * r) {
             f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
         }
     });
-    Object.keys(kill.me.casts).forEach(name => {
-        if (ref.casts[name]) return;
-        if (kill.me.casts[name] / min >= T.extraPerMin)
-            f.push(finding('ability_extra', 'minor', 'player', 'Cast ' + name + ' ' + kill.me.casts[name] + ' times on ' + kill.name + '; comparable players do not use it', { ability: name }));
+    if (unused.length) {
+        const spells = unused.filter(u => !u.isBurst), bursts = unused.filter(u => u.isBurst);
+        const list = (rows, label, lead) => rows.map((u, i) => label(u.name) + ' (' + (i === 0 && lead ? 'comparable players ' : '') + u.rate + '/min)').join(', ');
+        const parts = [];
+        if (spells.length) parts.push('Never cast on ' + kill.name + ': ' + list(spells, n => n, true));
+        if (bursts.length) parts.push(spells.length
+            ? 'never used ' + list(bursts, burstLabel, false)
+            : 'Never used on ' + kill.name + ': ' + list(bursts, burstLabel, true));
+        const names = spells.concat(bursts).map(u => u.name);
+        f.push(finding('ability_unused', unused.some(u => u.top3) ? 'major' : 'minor', 'player', parts.join('; '), { abilities: names, ability: names[0] }));
+    }
+    // The reference's most-cast curse against the player's: an assignment question, not a rotation
+    // fault, and only when the two differ.
+    if (myCurses.length) {
+        const refCurses = Object.keys(ref.casts).filter(n => isCurse(n) && ref.casts[n] > 0);
+        const most = list => list.slice().sort((a, b) => (b[1] || 0) - (a[1] || 0))[0];
+        const theirs = most(refCurses.map(n => [n, ref.casts[n]]));
+        const mine = most(myCurses.map(n => [n, myCasts[n]]));
+        if (theirs && mine && theirs[0] !== mine[0] && !myCasts[theirs[0]]) {
+            f.push(finding('curse_choice', 'minor', 'player',
+                'You ran ' + mine[0] + ' on ' + kill.name + '; comparable players run ' + theirs[0] + ' (' + fmt(theirs[1] / refMin) + '/min) — check whether ' +
+                mine[0].replace(/^curse of /i, '') + ' is your assignment', { ability: theirs[0] }));
+        }
+    }
+    const extra = [];
+    Object.keys(myCasts).forEach(name => {
+        if (ref.casts[name] || offLimits(name)) return;
+        if (myCasts[name] / min >= T.extraPerMin) extra.push({ name, count: myCasts[name] });
     });
+    if (extra.length) {
+        f.push(finding('ability_extra', 'minor', 'player',
+            'Cast on ' + kill.name + ' while comparable players do not: ' + extra.map(x => x.name + ' (' + x.count + ')').join(', '),
+            { abilities: extra.map(x => x.name), ability: extra[0].name }));
+    }
     return f;
 }
 
@@ -679,7 +723,19 @@ function mergeFindings(kills, gear) {
         if (typeof f.share !== 'number') return;
         f.text = f.text.replace(/ Worth \d+% of the gap/, ' Worth ' + f.share + '% of the gap' + (accounted > 1 ? ', averaged over ' + accounted + ' pulls' : ''));
     });
-    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null, share: null }, g)));
+    // Final review item 6: one hit line, not two. The live note said "Hit rating is 188 vs the
+    // raid's 202 target" and, two paragraphs later, "spell hit 69 vs 202" for the same player — the
+    // profile figure and the pull's own measurement, read as a contradiction. The profile figure is
+    // folded into the pull's line as a parenthetical instead of standing beside it.
+    const gearList = (gear || []).slice();
+    const hitLine = merged.find(f => f.key === 'hit_under_cap' || (f.key === 'gear_stat' && (f.stat === 'spellHit' || f.stat === 'meleeHit')));
+    const gearHit = gearList.find(g => g.key === 'gear_hit');
+    if (hitLine && gearHit) {
+        const v = numbersIn(gearHit.text)[0];
+        if (typeof v === 'number') hitLine.text += ' (your current profile shows ' + v + ')';
+        gearList.splice(gearList.indexOf(gearHit), 1);
+    }
+    merged = merged.concat(gearList.map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null, share: null }, g)));
     // v3: every finding is kept (no cap), ordered by the accounting's own share first — the
     // number that says how much of the gap it actually explains — then severity, then count.
     // Final review item 2: a share-less finding sorts after every share, including a share of 0.
@@ -791,12 +847,25 @@ function buildFacts(o) {
     };
 }
 
+// Final review item 6: the accounting line and the stat line are the same topic said twice — the
+// accounting one carries the share and the comparison the note should use, so the stat line goes.
+const STAT_COVERED_BY = { spellHit: 'hit_under_cap', meleeHit: 'hit_under_cap', spellDamage: 'power_gear', attackPower: 'power_gear', rangedAttackPower: 'power_gear', spellCrit: 'crit_gear', meleeCrit: 'crit_gear', rangedCrit: 'crit_gear' };
 function killFindings(kill, player) {
     const hitCap = kill.hitCap;
-    let f = uptimeFindings(kill).concat(
-        GAP.gapFindings(kill, player, T),
-        GAP.statPriorityFindings({ me: kill.me.stats, reference: kill.reference && kill.reference.stats, spec: player.spec, role: player.role, hitCap, boss: kill.name }),
-        rotationFindings(kill), consumableFindings(kill), debuffFindings(kill, player));
+    const gapF = GAP.gapFindings(kill, player, T);
+    const hasGap = key => gapF.some(g => g.key === key);
+    const statF = GAP.statPriorityFindings({ me: kill.me.stats, reference: kill.reference && kill.reference.stats, spec: player.spec, role: player.role, hitCap, boss: kill.name })
+        .filter(x => !(STAT_COVERED_BY[x.stat] && hasGap(STAT_COVERED_BY[x.stat])));
+    const rot = rotationFindings(kill);
+    // Final review item 5: the grouped "never cast" line already names the potion and the rate
+    // comparable players use it at, so the bare no_potion line adds only noise.
+    const groupedPotion = rot.some(x => x.key === 'ability_unused' && (x.abilities || []).some(n => POTION_LABEL[n]));
+    // Final review item 9: one ask per topic. The accounting's debuffs / crit_buffs / power_buffs
+    // lines now name what was missing (vet-gap.js gapText), so the standalone lists are dropped.
+    const consum = consumableFindings(kill).filter(x => !(x.key === 'no_potion' && groupedPotion))
+        .filter(x => !(x.key === 'buffs_missing' && (hasGap('crit_buffs') || hasGap('power_buffs'))));
+    const deb = debuffFindings(kill, player).filter(x => !(x.key === 'debuff_missing' && hasGap('debuffs')));
+    let f = uptimeFindings(kill).concat(gapF, statF, rot, consum, deb);
     if (!kill.reference && kill.referenceNote) f.push(finding('no_reference', 'info', 'player', kill.referenceNote + ' on ' + kill.name));
     // Final review item 2: only a finding that came out of the accounting carries a share. The old
     // default of 0 was written into the note as "0% of the gap" on every rotation, consumable and
@@ -920,6 +989,9 @@ function collectFactNumbers(value, out, path) {
 // in its text, checked before the shared table lookup.
 const STAT_ANCHOR = { spellHit: 'Hit rating', meleeHit: 'Hit rating', expertise: 'Expertise', spellDamage: 'power from gear', attackPower: 'power from gear', rangedAttackPower: 'power from gear', spellCrit: 'crit rating', meleeCrit: 'Crit rating', rangedCrit: 'Crit rating', spellHaste: 'haste rating', meleeHaste: 'Haste rating' };
 function anchorOf(f) {
+    // Final review item 5: a grouped rotation finding names several abilities; the first one is the
+    // token a reply that covered it will have written.
+    if (Array.isArray(f.abilities) && f.abilities[0]) return f.abilities[0];
     if (f.ability) return f.ability;
     if (Array.isArray(f.buffs) && f.buffs[0]) return f.buffs[0];
     if (Array.isArray(f.debuffs) && f.debuffs[0]) return f.debuffs[0];
@@ -943,8 +1015,10 @@ function completeReply(text, facts) {
         return bodyNums.some(v => Math.abs(v - n) <= 1) || body.includes(String(x));
     };
     const present = f => {
+        // Final review item 10: an anchor can be a list of acceptable phrases; any one is enough.
         const anchor = anchorOf(f);
-        const anchorPresent = anchor ? body.toLowerCase().includes(String(anchor).toLowerCase()) : false;
+        const anchors = anchor === null || anchor === undefined ? [] : [].concat(anchor);
+        const anchorPresent = anchors.some(a => body.toLowerCase().includes(String(a).toLowerCase()));
         const nums = [f.me, f.reference].filter(x => typeof x === 'number');
         // Fix round 2: every key gapFindings/statPriorityFindings can emit now has an anchor
         // (FINDING_ANCHOR or STAT_ANCHOR above), so `!anchor` here is reached only for a key
@@ -952,8 +1026,8 @@ function completeReply(text, facts) {
         // gap-accounting keys the round-1 waiver was covering for (crit_buffs, power_gear, ...).
         // Numbers still both have to appear in that case; the waiver only skips the extra
         // small-number-needs-an-anchor check when there is structurally no anchor to check.
-        if (nums.length) return nums.every(numPresent) && (!anchor || nums.every(x => Math.abs(x) > 10) || anchorPresent);
-        return anchor ? anchorPresent : body.includes(f.text);
+        if (nums.length) return nums.every(numPresent) && (!anchors.length || nums.every(x => Math.abs(x) > 10) || anchorPresent);
+        return anchors.length ? anchorPresent : body.includes(f.text);
     };
     const appended = findings.filter(f => !present(f)).map(f => f.text);
     return { text: appended.length ? body + '\n\nAlso:\n' + appended.join('\n') : body, appended };

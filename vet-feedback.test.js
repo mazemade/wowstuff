@@ -478,7 +478,8 @@ test('killFacts on Anetheron: identity, url, me, and the player-side findings', 
     assert.ok(gs.every(f => order.includes(f.stat)) && gs.map(f => order.indexOf(f.stat)).every((v, i, a) => i === 0 || a[i - 1] < v), 'gear stats in priority order: ' + gs.map(f => f.stat).join());
     const extra = k.findings.find(f => f.key === 'ability_extra');
     assert.strictEqual(extra.ability, 'Immolate');
-    assert.ok(/5 times/.test(extra.text), extra.text);
+    // Final review item 5: extras are one grouped line per boss, "<ability> (<casts>)".
+    assert.ok(/Cast on Anetheron while comparable players do not: Immolate \(5\)/.test(extra.text), extra.text);
 });
 test('killFacts: killsOnBoss and killIndex reach the kill object for the facts sheet (task-rep-kill)', () => {
     assert.strictEqual(killFor(50619).killsOnBoss, 1, 'every existing caller in this file omits it: defaults to 1, the true count for a single-rank fixture kill');
@@ -489,7 +490,7 @@ test('killFacts: killsOnBoss and killIndex reach the kill object for the facts s
     assert.strictEqual(withCount.killsOnBoss, 7);
     assert.strictEqual(withCount.killIndex, 3, 'carries the caller-supplied ordinal, not just the count');
 });
-test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unused', () => {
+test('killFacts on Kaz\'rogal: bad pull, consumables unknown, the curse he runs is questioned rather than every curse he does not', () => {
     const k = killFor(50620);
     assert.strictEqual(k.fight.badPull, true);
     assert.strictEqual(k.me.consumablesKnown, false);
@@ -498,7 +499,11 @@ test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unus
     assert.strictEqual(k.gap, null, 'no accounting on a bad pull');
     assert.ok(/1131s/.test(k.fight.badPullReason) && /top-page kills/.test(k.fight.badPullReason) && /trash waves/.test(k.fight.badPullReason), k.fight.badPullReason);
     const keys = keysOf(k.findings);
-    assert.ok(k.findings.some(f => f.key === 'ability_unused' && f.ability === 'Curse of Doom'), keys.join());
+    // Final review item 5: Rotminster keeps Curse of the Elements up on this pull, so the reference's
+    // Curse of Doom is an ASSIGNMENT question, not "you never cast Curse of Doom".
+    const curse = k.findings.find(f => f.key === 'curse_choice');
+    assert.ok(curse && /You ran Curse of the Elements on Kaz'rogal; comparable players run Curse of Doom/.test(curse.text), keys.join() + ' :: ' + (curse && curse.text));
+    assert.ok(!k.findings.some(f => f.key === 'ability_unused' && /curse of/i.test(f.text)), keys.join());
 });
 test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage share is still "ability_unused" (Minor 20)', () => {
     const kill = {
@@ -512,10 +517,141 @@ test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage sh
         },
     };
     const f = F.rotationFindings(kill);
-    const sb = f.find(x => x.ability === 'Shadowburn');
+    // Final review item 5: the unused abilities are grouped onto one line, so the ability is found
+    // inside `abilities` rather than as a finding of its own.
+    const sb = f.find(x => x.key === 'ability_unused' && (x.abilities || []).includes('Shadowburn'));
     assert.ok(sb, 'a cooldown the reference casts at least once a fight must be flagged even outside the top 3');
-    assert.strictEqual(sb.key, 'ability_unused');
+    assert.ok(/Shadowburn \((comparable players )?[\d.]+\/min\)/.test(sb.text), sb.text);
     assert.strictEqual(sb.severity, 'minor', 'minor because it is not one of the reference\'s top-3 damage abilities');
+});
+
+// --- Final review items 5, 6, 9, 10: grouped rotation lines, one line per topic, looser anchors.
+// A synthetic pull in the shape rotationFindings reads, so the grouping can be exercised without
+// depending on which abilities the captured fixture happens to hold.
+function rotKill(over) {
+    const base = {
+        name: 'TestBoss', fight: { durationSec: 120 },
+        me: { casts: { 'Shadow Bolt': 60 } },
+        reference: {
+            castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Curse of Doom': 1, 'Shadowburn': 1, 'Destruction': 1 },
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Curse of Doom', share: 6 }, { name: 'Immolate', share: 3 }], burst: [],
+        },
+    };
+    const k = Object.assign({}, base, over || {});
+    if (over && over.me) k.me = Object.assign({}, base.me, over.me);
+    if (over && over.reference) k.reference = Object.assign({}, base.reference, over.reference);
+    return k;
+}
+test('rotationFindings (final review item 5): everything the player never cast is ONE line per boss, and everything extra is ONE more', () => {
+    // A player who casts no curse at all: the whole unused list, including the curse, on one line.
+    const unusedF = F.rotationFindings(rotKill());
+    const unused = unusedF.filter(x => x.key === 'ability_unused');
+    assert.strictEqual(unused.length, 1, 'one grouped line: ' + unused.map(x => x.text).join(' // '));
+    assert.strictEqual(unused[0].text, 'Never cast on TestBoss: Curse of Doom (comparable players 0.5/min), Shadowburn (0.5/min); never used Destruction Potion (0.5/min)');
+    assert.deepStrictEqual(unused[0].abilities, ['Curse of Doom', 'Shadowburn', 'Destruction']);
+    assert.strictEqual(unused[0].ability, 'Curse of Doom', 'the first ability is still carried for anchoring');
+    assert.strictEqual(unused[0].severity, 'major', 'Curse of Doom is one of the reference top-3 abilities');
+    // Casts the reference never makes, likewise on one line with the counts.
+    const extraF = F.rotationFindings(rotKill({ me: { casts: { 'Shadow Bolt': 60, Immolate: 12, 'Curse of Recklessness': 12 } } }));
+    const extra = extraF.filter(x => x.key === 'ability_extra');
+    assert.strictEqual(extra.length, 1, 'one grouped line: ' + extra.map(x => x.text).join(' // '));
+    assert.strictEqual(extra[0].text, 'Cast on TestBoss while comparable players do not: Immolate (12), Curse of Recklessness (12)');
+    assert.deepStrictEqual(extra[0].abilities, ['Immolate', 'Curse of Recklessness']);
+    assert.ok(extraF.filter(x => x.key === 'ability_unused').length <= 1);
+    const plain = F.rotationFindings(killFor(50619));
+    assert.ok(plain.filter(x => x.key === 'ability_unused').length <= 1 && plain.filter(x => x.key === 'ability_extra').length <= 1, JSON.stringify(plain.map(x => x.key)));
+});
+test('rotationFindings (final review item 5): racials, encounter items and Soulshatter are never "never cast"', () => {
+    const k = rotKill();
+    k.reference.casts = Object.assign({}, k.reference.casts, { 'Blood Fury': 1, 'Mental Protection Field': 1, Soulshatter: 1 });
+    const f = F.rotationFindings(k);
+    const all = f.map(x => x.text).join(' ');
+    ['Blood Fury', 'Mental Protection Field', 'Soulshatter'].forEach(n => assert.ok(!all.includes(n), n + ' should never be asked of a player: ' + all));
+    const abilities = f.flatMap(x => x.abilities || [x.ability]);
+    ['Blood Fury', 'Mental Protection Field', 'Soulshatter'].forEach(n => assert.ok(!abilities.includes(n), n));
+});
+test('rotationFindings (final review item 5): curses are one family — a player who runs a curse gets an assignment question, not "never cast" for every other curse', () => {
+    const k = rotKill({ me: { casts: { 'Shadow Bolt': 60, 'Curse of Recklessness': 12 } } });
+    k.reference.casts = { 'Shadow Bolt': 60, 'Curse of Doom': 3, 'Curse of Agony': 1 };
+    const f = F.rotationFindings(k);
+    const unused = f.filter(x => x.key === 'ability_unused');
+    unused.forEach(x => assert.ok(!/curse of/i.test(x.text), 'no curse may be listed as unused: ' + x.text));
+    const choice = f.filter(x => x.key === 'curse_choice');
+    assert.strictEqual(choice.length, 1, JSON.stringify(f.map(x => x.key)));
+    assert.strictEqual(choice[0].text, 'You ran Curse of Recklessness on TestBoss; comparable players run Curse of Doom (1.5/min) — check whether Recklessness is your assignment');
+    assert.strictEqual(choice[0].owner || choice[0].scope, 'player');
+    const same = rotKill({ me: { casts: { 'Shadow Bolt': 60, 'Curse of Doom': 3 } } });
+    same.reference.casts = { 'Shadow Bolt': 60, 'Curse of Doom': 3, 'Curse of Agony': 1 };
+    assert.deepStrictEqual(F.rotationFindings(same).filter(x => x.key === 'curse_choice'), [], 'the same curse as the reference is no question at all');
+});
+test('killFindings (final review item 5): the grouped line already names the potion, so no_potion is not repeated', () => {
+    const k = killFor(50619);
+    const casts = Object.assign({}, k.me.casts);
+    delete casts.Destruction;
+    const clone = Object.assign({}, k, { me: Object.assign({}, k.me, { casts, potionUse: 0 }) });
+    const f = F.killFindings(clone, PLAYER);
+    const unused = f.find(x => x.key === 'ability_unused');
+    assert.ok(unused && unused.abilities.includes('Destruction'), JSON.stringify(f.map(x => x.key)));
+    assert.ok(/Destruction Potion/.test(unused.text), unused.text);
+    assert.ok(!f.some(x => x.key === 'no_potion'), 'the grouped line says it with the reference rate: ' + JSON.stringify(f.map(x => x.key)));
+    // A pull where the reference never used a potion still gets the plain no_potion line.
+    const noRefPotion = Object.assign({}, clone, { reference: Object.assign({}, k.reference, { casts: Object.assign({}, k.reference.casts) }) });
+    delete noRefPotion.reference.casts.Destruction;
+    assert.ok(F.killFindings(noRefPotion, PLAYER).some(x => x.key === 'no_potion'));
+});
+test('completeReply (final review item 5): a reply naming the first ability of a grouped line has not dropped it', () => {
+    const grouped = { key: 'ability_unused', ability: 'Curse of Doom', abilities: ['Curse of Doom', 'Shadowburn', 'Destruction'],
+                      text: 'Never cast on TestBoss: Curse of Doom (comparable players 0.5/min), Shadowburn (0.5/min); never used Destruction Potion (0.5/min)' };
+    assert.deepStrictEqual(F.completeReply('Add Curse of Doom to your opener.', { overall: { findings: [grouped] } }).appended, []);
+    assert.deepStrictEqual(F.completeReply('Nice work.', { overall: { findings: [grouped] } }).appended, [grouped.text]);
+});
+test('killFindings (final review item 6): one line per stat topic — the accounting line replaces the stat line that repeats it', () => {
+    const k = killFor(50619);
+    assert.ok(k.findings.some(f => f.key === 'crit_gear'), 'fixture sanity: the accounting reports crit from gear');
+    assert.ok(!k.findings.some(f => f.key === 'gear_stat' && f.stat === 'spellCrit'),
+        'the crit_gear line carries the share; the stat line adds nothing: ' + JSON.stringify(k.findings.map(f => f.key + (f.stat ? ':' + f.stat : ''))));
+});
+test('mergeFindings (final review item 6): the profile hit line folds into the pull\'s hit line instead of standing beside it', () => {
+    const k = killFor(50619);
+    const me = Object.assign({}, k.me, { stats: Object.assign({}, k.me.stats, { spellHit: 69 }) });
+    const clone = Object.assign({}, k, { me });
+    clone.gap = G.explainGap(clone, PLAYER);
+    clone.findings = F.killFindings(clone, PLAYER);
+    const m = F.mergeFindings([clone], [F.finding('gear_hit', 'major', 'player', 'Hit rating 188 against the 202 the raid asks for')]);
+    const hit = m.filter(f => f.key === 'hit_under_cap' || (f.key === 'gear_stat' && f.stat === 'spellHit'));
+    assert.strictEqual(hit.length, 1, 'one hit line: ' + JSON.stringify(m.map(f => f.key + (f.stat ? ':' + f.stat : ''))));
+    assert.ok(/69 .* \(your current profile shows 188\)/.test(hit[0].text), hit[0].text);
+    assert.ok(!m.some(f => f.key === 'gear_hit'), 'the profile line is folded in, not listed twice');
+});
+test('killFindings (final review item 9): the group ask is one line — the accounting names the missing buffs and debuffs itself', () => {
+    const k = killFor(50619);
+    assert.ok(k.findings.some(f => f.key === 'crit_buffs' || f.key === 'power_buffs'), 'fixture sanity');
+    assert.ok(!k.findings.some(f => f.key === 'buffs_missing'), JSON.stringify(k.findings.map(f => f.key)));
+    const buffLine = k.findings.find(f => f.key === 'crit_buffs' || f.key === 'power_buffs');
+    assert.ok(/missing at your pull: /.test(buffLine.text), buffLine.text);
+    // The captured reference carries no debuff table, so give it one: with both sides known the
+    // accounting owns the debuff line and the standalone list goes.
+    const reference = Object.assign({}, k.reference, { debuffs: [{ name: 'Curse of the Elements', uptimePercent: 100 }, { name: 'Shadow Weaving', uptimePercent: 100 }] });
+    const clone = Object.assign({}, k, { reference });
+    clone.gap = G.explainGap(clone, PLAYER);
+    clone.findings = F.killFindings(clone, PLAYER);
+    assert.ok(clone.findings.some(f => f.key === 'debuffs'), JSON.stringify(clone.findings.map(f => f.key)));
+    assert.ok(!clone.findings.some(f => f.key === 'debuff_missing'), JSON.stringify(clone.findings.map(f => f.key)));
+    assert.ok(/missing: Misery, Shadow Weaving/.test(clone.findings.find(f => f.key === 'debuffs').text), clone.findings.find(f => f.key === 'debuffs').text);
+});
+test('completeReply (final review item 10): the phrasings a live note actually used are accepted, and the round-1/3 repros still append', () => {
+    const withFindings = findings => ({ overall: { findings } });
+    const debuffs = { key: 'debuffs', me: 1.1, reference: 1.21, text: 'Raid debuffs on Morogrim Tidewalker multiplied damage by 1.1 against 1.21 for the reference raid.' };
+    assert.deepStrictEqual(F.completeReply('Please provide the Morogrim debuffs: your multiplier was 1.1 versus 1.21, worth 11%.', withFindings([debuffs])).appended, []);
+    const critBuffs = { key: 'crit_buffs', me: 0, reference: 7, text: 'Crit from party buffs 0% against 7%.' };
+    assert.deepStrictEqual(F.completeReply('Please provide party crit buffs: 0% versus 7%.', withFindings([critBuffs])).appended, []);
+    const powerBuffs = { key: 'power_buffs', me: 0, reference: 40, text: '40 spell power from party buffs; you had 0.' };
+    assert.deepStrictEqual(F.completeReply('Please provide party spell power buffs: 0 versus 40.', withFindings([powerBuffs])).appended, []);
+    // Fix round 1/3 repros: a reply that never mentions the finding still appends it.
+    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
+    assert.deepStrictEqual(F.completeReply('You died 6 times less than last week.', withFindings([channel])).appended, [channel.text]);
+    assert.deepStrictEqual(F.completeReply('You are missing 1 debuff; the raid needs 2 more uptime on it.', withFindings([debuffs])).appended, [debuffs.text]);
+    assert.deepStrictEqual(F.completeReply('5 of 7 pulls', withFindings([{ key: 'crit_buffs', me: 5, reference: 7, text: 'Crit from party buffs 5% against 7%.' }])).appended.length, 1);
 });
 test('uptimeFindings: a death before 90% of the fight and active time under 85% are major', () => {
     const base = killFor(50619);
@@ -638,10 +774,12 @@ test('rotationFindings (v2 §6, Important 1 whole-branch review): an on-use item
     delete casts['Blessing of the Silver Crescent'];
     delete casts.Destruction;
     const f = F.rotationFindings(Object.assign({}, kill, { me: Object.assign({}, kill.me, { casts }) }));
-    const item = f.find(x => x.key === 'ability_unused' && x.ability === 'Blessing of the Silver Crescent');
-    assert.ok(item && /^Never used Blessing of the Silver Crescent on Anetheron; comparable players use it [\d.]+ times a minute$/.test(item.text), item && item.text);
-    const potion = f.find(x => x.key === 'ability_unused' && x.ability === 'Destruction');
-    assert.ok(potion && /^Never used Destruction Potion on Anetheron; comparable players use it [\d.]+ times a minute$/.test(potion.text), potion && potion.text);
+    // Final review item 5: both are on ONE grouped line now, each named for what it is — the on-use
+    // item by its own name, the potion by its potion name, and neither with "(on-use item)".
+    const unused = f.filter(x => x.key === 'ability_unused');
+    assert.strictEqual(unused.length, 1, JSON.stringify(unused.map(x => x.text)));
+    assert.ok(/^Never used on Anetheron: (Blessing of the Silver Crescent \(comparable players [\d.]+\/min\), Destruction Potion \([\d.]+\/min\)|Destruction Potion \(comparable players [\d.]+\/min\), Blessing of the Silver Crescent \([\d.]+\/min\))$/.test(unused[0].text), unused[0].text);
+    assert.ok(unused[0].abilities.includes('Blessing of the Silver Crescent') && unused[0].abilities.includes('Destruction'), unused[0].abilities.join());
 });
 test('debuffFindings: missing shadow debuffs are a group finding; a low uptime on your own curse is yours', () => {
     const a = F.debuffFindings(killFor(50619), PLAYER);
@@ -728,7 +866,9 @@ test('mergeFindings (v3): a later pull with a larger share for the same finding 
 });
 test('killFindings (final review item 2): a finding that does not come from the accounting carries share null, never 0', () => {
     const k = killFor(50619);
-    ['ability_extra', 'wrong_elixir', 'gear_stat'].forEach(key => {
+    // (gear_stat is not on this kill any more: final review item 6 drops the spellCrit stat line
+    // because the accounting's crit_gear line already reports crit from gear with its share.)
+    ['ability_extra', 'wrong_elixir', 'debuff_missing'].forEach(key => {
         const f = k.findings.find(x => x.key === key);
         assert.ok(f, key + ' missing from the fixture kill: ' + k.findings.map(x => x.key).join());
         assert.strictEqual(f.share, null, key + ' must carry no share at all, so the note never says "0% of the gap"');
@@ -1525,10 +1665,11 @@ test('rotationFindings (v3): a utility cast the reference never makes is an extr
     const k = killFor(50619);
     const casts = Object.assign({}, k.me.casts, { 'Drain Soul': 7 });
     const f = F.rotationFindings(Object.assign({}, k, { me: Object.assign({}, k.me, { casts }) }));
-    const x = f.find(y => y.key === 'ability_extra' && y.ability === 'Drain Soul');
-    assert.ok(x && /Cast Drain Soul 7 times on Anetheron; comparable players do not use it/.test(x.text), x && x.text);
-    const lt = f.find(y => y.key === 'ability_extra' && y.ability === 'Life Tap');
-    assert.strictEqual(lt, undefined, 'the reference casts Life Tap too');
+    // Final review item 5: extras are one grouped line per boss.
+    const x = f.find(y => y.key === 'ability_extra');
+    assert.ok(x && /Cast on Anetheron while comparable players do not: .*Drain Soul \(7\)/.test(x.text), x && x.text);
+    assert.ok(x.abilities.includes('Drain Soul'), x.abilities.join());
+    assert.ok(!x.abilities.includes('Life Tap'), 'the reference casts Life Tap too');
 });
 test('positives (v3): an input where the player is ahead of the reference is a positive', () => {
     const k = killFor(50619);

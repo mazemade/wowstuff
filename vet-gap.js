@@ -103,14 +103,22 @@ const FINDING_ANCHOR = {
     // me/reference on one of them (crit_buffs 5 vs 7, power_consumables 0 vs 103, ...) could never
     // be judged present. Each phrase below is verified against the literal text gapText() builds
     // for that key (case-insensitive substring).
-    own_activity: 'Active', hit_under_cap: 'Hit rating', power_gear: 'from gear',
-    power_consumables: 'oil and food', power_buffs: 'party buffs', rotation: 'per cast', crit_gear: 'from gear', crit_buffs: 'party buffs',
+    // Fix round 4 (final review item 10): an anchor may be a LIST, and any one of its phrases
+    // counts. The single-phrase anchors were rejecting notes that said the finding perfectly well
+    // in other words — "party buffs" missed "Please provide party crit buffs", "multiplied damage"
+    // missed "your multiplier was 1.1 versus 1.21" — and every such miss re-printed the finding
+    // verbatim under "Also:" beside the paragraph that already made the point.
+    own_activity: ['active', 'uptime'], hit_under_cap: 'Hit rating', power_gear: 'from gear',
+    power_consumables: ['flask', 'elixir', 'oil', 'food', 'consumable'], power_buffs: ['party', 'group'],
+    rotation: ['per cast', 'damage per'], crit_gear: 'from gear', crit_buffs: ['party', 'group'],
     // Fix round 3: 'debuff' was too generic — any unrelated "debuff missing" sentence satisfied a
     // debuffs finding whose me/reference (a damage multiplier near 1.0, e.g. 1.1 vs 1.15) also
     // slipped past the number check's old +/-1 tolerance. 'multiplied damage' is the phrase
     // gapText() actually uses for this key. 'hannelling' also rejected the standard single-L
     // spelling ("channeling"); 'hannel' matches channel/channeling/channelling alike.
-    debuffs: 'multiplied damage', channel_time: 'hannel',
+    debuffs: ['multipl', 'debuff'], channel_time: 'hannel',
+    // Final review item 5: the curse family is reported as one assignment question.
+    curse_choice: 'assignment',
     // Fix round 3: gearFindings' gear_<key> findings (vet-feedback.js GEAR_LABEL) had no anchor at
     // all beyond gear_enchants/gear_sockets, so they fell to a verbatim body.includes(f.text)
     // check. Each phrase is a lowercase substring of the label gearFindings actually writes:
@@ -336,21 +344,39 @@ function explainGap(kill, player) {
 
 const REF_LABEL = 'players at your item level among the top 2000 parses';
 function pct(x) { return typeof x === 'number' ? Math.round(x * 10) / 10 : x; }
-function gapText(i, boss) {
+// Final review item 9: a group ask has to name what to ask for. The accounting knows both sides,
+// so the debuff and party-buff lines say which debuffs were missing on the boss and which buffs
+// the pull lacked, and the standalone "buffs_missing"/"debuff_missing" lists are dropped
+// (vet-feedback.js killFindings) rather than repeating the same ask in weaker words.
+function missingDebuffs(kill) {
+    const m = kill && kill.debuffs && Array.isArray(kill.debuffs.missing) ? kill.debuffs.missing : [];
+    return m.map(x => x && x.name).filter(Boolean);
+}
+function missingPartyBuffs(kill) {
+    const have = (kill && kill.me && Array.isArray(kill.me.partyBuffs)) ? kill.me.partyBuffs : [];
+    const theirs = (kill && kill.reference && Array.isArray(kill.reference.buffsAtPull)) ? kill.reference.buffsAtPull : [];
+    return theirs.filter(b => !have.includes(b));
+}
+function gapText(i, boss, kill) {
     const w = ' Worth ' + i.share + '% of the gap';
+    const missDeb = missingDebuffs(kill), missBuffs = missingPartyBuffs(kill);
+    const debTail = missDeb.length ? '; missing: ' + missDeb.join(', ') : '';
+    const buffTail = missBuffs.length ? '; missing at your pull: ' + missBuffs.join(', ') : '';
     switch (i.key) {
         case 'raid_activity': return 'Your raid was active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for the reference raid; phases and downtime, not you.' + w;
         case 'own_activity': return 'Active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
         case 'channel_time': return 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + boss + '; comparable players ' + pct(i.reference) + '.' + w;
         case 'cast_pacing': return pct(i.me) + ' damaging casts a minute on ' + boss + ' while active, against ' + pct(i.reference) + '; the time between casts.' + w;
         case 'hit_under_cap': return 'Hit rating ' + i.me + ' against ' + i.reference + ' for ' + REF_LABEL + '; misses are wasted casts.' + w;
-        case 'debuffs': return 'Raid debuffs on ' + boss + ' multiplied damage by ' + i.me + ' against ' + i.reference + ' for the reference raid.' + w;
+        case 'debuffs': return 'Raid debuffs on ' + boss + ' multiplied damage by ' + i.me + ' against ' + i.reference + ' for the reference raid' + debTail + '.' + w;
         case 'power_gear': return 'Spell power from gear ' + i.me + ' against ' + i.reference + ' for ' + REF_LABEL + '.' + w;
         case 'power_consumables': return i.reference + ' spell power from flask, elixirs, oil and food for ' + REF_LABEL + '; you had ' + i.me + '.' + w;
-        case 'power_buffs': return i.reference + ' spell power from party buffs for ' + REF_LABEL + '; you had ' + i.me + '.' + w;
-        case 'rotation': return 'Damage per cast ' + i.me + ' against ' + i.reference + ' after gear, buffs and debuffs are accounted for: ability choice and misses.' + w;
+        case 'power_buffs': return i.reference + ' spell power from party buffs for ' + REF_LABEL + '; you had ' + i.me + buffTail + '.' + w;
+        // Final review item 11: "after gear, buffs and debuffs are accounted for: ability choice and
+        // misses" read as a claim that the rest IS ability choice. It is the unexplained remainder.
+        case 'rotation': return 'Damage per cast ' + i.me + ' against ' + i.reference + ': what gear, buffs, debuffs and crit do not explain — ability choice, misses and anything unmeasured.' + w;
         case 'crit_gear': return 'Crit from gear (rating and intellect) ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
-        case 'crit_buffs': return 'Crit from party buffs ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
+        case 'crit_buffs': return 'Crit from party buffs ' + pct(i.me) + '% against ' + pct(i.reference) + '% for ' + REF_LABEL + buffTail + '.' + w;
         default: return i.key + ' ' + i.me + ' against ' + i.reference + '.' + w;
     }
 }
@@ -363,7 +389,7 @@ function gapFindings(kill, player, thresholds) {
     ['casts', 'dmg', 'crit'].forEach(fk => g.factors[fk].inputs.forEach(i => {
         if (i.owner === 'noise' || i.share < min) return;
         const physical = player.role === 'melee' || player.role === 'ranged' || player.role === 'tank';
-        let text = gapText(i, kill.name);
+        let text = gapText(i, kill.name, kill);
         if (physical) text = text.replace(/Spell power|spell power/g, m => (m[0] === 'S' ? 'Attack power' : 'attack power'));
         out.push({ key: i.key, owner: i.owner, severity: i.share >= 15 ? 'major' : 'minor', scope: i.owner === 'raid' ? 'raid' : i.owner, share: i.share, factor: fk, text, me: i.me, reference: i.reference, unit: i.unit });
     }));
