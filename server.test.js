@@ -295,8 +295,15 @@ test('GET /api/vet/feedback: a missing item table on a profile cache hit is 500 
     }
 });
 
-// Renames Anetheron's original rank's report code with an _OLDER_NIGHT suffix, because the
-// captured fixture's two kills share one real report — this fabricates a second, older night.
+// v2 §5: a fixture clone where Anetheron has a second kill inside Kaz'rogal's report, so the two
+// captured reports form two raid nights, Kaz'rogal's being the newer.
+// NOTE (deviation from the brief, disclosed in task-4-report.md): the captured fixture's
+// Anetheron and Kaz'rogal kills are both logged under ONE real WCL report code (the same player
+// killed both in one raid session), so FX.kills['50619'].code === FX.kills['50620'].code already,
+// before this helper runs. Reusing az.code verbatim (as the brief's twoNights did) therefore left
+// every rank on the same code, so buildNights's Map (one entry per distinct code) could only ever
+// produce ONE night, not two. Giving Anetheron's original rank a report code of its own is the
+// minimal change that actually realizes "two raid nights" the tests below exercise.
 function twoNights() {
     const fx2 = JSON.parse(JSON.stringify(MID));
     const az = FX.kills['50620'];
