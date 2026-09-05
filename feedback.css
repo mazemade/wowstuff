@@ -14,3 +14,10 @@
 .report-more { margin-top: 6px; } .report-more summary { cursor: pointer; color: #9ab; font-size: 0.9em; }
 .stand-table td, .stand-table th { padding: 3px 8px; text-align: left; }
 .fine-line { color: #8fe38f; }
+.feedback-night { margin-right: 8px; max-width: 30ch; }
+.facts-table { font-size: 0.82em; margin-top: 6px; }
+.facts-table th { color: #ffd700; font-weight: 600; text-align: left; padding: 2px 6px; }
+.facts-table td { padding: 2px 6px; white-space: nowrap; }
+.facts-table tr.bad-pull td { color: #777; }
+.facts-table a { color: #9ab; }
+.facts-table td:nth-child(8) { white-space: nowrap; }
