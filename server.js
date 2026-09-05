@@ -232,8 +232,8 @@ app.get('/api/vet/feedback', async (req, res) => {
   // Critical (whole-branch review): unlike /api/ai-review below, this is a plain GET — it needs
   // no preflight and no CORS-triggering header, so any page the user has open (or a bare
   // `<img src>`) could fire it at will. The reply is unreadable to the caller, but each cold hit
-  // still burns a paid OpenAI completion on a ~40 KB prompt plus up to ~360 WCL rate-limit
-  // points, and the URL is discoverable straight from the public vetting.js. A GET can't be
+  // still burns up to ~360 WCL rate-limit points, and the URL is discoverable straight from the
+  // public vetting.js. A GET can't be
   // gated on Content-Type the way /api/ai-review is, so gate on Sec-Fetch-Site instead: the
   // browser sets this itself and page script cannot override it. 'same-origin' is what the
   // app's own page sends when it fetches this endpoint back on itself; a third-party origin (or
@@ -335,7 +335,7 @@ app.get('/api/vet/feedback', async (req, res) => {
 // state; we wrap it in a system prompt that states the Anniversary rules so the model
 // cannot repeat the rule-ignorant critiques a bare ChatGPT produces. Display-only:
 // nothing here ever mutates an assignment.
-// The Anniversary-realm rules both model prompts must state, so neither repeats the
+// The Anniversary-realm rules the model prompt below must state, so it does not repeat the
 // rule-ignorant critiques a bare ChatGPT produces.
 const ANNIVERSARY_RULES = [
   '- Bloodlust/Heroism is RAID-wide (10-minute Sated-style debuff). It is never a reason to group anyone.',

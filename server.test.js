@@ -142,7 +142,7 @@ test('GET /api/vet/feedback: response shape, and X-Vet-Cache is a true hit on a 
     assert.strictEqual(r2.status, 200);
     assert.strictEqual(r2.headers.get('x-vet-cache'), 'hit');
     const body2 = await r2.json();
-    assert.deepStrictEqual(body2, body1, 'a cache hit returns the exact same body, including the model report');
+    assert.deepStrictEqual(body2, body1, 'a cache hit returns the exact same body, including the rendered report');
     assert.strictEqual(s.calls.length, callsAfterFirst, 'no additional WCL calls on a cache hit');
 });
 
@@ -240,19 +240,41 @@ test('GET /api/vet/feedback: concurrent identical requests share one pipeline ru
 
 test('GET /api/vet/feedback: different thresholds reuse the cached pipeline and still reflect the request (Critical 1)', async () => {
     const s = setupPipeline();
-    const r1 = await fetch(`${base}/api/vet/feedback?${QS}&thresholds=${encodeURIComponent(JSON.stringify({ parse: 10 }))}`, SAME_ORIGIN);
+    // v4 review fix (Important finding): rotProfile()'s combatant is null, so every gearFindings
+    // rule reads as 'unknown' and no threshold could ever move a real gear row — give this one
+    // profile a hit rating so a spellHit threshold actually flips the checklist's 'hit' row,
+    // which is what proves the per-request rebuild (not just tier.threshold) is really happening.
+    const profileWithHit = rotProfile();
+    profileWithHit.computed = Object.assign({}, profileWithHit.computed, { spellHit: 150 });
+    app.__test.caches.vetCache.set(IDENTITY_KEY, { at: Date.now(), profile: profileWithHit });
+
+    const r1 = await fetch(`${base}/api/vet/feedback?${QS}&thresholds=${encodeURIComponent(JSON.stringify({ parse: 10, spellHit: 1 }))}`, SAME_ORIGIN);
     assert.strictEqual(r1.status, 200);
     assert.strictEqual(r1.headers.get('x-vet-cache'), 'miss');
     const body1 = await r1.json();
     assert.strictEqual(body1.facts.tier.threshold, 10);
+    // spellHit: 1 is far below the profile's 150 rating, so gearFindings never fires 'gear_hit'
+    // and the checklist carries no 'hit' row at all.
+    assert.ok(!body1.facts.overall.checklist.rows.some(r => r.id === 'hit'), JSON.stringify(body1.facts.overall.checklist.rows.map(r => r.id)));
+    assert.ok(!/9999/.test(body1.report), body1.report);
     const callsAfterFirst = s.calls.length;
     assert.ok(callsAfterFirst > 0);
 
-    const r2 = await fetch(`${base}/api/vet/feedback?${QS}&thresholds=${encodeURIComponent(JSON.stringify({ parse: 77 }))}`, SAME_ORIGIN);
+    const r2 = await fetch(`${base}/api/vet/feedback?${QS}&thresholds=${encodeURIComponent(JSON.stringify({ parse: 77, spellHit: 9999 }))}`, SAME_ORIGIN);
     assert.strictEqual(r2.status, 200);
     const body2 = await r2.json();
     assert.strictEqual(body2.facts.tier.threshold, 77, 'the response does reflect the requested threshold');
     assert.strictEqual(s.calls.length, callsAfterFirst, 'a different thresholds value must not trigger a second WCL pipeline run');
+    // v4 (Important finding fix): the checklist — and the report rendered from it — must be
+    // rebuilt on THIS request's own thresholds even though the WCL sheet was reused. spellHit:
+    // 9999 puts the profile's 150 rating under the (very high) cap, so gear_hit fires, the
+    // checklist gets a failing 'hit' row whose bar is that cap, and the rendered report names it.
+    // A dropped rebuild, or one that reads facts.gear before it is reassigned, would instead leave
+    // both responses sharing the cached pipeline's own bar (built with default thresholds) and
+    // this row/text would never show 9999.
+    const hitRow = body2.facts.overall.checklist.rows.find(r => r.id === 'hit');
+    assert.ok(hitRow && hitRow.verdict === 'fail' && hitRow.reference === 9999, JSON.stringify(hitRow));
+    assert.ok(/9999/.test(body2.report), body2.report);
     // fix-d: the WCL facts were reused (no new WCL calls, asserted above) but this response still
     // required its own fresh checklist/report rebuild to reflect thresholds=77's gear findings.
     // X-Vet-Cache must report 'miss' here too, not 'hit', because it is scoped to whether THIS

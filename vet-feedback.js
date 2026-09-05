@@ -1,7 +1,8 @@
 'use strict';
-// Node-only. Turns Warcraft Logs fight data into a parse feedback facts sheet for one player, and
-// builds the prompt that turns that sheet into a player-facing report. The GraphQL `query`
-// function is injected, as in vet-profile.js: the server passes wclQuery, the tests pass a stub.
+// Node-only. Turns Warcraft Logs fight data into a parse feedback facts sheet for one player; the
+// sheet's overall.checklist (vet-checklist.js) is what renders the player-facing report. The
+// GraphQL `query` function is injected, as in vet-profile.js: the server passes wclQuery, the
+// tests pass a stub.
 const V = require('./vet-engine.js');
 const GAP = require('./vet-gap.js');
 const Checklist = require('./vet-checklist.js');
@@ -608,18 +609,6 @@ function rotationFindings(kill) {
     return f;
 }
 
-const ROLE_STATS = {
-    caster: { primary: 'spellDamage', secondary: ['spellCrit', 'spellHaste'] },
-    healer: { primary: 'healing', secondary: ['spellCrit', 'mp5'] },
-    melee: { primary: 'attackPower', secondary: ['meleeCrit', 'meleeHaste'] },
-    ranged: { primary: 'rangedAttackPower', secondary: ['rangedCrit', 'meleeHaste'] },
-    tank: { primary: 'attackPower', secondary: ['meleeCrit'] },
-};
-const STAT_LABEL = {
-    spellDamage: 'spell power', healing: 'healing power', attackPower: 'attack power', rangedAttackPower: 'ranged attack power',
-    spellCrit: 'spell crit rating', meleeCrit: 'melee crit rating', rangedCrit: 'ranged crit rating', spellHaste: 'spell haste rating',
-    meleeHaste: 'haste rating', spellHit: 'spell hit rating', meleeHit: 'hit rating', mp5: 'mana per five',
-};
 function consumableFindings(kill) {
     const f = [], me = kill.me, ref = kill.reference;
     if (me.consumablesKnown) {
@@ -1086,4 +1075,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

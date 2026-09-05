@@ -814,8 +814,7 @@ test('buildFacts (v4): the sheet the checklist reads', () => {
     assert.strictEqual(typeof F.Checklist.renderReport(facts.overall.checklist, facts), 'string');
 });
 
-// --- Task 7/8: the checklist replaces the model prompt and number guard
-const RULES = ['- Bloodlust/Heroism is RAID-wide.', '- Everything else is party-scoped.'];
+// --- Task 7/8: overall.checklist and the deterministic report rendered from it
 test('buildFacts (v4): the two worst live pulls with a ceiling reach the sheet and render in "Where you stand"', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const ref = refFor(50619);
