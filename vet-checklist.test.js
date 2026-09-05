@@ -202,8 +202,10 @@ const LOVE = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'facts-
 
 test('buildChecklist: verdict from the median ratio and the owner sums; ids unique; caps applied and the overflow kept in rows', () => {
     const kills = [];
-    for (let i = 0; i < 9; i++) { const k = gapKill('B' + i, { cast_pacing: 10 }); kills.push(k); }
-    // nine distinct fails via gear findings would need nine stats; use the real families plus stat rows instead
+    // cast_pacing and own_activity each push their own player-owned fail row on top of the three
+    // gear fails below, and flask/potion/unused/nuke_hit fall out of the fixture's own defaults —
+    // nine distinct player fails in total, so 3 + 5 caps leave exactly one (sockets) as overflow.
+    for (let i = 0; i < 9; i++) { const k = gapKill('B' + i, { cast_pacing: 10, own_activity: 6 }); kills.push(k); }
     const f = sheet(kills, { gear: { findings: [
         { key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 150 against the 202 the raid asks for', value: 150, bar: 202 },
         { key: 'gear_enchants', severity: 'major', scope: 'player', text: 'Missing enchants: 3 (Head, Bracers, Boots)', value: 3, bar: null },
@@ -211,9 +213,30 @@ test('buildChecklist: verdict from the median ratio and the owner sums; ids uniq
     const cl = C.buildChecklist(f, C.DEFAULT_T);
     const ids = cl.rows.map(r => r.id);
     assert.strictEqual(new Set(ids).size, ids.length, 'no duplicate ids');
-    assert.strictEqual(cl.fixFirst.length, 3); assert.ok(cl.also.length <= 5); assert.ok(cl.asks.length <= 3);
+    const fails = cl.rows.filter(r => r.owner === 'player' && r.verdict === 'fail').map(r => r.id);
+    assert.ok(fails.length >= 9, 'expected at least 9 player fails, got: ' + fails.join(', '));
+    assert.strictEqual(cl.fixFirst.length, 3); assert.strictEqual(cl.also.length, 5); assert.ok(cl.asks.length <= 3);
     assert.strictEqual(cl.fixFirst[0], 'cast_rate', 'largest value first');
+    const overflow = fails.filter(id => !cl.fixFirst.includes(id) && !cl.also.includes(id));
+    assert.deepStrictEqual(overflow, ['sockets'], 'row dump: ' + JSON.stringify(cl.rows.map(r => [r.id, r.owner, r.verdict, r.value])));
+    assert.ok(cl.rows.some(r => r.id === 'sockets'), 'overflow id must still be in rows');
+    const text = C.renderReport(cl, f);
+    assert.ok(!text.includes(cl.rows.find(r => r.id === 'sockets').text), 'overflow row text leaked into the report');
     assert.strictEqual(cl.verdict.ratioPercent, 61, '1362 / 2217');
+});
+test('buildChecklist: healer sheet skips the accounting sections', () => {
+    const k = gapKill('A', { cast_pacing: 10 });
+    const f = sheet([k], { limited: true });
+    const cl = C.buildChecklist(f, C.DEFAULT_T);
+    assert.strictEqual(cl.verdict, null);
+    const skipped = ['nuke_hit', 'unused', 'under_used', 'extra', 'burst_timing'];
+    const ids = cl.rows.map(r => r.id);
+    assert.ok(skipped.every(id => !ids.includes(id)), 'row dump: ' + JSON.stringify(ids));
+    assert.ok(cl.fixFirst.length > 0, 'need at least one player fail so the section actually renders');
+    const text = C.renderReport(cl, f);
+    assert.ok(text.includes('\nWhat\'s holding your healing back\n'), text);
+    assert.ok(!text.includes('Fix first'), text);
+    assert.ok(text.endsWith('Pick one thing to change next raid.'), text.slice(-80));
 });
 test('buildChecklist: no accounting means no verdict; a player above the reference gets passes only', () => {
     const k = gapKill('A', {}, { gap: null }); k.me.amount = 2500; k.me.flask = 'Flask of Pure Death'; k.me.potionUse = 2;
@@ -237,7 +260,7 @@ test('fractionWord', () => {
     assert.strictEqual(C.fractionWord(85), 'almost all'); assert.strictEqual(C.fractionWord(74), 'about three quarters'); assert.strictEqual(C.fractionWord(62), 'most');
     assert.strictEqual(C.fractionWord(50), 'about half'); assert.strictEqual(C.fractionWord(30), 'about a third'); assert.strictEqual(C.fractionWord(20), 'about a quarter'); assert.strictEqual(C.fractionWord(10), 'a small part'); assert.strictEqual(C.fractionWord(3), null);
 });
-test('golden (Lovestoned, v3 sheet captured 2026-09-05): verdict 59, nuke/cast/activity first, one potion line, one curse line, under 320 words', () => {
+test('golden (Lovestoned, v3 sheet captured 2026-09-05): verdict 59, nuke/cast/activity first, one potion line, one curse line, under 480 words', () => {
     const cl = C.buildChecklist(LOVE, C.DEFAULT_T);
     assert.strictEqual(cl.verdict.ratioPercent, 59);
     assert.deepStrictEqual(cl.fixFirst, ['nuke_hit', 'cast_rate', 'activity']);

@@ -391,7 +391,7 @@ function buildChecklist(facts, T) {
 function renderReport(cl, facts) {
     const p = facts.player || {}, tier = facts.tier || {}, byId = id => cl.rows.find(r => r.id === id);
     const val = r => (r.value !== null && r.value !== undefined ? ' (~' + r.value + '%)' : '');
-    const line = r => r.text + '. ' + r.fix + val(r);
+    const line = r => r.text + '.' + (r.fix ? ' ' + r.fix : '') + val(r);
     const head = facts.night ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'median parse ' + Math.round(tier.medianPercent);
     const out = [p.name + ' — ' + (p.spec || '?') + ', ' + (tier.zoneName || '') + ', ' + head];
     if (cl.verdict) {
