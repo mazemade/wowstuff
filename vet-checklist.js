@@ -6,6 +6,9 @@ const GAP = require('./vet-gap.js');
 
 const NOMINAL_VALUE = { potion: 3, flask: 2, food: 1, oil: 1, burst_timing: 2, unused: 2, hit: 1 };
 const ROW_CAPS = { fixFirst: 3, also: 5, asks: 3 };
+// 'hit' only reaches Fine if a passing hit row is ever emitted — today gearFindings only emits
+// a gear_hit finding at fail/warn, so the profile branch's pass case (gearRows) is unreachable in
+// practice; kept per spec §4.3 rather than synthesised from data the sheet does not carry.
 const FINE_IDS = ['food', 'flask', 'potion', 'activity', 'deaths', 'power_gear', 'hit'];
 const CATEGORY_ORDER = ['consumables', 'cooldowns', 'casting', 'spells', 'nuke', 'gear', 'group', 'raid'];
 // The five thresholds this module reads; vet-feedback.js's T carries the same values and is
@@ -73,11 +76,14 @@ function castingRows(facts, T) {
     const kills = liveKills(facts), spec = facts.player && facts.player.spec;
     const out = [];
     const cr = shareRow(facts, { id: 'cast_rate', key: 'cast_pacing', category: 'casting',
-        text: (i, k, label) => pct(i.me) + ' damaging casts a minute while active against ' + pct(i.reference) + ' on ' + label,
+        text: (i, k, label) => 'Casting: ' + pct(i.me) + ' damaging casts a minute while active against ' + pct(i.reference) + ' on ' + label,
         fix: (i, k) => 'Queue the next ' + mainAbility(k) + ' before the current one lands; move only when you must, and use ' + (MOVEMENT_FILLER[spec] || MOVEMENT_FILLER.default) + ' while moving.' });
     if (cr) out.push(cr);
     const act = shareRow(facts, { id: 'activity', key: 'own_activity', category: 'casting',
-        text: (i, k, label) => 'Active ' + pct(i.me) + '% against ' + pct(i.reference) + '% for comparable players' + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : '') + ' on ' + label,
+        // Fine (spec §4.3) is one sentence listing the passes, never a number — a passing share
+        // still measured a real percentage, but that number belongs in Fix first/Also, not Fine.
+        text: (i, k, label, share) => verdictForShare(share) === 'pass' ? 'active throughout' :
+            'Active ' + pct(i.me) + '% against ' + pct(i.reference) + '% for comparable players' + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : '') + ' on ' + label,
         fix: 'Keep casting through transitions; if an assignment took you off the boss, tell the raid leader so it is counted as not on you.' });
     if (act) out.push(act);
     else {
@@ -88,7 +94,7 @@ function castingRows(facts, T) {
         if (v) {
             const k = failing[0] || measurable[0];
             out.push(row({ id: 'activity', category: 'casting', verdict: v, me: k.me.activePercent, reference: num(k.fight.raidActivePercent), unit: 'active %', pulls: { hit: failing.length, of: measurable.length }, measuredOn: pullLabel(k, kills),
-                           text: 'Active ' + pct(k.me.activePercent) + '% of ' + pullLabel(k, kills) + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : ''),
+                           text: v === 'pass' ? 'active throughout' : 'Active ' + pct(k.me.activePercent) + '% of ' + pullLabel(k, kills) + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : ''),
                            fix: 'Keep casting through transitions; if an assignment took you off the boss, tell the raid leader so it is counted as not on you.' }));
         }
     }
@@ -203,7 +209,7 @@ function consumableRows(facts, T) {
         const p = refPotion(k);
         const median = counts.length ? counts[Math.floor((counts.length - 1) / 2)] : 0;
         const possible = Math.floor(k.fight.durationSec / 120) + 1;
-        const label = p ? GAP.POTION_LABEL[p.name] : 'potion';
+        const label = p ? GAP.POTION_LABEL[p.name] : 'Potion';
         const range = counts.length ? (counts[0] === counts[counts.length - 1] ? String(counts[0]) : counts[0] + '–' + counts[counts.length - 1]) : null;
         return { id: 'potion', category: 'consumables', value: v === 'pass' ? null : Math.min(6, NOMINAL_VALUE.potion * Math.max(1, median)),
                  text: v === 'pass' ? 'A potion on every pull' : label + ': 0 on ' + pullsText(failing.length, potionable.length) + (range ? '; comparable players use ' + range + ' a pull' : '') + ' (up to ' + possible + ' in a fight this long)',
@@ -270,6 +276,16 @@ function spellRows(facts, T) {
     return out;
 }
 
+// The nuke_hit remainder clause: honest about what logs cannot see (spec §2) — a debuff
+// comparison that was never measured cannot be blamed for the shortfall, and one that measured
+// in the player's favour cannot be credited with explaining it either; either way the remainder
+// stays a remainder, not pinned on the player.
+function nukeRemainder(p, restPct) {
+    if (!p.debMeasured) return '; raid debuffs could not be compared on this pull, so the remaining ' + restPct + '% is raid debuffs, talents, spell rank or gear that logs cannot show';
+    if (p.debPct <= 0) return '; the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show';
+    return '; raid debuffs explain about ' + p.debPct + '%, the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show';
+}
+
 // --- nuke damage (spec §4.3 "Nuke damage"): the rotation remainder, explained as far as logs allow.
 function nukeRows(facts) {
     const kills = liveKills(facts).filter(k => k.gap && k.reference);
@@ -280,10 +296,10 @@ function nukeRows(facts) {
         const mine = (k.me.abilities || []).find(a => a.name === main), theirs = (k.reference.abilities || []).find(a => a.name === main);
         if (!mine || !theirs || !num(mine.avgHit) || !num(theirs.avgHit)) return;
         const sum = side => ['power_gear', 'power_consumables', 'power_buffs'].reduce((s, key) => { const i = inputOf(k, key); return s + (i && num(i[side]) !== null ? i[side] : 0); }, 0);
-        const deb = inputOf(k, 'debuffs'), myDeb = deb && num(deb.me) !== null ? deb.me : 1, refDeb = deb && num(deb.reference) !== null ? deb.reference : 1;
+        const deb = inputOf(k, 'debuffs'), debMeasured = !!(deb && num(deb.me) !== null && num(deb.reference) !== null), myDeb = debMeasured ? deb.me : 1, refDeb = debMeasured ? deb.reference : 1;
         const myPower = sum('me'), refPower = sum('reference');
         const observed = mine.avgHit / theirs.avgHit, expected = ((myPower + K) / (refPower + K)) * (myDeb / refDeb);
-        per.push({ k, main, mine, theirs, residual: observed / expected, debPct: Math.round(100 * (1 - myDeb / refDeb)), samePower: Math.abs(myPower - refPower) / Math.max(refPower, 1) < 0.05, myPower, refPower });
+        per.push({ k, main, mine, theirs, residual: observed / expected, debMeasured, debPct: Math.round(100 * (1 - myDeb / refDeb)), samePower: Math.abs(myPower - refPower) / Math.max(refPower, 1) < 0.05, myPower, refPower });
     });
     if (!per.length) return [];
     const avg = per.reduce((s, p) => s + p.residual, 0) / per.length;
@@ -294,7 +310,7 @@ function nukeRows(facts) {
     const label = pullLabel(worst.k, liveKills(facts));
     return [row({ id: 'nuke_hit', category: 'nuke', verdict, me: worst.mine.avgHit, reference: worst.theirs.avgHit, unit: 'non-crit hit', value: verdict === 'pass' ? null : (share > 0 ? share : null), measuredOn: label,
                   text: worst.main + ' hits for ' + worst.mine.avgHit + ' non-crit against ' + worst.theirs.avgHit + (worst.samePower ? ' at the same spell power' : ' (you had ' + worst.myPower + ' spell power, they had ' + worst.refPower + ')') + ' on ' + label +
-                        (verdict === 'pass' ? '' : '; raid debuffs explain about ' + worst.debPct + '%, the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show'),
+                        (verdict === 'pass' ? '' : nukeRemainder(worst, restPct)),
                   fix: verdict === 'pass' ? '' : (NUKE_FIX[facts.player && facts.player.spec] || 'Check your talents and the rank of ' + worst.main + '.') })];
 }
 
@@ -308,9 +324,13 @@ function gearRows(facts) {
     const hitShare = averageShare(kills, 'hit_under_cap'), hitBest = largestPull(kills, 'hit_under_cap');
     if (gearHit) {
         const under = gearHit.value < gearHit.bar;
+        // This number is the raid's requirement (the request's threshold minus a talent
+        // allowance), not the true hit cap — say so, or "the N cap" tells the player something
+        // the data does not.
         out.push(row({ id: 'hit', category: 'gear', verdict: under ? 'fail' : 'pass', me: gearHit.value, reference: gearHit.bar, unit: 'hit rating',
                        value: under ? Math.max(hitShare > 0 ? hitShare : 0, Math.max(1, Math.round((gearHit.bar - gearHit.value) / perPct)) * NOMINAL_VALUE.hit) : null,
-                       text: under ? 'Hit: ' + gearHit.value + ' on your current gear against the ' + gearHit.bar + ' cap' : 'Hit at the cap', fix: under ? 'Reach ' + gearHit.bar + ' hit before any other stat.' : '' }));
+                       text: under ? 'Hit: ' + gearHit.value + ' on your current gear against the ' + gearHit.bar + ' your raid asks for' : 'Hit at what your raid asks for',
+                       fix: under ? 'Reach ' + gearHit.bar + ' hit before any other stat.' : '' }));
     } else if (hitShare !== null && hitShare >= 3 && hitBest) {
         const cap = Math.round((physical ? GAP.C.HIT_CAP.melee * GAP.C.MELEE_HIT_RATING_PER_PCT : GAP.C.HIT_CAP.spell * GAP.C.HIT_RATING_PER_PCT));
         out.push(row({ id: 'hit', category: 'gear', verdict: verdictForShare(hitShare), me: hitBest.input.me, reference: cap, unit: 'hit rating', value: hitShare, measuredOn: pullLabel(hitBest.kill, kills),
@@ -360,7 +380,10 @@ function verdictOf(facts) {
 function buildChecklist(facts, T) {
     T = Object.assign({}, DEFAULT_T, T || {});
     const limited = !!(facts && facts.limited);
-    let rows = [].concat(consumableRows(facts, T), limited ? [] : cooldownRows(facts), castingRows(facts, T), limited ? [] : spellRows(facts, T), limited ? [] : nukeRows(facts), gearRows(facts), passRows(facts), groupRows(facts), raidRows(facts));
+    // Spec §5: the healer sheet renders only Consumables, Casting (activity), deaths, Gear and
+    // Not on you — group asks ("Ask your raid leader") are not on that list, so limited sheets
+    // skip groupRows too; raidRows ("Not on you") stays.
+    let rows = [].concat(consumableRows(facts, T), limited ? [] : cooldownRows(facts), castingRows(facts, T), limited ? [] : spellRows(facts, T), limited ? [] : nukeRows(facts), gearRows(facts), passRows(facts), limited ? [] : groupRows(facts), raidRows(facts));
     const seen = new Set(); rows = rows.filter(r => r && !seen.has(r.id) && seen.add(r.id));
     const cat = r => CATEGORY_ORDER.indexOf(r.category);
     const byValue = (a, b) => ((b.value ?? -1) - (a.value ?? -1)) || (cat(a) - cat(b));
@@ -381,7 +404,7 @@ function buildChecklist(facts, T) {
     bad.forEach(b => {
         let g = groups.find(x => x.name === b.name); if (!g) { g = { name: b.name, count: 0, months: [] }; groups.push(g); }
         g.count++;
-        if (b.date && live.some(k => k.name === b.name)) g.months.push(MONTHS[parseInt(b.date.slice(5, 7), 10) - 1]);
+        if (b.date && live.some(k => k.name === b.name)) { const m = MONTHS[parseInt(b.date.slice(5, 7), 10) - 1]; if (!g.months.includes(m)) g.months.push(m); }
     });
     return { verdict: limited ? null : verdictOf(facts), rows, fixFirst, also, asks, fine, stand,
              notOnYou: { badPulls: { total: ((facts.kills) || []).length, live: live.length, groups }, rows: rows.filter(r => r.owner === 'raid') } };

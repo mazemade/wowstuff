@@ -122,7 +122,7 @@
         const alsoMore = player.filter(r => !listed.has(r.id) && r.verdict !== 'pass');
         if (cl.also.length || alsoMore.length) cards.appendChild(card('Also', cl.also.map(byId), false, alsoMore));
         const group = cl.rows.filter(r => r.owner === 'group'), askMore = group.filter(r => !cl.asks.includes(r.id) && r.verdict !== 'pass');
-        if (group.length) cards.appendChild(card('Ask your raid leader', cl.asks.map(byId), false, askMore));
+        if (cl.asks.length || askMore.length) cards.appendChild(card('Ask your raid leader', cl.asks.map(byId), false, askMore));
         if (cl.fine.length) { const c = document.createElement('div'); c.className = 'report-card'; c.innerHTML = '<h3>Fine</h3><div class="fine-line">' + escapeHtml(cl.fine.map(id => byId(id).text).join(', ')) + '</div>'; cards.appendChild(c); }
         if (cl.stand.length) {
             const c = document.createElement('div'); c.className = 'report-card wide'; c.innerHTML = '<h3>Where you stand</h3>';

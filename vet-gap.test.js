@@ -252,7 +252,7 @@ test('statPriorityFindings (final review item 11): without a hitCap the bar is t
     const melee = G.statPriorityFindings({ me: { meleeHit: 50, attackPower: 1000 }, reference: { meleeHit: 100, attackPower: 2000 }, spec: 'Combat', role: 'melee', boss: 'Gruul' });
     assert.ok(/against the 142 the raid asks for/.test(melee[0].text), melee[0].text);
 });
-test('gapText (final review item 9): the group asks name what was actually missing, and the anchors still hold with those clauses appended', () => {
+test('gapText (final review item 9): the group asks name what was actually missing (debuffs and party buffs)', () => {
     const p = pull({ debuffs: { known: true, present: [{ name: 'Curse of the Elements', uptimePercent: 100 }], missing: [{ name: 'Shadow Weaving', value: '10% more shadow damage', source: 'a shadow priest' }] } });
     p.me = Object.assign({}, p.me, { partyBuffs: ['Moonkin Aura'] });
     p.gap = G.explainGap(p, PLAYER);

@@ -56,7 +56,7 @@ test('castingRows: cast_rate from cast_pacing with the spec\'s filler, activity 
     const rows = C.castingRows(f, C.DEFAULT_T);
     const cr = rows.find(r => r.id === 'cast_rate');
     assert.strictEqual(cr.verdict, 'fail'); assert.strictEqual(cr.value, 22); assert.strictEqual(cr.owner, 'player'); assert.strictEqual(cr.category, 'casting');
-    assert.strictEqual(cr.text, '20 damaging casts a minute while active against 24 on Void Reaver');
+    assert.strictEqual(cr.text, 'Casting: 20 damaging casts a minute while active against 24 on Void Reaver');
     assert.strictEqual(cr.fix, 'Queue the next Shadow Bolt before the current one lands; move only when you must, and use Shadowburn or Life Tap while moving.');
     const act = rows.find(r => r.id === 'activity');
     assert.strictEqual(act.verdict, 'warn'); assert.strictEqual(act.text, 'Active 90% against 95% for comparable players (your raid: 96%) on Void Reaver');
@@ -70,6 +70,14 @@ test('castingRows: without an accounting the v2 active_low rule gives a habit ro
     const act = rows.find(r => r.id === 'activity');
     assert.strictEqual(act.verdict, 'fail'); assert.strictEqual(act.value, null); assert.deepStrictEqual(act.pulls, { hit: 1, of: 1 });
     assert.ok(!rows.find(r => r.id === 'cast_rate'), 'no cast_rate row without an accounting');
+});
+test('castingRows (final review 4): a passing activity row renders a short, number-free line for Fine', () => {
+    const rows = C.castingRows(sheet([gapKill('Void Reaver', { own_activity: 1 })]), C.DEFAULT_T);
+    const act = rows.find(r => r.id === 'activity');
+    assert.strictEqual(act.verdict, 'pass'); assert.strictEqual(act.text, 'active throughout');
+    const k = gapKill('Al\'ar', {}, { gap: null }); k.me.activePercent = 95; k.fight.raidActivePercent = 90;
+    const act2 = C.castingRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'activity');
+    assert.strictEqual(act2.verdict, 'pass'); assert.strictEqual(act2.text, 'active throughout', 'v2 active_low pass must also be short');
 });
 test('groupRows: debuffs names what is missing on how many pulls and who brings it; party_buffs sums crit and power shares; curse is a warn ask', () => {
     const f = sheet([gapKill('Void Reaver', { debuffs: 19, crit_buffs: 8, power_buffs: 3 }), gapKill('Morogrim Tidewalker', { debuffs: 15, crit_buffs: 6 })]);
@@ -123,6 +131,11 @@ test('consumableRows: potion fails on zero potions or on never using the referen
     const short = gapKill('Short', {}); short.fight.durationSec = 40;
     assert.ok(!C.consumableRows(sheet([short]), C.DEFAULT_T).find(r => r.id === 'potion'), 'a fight under potionMinSec is not measurable');
 });
+test('consumableRows (final review 8): without a reference damage potion the fallback label is capitalised', () => {
+    const k = gapKill('A', {}); k.reference.casts = { 'Shadow Bolt': 54, 'Life Tap': 6 };
+    const p = C.consumableRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'potion');
+    assert.strictEqual(p.text, 'Potion: 0 on 1 of 1 pulls (up to 2 in a fight this long)');
+});
 test('cooldownRows: burst_timing names the item fired outside Bloodlust', () => {
     const k = gapKill('Void Reaver', {}); k.me.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 }]; k.reference.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 1 }];
     const b = C.cooldownRows(sheet([k])).find(r => r.id === 'burst_timing');
@@ -164,6 +177,23 @@ test('nuke_hit: observed / expected from the accounting\'s power and debuff inpu
     const fine = gapKill('A', {}); fine.me.abilities[0].avgHit = 3500;
     assert.strictEqual(C.nukeRows(sheet([fine])).find(r => r.id === 'nuke_hit').verdict, 'pass');
 });
+test('nuke_hit (final review 1): an unknown debuff comparison is not blamed for the shortfall', () => {
+    const k = gapKill('Void Reaver', { rotation: 42 });
+    k.gap.factors.dmg.inputs.find(i => i.key === 'debuffs').me = null;
+    k.gap.factors.dmg.inputs.find(i => i.key === 'debuffs').reference = null;
+    const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
+    assert.ok(!/raid debuffs explain about/.test(n.text), n.text);
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs could not be compared on this pull, so the remaining 19% is raid debuffs, talents, spell rank or gear that logs cannot show');
+});
+test('nuke_hit (final review 2): debuffs that favour the player are not credited, and never render a negative percent', () => {
+    const k = gapKill('Void Reaver', { rotation: 42 });
+    k.gap.factors.dmg.inputs.find(i => i.key === 'debuffs').me = 1.3;
+    k.gap.factors.dmg.inputs.find(i => i.key === 'debuffs').reference = 1.1;
+    const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
+    assert.ok(!/-\d/.test(n.text), n.text);
+    assert.ok(!/raid debuffs explain/.test(n.text), n.text);
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; the remaining 31% is talents, spell rank or gear that logs cannot show');
+});
 test('gearRows: hit from the current profile (value/bar) beats the pull; stat rows are warns; enchants/sockets from gear findings', () => {
     const f = sheet([gapKill('A', { hit_under_cap: -5 })], { gear: { findings: [
         { key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 185 against the 202 the raid asks for', value: 185, bar: 202 },
@@ -173,7 +203,7 @@ test('gearRows: hit from the current profile (value/bar) beats the pull; stat ro
     const rows = C.gearRows(f);
     const hit = rows.find(r => r.id === 'hit');
     assert.strictEqual(hit.verdict, 'fail'); assert.strictEqual(hit.me, 185); assert.strictEqual(hit.reference, 202); assert.strictEqual(hit.value, 1);
-    assert.strictEqual(hit.text, 'Hit: 185 on your current gear against the 202 cap'); assert.strictEqual(hit.fix, 'Reach 202 hit before any other stat.');
+    assert.strictEqual(hit.text, 'Hit: 185 on your current gear against the 202 your raid asks for'); assert.strictEqual(hit.fix, 'Reach 202 hit before any other stat.');
     const crit = rows.find(r => r.id === 'stat_spellCrit');
     assert.strictEqual(crit.verdict, 'warn'); assert.strictEqual(crit.text, 'Spell crit rating 297 against 354 for comparable players'); assert.strictEqual(crit.fix, 'Prefer spell crit when upgrading.');
     const en = rows.find(r => r.id === 'enchants');
@@ -224,18 +254,22 @@ test('buildChecklist: verdict from the median ratio and the owner sums; ids uniq
     assert.ok(!text.includes(cl.rows.find(r => r.id === 'sockets').text), 'overflow row text leaked into the report');
     assert.strictEqual(cl.verdict.ratioPercent, 61, '1362 / 2217');
 });
-test('buildChecklist: healer sheet skips the accounting sections', () => {
+test('buildChecklist: healer sheet skips the accounting sections and group asks (final review 11)', () => {
+    // This kill's debuffs/party_buffs/curse would all produce group rows on a full sheet (see the
+    // groupRows test above) — the point here is that a limited sheet must not render any of them.
     const k = gapKill('A', { cast_pacing: 10 });
     const f = sheet([k], { limited: true });
     const cl = C.buildChecklist(f, C.DEFAULT_T);
     assert.strictEqual(cl.verdict, null);
-    const skipped = ['nuke_hit', 'unused', 'under_used', 'extra', 'burst_timing'];
+    const skipped = ['nuke_hit', 'unused', 'under_used', 'extra', 'burst_timing', 'debuffs', 'party_buffs', 'bloodlust', 'curse'];
     const ids = cl.rows.map(r => r.id);
     assert.ok(skipped.every(id => !ids.includes(id)), 'row dump: ' + JSON.stringify(ids));
+    assert.deepStrictEqual(cl.asks, [], 'a limited sheet must have no group asks');
     assert.ok(cl.fixFirst.length > 0, 'need at least one player fail so the section actually renders');
     const text = C.renderReport(cl, f);
     assert.ok(text.includes('\nWhat\'s holding your healing back\n'), text);
     assert.ok(!text.includes('Fix first'), text);
+    assert.ok(!text.includes('Ask your raid leader'), text);
     assert.ok(text.endsWith('Pick one thing to change next raid.'), text.slice(-80));
 });
 test('buildChecklist: no accounting means no verdict; a player above the reference gets passes only', () => {
@@ -255,6 +289,17 @@ test('buildChecklist: stand carries the ceiling pulls with same-class peers; bad
     const cl = C.buildChecklist(f, C.DEFAULT_T);
     assert.deepStrictEqual(cl.stand, [{ name: 'Lady Vashj', date: '2026-08-09', me: 577, sameClass: [640, 512], dps: 1180, topDps: 1445 }]);
     assert.deepStrictEqual(cl.notOnYou.badPulls, { total: 4, live: 1, groups: [{ name: 'Lady Vashj', count: 1, months: ['May'] }, { name: 'Leotheras the Blind', count: 2, months: [] }] });
+});
+test('buildChecklist (final review 6): repeated bad-pull months for the same boss are deduped', () => {
+    const live = gapKill('Lady Vashj', {}, { date: '2026-08-09' });
+    const bad = (name, date) => ({ name, date, rankPercent: 1, fight: { badPull: true, badPullReason: 'x' }, me: {}, findings: [], gap: null });
+    const f = sheet([live, bad('Lady Vashj', '2026-05-24'), bad('Lady Vashj', '2026-05-30')],
+                    { overall: { badPulls: [{ name: 'Lady Vashj', date: '2026-05-24', reason: 'x' }, { name: 'Lady Vashj', date: '2026-05-30', reason: 'x' }],
+                                 ceiling: [], gap: null, droppedKills: [] } });
+    const cl = C.buildChecklist(f, C.DEFAULT_T);
+    assert.deepStrictEqual(cl.notOnYou.badPulls.groups, [{ name: 'Lady Vashj', count: 2, months: ['May'] }], 'the two May bad pulls must collapse to one month, not "May, May"');
+    const text = C.renderReport(cl, f);
+    assert.ok(text.includes('Lady Vashj ×2 (May)') && !text.includes('May, May'), text);
 });
 test('fractionWord', () => {
     assert.strictEqual(C.fractionWord(85), 'almost all'); assert.strictEqual(C.fractionWord(74), 'about three quarters'); assert.strictEqual(C.fractionWord(62), 'most');

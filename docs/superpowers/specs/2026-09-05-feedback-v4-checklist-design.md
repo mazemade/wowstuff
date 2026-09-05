@@ -221,7 +221,7 @@ buff), `STAT_WORD[stat]`.
 ### 4.5 Verdict
 
 ```
-verdict = { ratioPercent, onYou, onRaidSetup, onPulls }
+verdict = { ratioPercent, onYou, onSetup, onRest }
 ```
 `ratioPercent` = median over accounting pulls of `100 × me.amount / reference.playersDps`.
 `onYou` / `onSetup` = the summed averaged shares of player-owned / group-owned inputs (each
