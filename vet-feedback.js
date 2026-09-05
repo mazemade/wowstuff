@@ -265,7 +265,9 @@ const BURST_MAX_SEC = 30;
 // aura, case-insensitive.
 const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion/i;
 const LUST = ['Bloodlust', 'Heroism'];
-const POTION_LABEL = { Destruction: 'Destruction Potion', Haste: 'Haste Potion', 'Insane Strength': 'Insane Strength Potion' };
+// v4: these four tables moved to vet-gap.js so vet-checklist.js can use them without a circular
+// require; re-exported here under the same names so existing callers are unaffected.
+const { POTION_LABEL, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM } = GAP;
 function auraBands(buffsTable, names) {
     const d = buffsTable && buffsTable.data;
     return (d && Array.isArray(d.auras) ? d.auras : []).filter(a => a && names.includes(a.name)).flatMap(a => Array.isArray(a.bands) ? a.bands : []);
@@ -508,13 +510,7 @@ function debuffFacts(debuffTable, schools) {
 // Casts that are upkeep rather than rotation: never "unused" or "extra".
 // Final review item 5: Soulshatter is threat management, not damage — the live note asked a
 // warlock to add it "without delaying damage", which is advice nobody can act on.
-const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|soulshatter|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
-// Final review item 5: two more families that are never the player's rotation. A racial belongs to
-// the reference player's RACE (a note telling an undead to use Blood Fury is nonsense), and an
-// encounter item is handed out by the fight itself ("Never cast Mental Protection Field" on
-// Kael'thas, where the reference player happened to be given one).
-const RACIAL = /blood fury|berserking|arcane torrent|stoneform|will of the forsaken|war stomp|escape artist|perception|shadowmeld|gift of the naaru/i;
-const ENCOUNTER_ITEM = /mental protection field|staff of disintegration|phaseshift bulwark|netherstrand longbow|infinity blade|warp slicer|cosmic infuser/i;
+// (UTILITY_CAST, RACIAL, ENCOUNTER_ITEM: see the GAP destructure above, v4.)
 
 // Minor 7 (whole-branch review): "at the " + name + " pull" reads as "at the The Lurker Below
 // pull" for a boss whose own name already starts with "The". Only prefix the article when the
@@ -682,7 +678,7 @@ function gearFindings(profile, thresholds, now) {
         } else {
             text = GEAR_LABEL[r.key] + ' ' + r.value + ' against the ' + (r.key === 'hit' ? r.effective : r.threshold) + ' the raid asks for';
         }
-        f.push(finding('gear_' + r.key, sev, 'player', text));
+        f.push(finding('gear_' + r.key, sev, 'player', text, { value: r.value, bar: (r.key === 'enchants' || r.key === 'sockets') ? null : (r.key === 'hit' ? r.effective : r.threshold) }));
     });
     return f;
 }
@@ -1033,7 +1029,10 @@ function anchorOf(f) {
     if (Array.isArray(f.debuffs) && f.debuffs[0]) return f.debuffs[0];
     if (f.debuff) return f.debuff;
     if (f.key === 'gear_stat' && f.stat) return STAT_ANCHOR[f.stat] || null;
-    return GAP.FINDING_ANCHOR[f.key] || null;
+    // v4: FINDING_ANCHOR retired from vet-gap.js with the completeness guard (Task 8 removes this
+    // whole function); guard the lookup so a live caller through server.js degrades to "no anchor"
+    // instead of throwing, until anchorOf itself goes away.
+    return (GAP.FINDING_ANCHOR && GAP.FINDING_ANCHOR[f.key]) || null;
 }
 function completeReply(text, facts) {
     const findings = facts && facts.overall && Array.isArray(facts.overall.findings) ? facts.overall.findings : [];
@@ -1378,4 +1377,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, ROLE_STATS, STAT_LABEL, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, completeReply, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };

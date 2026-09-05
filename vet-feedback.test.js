@@ -599,12 +599,6 @@ test('killFindings (final review item 5): the grouped line already names the pot
     delete noRefPotion.reference.casts.Destruction;
     assert.ok(F.killFindings(noRefPotion, PLAYER).some(x => x.key === 'no_potion'));
 });
-test('completeReply (final review item 5): a reply naming the first ability of a grouped line has not dropped it', () => {
-    const grouped = { key: 'ability_unused', ability: 'Curse of Doom', abilities: ['Curse of Doom', 'Shadowburn', 'Destruction'],
-                      text: 'Never cast on TestBoss: Curse of Doom (comparable players 0.5/min), Shadowburn (0.5/min); never used Destruction Potion (0.5/min)' };
-    assert.deepStrictEqual(F.completeReply('Add Curse of Doom to your opener.', { overall: { findings: [grouped] } }).appended, []);
-    assert.deepStrictEqual(F.completeReply('Nice work.', { overall: { findings: [grouped] } }).appended, [grouped.text]);
-});
 test('killFindings (final review item 6): one line per stat topic — the accounting line replaces the stat line that repeats it', () => {
     const k = killFor(50619);
     assert.ok(k.findings.some(f => f.key === 'crit_gear'), 'fixture sanity: the accounting reports crit from gear');
@@ -638,20 +632,6 @@ test('killFindings (final review item 9): the group ask is one line — the acco
     assert.ok(clone.findings.some(f => f.key === 'debuffs'), JSON.stringify(clone.findings.map(f => f.key)));
     assert.ok(!clone.findings.some(f => f.key === 'debuff_missing'), JSON.stringify(clone.findings.map(f => f.key)));
     assert.ok(/missing: Misery, Shadow Weaving/.test(clone.findings.find(f => f.key === 'debuffs').text), clone.findings.find(f => f.key === 'debuffs').text);
-});
-test('completeReply (final review item 10): the phrasings a live note actually used are accepted, and the round-1/3 repros still append', () => {
-    const withFindings = findings => ({ overall: { findings } });
-    const debuffs = { key: 'debuffs', me: 1.1, reference: 1.21, text: 'Raid debuffs on Morogrim Tidewalker multiplied damage by 1.1 against 1.21 for the reference raid.' };
-    assert.deepStrictEqual(F.completeReply('Please provide the Morogrim debuffs: your multiplier was 1.1 versus 1.21, worth 11%.', withFindings([debuffs])).appended, []);
-    const critBuffs = { key: 'crit_buffs', me: 0, reference: 7, text: 'Crit from party buffs 0% against 7%.' };
-    assert.deepStrictEqual(F.completeReply('Please provide party crit buffs: 0% versus 7%.', withFindings([critBuffs])).appended, []);
-    const powerBuffs = { key: 'power_buffs', me: 0, reference: 40, text: '40 spell power from party buffs; you had 0.' };
-    assert.deepStrictEqual(F.completeReply('Please provide party spell power buffs: 0 versus 40.', withFindings([powerBuffs])).appended, []);
-    // Fix round 1/3 repros: a reply that never mentions the finding still appends it.
-    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
-    assert.deepStrictEqual(F.completeReply('You died 6 times less than last week.', withFindings([channel])).appended, [channel.text]);
-    assert.deepStrictEqual(F.completeReply('You are missing 1 debuff; the raid needs 2 more uptime on it.', withFindings([debuffs])).appended, [debuffs.text]);
-    assert.deepStrictEqual(F.completeReply('5 of 7 pulls', withFindings([{ key: 'crit_buffs', me: 5, reference: 7, text: 'Crit from party buffs 5% against 7%.' }])).appended.length, 1);
 });
 test('uptimeFindings: a death before 90% of the fight is major; on a pull with an accounting, activity is an input rather than a finding', () => {
     const base = killFor(50619);
@@ -1096,146 +1076,6 @@ test('buildPrompt (final review item 2): the model is told that a share of null 
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const p = F.buildPrompt(facts, RULES);
     assert.ok(/share is null/.test(p.system), p.system);
-});
-test('completeReply (v3): findings the model left out are appended under "Also:"; nothing appended when all are present', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const all = facts.overall.findings;
-    assert.ok(all.length >= 5);
-    const full = all.map(f => f.text).join(' ');
-    assert.deepStrictEqual(F.completeReply(full, facts).appended, []);
-    const partial = all.slice(1).map(f => f.text).join(' ');
-    const r = F.completeReply(partial, facts);
-    assert.deepStrictEqual(r.appended, [all[0].text]);
-    assert.ok(r.text.endsWith('\n\nAlso:\n' + all[0].text));
-    const facts2 = Object.assign({}, facts, { overall: Object.assign({}, facts.overall, { findings: [{ key: 'no_food', text: 'No food buff at the Anetheron pull', me: null }] }) });
-    assert.deepStrictEqual(F.completeReply('You had no food on the pull.', facts2).appended, [], 'the anchor word is enough for a finding without a number');
-    assert.deepStrictEqual(F.completeReply('Nice work.', facts2).appended, ['No food buff at the Anetheron pull']);
-});
-test('completeReply (fix round 1): both of a finding\'s numbers must appear, and a finding\'s own token beats a generic key-level anchor', () => {
-    const withFindings = findings => ({ overall: { findings } });
-
-    // Review repro 1: a channel_time finding's headline number (me: 6) was satisfied by an
-    // unrelated "6" elsewhere in the reply, and its reference (0) was never checked at all.
-    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
-    assert.deepStrictEqual(F.completeReply('You died 6 times less than last week.', withFindings([channel])).appended, [channel.text]);
-    assert.deepStrictEqual(F.completeReply('You are channelling 6 seconds a minute; comparable players do about 0.', withFindings([channel])).appended, []);
-
-    // Review repro 2: ability_extra/ability_ratio both anchored on the generic word "comparable",
-    // which appears in almost any reply. A finding carrying its own `ability` field now anchors on
-    // that ability name instead of the key-level fallback.
-    const drainSoul = { key: 'ability_extra', ability: 'Drain Soul', text: 'Cast Drain Soul 7 times on Anetheron; comparable players do not use it' };
-    assert.deepStrictEqual(F.completeReply('Your crit rating is 222 against the 345 comparable players carry.', withFindings([drainSoul])).appended, [drainSoul.text]);
-    assert.deepStrictEqual(F.completeReply('You cast Drain Soul seven times.', withFindings([drainSoul])).appended, [], 'anchor \'Drain Soul\'');
-
-    // A finding with two real numbers, both above the small-number threshold: both numbers must
-    // appear; either one missing means the finding was dropped, regardless of its anchor.
-    const powerGear = { key: 'power_gear', me: 846, reference: 1004, text: 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses.' };
-    assert.deepStrictEqual(F.completeReply('846 against 1004', withFindings([powerGear])).appended, []);
-    assert.deepStrictEqual(F.completeReply('846 spell power', withFindings([powerGear])).appended, [powerGear.text], 'reference missing');
-});
-test('completeReply (fix round 2): the gap-accounting keys now have their own anchor, so a small number on one of them still needs it', () => {
-    const withFindings = findings => ({ overall: { findings } });
-
-    // crit_buffs 5 vs 7: both numbers are small, so its anchor ('party buffs') is required in
-    // addition — a reply that merely contains "5" and "7" for an unrelated reason is not enough.
-    const critBuffs = { key: 'crit_buffs', me: 5, reference: 7, text: 'Crit from party buffs 5% against 7% for players at your item level among the top 2000 parses.' };
-    assert.deepStrictEqual(F.completeReply('5 of 7 pulls', withFindings([critBuffs])).appended, [critBuffs.text]);
-    assert.deepStrictEqual(F.completeReply('crit from party buffs 5% against 7%', withFindings([critBuffs])).appended, []);
-
-    // gear_stat findings share one key across every stat; anchorOf must read `f.stat` to find the
-    // right word (STAT_ANCHOR.spellHaste = 'haste rating') rather than falling through to the
-    // unknown-key waiver, which would let "0" and "80" match anything nearby.
-    const spellHaste = { key: 'gear_stat', stat: 'spellHaste', me: 0, reference: 80, text: 'Spell haste rating 0 against 80 for players at your item level among the top 2000 parses.' };
-    assert.deepStrictEqual(F.completeReply('0 deaths, 80% active', withFindings([spellHaste])).appended, [spellHaste.text]);
-});
-test('completeReply (fix round 3): a small number needs its literal figure, not a loose +/-1 match; the debuffs anchor is specific, channel_time takes any spelling', () => {
-    const withFindings = findings => ({ overall: { findings } });
-
-    // Review repro: debuffs' me/reference are a damage multiplier near 1.0 (1.1 vs 1.15); the old
-    // +/-1-or-round tolerance treated almost any 0/1/2 digit in the reply as "1" or "1", and the
-    // generic 'debuff' anchor was satisfied by any unrelated debuff sentence.
-    const debuffs = { key: 'debuffs', me: 1.1, reference: 1.15, text: 'Raid debuffs on Anetheron multiplied damage by 1.1 against 1.15 for the reference raid.' };
-    assert.deepStrictEqual(F.completeReply('You are missing 1 debuff; the raid needs 2 more uptime on it.', withFindings([debuffs])).appended, [debuffs.text]);
-    assert.deepStrictEqual(F.completeReply('Raid debuffs multiplied damage by 1.1 against 1.15.', withFindings([debuffs])).appended, []);
-
-    // 'hannelling' rejected the standard single-L spelling; 'hannel' matches channel/channeling/
-    // channelling alike.
-    const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
-    assert.deepStrictEqual(F.completeReply('You are channeling 6 seconds a minute (comparable players 0).', withFindings([channel])).appended, []);
-});
-test('completeReply (fix round 3): every STAT_ANCHOR stat is recognised in the real text statPriorityFindings produces for it', () => {
-    // Mirrors vet-feedback.js's internal STAT_ANCHOR keys (not exported — this list is the same
-    // eleven stats STAT_PRIORITY ever puts under a gear_stat finding).
-    const CASES = [
-        ['spellHit', 'Destruction', 'caster'], ['spellDamage', 'Destruction', 'caster'], ['spellCrit', 'Destruction', 'caster'], ['spellHaste', 'Destruction', 'caster'],
-        ['meleeHit', 'Combat', 'melee'], ['expertise', 'Combat', 'melee'], ['attackPower', 'Combat', 'melee'], ['meleeCrit', 'Combat', 'melee'], ['meleeHaste', 'Combat', 'melee'],
-        ['rangedAttackPower', 'BeastMastery', 'ranged'], ['rangedCrit', 'BeastMastery', 'ranged'],
-    ];
-    CASES.forEach(([stat, spec, role]) => {
-        const order = G.STAT_PRIORITY[spec];
-        const me = {}, reference = {};
-        order.forEach(s => { reference[s] = 100; me[s] = s === stat ? 0 : 1000; });
-        const found = G.statPriorityFindings({ me, reference, spec, role, boss: 'TestBoss' }).find(f => f.stat === stat);
-        assert.ok(found, stat + ' produced no finding for ' + spec);
-        const gearStat = { key: 'gear_stat', stat, me: found.me, reference: found.reference, text: found.text };
-        assert.deepStrictEqual(F.completeReply(found.text, { overall: { findings: [gearStat] } }).appended, [], stat + ': ' + found.text);
-    });
-});
-test('completeReply (fix round 3): every gear_<key> anchor matches the real text gearFindings emits for that key', () => {
-    ['gs', 'ilvl', 'hit', 'expertise', 'defense'].forEach(key => {
-        const text = F.GEAR_LABEL[key] + ' 1 against the 2 the raid asks for';
-        const gearFinding = { key: 'gear_' + key, me: 1, reference: 2, text };
-        assert.deepStrictEqual(F.completeReply(text, { overall: { findings: [gearFinding] } }).appended, [], key + ': ' + text);
-    });
-});
-test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
-    const good = 'Rotminster, Destruction warlock, BT/Hyjal, median parse 14.\n1. Crit: your Shadow Bolts crit 26% of the time; comparable players crit 59%. Your crit rating is 222 against 345.\n2. Shadow Bolt hit for 3,087 against 4215.\nWhat\'s fine: active 92%, no deaths.';
-    assert.deepStrictEqual(F.checkNumbers(good, facts), { ok: true, foreign: [] });
-    const bad = good + '\nAim for 7777 DPS next week.';
-    const r = F.checkNumbers(bad, facts);
-    assert.strictEqual(r.ok, false);
-    assert.deepStrictEqual(r.foreign, [7777]);
-    assert.strictEqual(F.checkNumbers('Three things, in 2 groups of 5.', facts).ok, true);
-});
-test('checkNumbers (Important 7): empty reply, a reply with no digits, and a rounded fact +/-1 exactly', () => {
-    assert.deepStrictEqual(F.checkNumbers('', { a: 91.6 }), { ok: true, foreign: [] });
-    assert.deepStrictEqual(F.checkNumbers('Great work out there, no numbers needed.', { a: 91.6 }), { ok: true, foreign: [] });
-    // Widening 1: the old composed tolerance ({round,floor,ceil} of the fact vs {r-1,r,r+1} of the
-    // reply) let a reply of 93 pass against a fact of 91.6 (a 1.4 gap, from rounding both sides).
-    // Spec 5.2 wants a strict +/-1 against the raw fact, so this must now fail.
-    const r = F.checkNumbers('score 93', { a: 91.6 });
-    assert.strictEqual(r.ok, false, JSON.stringify(r));
-    assert.deepStrictEqual(r.foreign, [93]);
-    // A reply within +/-1 of the raw fact still passes.
-    assert.deepStrictEqual(F.checkNumbers('score 92', { a: 91.6 }), { ok: true, foreign: [] });
-});
-test('checkNumbers (Important 7): facts are read from real numbers, not harvested out of JSON strings', () => {
-    const facts = { reportCode: 'BcZWRDk2PXaYghpC', wclUrl: 'https://classic.warcraftlogs.com/reports/x#fight=57&source=12', date: '2026-08-30', amount: 50 };
-    // Old code ran numbersIn() over JSON.stringify(facts), which pulls digits out of the report
-    // code ("...Dk2..." -> 2), the URL ("fight=57&source=12" -> 57, 12) and the date (2026, 8, 30).
-    // None of those are real facts, so a reply inventing 2026 or 57 must still be rejected.
-    const r = F.checkNumbers('Aim to hit 2026 next time, or at least 57.', facts);
-    assert.strictEqual(r.ok, false, JSON.stringify(r));
-    assert.deepStrictEqual(r.foreign.sort((a, b) => a - b), [57, 2026]);
-    assert.strictEqual(F.checkNumbers('You did 50 last time.', facts).ok, true);
-});
-test('checkNumbers (v2 Task 9 fix): numbers inside finding texts and ISO date components are facts; other strings still are not', () => {
-    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false, night: { code: 'X', date: '2026-09-04', medianPercent: 22 }, nights: [] });
-    facts.gear = Object.assign({}, facts.gear, { findings: [{ key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 188 against the 202 the raid asks for' }] });
-    assert.strictEqual(F.checkNumbers('Hit rating 188 against the 202 the raid asks for.', facts).ok, true, 'a threshold that lives only in a finding text');
-    assert.strictEqual(F.checkNumbers('Raid night of 4 September 2026.', facts).ok, true, 'a date component from night.date');
-    assert.strictEqual(F.checkNumbers('On ' + killFor(50619).date.slice(0, 4) + '-' + killFor(50619).date.slice(5, 7) + ' you pulled it.', facts).ok, true, 'year and month from a kill date');
-    // killFor(50619).fightId (57) cannot demonstrate the wclUrl-leak guard on the full `facts`
-    // object above: fightId is ALSO a genuine field in its own right (see the killFacts test
-    // "identity, url, me, and the player-side findings"), so 57 is a real fact independent of
-    // wclUrl, and the fixture is dense enough that even the source id (12) sits within +/-1 of an
-    // unrelated real stat (Shadow Bolt resistPercent 11.9). Isolate the invariant instead: the
-    // real wclUrl string, alone, must not leak the fight/source ids it encodes.
-    const wclUrl = killFor(50619).wclUrl;
-    assert.ok(/fight=57&source=12/.test(wclUrl), wclUrl);
-    assert.strictEqual(F.checkNumbers('Fight 57 was fine.', { kills: [{ wclUrl }] }).ok, false, 'a wclUrl fight id must not become an acceptable number');
-    assert.strictEqual(F.checkNumbers('Sourced from 12.', { kills: [{ wclUrl }] }).ok, false, 'a wclUrl source id must not become an acceptable number');
 });
 
 // --- v2 Task 1: leaderboard geometry (spec v2 §3)
@@ -1750,6 +1590,15 @@ test('fightContext (v4 §3): fight.sameClass lists every same-class player row b
         { name: 'Cartis', amount: 1372, isMe: false }, { name: 'Lovestoned', amount: 1363, isMe: true }, { name: 'Xeasha', amount: 1319, isMe: false },
     ]);
     assert.deepStrictEqual(F.fightContext(ctx, 'Lovestoned', 'caster', null, 'dps', 'Void Reaver').fight.sameClass, [], 'no class token: empty');
+});
+
+test('gearFindings (v4): every row carries the measured value and the bar it was judged against', () => {
+    const profile = { name: 'X', gear: [], gearSummary: { gearScore: 1900, avgItemLevel: 126, emptySockets: 0 }, computed: { spellHit: 185 }, parses: null, identity: { role: 'caster', class: 'WARLOCK', spec: 'Destruction' } };
+    const rows = F.gearFindings(profile, { spellHit: 202 }, Date.now());
+    const hit = rows.find(r => r.key === 'gear_hit');
+    assert.ok(hit, 'a hit row is emitted for 185 against 202');
+    assert.strictEqual(hit.value, 185);
+    assert.strictEqual(hit.bar, 202);
 });
 
 Promise.all(pending).then(() => {

@@ -93,40 +93,6 @@ const PHASE_BOSSES = {
 // Fraction of a fight's damage a properly timed burst is worth (spec v3 §3.5).
 const BURST_VALUE = { default: 0.02, Destruction: 0.03, Haste: 0.03 };
 
-// A word the note must contain for each finding without a headline number (completeness guard).
-const FINDING_ANCHOR = {
-    no_flask_or_elixirs: 'flask', wrong_elixir: 'flask', no_food: 'food', no_oil: 'oil', no_potion: 'potion', died: 'died',
-    buffs_missing: 'grouped', debuff_missing: 'debuff', bloodlust_uptime: 'Bloodlust', gear_enchants: 'enchant', gear_sockets: 'socket',
-    burst_outside_bloodlust: 'Bloodlust', ability_unused: 'Never', ability_extra: 'do not use it', ability_ratio: 'times a minute',
-    raid_activity: 'phases', cast_pacing: 'between casts', debuff_uptime_low: 'keep it up',
-    // Fix round 2: the gap-accounting keys (gapFindings/gapText) had no anchor at all, so a small
-    // me/reference on one of them (crit_buffs 5 vs 7, power_consumables 0 vs 103, ...) could never
-    // be judged present. Each phrase below is verified against the literal text gapText() builds
-    // for that key (case-insensitive substring).
-    // Fix round 4 (final review item 10): an anchor may be a LIST, and any one of its phrases
-    // counts. The single-phrase anchors were rejecting notes that said the finding perfectly well
-    // in other words — "party buffs" missed "Please provide party crit buffs", "multiplied damage"
-    // missed "your multiplier was 1.1 versus 1.21" — and every such miss re-printed the finding
-    // verbatim under "Also:" beside the paragraph that already made the point.
-    own_activity: ['active', 'uptime'], hit_under_cap: 'Hit rating', power_gear: 'from gear',
-    power_consumables: ['flask', 'elixir', 'oil', 'food', 'consumable'], power_buffs: ['party', 'group'],
-    rotation: ['per cast', 'damage per'], crit_gear: 'from gear', crit_buffs: ['party', 'group'],
-    // Fix round 3: 'debuff' was too generic — any unrelated "debuff missing" sentence satisfied a
-    // debuffs finding whose me/reference (a damage multiplier near 1.0, e.g. 1.1 vs 1.15) also
-    // slipped past the number check's old +/-1 tolerance. 'multiplied damage' is the phrase
-    // gapText() actually uses for this key. 'hannelling' also rejected the standard single-L
-    // spelling ("channeling"); 'hannel' matches channel/channeling/channelling alike.
-    debuffs: ['multipl', 'debuff'], channel_time: 'hannel',
-    // Final review item 5: the curse family is reported as one assignment question.
-    curse_choice: 'assignment',
-    // Fix round 3: gearFindings' gear_<key> findings (vet-feedback.js GEAR_LABEL) had no anchor at
-    // all beyond gear_enchants/gear_sockets, so they fell to a verbatim body.includes(f.text)
-    // check. Each phrase is a lowercase substring of the label gearFindings actually writes:
-    // GEAR_LABEL = { gs: 'GearScore', ilvl: 'Average item level', hit: 'Hit rating',
-    // expertise: 'Expertise', defense: 'Defense', enchants: 'Missing enchants', sockets: 'Empty
-    // sockets' }.
-    gear_gs: 'gearscore', gear_ilvl: 'item level', gear_hit: 'hit rating', gear_expertise: 'expertise', gear_defense: 'defense',
-};
 
 // Final review item 11: Math.round of a tiny negative log is -0, which JSON.stringify writes as
 // 0 but Object.is tells apart and a strict test would catch; `|| 0` normalises -0 (and any NaN a
@@ -435,4 +401,10 @@ function averageGap(kills) {
     return { casts: avg('casts'), dmg: avg('dmg'), crit: avg('crit'), residual: avg('residual') };
 }
 
-module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, FINDING_ANCHOR, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier, explainGap, averageGap, REF_LABEL, gapFindings, statPriorityFindings };
+// v4: cast-name tables shared by the findings (vet-feedback.js) and the checklist (vet-checklist.js).
+const POTION_LABEL = { Destruction: 'Destruction Potion', Haste: 'Haste Potion', 'Insane Strength': 'Insane Strength Potion' };
+const UTILITY_CAST = /life tap|healthstone|bandage|first aid|cannibalize|soulstone|soulshatter|rune$|potion|drain soul|^create |^summon |armor$|resurrection|^restore mana$/i;
+const RACIAL = /blood fury|berserking|arcane torrent|stoneform|will of the forsaken|war stomp|escape artist|perception|shadowmeld|gift of the naaru/i;
+const ENCOUNTER_ITEM = /mental protection field|staff of disintegration|phaseshift bulwark|netherstrand longbow|infinity blade|warp slicer|cosmic infuser/i;
+
+module.exports = { C, BUFF_VALUES, DEBUFF_MULT, CHANNEL_UTILITY, STAT_PRIORITY, PHASE_BOSSES, BURST_VALUE, POTION_LABEL, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, share, splitLog, expectedCrit, powerParts, channelSeconds, damagingCastStats, debuffMultiplier, explainGap, averageGap, REF_LABEL, gapFindings, statPriorityFindings };
