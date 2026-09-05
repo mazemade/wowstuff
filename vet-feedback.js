@@ -885,11 +885,17 @@ function collectFactNumbers(value, out, path) {
 // key-level FINDING_ANCHOR fallback, and every one of a finding's numbers (me AND reference, not
 // just me) must appear — with the anchor required in addition whenever any of those numbers is
 // small enough (<=10) to plausibly appear by coincidence.
+// Fix round 2: gear_stat findings (statPriorityFindings) carry no ability/buffs/debuffs/debuff
+// field and share one key ('gear_stat') across every stat, so FINDING_ANCHOR can't tell them
+// apart; STAT_ANCHOR maps the finding's own `stat` to the word STAT_TEXT (vet-gap.js) actually put
+// in its text, checked before the shared table lookup.
+const STAT_ANCHOR = { spellHit: 'Hit rating', meleeHit: 'Hit rating', expertise: 'Expertise', spellDamage: 'power from gear', attackPower: 'power from gear', rangedAttackPower: 'power from gear', spellCrit: 'crit rating', meleeCrit: 'Crit rating', rangedCrit: 'Crit rating', spellHaste: 'haste rating', meleeHaste: 'Haste rating' };
 function anchorOf(f) {
     if (f.ability) return f.ability;
     if (Array.isArray(f.buffs) && f.buffs[0]) return f.buffs[0];
     if (Array.isArray(f.debuffs) && f.debuffs[0]) return f.debuffs[0];
     if (f.debuff) return f.debuff;
+    if (f.key === 'gear_stat' && f.stat) return STAT_ANCHOR[f.stat] || null;
     return GAP.FINDING_ANCHOR[f.key] || null;
 }
 function completeReply(text, facts) {
@@ -901,14 +907,12 @@ function completeReply(text, facts) {
         const anchor = anchorOf(f);
         const anchorPresent = anchor ? body.toLowerCase().includes(String(anchor).toLowerCase()) : false;
         const nums = [f.me, f.reference].filter(x => typeof x === 'number');
-        // Some gap-accounting findings (crit_buffs, power_buffs, power_gear, power_consumables,
-        // crit_gear, own_activity, hit_under_cap, gear_stat) carry no distinctive token at all —
-        // no ability/buffs/debuffs/debuff field and no FINDING_ANCHOR entry — and their numbers
-        // are routinely small (a 0% buff contribution is the common case, not the exception). With
-        // no anchor to require, the small-number safety net has nothing to check against, so it is
-        // skipped rather than making such a finding impossible to ever match: both of its numbers
-        // (me AND reference, not just one) already have to appear, which is the guard the review
-        // actually asked for.
+        // Fix round 2: every key gapFindings/statPriorityFindings can emit now has an anchor
+        // (FINDING_ANCHOR or STAT_ANCHOR above), so `!anchor` here is reached only for a key
+        // nobody has taught this guard about yet — a genuinely unknown finding shape, not the
+        // gap-accounting keys the round-1 waiver was covering for (crit_buffs, power_gear, ...).
+        // Numbers still both have to appear in that case; the waiver only skips the extra
+        // small-number-needs-an-anchor check when there is structurally no anchor to check.
         if (nums.length) return nums.every(numPresent) && (!anchor || nums.every(x => Math.abs(x) > 10) || anchorPresent);
         return anchor ? anchorPresent : body.includes(f.text);
     };

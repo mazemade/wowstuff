@@ -98,7 +98,13 @@ const FINDING_ANCHOR = {
     no_flask_or_elixirs: 'flask', wrong_elixir: 'flask', no_food: 'food', no_oil: 'oil', no_potion: 'potion', died: 'died',
     buffs_missing: 'grouped', debuff_missing: 'debuff', bloodlust_uptime: 'Bloodlust', gear_enchants: 'enchant', gear_sockets: 'socket',
     burst_outside_bloodlust: 'Bloodlust', ability_unused: 'Never', ability_extra: 'do not use it', ability_ratio: 'times a minute',
-    raid_activity: 'phases', channel_time: 'channel', cast_pacing: 'between casts', debuff_uptime_low: 'keep it up',
+    raid_activity: 'phases', channel_time: 'hannelling', cast_pacing: 'between casts', debuff_uptime_low: 'keep it up',
+    // Fix round 2: the gap-accounting keys (gapFindings/gapText) had no anchor at all, so a small
+    // me/reference on one of them (crit_buffs 5 vs 7, power_consumables 0 vs 103, ...) could never
+    // be judged present. Each phrase below is verified against the literal text gapText() builds
+    // for that key (case-insensitive substring).
+    own_activity: 'Active', hit_under_cap: 'Hit rating', debuffs: 'debuff', power_gear: 'from gear',
+    power_consumables: 'oil and food', power_buffs: 'party buffs', rotation: 'per cast', crit_gear: 'from gear', crit_buffs: 'party buffs',
 };
 
 function share(logValue, G) { return G > 0 ? Math.round(100 * logValue / G) : 0; }

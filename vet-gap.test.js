@@ -234,6 +234,25 @@ test('statPriorityFindings: hit under the cap hides the stats below it; at the c
     assert.strictEqual(capped[0].text, 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses');
     assert.deepStrictEqual(G.statPriorityFindings({ me, reference: null, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'X' }), []);
 });
+test('FINDING_ANCHOR (fix round 2): every key gapFindings can emit has an anchor phrase that is actually in its own text', () => {
+    const KEYS = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_buffs'];
+    KEYS.forEach(k => assert.ok(k in G.FINDING_ANCHOR, k + ' has no anchor'));
+    // gapText isn't exported, so drive every key through the real, exported gapFindings entry
+    // point instead (a hand-built gap with one input per key, all above minShare) rather than
+    // relying only on whichever keys the pull() fixture happens to produce.
+    const mk = (key, me, reference) => ({ key, owner: 'player', share: 20, me, reference });
+    const gap = { factors: {
+        casts: { inputs: [mk('raid_activity', 70, 92), mk('own_activity', 85, 92), mk('channel_time', 6, 0), mk('cast_pacing', 25, 30)] },
+        dmg: { inputs: [mk('hit_under_cap', 250, 300), mk('debuffs', 1.1, 1.15), mk('power_gear', 800, 1000), mk('power_consumables', 50, 103), mk('power_buffs', 40, 60), mk('rotation', 500, 600)] },
+        crit: { inputs: [mk('crit_gear', 10, 20), mk('crit_buffs', 5, 7)] },
+    } };
+    const findings = G.gapFindings({ name: 'TestBoss', gap }, { role: 'caster' }, { minShare: 3 });
+    assert.strictEqual(findings.length, KEYS.length, 'every key produced a finding: ' + findings.map(f => f.key).join());
+    findings.forEach(f => {
+        const anchor = G.FINDING_ANCHOR[f.key];
+        assert.ok(f.text.toLowerCase().includes(anchor.toLowerCase()), f.key + ': anchor "' + anchor + '" not in "' + f.text + '"');
+    });
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

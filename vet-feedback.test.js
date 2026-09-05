@@ -870,7 +870,7 @@ test('completeReply (fix round 1): both of a finding\'s numbers must appear, and
     // unrelated "6" elsewhere in the reply, and its reference (0) was never checked at all.
     const channel = { key: 'channel_time', me: 6, reference: 0, text: 'Channelling Drain Soul and other utility 6 seconds of every minute on Anetheron; comparable players 0.' };
     assert.deepStrictEqual(F.completeReply('You died 6 times less than last week.', withFindings([channel])).appended, [channel.text]);
-    assert.deepStrictEqual(F.completeReply('You channel 6 seconds a minute; comparable players channel about 0.', withFindings([channel])).appended, []);
+    assert.deepStrictEqual(F.completeReply('You are channelling 6 seconds a minute; comparable players do about 0.', withFindings([channel])).appended, []);
 
     // Review repro 2: ability_extra/ability_ratio both anchored on the generic word "comparable",
     // which appears in almost any reply. A finding carrying its own `ability` field now anchors on
@@ -879,11 +879,26 @@ test('completeReply (fix round 1): both of a finding\'s numbers must appear, and
     assert.deepStrictEqual(F.completeReply('Your crit rating is 222 against the 345 comparable players carry.', withFindings([drainSoul])).appended, [drainSoul.text]);
     assert.deepStrictEqual(F.completeReply('You cast Drain Soul seven times.', withFindings([drainSoul])).appended, [], 'anchor \'Drain Soul\'');
 
-    // A finding with two real numbers and no anchor at all (power_gear, crit_buffs, ...): both
-    // numbers must appear; either one missing means the finding was dropped.
+    // A finding with two real numbers, both above the small-number threshold: both numbers must
+    // appear; either one missing means the finding was dropped, regardless of its anchor.
     const powerGear = { key: 'power_gear', me: 846, reference: 1004, text: 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses.' };
     assert.deepStrictEqual(F.completeReply('846 against 1004', withFindings([powerGear])).appended, []);
     assert.deepStrictEqual(F.completeReply('846 spell power', withFindings([powerGear])).appended, [powerGear.text], 'reference missing');
+});
+test('completeReply (fix round 2): the gap-accounting keys now have their own anchor, so a small number on one of them still needs it', () => {
+    const withFindings = findings => ({ overall: { findings } });
+
+    // crit_buffs 5 vs 7: both numbers are small, so its anchor ('party buffs') is required in
+    // addition — a reply that merely contains "5" and "7" for an unrelated reason is not enough.
+    const critBuffs = { key: 'crit_buffs', me: 5, reference: 7, text: 'Crit from party buffs 5% against 7% for players at your item level among the top 2000 parses.' };
+    assert.deepStrictEqual(F.completeReply('5 of 7 pulls', withFindings([critBuffs])).appended, [critBuffs.text]);
+    assert.deepStrictEqual(F.completeReply('crit from party buffs 5% against 7%', withFindings([critBuffs])).appended, []);
+
+    // gear_stat findings share one key across every stat; anchorOf must read `f.stat` to find the
+    // right word (STAT_ANCHOR.spellHaste = 'haste rating') rather than falling through to the
+    // unknown-key waiver, which would let "0" and "80" match anything nearby.
+    const spellHaste = { key: 'gear_stat', stat: 'spellHaste', me: 0, reference: 80, text: 'Spell haste rating 0 against 80 for players at your item level among the top 2000 parses.' };
+    assert.deepStrictEqual(F.completeReply('0 deaths, 80% active', withFindings([spellHaste])).appended, [spellHaste.text]);
 });
 test('checkNumbers: figures from the sheet pass with rounding, foreign figures fail, small numbers ignored', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
