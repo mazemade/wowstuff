@@ -685,6 +685,14 @@ function buildFacts(o) {
     // nested inside it — so the deletes here were no-ops and the paired test assertion passed
     // vacuously. Removed both; `slim` is still a shallow copy so callers cannot mutate `kills`.
     const slim = kills.map(k => Object.assign({}, k, { me: Object.assign({}, k.me) }));
+
+    // v2 §7: where the player stands on their two worst live pulls — their number, the
+    // benchmark, and the band's best — so the ceiling is a fact, not the model's discretion.
+    const pct = k => (k.rankPercent == null ? 101 : k.rankPercent);
+    const ceiling = slim.filter(k => !k.fight.badPull && k.reference && typeof k.reference.topDps === 'number')
+        .sort((a, b) => pct(a) - pct(b)).slice(0, 2)
+        .map(k => ({ name: k.name, date: k.date, me: k.me.amount, dps: k.reference.dps, topDps: k.reference.topDps }));
+
     return {
         player: { name: profile.name, class: player.classToken, spec: player.spec, role: player.role, metric: profile.parses.metric,
                   itemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null, gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null,
@@ -700,7 +708,7 @@ function buildFacts(o) {
             // as a GraphQL error rather than `report: null`), so the page can say why a boss the
             // player killed is missing from the sheet rather than silently having fewer kills.
             droppedKills: droppedKills || [],
-            findings: mergeFindings(slim, gear), positives: positives(slim, player.role),
+            findings: mergeFindings(slim, gear), positives: positives(slim, player.role), ceiling,
         },
         limited: !!limited,
         nights: Array.isArray(o.nights) ? o.nights : [],
@@ -769,8 +777,9 @@ function buildPrompt(facts, rulesLines) {
         // Minor 14: a bad-pull-only player has empty overall.findings and overall.positives, yet
         // the old wording ordered these sections unconditionally, producing a heading with nothing
         // under it. Each section now says explicitly to skip itself when its source array is empty.
-        '2. If overall.findings is not empty, a line "' + holdingBack + '", then overall.findings biggest first, at most 5, each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix. If overall.findings is empty, skip this section entirely.',
+        '2. If overall.findings is not empty, a line "' + holdingBack + '", then every entry of overall.findings, in that order (it holds at most 6; do not drop any), each as one short paragraph: what it is, your measured number next to the comparable-player number, one concrete fix. If overall.findings is empty, skip this section entirely.',
         '3. If overall.positives is not empty, a line "What\'s fine", then one or two sentences built from overall.positives. If overall.positives is empty, skip this section entirely.',
+        '3b. If overall.ceiling is not empty, a line "Where you stand", then one line per entry: your number (me), what players at your item level around the middle do (dps), and what the best at your item level reach (topDps) on that boss. If overall.ceiling is empty, skip this section entirely.',
         '4. If overall.badPulls is not empty, a line "Not on you", then one line per bad pull with its reason.',
         'Under 350 words.',
         facts && facts.limited ? 'This player is a healer: the sheet has no per-cast comparison, so write only about uptime, deaths, consumables, buffs and gear.' : '',

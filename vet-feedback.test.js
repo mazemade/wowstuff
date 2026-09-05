@@ -655,6 +655,20 @@ test('positives: dedupes and aggregates across a full roster instead of repeatin
 
 // --- Task 7: prompt and number guard
 const RULES = ['- Bloodlust/Heroism is RAID-wide.', '- Everything else is party-scoped.'];
+test('buildFacts / buildPrompt (v2 §7): the two worst live pulls with a ceiling reach the sheet; the prompt asks for every finding and a "Where you stand" line', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const ref = refFor(50619);
+    assert.deepStrictEqual(facts.overall.ceiling, [{ name: 'Anetheron', date: killFor(50619).date, me: 1300.7, dps: ref.dps, topDps: ref.topDps }], 'Kaz\'rogal is a bad pull and stays out');
+    const three = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619), Object.assign({}, killFor(50619), { name: 'B', rankPercent: 10 }), Object.assign({}, killFor(50619), { name: 'C', rankPercent: 50 })], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(three.overall.ceiling.map(c => c.name), ['B', 'Anetheron'], 'lowest rankPercent first, capped at two');
+    const none = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [Object.assign({}, killFor(50619), { reference: null })], thresholds: {}, now: Date.now(), limited: false });
+    assert.deepStrictEqual(none.overall.ceiling, []);
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/every entry of overall\.findings/.test(p.system) && /do not drop any/.test(p.system), p.system);
+    assert.ok(/3b\. If overall\.ceiling is not empty/.test(p.system) && /Where you stand/.test(p.system), p.system);
+    assert.ok(!/at most 5/.test(p.system));
+    assert.strictEqual(F.checkNumbers('Where you stand: on Anetheron you did ' + Math.round(facts.overall.ceiling[0].me) + ' against ' + ref.dps + ' typical and ' + ref.topDps + ' at best.', facts).ok, true);
+});
 test('buildPrompt: facts-only rules, structure, Anniversary lines, healer note only when limited', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     const p = F.buildPrompt(facts, RULES);
