@@ -737,6 +737,23 @@ test('checkNumbers (Important 7): facts are read from real numbers, not harveste
     assert.deepStrictEqual(r.foreign.sort((a, b) => a - b), [57, 2026]);
     assert.strictEqual(F.checkNumbers('You did 50 last time.', facts).ok, true);
 });
+test('checkNumbers (v2 Task 9 fix): numbers inside finding texts and ISO date components are facts; other strings still are not', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false, night: { code: 'X', date: '2026-09-04', medianPercent: 22 }, nights: [] });
+    facts.gear = Object.assign({}, facts.gear, { findings: [{ key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 188 against the 202 the raid asks for' }] });
+    assert.strictEqual(F.checkNumbers('Hit rating 188 against the 202 the raid asks for.', facts).ok, true, 'a threshold that lives only in a finding text');
+    assert.strictEqual(F.checkNumbers('Raid night of 4 September 2026.', facts).ok, true, 'a date component from night.date');
+    assert.strictEqual(F.checkNumbers('On ' + killFor(50619).date.slice(0, 4) + '-' + killFor(50619).date.slice(5, 7) + ' you pulled it.', facts).ok, true, 'year and month from a kill date');
+    // killFor(50619).fightId (57) cannot demonstrate the wclUrl-leak guard on the full `facts`
+    // object above: fightId is ALSO a genuine field in its own right (see the killFacts test
+    // "identity, url, me, and the player-side findings"), so 57 is a real fact independent of
+    // wclUrl, and the fixture is dense enough that even the source id (12) sits within +/-1 of an
+    // unrelated real stat (Shadow Bolt resistPercent 11.9). Isolate the invariant instead: the
+    // real wclUrl string, alone, must not leak the fight/source ids it encodes.
+    const wclUrl = killFor(50619).wclUrl;
+    assert.ok(/fight=57&source=12/.test(wclUrl), wclUrl);
+    assert.strictEqual(F.checkNumbers('Fight 57 was fine.', { kills: [{ wclUrl }] }).ok, false, 'a wclUrl fight id must not become an acceptable number');
+    assert.strictEqual(F.checkNumbers('Sourced from 12.', { kills: [{ wclUrl }] }).ok, false, 'a wclUrl source id must not become an acceptable number');
+});
 
 // --- v2 Task 1: leaderboard geometry (spec v2 §3)
 // A synthetic leaderboard: `pages` pages of 100 ranks, DPS falling with rank, item level cycling

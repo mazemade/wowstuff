@@ -794,11 +794,29 @@ function numbersIn(s) {
 // text. `JSON.stringify(facts)` mixes numeric facts with digits that live inside strings — report
 // codes ("BcZWRDk2..." -> 2), `wclUrl` ("#fight=57&source=12" -> 57, 12), dates ("2026-08-30" ->
 // 2026, 8, 30) — and all of those entered the allowed set. Only real numbers count as facts.
-function collectFactNumbers(value, out) {
+// Important 7: facts are read from real numbers, never harvested out of arbitrary JSON strings
+// (a wclUrl's fight/source ids must not become numbers the model may quote). Two string shapes
+// are facts nonetheless (v2 Task 9): the numbers inside a finding's own `text` (a threshold such
+// as "the 202 the raid asks for" lives only there), and the year/month/day of an ISO date — but
+// only at the five places the v2 sheet actually carries a date (night.date, kills[].date,
+// overall.ceiling[].date, overall.badPulls[].date, nights[].date), tracked here by key-path with
+// array indices collapsed. A bare `date` field anywhere else (or in a hand-built object a caller
+// assembles for its own purposes) stays a plain string: matching by value shape alone (any string
+// that merely looks like YYYY-MM-DD) would also swallow a bare top-level `date` nobody meant as
+// one of the sheet's five fact-bearing dates, silently widening what a reply may invent.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_PATHS = new Set(['night.date', 'kills.date', 'overall.ceiling.date', 'overall.badPulls.date', 'nights.date']);
+function collectFactNumbers(value, out, path) {
     if (typeof value === 'number') { if (isFinite(value)) out.push(value); return; }
+    if (typeof value === 'string') {
+        const lastKey = path ? path.split('.').pop() : '';
+        if (lastKey === 'text') numbersIn(value).forEach(n => out.push(n));
+        else if (DATE_PATHS.has(path) && ISO_DATE.test(value)) value.split('-').forEach(p => out.push(Number(p)));
+        return;
+    }
     if (!value || typeof value !== 'object') return;
-    if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out)); return; }
-    Object.keys(value).forEach(k => collectFactNumbers(value[k], out));
+    if (Array.isArray(value)) { value.forEach(v => collectFactNumbers(v, out, path)); return; }
+    Object.keys(value).forEach(k => collectFactNumbers(value[k], out, path ? path + '.' + k : k));
 }
 // Every figure over 10 in the reply must appear in the sheet, give or take 1 for rounding (spec
 // 5.2). Small numbers are list numerals and counts like "3 of 4 bosses", which the sheet also
