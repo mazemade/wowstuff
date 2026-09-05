@@ -242,8 +242,17 @@ function explainGap(kill, player) {
     casts.inputs.push(input('channel_time', 'player', chLog, G, myCh, refCh, 'seconds a minute channelling'));
     casts.inputs.push(input('cast_pacing', 'player', paceLog, G, me.damagingCastsPerMinute, ref.damagingCastsPerMinute, 'damaging casts a minute'));
 
+    // Crit bonus (Ruin, Spell Power, Vengeance, Elemental Fury and every physical crit double;
+    // a plain spell crit adds half) is needed here already: damagePerDamagingCast is total damage
+    // over casts, so it already has crit damage baked in, and the crit factor below would otherwise
+    // double-count it.
+    const B = typeof C.CRIT_BONUS[spec] === 'number' ? C.CRIT_BONUS[spec] : 0.5;
     // Damage-per-cast factor: hit, debuffs, power split (gear / consumables / buffs), rotation.
-    const dmg = { value: ref.damagePerDamagingCast / me.damagePerDamagingCast, inputs: [] };
+    // Both sides' damage per cast is measured with crits included; dividing each by its own crit
+    // multiplier (1 + critRate * B) leaves the non-crit-equivalent damage per cast, so the ratio
+    // below is no longer inflated by the same crit gap the crit factor accounts for separately.
+    const norm = (dpc, critRate) => dpc / (1 + critRate / 100 * B);
+    const dmg = { value: norm(ref.damagePerDamagingCast, ref.critRate) / norm(me.damagePerDamagingCast, me.critRate), inputs: [] };
     const hitKey = physical ? 'meleeHit' : 'spellHit', perPct = physical ? C.MELEE_HIT_RATING_PER_PCT : C.HIT_RATING_PER_PCT, cap = physical ? C.HIT_CAP[role === 'ranged' ? 'ranged' : 'melee'] : C.HIT_CAP.spell;
     const myHit = me.stats && num(me.stats[hitKey]), refHit = ref.stats && num(ref.stats[hitKey]);
     const miss = h => Math.max(0, cap - h / perPct) / 100;
@@ -274,10 +283,11 @@ function explainGap(kill, player) {
     dmg.inputs.push(input('power_gear', 'player', powerLogs[0], G, myP.gear, refP.gear, physical ? 'attack power from gear' : 'spell power from gear'));
     dmg.inputs.push(input('power_consumables', 'player', powerLogs[1], G, myP.consumables, refP.consumables, physical ? 'attack power from consumables' : 'spell power from consumables'));
     dmg.inputs.push(input('power_buffs', 'group', powerLogs[2], G, myP.buffs, refP.buffs, physical ? 'attack power from party buffs' : 'spell power from party buffs'));
-    dmg.inputs.push(input('rotation', 'player', rotLog, G, me.damagePerDamagingCast, ref.damagePerDamagingCast, 'damage per cast'));
+    // rotation's displayed me/reference stay the raw (crit-included) damage per cast — the number
+    // the raid leader recognises — even though the factor's own value above is crit-normalised.
+    dmg.inputs.push(input('rotation', 'player', rotLog, G, me.damagePerDamagingCast, ref.damagePerDamagingCast, 'damage per cast (crits included)'));
 
     // Crit factor: expected from gear / consumables / buffs, the rest is luck.
-    const B = typeof C.CRIT_BONUS[spec] === 'number' ? C.CRIT_BONUS[spec] : 0.5;
     const crit = { value: (1 + ref.critRate / 100 * B) / (1 + me.critRate / 100 * B), inputs: [] };
     const myE = expectedCrit({ stats: me.stats, auras: (me.consumablesAtPull || []).concat(me.buffsAtPull || []), classToken: player.classToken, spec, role });
     const refE = expectedCrit({ stats: ref.stats, auras: (ref.consumablesAtPull || []).concat(ref.buffsAtPull || []), classToken: player.classToken, spec, role });

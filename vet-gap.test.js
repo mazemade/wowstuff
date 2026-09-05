@@ -117,7 +117,7 @@ test('explainGap: factors multiply back to the ratio and shares sum to 100', () 
     ['casts', 'dmg', 'crit'].forEach(k => assert.ok(Math.abs(sumShares(g.factors[k].inputs) - g.factors[k].share) <= 1, k + ' inputs ' + sumShares(g.factors[k].inputs) + ' vs ' + g.factors[k].share));
     assert.strictEqual(g.factors.casts.inputs.find(i => i.key === 'own_activity').share, 20, 'ln((85/85)/(60/70)) / ln 2.2');
     assert.ok(Math.abs(g.factors.casts.value - 24 / 17) < 1e-9);
-    assert.ok(Math.abs(g.factors.dmg.value - 4000 / 2900) < 1e-9);
+    assert.ok(Math.abs(g.factors.dmg.value - (4000 / 1.46) / (2900 / 1.32)) < 1e-9, 'damage per cast normalised by the crit multiplier on each side');
     assert.ok(Math.abs(g.factors.crit.value - 1.46 / 1.32) < 1e-9, 'Ruin doubles crits');
 });
 test('explainGap: input owners and the meaning of each input', () => {
@@ -187,6 +187,24 @@ test('explainGap (controller ruling): the ratio is measured against playersDps, 
     const p = pull({ reference: Object.assign({}, pull().reference, { playersDps: 2400, dps: 2200 }) });
     const g = G.explainGap(p, PLAYER);
     assert.strictEqual(g.ratio, 2.4, 'me.amount is 1000: 2400 / 1000, not 2200 / 1000');
+});
+test('explainGap (controller ruling round 2): a pull whose numbers are internally consistent (DPS = casts/min x damage per cast / 60, both sides) leaves nothing on residual', () => {
+    // damagePerDamagingCast already has crit damage baked in (it is total damage over casts); if
+    // the crit factor were applied on top of that unnormalised number, the factors would multiply
+    // out past the ratio and residual would come out sharply negative (the fixture measured -43%
+    // before this fix). Here casts/min x damage-per-cast/60 reproduces amount/dps exactly on both
+    // sides, so a correct accounting has nothing left over for residual to explain.
+    const me = Object.assign({}, pull().me, { amount: 17 * 2900 / 60, damagingCastsPerMinute: 17, damagePerDamagingCast: 2900, critRate: 32 });
+    const reference = Object.assign({}, pull().reference, { playersDps: 24 * 4000 / 60, dps: 24 * 4000 / 60, damagingCastsPerMinute: 24, damagePerDamagingCast: 4000, critRate: 46 });
+    const g = G.explainGap(pull({ me, reference }), PLAYER);
+    // residual.share can come back as -0 (Math.round of a very small negative log): 0 either way.
+    assert.strictEqual(Math.abs(g.factors.residual.share), 0);
+    // explainGap rounds `ratio` to 3 decimals before dividing it back out (Task 3: so the >1 gate,
+    // G and residual all agree on the same number) — that rounding, not the fix, is the only source
+    // of the tiny remaining gap from exactly 1 here; 1e-3 comfortably covers its worst case (~2.6e-4
+    // relative at this ratio) while still proving residual is not the ~13% multiplicative miss the
+    // pre-fix double-counted-crit accounting produced.
+    assert.ok(Math.abs(g.factors.residual.value - 1) < 1e-3, 'residual value ' + g.factors.residual.value);
 });
 
 test('gapFindings: one finding per input at or above minShare, with owner, share, numbers and a sentence; luck never becomes a finding', () => {

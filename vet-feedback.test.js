@@ -407,6 +407,13 @@ test('v3: killFacts carries kill.gap for a pull below its reference; buildFacts 
     assert.ok(k.gap && k.gap.ratio > 1, 'Rotminster is below the reference on Anetheron');
     const product = ['casts', 'dmg', 'crit', 'residual'].reduce((p, f) => p * k.gap.factors[f].value, 1);
     assert.ok(Math.abs(product - k.gap.ratio) < 1e-6);
+    // Controller ruling round 2: with damage per cast normalised by each side's own crit multiplier
+    // before the factors are split (so crit is no longer counted once in dmg and again in crit),
+    // the fixture's residual moved from -43% to -10% — comfortably inside the medians-of-three
+    // mismatch this accounting can't fully close (the reference's casts/damage/crit come from a
+    // median of 3 fetched players while the ratio itself is measured against their own amounts,
+    // not a single internally-consistent "typical" player).
+    assert.ok(Math.abs(k.gap.factors.residual.share) <= 15, 'factors reproduce the ratio up to the medians-of-three mismatch: ' + k.gap.factors.residual.share);
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50620), killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
     assert.deepStrictEqual(facts.overall.gap, { casts: k.gap.factors.casts.share, dmg: k.gap.factors.dmg.share, crit: k.gap.factors.crit.share, residual: k.gap.factors.residual.share }, 'Kaz\'rogal is a bad pull: only Anetheron counts');
 });
