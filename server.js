@@ -251,6 +251,9 @@ app.get('/api/vet/feedback', async (req, res) => {
   if (!/^[^\s\/\\"]{2,24}$/.test(name)) return res.status(400).json({ error: 'Invalid character name' });
   if (!/^[a-z0-9-]{2,40}$/.test(server)) return res.status(400).json({ error: 'Invalid server slug' });
   if (!/^(eu|us|kr|tw|cn)$/.test(region)) return res.status(400).json({ error: 'Invalid region' });
+  // v2 §5.2: an optional raid night. WCL report codes are 16 alphanumerics.
+  const report = req.query.report ? String(req.query.report) : null;
+  if (report && !/^[A-Za-z0-9]{16}$/.test(report)) return res.status(400).json({ error: 'Invalid report code' });
   let thresholds = {};
   if (req.query.thresholds) {
     try { thresholds = JSON.parse(String(req.query.thresholds)); } catch (e) { return res.status(400).json({ error: 'Invalid thresholds' }); }
@@ -262,8 +265,10 @@ app.get('/api/vet/feedback', async (req, res) => {
   // `{"gs":2}`, ... used to mint unlimited distinct cache keys, each a guaranteed cold ~180-point
   // pipeline run swept only by age. The cache and the in-flight map below are keyed on identity
   // alone; thresholds are reapplied to the (possibly cached or shared) facts after the expensive
-  // WCL part is already done, so no choice of thresholds can force a repeat fetch.
-  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone;
+  // WCL part is already done, so no choice of thresholds can force a repeat fetch. The night
+  // (report code) is part of the identity: a night's sheet and the across-kills sheet are
+  // different pipeline runs.
+  const key = region + '/' + server + '/' + name.toLowerCase() + '/' + zone + '/' + (report ? 'night/' + report : 'all');
   try {
     const { profile } = await loadProfile(name, server, region, zone);
     if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
@@ -292,7 +297,7 @@ app.get('/api/vet/feedback', async (req, res) => {
         let dbIndex;
         try { dbIndex = getVetDbIndex(); }
         catch (err) { console.error('item table load failed:', err); const e = new Error('Item table data/tbc-item-db.json is missing or unreadable'); e.code = 'NO_DB'; throw e; }
-        pending = VetFeedback.fetchFeedback(wclQuery, { profile, dbIndex, refCache: feedbackRefCache, thresholds: {}, now: Date.now() });
+        pending = VetFeedback.fetchFeedback(wclQuery, { profile, dbIndex, refCache: feedbackRefCache, thresholds: {}, now: Date.now(), report });
         feedbackInFlight.set(key, pending);
         // `.finally()` returns its own promise that also rejects when `pending` does; nobody
         // else holds a reference to it, so an uncaught rejection there would crash the process
@@ -301,6 +306,7 @@ app.get('/api/vet/feedback', async (req, res) => {
       }
       facts = await pending;
       if (!facts) return res.status(404).json({ error: 'No kills to analyse' });
+      if (facts.noKills) return res.status(404).json({ error: 'No kills in that report' });
     }
 
     // Reapply this request's own thresholds to the (possibly reused/shared) facts: gearFindings
@@ -313,12 +319,12 @@ app.get('/api/vet/feedback', async (req, res) => {
       overall: Object.assign({}, facts.overall, { findings: VetFeedback.mergeFindings(facts.kills, gear) }),
     });
 
-    let report = null, reportError = null;
+    let reportText = null, reportError = null;
     try {
       const { system, user } = VetFeedback.buildPrompt(facts, ANNIVERSARY_RULES);
       const text = await openaiChat(system, user, 60000);
       const check = VetFeedback.checkNumbers(text, facts);
-      if (check.ok) report = text;
+      if (check.ok) reportText = text;
       else reportError = 'The model introduced figures not in the facts (' + check.foreign.join(', ') + '); showing the facts only';
     } catch (err) {
       console.error('feedback report model failed:', err);
@@ -326,7 +332,7 @@ app.get('/api/vet/feedback', async (req, res) => {
       else if (err.name === 'AbortError' || err.name === 'TimeoutError') reportError = 'The model timed out; showing the facts only';
       else reportError = 'The model failed; showing the facts only';
     }
-    const body = { facts, report, reportError, generatedAt: new Date().toISOString() };
+    const body = { facts, report: reportText, reportError, generatedAt: new Date().toISOString() };
     for (const [k, v] of feedbackCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) feedbackCache.delete(k);
     feedbackCache.set(key, { at: Date.now(), facts, thresholdsKey, body });
     // X-Vet-Cache reflects whether THIS response required a fresh (paid) OpenAI call, not merely

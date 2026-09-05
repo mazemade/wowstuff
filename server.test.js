@@ -81,11 +81,12 @@ const MID = midFixture();
 // Does NOT answer vet-profile.js's CHAR_QUERY/REPORT_QUERY/RANK_QUERY — tests seed vetCache
 // directly instead (loadProfile then never needs to fetch), which keeps this suite about the
 // route's own logic rather than re-proving profile fetching, already covered elsewhere.
-function stubQuery() {
+function stubQuery(fx) {
+    fx = fx || MID;
     const calls = [];
     const byFight = new Map();
-    Object.keys(MID.kills).forEach(e => { const k = MID.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
-    Object.keys(MID.reference).forEach(e => MID.reference[e].players.forEach(p => {
+    Object.keys(fx.kills).forEach(e => { const k = fx.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
+    Object.keys(fx.reference).forEach(e => fx.reference[e].players.forEach(p => {
         const key = p.rank.report.code + '/' + p.rank.report.fightID;
         const cur = byFight.get(key) || { context: p.context, tables: {} };
         cur.tables[p.sourceID] = p.tables;
@@ -95,14 +96,14 @@ function stubQuery() {
         calls.push({ q, vars });
         if (q.includes('encounterRankings(')) {
             const ch = { id: 1, classID: 10 };
-            Object.keys(MID.encounterRankings).forEach(e => { ch['e' + e] = MID.encounterRankings[e]; });
+            Object.keys(fx.encounterRankings).forEach(e => { ch['e' + e] = fx.encounterRankings[e]; });
             return { characterData: { character: ch } };
         }
         if (q === F.FIGHT_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.context : null } }; }
         if (q === F.PLAYER_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.tables[vars.s] || null : null } }; }
         if (q.includes('characterRankings(')) {
             const enc = /encounter\(id:(\d+)\)/.exec(q)[1], page = +/page:(\d+)/.exec(q)[1];
-            const pg = MID.reference[enc].pages[page - 1];
+            const pg = fx.reference[enc].pages[page - 1];
             return { worldData: { encounter: { characterRankings: pg || { page, hasMorePages: false, count: 0, rankings: [] } } } };
         }
         throw new Error('unexpected query: ' + q.slice(0, 60));
@@ -112,9 +113,9 @@ function stubQuery() {
 
 // Resets all server-side caches, installs a fresh WCL stub and OpenAI stub, and seeds a profile
 // cache hit for Rotminster so loadProfile never needs the WCL calls stubQuery() doesn't answer.
-function setupPipeline(openaiReply) {
+function setupPipeline(openaiReply, fx) {
     app.__test.resetCaches();
-    const s = stubQuery();
+    const s = stubQuery(fx);
     app.__test.setWclQuery(s.query);
     app.__test.setOpenaiChat(openaiReply || (async () => 'Solid work out there. Keep it up and ask your leader about buffs.'));
     app.__test.caches.vetCache.set(IDENTITY_KEY, { at: Date.now(), profile: rotProfile() });
@@ -149,7 +150,7 @@ test('GET /api/vet/feedback: the 15-minute cache expires and the pipeline re-run
     const callsAfterFirst = s.calls.length;
 
     // Force the entry to look 15+ minutes old without waiting on real time.
-    const entry = app.__test.caches.feedbackCache.get(IDENTITY_KEY);
+    const entry = app.__test.caches.feedbackCache.get(IDENTITY_KEY + '/all');
     assert.ok(entry, 'an entry was cached after the first call');
     entry.at = 0;
 
@@ -292,6 +293,50 @@ test('GET /api/vet/feedback: a missing item table on a profile cache hit is 500 
     } finally {
         app.__test.setDbPath(null); // restore the real table for any test that runs after this one
     }
+});
+
+// Renames Anetheron's original rank's report code with an _OLDER_NIGHT suffix, because the
+// captured fixture's two kills share one real report — this fabricates a second, older night.
+function twoNights() {
+    const fx2 = JSON.parse(JSON.stringify(MID));
+    const az = FX.kills['50620'];
+    const anet = fx2.encounterRankings['50619'].ranks[0];
+    anet.report = Object.assign({}, anet.report, { code: anet.report.code + '_OLDER_NIGHT' });
+    const later = anet.startTime + 100000;
+    fx2.encounterRankings['50620'].ranks[0].startTime = later;
+    fx2.encounterRankings['50619'].ranks.push({ rankPercent: 90, duration: 90000, amount: 4000, bracketData: 124, spec: 'Destruction', startTime: later + 5000, report: { code: az.code, fightID: az.fightID } });
+    return fx2;
+}
+test('GET /api/vet/feedback (v2 §5.2): report= must be 16 alphanumerics', async () => {
+    setupPipeline();
+    const r = await fetch(`${base}/api/vet/feedback?${QS}&report=abc`, SAME_ORIGIN);
+    assert.strictEqual(r.status, 400);
+    assert.deepStrictEqual(await r.json(), { error: 'Invalid report code' });
+});
+test('GET /api/vet/feedback (v2 §5.2): a night is analysed and cached apart from the default report', async () => {
+    const s = setupPipeline(null, twoNights());
+    const kazCode = FX.kills['50620'].code;
+    const all = await (await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN)).json();
+    assert.strictEqual(all.facts.night, null);
+    assert.strictEqual(all.facts.nights.length, 2, 'the default response lists the nights');
+    const r1 = await fetch(`${base}/api/vet/feedback?${QS}&report=${kazCode}`, SAME_ORIGIN);
+    assert.strictEqual(r1.status, 200);
+    assert.strictEqual(r1.headers.get('x-vet-cache'), 'miss', 'a night is its own pipeline run');
+    const night = await r1.json();
+    assert.strictEqual(night.facts.night.code, kazCode);
+    assert.ok(night.facts.kills.length === 2 && night.facts.kills.every(k => k.reportCode === kazCode));
+    const calls = s.calls.length;
+    const r2 = await fetch(`${base}/api/vet/feedback?${QS}&report=${kazCode}`, SAME_ORIGIN);
+    assert.strictEqual(r2.headers.get('x-vet-cache'), 'hit');
+    const r3 = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);
+    assert.strictEqual(r3.headers.get('x-vet-cache'), 'hit', 'the default report is still cached too');
+    assert.strictEqual(s.calls.length, calls, 'no WCL traffic for either cache hit');
+});
+test('GET /api/vet/feedback (v2 §5.2): an unknown report code is 404', async () => {
+    setupPipeline();
+    const r = await fetch(`${base}/api/vet/feedback?${QS}&report=ZZZZZZZZZZZZZZZZ`, SAME_ORIGIN);
+    assert.strictEqual(r.status, 404);
+    assert.deepStrictEqual(await r.json(), { error: 'No kills in that report' });
 });
 
 chain.then(() => {
