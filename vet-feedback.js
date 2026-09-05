@@ -294,7 +294,7 @@ function mostCommon(names) {
 // rank collected; everything that needs a fight's tables (casts, per-ability numbers, buffs,
 // consumables, stats) is a median over the fetched reference players. An ability or buff counts
 // only when a majority of those players show it, so one player's one-off cast is not "unused".
-function referenceSummary(ranks, players, dbIndex, classToken, role, band) {
+function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDps) {
     const per = (players || []).map(p => {
         const fight = Array.isArray(p.context.fights) ? p.context.fights[0] : null;
         const dur = fight ? (fight.endTime - fight.startTime) / 1000 : null;
@@ -331,7 +331,11 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band) {
     const amounts = ranks.map(r => r.amount);
     return {
         itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
-        dps: Math.round(median(amounts)), topDps: amounts.length ? Math.round(Math.max.apply(null, amounts)) : null,
+        dps: Math.round(median(amounts)),
+        // v2 §3: the ceiling comes from the top pages (getReference) when given; the median over
+        // the benchmark ranks is what "comparable players" do.
+        topDps: typeof topDps === 'number' ? topDps : (amounts.length ? Math.round(Math.max.apply(null, amounts)) : null),
+        benchmark: 'median',
         durationSec: round1(median(ranks.map(r => r.duration / 1000))), castsDurationSec: medOf(per.map(p => p.dur)),
         activePercent: medOf(per.map(p => p.activePercent)), castsPerMinute: medOf(per.map(p => p.castsPerMinute)),
         casts, abilities, buffsAtPull: Object.keys(buffCounts).filter(b => buffCounts[b] >= majority),
@@ -686,7 +690,7 @@ function buildPrompt(facts, rulesLines) {
         'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
         'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
         'Findings with scope "group" are about raid composition (party buffs, raid debuffs, Bloodlust): phrase them as things to ask the raid leader for, never as the player\'s failing.',
-        '"Comparable players" means players of the same spec on the same boss within the item-level band in each kill\'s reference.itemLevelBand.',
+        '"Comparable players" means players of the same spec on the same boss, at the player\'s item level (each kill\'s reference.itemLevelBand), who parse around the middle of the leaderboard (reference.benchmark is "median"). reference.topDps is what the best players at that item level reach on that boss.',
         // Important 2: a merged finding can name several bosses in `bosses` while its text and
         // numbers belong to only one of them (kept verbatim from where they were first measured).
         // A live report once attributed one boss's crit numbers to another for exactly this reason.
@@ -832,8 +836,21 @@ function findRefEntry(refCache, prefix, itemLevel) {
     return null;
 }
 
-// Reference per (boss, class, spec, region, band). Shared across every player of that spec, so
-// it is cached for a day and an in-flight fetch is handed to concurrent callers.
+// v2 §3: the leaderboard length is independent of item level, so it is cached per (boss, class,
+// spec, region) for a week under a key shape ('len:' + prefix) that findRefEntry's band scan
+// never matches. A pending walk is stored as-is so concurrent bands share it.
+async function leaderboardLength(fetchPage, o, lenKey) {
+    const hit = o.refCache.get(lenKey);
+    if (hit && o.now - hit.at < REF.lengthCacheMs) return hit.value;
+    const pending = findLastPage(fetchPage, REF.maxSearchPages);
+    o.refCache.set(lenKey, { at: o.now, value: pending });
+    try { const L = await pending; o.refCache.set(lenKey, { at: o.now, value: L }); return L; }
+    catch (e) { o.refCache.delete(lenKey); throw e; }
+}
+
+// Reference per (boss, class, spec, region, band), built around the MIDDLE of the leaderboard
+// (spec v2 §3). Shared across every player of that spec, so it is cached for a day and an
+// in-flight fetch is handed to concurrent callers.
 async function getReference(query, o) {
     // Important 4: keying strictly on `itemLevel ± REF.band` defeated the cost model spec §3.4
     // budgets on ("every player of a spec shares the same reference per boss") — two Destruction
@@ -851,20 +868,31 @@ async function getReference(query, o) {
 
     const key = prefix + (o.itemLevel - REF.band) + '/' + (o.itemLevel + REF.band);
     const pending = (async () => {
-        const pages = [];
-        let ranks = [];
-        for (let p = 1; p <= REF.maxPages; p++) {
-            const d = await query(refPageQuery(o.encounterId, wclClass, wclSpecName(o.spec), o.region, p), {});
-            const cr = d && d.worldData && d.worldData.encounter && d.worldData.encounter.characterRankings;
-            if (!cr || !Array.isArray(cr.rankings)) break;
-            pages.push(cr);
-            ranks = bandRanks(pages.flatMap(x => x.rankings), o.itemLevel, REF.band);
-            if (ranks.length >= REF.target || !cr.hasMorePages) break;
-        }
+        const fetchPage = pageFetcher(query, o.encounterId, wclClass, wclSpecName(o.spec), o.region);
+        const L = await leaderboardLength(fetchPage, o, 'len:' + prefix);
+        const middle = 50 * L;
+        // Benchmark: in-band ranks read outward from the middle page, ordered by distance from
+        // the middle rank (ties toward the higher-ranked, i.e. lower globalRank).
+        const collect = async band => {
+            let found = [];
+            for (const p of middlePageOrder(L, REF.maxPages)) {
+                const cr = await fetchPage(p);
+                found = found.concat(bandRanks(cr.rankings, o.itemLevel, band).map(r => Object.assign({ globalRank: globalRank(p, cr.rankings.indexOf(r)) }, r)));
+                if (found.length >= REF.target) break;
+            }
+            return found.sort((a, b) => (Math.abs(a.globalRank - middle) - Math.abs(b.globalRank - middle)) || (a.globalRank - b.globalRank));
+        };
         let band = REF.band;
-        if (ranks.length < REF.min) { band = REF.wideBand; ranks = bandRanks(pages.flatMap(x => x.rankings), o.itemLevel, REF.wideBand); }
+        let ranks = await collect(band);
+        if (ranks.length < REF.min) { band = REF.wideBand; ranks = await collect(band); }
         if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against', band };
         ranks = ranks.slice(0, REF.target);
+        // Ceiling: the band's best DPS from the top pages, at most REF.topPages of them.
+        let topDps = null;
+        for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
+            const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, band);
+            if (ib.length) topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
+        }
         const players = [];
         for (const r of ranks.slice(0, REF.players)) {
             // Important 5: a reference player's report can come back as a GraphQL error (deleted
@@ -878,7 +906,7 @@ async function getReference(query, o) {
                 if (e && e.code === 'RATE_LIMIT') throw e;
             }
         }
-        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band]), note: null, band };
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps), note: null, band };
     })();
     o.refCache.set(key, { at: o.now, pending });
     try {
@@ -942,4 +970,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, mapLimit, getReference, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, fetchFeedback };

@@ -648,12 +648,35 @@ test('findLastPage: binary search over hasMorePages finds the length in at most 
     assert.strictEqual(F.REF.lengthCacheMs, 7 * 24 * 60 * 60 * 1000);
 });
 
+// v2 §3: the reference players are the in-band ranks nearest the MIDDLE of the leaderboard. The
+// fixture was captured under v1 (top three in band), so rebuild its pages around the three
+// captured players: page 1 = 97 out-of-band filler rows + the three players (global ranks
+// 98–100, the middle of a two-page board is rank 100), page 2 = 3 filler rows + every other
+// captured rank. Filler is item level 60: outside any band the tests use, even widened.
+function midFixture() {
+    const fx = JSON.parse(JSON.stringify(FX));
+    Object.keys(fx.reference).forEach(enc => {
+        const ref = fx.reference[enc];
+        const rows = ref.pages.flatMap(p => p.rankings);
+        const isPlayer = r => ref.players.some(p => p.rank.name === r.name && p.rank.report.code === r.report.code);
+        const players = ref.players.map(p => rows.find(r => r.name === p.rank.name && r.report.code === p.rank.report.code));
+        const others = rows.filter(r => !isPlayer(r));
+        const filler = i => ({ name: 'Filler' + i, class: 'Warlock', spec: 'Destruction', amount: 1, duration: 100000, bracketData: 60, startTime: 1, report: { code: 'FILLER', fightID: i } });
+        ref.pages = [
+            { page: 1, hasMorePages: true, count: 100, rankings: Array.from({ length: 97 }, (_, i) => filler(i)).concat(players) },
+            { page: 2, hasMorePages: false, count: 3 + others.length, rankings: Array.from({ length: 3 }, (_, i) => filler(100 + i)).concat(others) },
+        ];
+    });
+    return fx;
+}
+const MID = midFixture();
+
 // --- Task 8: orchestration
 // A stub WCL that answers from the fixture by query kind and records what was asked. `fx`
 // defaults to the captured fixture; task-rep-kill passes a deep-cloned, modified copy to test
 // multi-rank selection without mutating the shared fixture other tests read.
 function stubQuery(fx) {
-    fx = fx || FX;
+    fx = fx || MID;
     const calls = [];
     const byFight = new Map();
     Object.keys(fx.kills).forEach(e => { const k = fx.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
@@ -696,7 +719,7 @@ test('mapLimit keeps at most N in flight and returns results in order', async ()
     assert.deepStrictEqual(out, [2, 4, 6, 8, 10]);
     assert.strictEqual(peak, 2);
 });
-test('fetchFeedback: two kills analysed, references from page 1, cache reused on the second run', async () => {
+test('fetchFeedback: two kills analysed, references built around the middle of the board, cache reused on the second run', async () => {
     const s = stubQuery();
     const refCache = new Map();
     const now = Date.now();
@@ -714,10 +737,17 @@ test('fetchFeedback: two kills analysed, references from page 1, cache reused on
     assert.strictEqual(facts.kills[1].killsOnBoss, 1);
     assert.strictEqual(facts.kills[1].killIndex, 1);
     const pageCalls = s.calls.filter(c => c.q.includes('characterRankings('));
-    assert.strictEqual(pageCalls.length, 2, 'page 1 already holds 8 in-band ranks for each boss');
+    // v2 §3: per boss, the length walk over 64 pages reaches the fixture's 2-page board in 5
+    // reads (32, 16, 8, 4, 2 — page 2 is non-empty with hasMorePages:false), the benchmark then
+    // reads page 1 (6th), and the ceiling re-reads page 1 from the memo. Two bosses → 12.
+    assert.strictEqual(pageCalls.length, 12, 'pages asked: ' + pageCalls.map(c => /page:(\d+)/.exec(c.q)[1]).join(','));
+    assert.strictEqual(facts.kills[1].reference.benchmark, 'median');
+    assert.strictEqual(facts.kills[1].reference.topDps, Math.round(Math.max(...MID.reference['50619'].players.map(p => p.rank.amount))), 'the ceiling is the best in-band DPS on the top pages: the three players are the only in-band rows on page 1');
     const playerCalls = s.calls.filter(c => c.q === F.PLAYER_QUERY);
     assert.strictEqual(playerCalls.length, 2 + 2 * F.REF.players);
-    assert.strictEqual(refCache.size, 2);
+    // v2 §3: leaderboardLength caches the length under its own 'len:' key in the same refCache,
+    // alongside the band-keyed entry — 2 boss encounters -> 4 entries, not 2.
+    assert.strictEqual(refCache.size, 4);
     const before = s.calls.length;
     await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache, thresholds: {}, now: now + 1000 });
     assert.strictEqual(s.calls.slice(before).filter(c => c.q.includes('characterRankings(')).length, 0, 'reference cache hit');
@@ -729,7 +759,7 @@ test('fetchFeedback (task-rep-kill): a boss with several ranks analyses the one 
     // kill), and an even-older one also far from the median. The old recency sort would have
     // picked the more-recent decoy; the new rule must pick the real, median-matching rank in the
     // middle, and killIndex must reflect its chronological position (2nd oldest of 3), not "1".
-    const fx2 = JSON.parse(JSON.stringify(FX));
+    const fx2 = JSON.parse(JSON.stringify(MID));
     const az = FX.kills['50620'];
     const original = fx2.encounterRankings['50619'].ranks[0];
     fx2.encounterRankings['50619'].ranks.push(
@@ -856,7 +886,55 @@ test('getReference: widens once when the band is thin, gives a note when still t
     const a = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
     const b = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
     await Promise.all([a, b]);
-    assert.strictEqual(pageCalls, 2, 'one page fetch for the first call, one shared fetch for the pair');
+    // This stub answers every page number with the same page and hasMorePages:false. If that
+    // page is non-empty the length walk stops at its first probe (32) and the benchmark reads 5
+    // pages outward from 16; if it is empty the walk probes 32,16,8,4,2,1 and the benchmark reads
+    // page 1 from the memo. Six page fetches per reference build either way; the widened pass
+    // and the ceiling always hit the memo. 6 for `none`, 6 shared by the pair.
+    assert.strictEqual(pageCalls, 12, 'six page fetches for the first call, six shared by the pair');
+});
+test('getReference (v2 §3): reference players are the in-band ranks nearest the middle, not the top; dps is their median; the ceiling is the band\'s best', async () => {
+    // Item levels cycle 120/124/128 by rank, so for a 124 player only ranks ≡ 1 (mod 3) are in
+    // band. On a 20-page board the middle is rank 1000, which falls on page 10 (ranks 901-1000):
+    // that single page already holds far more than REF.target in-band ranks, so collect() (one
+    // page read per loop turn, stopping once it has enough) never reads page 11 — every candidate
+    // it sorts by distance from 1000 is <= 1000. Nearest are 1000, 997, 994, …
+    const lb = leaderboard(20, [120, 124, 128]);
+    const fights = [];
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) { fights.push(vars.c); return { reportData: { report: { masterData: { actors: [{ id: 7, name: 'P' + vars.c.slice(1), subType: 'Warlock' }] }, fights: [{ id: 1, startTime: 0, endTime: 100000, kill: true }] } } }; }
+        if (q === F.PLAYER_QUERY) return { reportData: { report: { dmg: null, casts: null, buffs: null, ci: null } } };
+        return lb.query(q, vars);
+    };
+    const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.deepStrictEqual(fights, ['R1000', 'R997', 'R994'], 'nearest the middle first, all from page 10 (the only benchmark page read)');
+    assert.strictEqual(ref.summary.playersCompared, 3);
+    assert.strictEqual(ref.summary.sampleSize, 8);
+    assert.strictEqual(ref.summary.dps, 4011, 'median of amounts 4021,4018,4015,4012,4009,4006,4003,4000 (ranks 979,982,985,988,991,994,997,1000)');
+    assert.strictEqual(ref.summary.topDps, 4999, 'rank 1 is in band: the ceiling comes from page 1, not from the benchmark ranks');
+    assert.strictEqual(ref.summary.benchmark, 'median');
+    assert.deepStrictEqual(ref.summary.itemLevelBand, [122, 126]);
+    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 10, 1], 'length walk, one benchmark page (page 10 alone clears REF.target), one ceiling page');
+});
+test('getReference (v2 §3): the leaderboard length is cached for a week and shared across bands', async () => {
+    const lb = leaderboard(20, [120, 124, 128]);
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
+        return lb.query(q, vars);
+    };
+    const refCache = new Map(), now = Date.now();
+    await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache, now });
+    const before = lb.calls.length;
+    await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 128, dbIndex: db, refCache, now: now + 1000 });
+    assert.deepStrictEqual(lb.calls.slice(before), [10, 1], 'a different band re-reads only the benchmark and ceiling pages, never the length walk');
+    assert.strictEqual(refCache.get('len:1/WARLOCK/Destruction/eu/').value, 20);
+    await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 100, dbIndex: db, refCache, now: now + F.REF.lengthCacheMs + 1 });
+    assert.ok(lb.calls.slice(before + 2).includes(32), 'after a week the length is walked again');
+});
+test('buildPrompt (v2 §3): "comparable players" are defined as the middle of the leaderboard at the player\'s item level', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/middle of the leaderboard/.test(p.system) && /reference\.topDps/.test(p.system), p.system);
 });
 
 Promise.all(pending).then(() => {

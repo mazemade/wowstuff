@@ -54,6 +54,29 @@ function rotProfile() {
                             rankings, rankingsZone: 1060, fallback: false, metric: 'dps', otherRankings: null, otherZone: 1056, specRankings: rankings, dbIndex: db });
 }
 
+// v2 §3: the reference players are the in-band ranks nearest the MIDDLE of the leaderboard. The
+// fixture was captured under v1 (top three in band), so rebuild its pages around the three
+// captured players: page 1 = 97 out-of-band filler rows + the three players (global ranks
+// 98–100, the middle of a two-page board is rank 100), page 2 = 3 filler rows + every other
+// captured rank. Filler is item level 60: outside any band the tests use, even widened.
+function midFixture() {
+    const fx = JSON.parse(JSON.stringify(FX));
+    Object.keys(fx.reference).forEach(enc => {
+        const ref = fx.reference[enc];
+        const rows = ref.pages.flatMap(p => p.rankings);
+        const isPlayer = r => ref.players.some(p => p.rank.name === r.name && p.rank.report.code === r.report.code);
+        const players = ref.players.map(p => rows.find(r => r.name === p.rank.name && r.report.code === p.rank.report.code));
+        const others = rows.filter(r => !isPlayer(r));
+        const filler = i => ({ name: 'Filler' + i, class: 'Warlock', spec: 'Destruction', amount: 1, duration: 100000, bracketData: 60, startTime: 1, report: { code: 'FILLER', fightID: i } });
+        ref.pages = [
+            { page: 1, hasMorePages: true, count: 100, rankings: Array.from({ length: 97 }, (_, i) => filler(i)).concat(players) },
+            { page: 2, hasMorePages: false, count: 3 + others.length, rankings: Array.from({ length: 3 }, (_, i) => filler(100 + i)).concat(others) },
+        ];
+    });
+    return fx;
+}
+const MID = midFixture();
+
 // Answers WCL queries from the fixture by query kind, mirroring vet-feedback.test.js's stub.
 // Does NOT answer vet-profile.js's CHAR_QUERY/REPORT_QUERY/RANK_QUERY — tests seed vetCache
 // directly instead (loadProfile then never needs to fetch), which keeps this suite about the
@@ -61,8 +84,8 @@ function rotProfile() {
 function stubQuery() {
     const calls = [];
     const byFight = new Map();
-    Object.keys(FX.kills).forEach(e => { const k = FX.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
-    Object.keys(FX.reference).forEach(e => FX.reference[e].players.forEach(p => {
+    Object.keys(MID.kills).forEach(e => { const k = MID.kills[e]; byFight.set(k.code + '/' + k.fightID, { context: k.context, tables: { [k.sourceID]: k.tables } }); });
+    Object.keys(MID.reference).forEach(e => MID.reference[e].players.forEach(p => {
         const key = p.rank.report.code + '/' + p.rank.report.fightID;
         const cur = byFight.get(key) || { context: p.context, tables: {} };
         cur.tables[p.sourceID] = p.tables;
@@ -72,14 +95,14 @@ function stubQuery() {
         calls.push({ q, vars });
         if (q.includes('encounterRankings(')) {
             const ch = { id: 1, classID: 10 };
-            Object.keys(FX.encounterRankings).forEach(e => { ch['e' + e] = FX.encounterRankings[e]; });
+            Object.keys(MID.encounterRankings).forEach(e => { ch['e' + e] = MID.encounterRankings[e]; });
             return { characterData: { character: ch } };
         }
         if (q === F.FIGHT_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.context : null } }; }
         if (q === F.PLAYER_QUERY) { const hit = byFight.get(vars.c + '/' + vars.f[0]); return { reportData: { report: hit ? hit.tables[vars.s] || null : null } }; }
         if (q.includes('characterRankings(')) {
             const enc = /encounter\(id:(\d+)\)/.exec(q)[1], page = +/page:(\d+)/.exec(q)[1];
-            const pg = FX.reference[enc].pages[page - 1];
+            const pg = MID.reference[enc].pages[page - 1];
             return { worldData: { encounter: { characterRankings: pg || { page, hasMorePages: false, count: 0, rankings: [] } } } };
         }
         throw new Error('unexpected query: ' + q.slice(0, 60));
