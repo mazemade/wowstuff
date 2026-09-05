@@ -31,17 +31,5 @@
 .slot-ok { color: #8fe38f; }
 @media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } }
 
-.feedback-box { margin-top: 10px; }
-.feedback-night { margin-right: 8px; max-width: 30ch; }
-.feedback-ceiling { margin: 4px 0; }
-.feedback-status { margin-top: 6px; }
-.feedback-report { white-space: pre-wrap; font-family: inherit; font-size: 0.9em; line-height: 1.4; background: rgba(0,0,0,0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; margin: 8px 0 6px; max-width: 70ch; }
-.feedback-actions { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
-.feedback-box details { margin-top: 4px; }
-.feedback-box summary { cursor: pointer; color: #ffd700; font-size: 0.9em; }
-.facts-table { font-size: 0.82em; margin-top: 6px; }
-.facts-table th { color: #ffd700; font-weight: 600; text-align: left; padding: 2px 6px; }
-.facts-table td { padding: 2px 6px; white-space: nowrap; }
-.facts-table tr.bad-pull td { color: #777; }
-.facts-table a { color: #9ab; }
-.facts-table td:nth-child(8) { white-space: nowrap; }
+.report-link { color: #9ab; margin-right: 10px; text-decoration: none; }
+.report-link:hover { color: #ffd700; }
