@@ -5,9 +5,12 @@
 const V = require('./vet-engine.js');
 
 const KILL_LIMIT = 8;
-// Reference selection: same spec, same boss, same region, item level within `band` of the
-// player; widened once to `wideBand` when fewer than `min` ranks are found.
-const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, cacheMs: 24 * 60 * 60 * 1000 };
+// Reference selection (spec v2 §3): same spec, same boss, same region, item level within `band`
+// of the player (widened once to `wideBand` when fewer than `min` ranks are found), taken from
+// the MIDDLE of the leaderboard, whose length is found by a binary search over at most
+// `maxSearchPages` pages and cached for `lengthCacheMs`. `topPages` bounds the ceiling read.
+const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, cacheMs: 24 * 60 * 60 * 1000,
+              topPages: 3, maxSearchPages: 64, lengthCacheMs: 7 * 24 * 60 * 60 * 1000 };
 // Finding thresholds (spec §4). Not user-editable in v1.
 const T = {
     activeMajor: 85, activeGap: 8, castsLowRatio: 0.85, diedBefore: 0.9,
@@ -777,6 +780,45 @@ async function fightAndTables(query, code, fightID, playerName) {
     return { ctx, tables, sourceId: actor.id };
 }
 
+// --- Leaderboard geometry (spec v2 §3). characterRankings pages hold 100 ranks and carry no
+// total, so the leaderboard's length L (its last non-empty page) is found by a binary search over
+// hasMorePages; the middle rank is then 50·L.
+function globalRank(page, index) { return (page - 1) * 100 + index + 1; }
+// Pages to read for the benchmark, nearest the middle first: mid, mid+1, mid-1, mid+2, mid-2, …
+function middlePageOrder(L, maxPages) {
+    const mid = Math.max(1, Math.round(L / 2));
+    const out = [];
+    for (let d = 0; d <= L && out.length < maxPages; d++) {
+        (d === 0 ? [mid] : [mid + d, mid - d]).forEach(p => { if (p >= 1 && p <= L && !out.includes(p) && out.length < maxPages) out.push(p); });
+    }
+    return out;
+}
+// One WCL fetch per page per reference build: the length walk, the benchmark pages and the
+// ceiling pages overlap on short leaderboards, and every page costs 2 points. A page past the
+// end (WCL answers with no `rankings` key) reads as empty and last.
+function pageFetcher(query, encounterId, wclClass, specName, region) {
+    const memo = new Map();
+    return page => {
+        if (!memo.has(page)) {
+            memo.set(page, query(refPageQuery(encounterId, wclClass, specName, region, page), {}).then(d => {
+                const cr = d && d.worldData && d.worldData.encounter && d.worldData.encounter.characterRankings;
+                return cr && Array.isArray(cr.rankings) ? { page, hasMorePages: !!cr.hasMorePages, rankings: cr.rankings } : { page, hasMorePages: false, rankings: [] };
+            }));
+        }
+        return memo.get(page);
+    };
+}
+async function findLastPage(fetchPage, maxPages) {
+    let lo = 1, hi = maxPages, last = 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const cr = await fetchPage(mid);
+        if (cr.rankings.length) { last = mid; if (!cr.hasMorePages) return mid; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return last;
+}
+
 // Important 4: scan for an existing cache entry belonging to this (encounterId, class, spec,
 // region) group whose stored item-level band already covers `itemLevel`, so two players a level
 // apart (124 and 125, both within REF.band of each other) share one fetch instead of two.
@@ -900,4 +942,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, mapLimit, getReference, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, pickKills, pickRank, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, uptimeFindings, rotationFindings, damageFindings, ROLE_STATS, STAT_LABEL, statFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, mergeFindings, positives, buildFacts, buildPrompt, checkNumbers, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, mapLimit, getReference, fetchFeedback };

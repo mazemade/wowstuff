@@ -602,6 +602,52 @@ test('checkNumbers (Important 7): facts are read from real numbers, not harveste
     assert.strictEqual(F.checkNumbers('You did 50 last time.', facts).ok, true);
 });
 
+// --- v2 Task 1: leaderboard geometry (spec v2 §3)
+// A synthetic leaderboard: `pages` pages of 100 ranks, DPS falling with rank, item level cycling
+// through `levels` so every band is spread evenly across the board. `calls` records the page
+// numbers asked for, in order. Past the last page WCL answers with no `rankings` key at all.
+function leaderboard(pages, levels) {
+    const calls = [];
+    const query = async q => {
+        const page = +/page:(\d+)/.exec(q)[1];
+        calls.push(page);
+        if (page > pages) return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 0 } } } };
+        const rankings = Array.from({ length: 100 }, (_, i) => {
+            const rank = (page - 1) * 100 + i + 1;
+            return { name: 'P' + rank, class: 'Warlock', spec: 'Destruction', amount: 5000 - rank, duration: 100000,
+                     bracketData: levels[rank % levels.length], startTime: 1, report: { code: 'R' + rank, fightID: 1 } };
+        });
+        return { worldData: { encounter: { characterRankings: { page, hasMorePages: page < pages, count: 100, rankings } } } };
+    };
+    return { calls, query };
+}
+test('middlePageOrder: outward from the middle, clipped to the leaderboard and the page budget', () => {
+    assert.deepStrictEqual(F.middlePageOrder(20, 5), [10, 11, 9, 12, 8]);
+    assert.deepStrictEqual(F.middlePageOrder(3, 5), [2, 3, 1]);
+    assert.deepStrictEqual(F.middlePageOrder(2, 5), [1, 2]);
+    assert.deepStrictEqual(F.middlePageOrder(1, 5), [1]);
+    assert.deepStrictEqual(F.middlePageOrder(20, 2), [10, 11]);
+    assert.strictEqual(F.globalRank(1, 0), 1);
+    assert.strictEqual(F.globalRank(10, 99), 1000);
+});
+test('findLastPage: binary search over hasMorePages finds the length in at most 6 page reads; the page memo never re-reads', async () => {
+    const lb = leaderboard(20, [124]);
+    const fetchPage = F.pageFetcher(lb.query, 1, 'Warlock', 'Destruction', 'eu');
+    assert.strictEqual(await F.findLastPage(fetchPage, F.REF.maxSearchPages), 20);
+    assert.ok(lb.calls.length <= 6, 'pages read: ' + lb.calls.join(','));
+    const before = lb.calls.length;
+    await fetchPage(20); await fetchPage(20);
+    assert.strictEqual(lb.calls.length, before, 'memoised');
+    const one = leaderboard(1, [124]);
+    assert.strictEqual(await F.findLastPage(F.pageFetcher(one.query, 1, 'Warlock', 'Destruction', 'eu'), F.REF.maxSearchPages), 1);
+    const empty = leaderboard(0, [124]);
+    assert.strictEqual(await F.findLastPage(F.pageFetcher(empty.query, 1, 'Warlock', 'Destruction', 'eu'), F.REF.maxSearchPages), 1, 'an empty leaderboard reads as one (empty) page');
+    const past = await F.pageFetcher(empty.query, 1, 'Warlock', 'Destruction', 'eu')(5);
+    assert.deepStrictEqual(past, { page: 5, hasMorePages: false, rankings: [] }, 'a page past the end (no rankings key) reads as empty and last');
+    assert.strictEqual(F.REF.topPages, 3);
+    assert.strictEqual(F.REF.lengthCacheMs, 7 * 24 * 60 * 60 * 1000);
+});
+
 // --- Task 8: orchestration
 // A stub WCL that answers from the fixture by query kind and records what was asked. `fx`
 // defaults to the captured fixture; task-rep-kill passes a deep-cloned, modified copy to test
