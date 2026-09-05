@@ -161,8 +161,9 @@ pull"). `fix` is the fixed sentence for the id. `measuredOn` names the pull the 
 - `under_used` — v3 `ability_ratio`, one row, same aggregation. `warn`.
 - `extra` — v3 `ability_extra`, one row, `info` (a raid assignment as often as a mistake).
 - `curse` — owner **group**, `warn` (so it reaches the asks): when the reference's most-cast curse differs from the
-  player's. `text`: "You run Curse of the Elements (assignment); comparable players run Curse of
-  Doom, N% of their damage." No fix for the player; the ask reads "Rotate the Elements
+  player's; the reference curse named is the one most of the differing pulls ran, with the
+  damage share from the first pull that ran it. `text`: "You run Curse of the Elements
+  (assignment); comparable players run Curse of Doom, N% of their damage." No fix for the player; the ask reads "Rotate the Elements
   assignment or give it to the warlock with the lowest DPS." Replaces `curse_choice`; never
   more than one row.
 
@@ -261,8 +262,8 @@ Fix first
    so it is counted as not on you. (~8%)
 
 Also
-- Destruction Potion: 0 on 5 of 5 pulls; comparable players use 1–2 a pull. Pop one on the
-  pull and again every two minutes. (~3%)
+- Destruction Potion: 0 on 5 of 5 pulls; comparable players use 1–2 a pull (up to 4 in a
+  fight this long). Pop one on the pull and again every two minutes. (~3%)
 - Flask: Elixir of Draenic Wisdom + Major Shadow Power at the Lady Vashj pull; comparable
   players run Flask of Pure Death. Run Flask of Pure Death at every pull. (~2%)
 - Hit: 185 on your current gear against the 202 cap. Reach 202 hit before any other stat. (~1%)
@@ -271,9 +272,8 @@ Also
 - Spell crit rating 297 against 354 for comparable players. Prefer spell crit when upgrading.
 
 Ask your raid leader
-- No Shadow Weaving or Misery on 5 of 5 pulls (a shadow priest). (~17%)
-- No Moonkin Aura or Chain of the Twilight Owl in your group on 4 of 5 pulls (a moonkin, any
-  caster with the trinket). (~7%)
+- No Misery or Shadow Weaving on 5 of 5 pulls (a shadow priest). (~17%)
+- No Moonkin Aura in your group on 4 of 5 pulls (a moonkin). (~7%)
 - You run Curse of the Elements (assignment); comparable players run Curse of Doom, 7% of
   their damage. Rotate the assignment or give it to the warlock with the lowest DPS.
 

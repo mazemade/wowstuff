@@ -439,7 +439,11 @@ function groupRows(facts) {
     const most = casts => Object.keys(casts || {}).filter(isCurse).filter(n => casts[n] > 0).sort((a, b) => casts[b] - casts[a])[0] || null;
     const differ = kills.filter(k => k.reference && most(k.me.casts) && most(k.reference.casts) && most(k.me.casts) !== most(k.reference.casts) && !(k.me.casts || {})[most(k.reference.casts)]);
     if (differ.length) {
-        const k = differ[0], mine = most(k.me.casts), theirs = most(k.reference.casts);
+        // The reference curse named is the one most of the differing pulls ran (Doom on four
+        // pulls beats Agony on one); the numbers come from the first pull that ran it.
+        const tally = {}; differ.forEach(k => { const t = most(k.reference.casts); tally[t] = (tally[t] || 0) + 1; });
+        const theirs = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+        const k = differ.find(x => most(x.reference.casts) === theirs), mine = most(k.me.casts);
         const ab = (k.reference.abilities || []).find(a => a.name === theirs);
         out.push(row({ id: 'curse', category: 'group', owner: 'group', verdict: 'warn', pulls: { hit: differ.length, of: kills.filter(x => x.reference).length }, measuredOn: pullLabel(k, kills),
             text: 'You run ' + mine + ' (assignment); comparable players run ' + theirs + (ab && num(ab.share) !== null ? ', ' + Math.round(ab.share) + '% of their damage' : ''),
@@ -1012,7 +1016,7 @@ function renderReport(cl, facts) {
 }
 ```
 
-- [ ] **Step 4: Run** — `node vet-checklist.test.js` → `23 passed, 0 failed`. Debug tips if the golden differs: print `cl.rows.map(r => [r.id, r.verdict, r.value])`; `activity`'s value is the average of `own_activity` over the five accounting pulls (39, −1, 4, 1, −4 → 8); `also` should read `potion, flask, hit, under_used, stat_spellCrit`. If `hit` is missing, the fixture's `gear.findings` lacks `value`/`bar` (captured before Task 2) — the fallback branch then needs `hit_under_cap ≥ 3`, which is negative here, so add `value: 185, bar: 202` to the fixture's `gear_hit` finding once (it is the profile's real number) and commit the fixture change.
+- [ ] **Step 4: Run** — `node vet-checklist.test.js` → `23 passed, 0 failed`. Debug tips if the golden differs: print `cl.rows.map(r => [r.id, r.verdict, r.value])`; `activity`'s value is the average of `own_activity` over the five accounting pulls (39, −1, 4, 1, −4 → 8); `also` should read `potion, flask, hit, under_used, stat_spellCrit`. The fixture's `gear_hit` finding already carries `value: 185, bar: 202` (added 2026-09-05 from the profile's real numbers), so the `hit` row comes from the profile branch. The Lovestoned `curse` row must name Curse of Doom (four of the five differing pulls), not Vashj's Curse of Agony.
 
 - [ ] **Step 5: Commit**
 
@@ -1417,4 +1421,4 @@ git commit -m "docs: feedback report v4 — checklist, report page, no model"
 
 - Spec §3 `sameClass` → Task 1; §3 moved tables / `value`+`bar` → Task 2; §4.2–4.3 → Tasks 3–6; §4.4 constants → Task 3; §4.5–4.6 → Task 7; §5 → Task 7; §6 → Tasks 10–11; §7 → Tasks 8–9, 12; §8 golden/unit/route/page → Tasks 7, 9, 10.
 - `buildChecklist(facts, T)` is the signature everywhere (Tasks 7, 8, 9, 10). Row ids used by the page (`fixFirst`, `also`, `asks`, `fine`, `stand`, `notOnYou.badPulls.groups`) are the ones Task 7 produces.
-- Known soft spots for the executor: the golden test's exact `also` order and the `activity` value are hand-computed from the fixture (see Task 7 Step 4 for how to debug); the `party_buffs` text in the Lovestoned sheet names `Moonkin Aura` and `Chain of the Twilight Owl` on the Morogrim pull — if the half-rule yields a different set, print `counts` before changing the rule.
+- The golden numbers were re-derived from the fixture on 2026-09-05 with a throwaway script: ratio 59, rotation 36, cast_pacing 31, own_activity 8, debuffs 17, crit_buffs 5 + power_buffs 2, every one of the five pulls fails the potion check (reference potions 1–2), the nuke residual averages 0.877 with Morogrim worst at 0.837, and the only party buff missing on at least half the pulls is Moonkin Aura (4 of 5). `also` should come out as `potion, flask, hit, under_used, stat_spellCrit`.
