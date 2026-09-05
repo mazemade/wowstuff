@@ -333,6 +333,14 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
     assert.ok(ref.topDps >= ref.dps);
     assert.deepStrictEqual(ref.itemLevelBand, [122, 126]);
 });
+test('referenceSummary (v3 fix): no damaging casts on any reference player gives damagePerDamagingCast null, not 0', () => {
+    const R = FX.reference['50619'];
+    const ranks = F.bandRanks(R.pages.flatMap(p => p.rankings), 124, F.REF.band).slice(0, F.REF.target);
+    const ref = F.referenceSummary(ranks, [], db, 'WARLOCK', 'caster', [122, 126]);
+    assert.strictEqual(ref.damagePerDamagingCast, null, 'Math.round(median([])) used to silently give 0');
+    assert.strictEqual(ref.damagingCastsPerMinute, null);
+    assert.strictEqual(ref.critRate, null);
+});
 test('v3 measurements: me and reference carry damaging casts, damage per cast, crit rate, channel time, raid activity, consumables and debuffs', () => {
     const ref = refFor(50619);
     ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin', 'raidActivePercent'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
@@ -353,6 +361,31 @@ test('v3 measurements: getReference records the fastest in-band kill from the ce
     const query = async (q, vars) => { if (q === F.FIGHT_QUERY) return { reportData: { report: null } }; return lb.query(q, vars); };
     const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
     assert.strictEqual(ref.summary.fastestDurationSec, 100, 'every synthetic rank lasts 100 s');
+});
+test('getReference (v3 fix): a ceiling rank missing duration does not poison fastestDurationSec into NaN', async () => {
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
+        const res = await lb.query(q, vars);
+        const cr = res.worldData && res.worldData.encounter && res.worldData.encounter.characterRankings;
+        if (cr && cr.page === 1 && Array.isArray(cr.rankings)) cr.rankings.forEach(r => { delete r.duration; });
+        return res;
+    };
+    const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.strictEqual(ref.summary.fastestDurationSec, null, 'every in-band rank on the ceiling page is missing duration');
+    assert.strictEqual(Number.isNaN(ref.summary.fastestDurationSec), false);
+});
+test('getReference (v3 fix): fastestDurationSec still finds the fastest among the ceiling rows that do have a duration', async () => {
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
+        const res = await lb.query(q, vars);
+        const cr = res.worldData && res.worldData.encounter && res.worldData.encounter.characterRankings;
+        if (cr && cr.page === 1 && Array.isArray(cr.rankings)) cr.rankings.forEach((r, i) => { if (i % 2 === 0) delete r.duration; });
+        return res;
+    };
+    const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.strictEqual(ref.summary.fastestDurationSec, 100, 'the surviving half of the rows still last 100 s');
 });
 
 // --- Task 5: kill facts and player findings

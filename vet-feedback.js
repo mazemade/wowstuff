@@ -392,6 +392,10 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         return { name: nm, uses: medOf(rows.map(r => r.uses)), insideBloodlust: medOf(rows.map(r => r.insideBloodlust)) };
     });
     const amounts = ranks.map(r => r.amount);
+    // v3 fix: median([]) / median([null,...]) is null, and Math.round(null) === 0 — without this
+    // guard a reference with no damaging casts on any player would silently report 0 rather than
+    // null for damagePerDamagingCast.
+    const dpc = median(per.map(p => p.dcs.casts ? p.dcs.damage / p.dcs.casts : null));
     return {
         itemLevelBand: band, sampleSize: ranks.length, playersCompared: n,
         dps: Math.round(median(amounts)),
@@ -410,7 +414,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         flaskShare: withCi ? round1(flasks.length / withCi) : 0, flask: mostCommon(flasks),
         bloodlustPercent: medOf(per.map(p => p.bloodlust)), burst,
         damagingCastsPerMinute: medOf(per.map(p => p.dur ? round1(60 * p.dcs.casts / p.dur) : null)),
-        damagePerDamagingCast: Math.round(median(per.map(p => p.dcs.casts ? p.dcs.damage / p.dcs.casts : null))),
+        damagePerDamagingCast: typeof dpc === 'number' ? Math.round(dpc) : null,
         critRate: medOf(per.map(p => p.dcs.hits ? 100 * p.dcs.crits / p.dcs.hits : null)),
         channelSecPerMin: medOf(per.map(p => p.dur ? 60 * p.channelSec / p.dur : null)),
         raidActivePercent: medOf(per.map(p => p.raidActive)),
@@ -1042,7 +1046,10 @@ async function getReference(query, o) {
             const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, band);
             if (ib.length) {
                 topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
-                fastest = Math.round(Math.min.apply(null, ib.map(r => r.duration)) / 1000);
+                // v3 fix: a rank missing `duration` would otherwise poison Math.min into NaN,
+                // and `typeof NaN === 'number'` slips past the null guard below.
+                const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
+                fastest = durs.length ? Math.round(Math.min.apply(null, durs) / 1000) : null;
             }
         }
         const players = [];
