@@ -15,7 +15,7 @@ const C = {
                   Combat: 1, Assassination: 1, Subtlety: 1, Fury: 1, Arms: 1, Protection: 1, Retribution: 1, Enhancement: 1, Feral: 1, BeastMastery: 1, Marksmanship: 1, Survival: 1 },
     // Crit percent the spec's talents add to its main damaging spells (spec v3 §3.3).
     SPEC_CRIT: { Destruction: 8, Affliction: 3, Demonology: 3, Fire: 9, Arcane: 3, Frost: 0, Shadow: 0, Balance: 4, Elemental: 5, Retribution: 0, Enhancement: 0,
-                 Combat: 5, Assassination: 5, Subtlety: 5, Fury: 5, Arms: 5, Feral: 0, BeastMastery: 0, Marksmanship: 5, Survival: 5 },
+                 Combat: 5, Assassination: 5, Subtlety: 5, Fury: 5, Arms: 5, Protection: 0, Feral: 0, BeastMastery: 0, Marksmanship: 5, Survival: 5 },
     HIT_CAP: { spell: 16, melee: 9, ranged: 9 },
     // Base damage of the main ability expressed in power points (Shadow Bolt: ~575 average base
     // damage at a 0.857 coefficient ≈ 670 spell power). Damage per cast scales with power + base.
@@ -70,6 +70,7 @@ const STAT_PRIORITY = {
     Combat: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'], Assassination: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'], Subtlety: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'],
     Fury: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'], Arms: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'], Retribution: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'],
     Enhancement: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'], Feral: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'],
+    Protection: ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste'],
     BeastMastery: ['meleeHit', 'rangedAttackPower', 'rangedCrit', 'meleeHaste'], Marksmanship: ['meleeHit', 'rangedAttackPower', 'rangedCrit', 'meleeHaste'], Survival: ['meleeHit', 'rangedAttackPower', 'rangedCrit', 'meleeHaste'],
 };
 

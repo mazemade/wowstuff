@@ -17,6 +17,7 @@ test('constants: shapes and the values the spec fixes', () => {
     assert.strictEqual(G.C.CRIT_BONUS.Combat, 1);
     assert.strictEqual(G.C.SPEC_CRIT.Destruction, 8);
     assert.strictEqual(G.C.SPEC_CRIT.Fire, 9);
+    assert.strictEqual(G.C.SPEC_CRIT.Protection, 0);
     assert.strictEqual(G.C.SPEC_CRIT.Unknown, undefined);
     assert.deepStrictEqual(G.C.HIT_CAP, { spell: 16, melee: 9, ranged: 9 });
     assert.deepStrictEqual(G.C.POWER_BASE, { caster: 670, melee: 1000, ranged: 1000, tank: 1000, healer: 670 });
@@ -27,6 +28,7 @@ test('constants: shapes and the values the spec fixes', () => {
     assert.deepStrictEqual(G.STAT_PRIORITY.Destruction, ['spellHit', 'spellDamage', 'spellCrit', 'spellHaste']);
     assert.deepStrictEqual(G.STAT_PRIORITY.Affliction, ['spellHit', 'spellDamage', 'spellHaste', 'spellCrit']);
     assert.deepStrictEqual(G.STAT_PRIORITY.Combat, ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste']);
+    assert.deepStrictEqual(G.STAT_PRIORITY.Protection, ['meleeHit', 'expertise', 'attackPower', 'meleeCrit', 'meleeHaste']);
     assert.ok(G.CHANNEL_UTILITY.includes('Drain Soul') && !G.CHANNEL_UTILITY.includes('Mind Flay'));
     assert.ok(/submerge/i.test(G.PHASE_BOSSES['The Lurker Below']));
     assert.strictEqual(G.BURST_VALUE.default, 0.02);
@@ -53,6 +55,7 @@ test('expectedCrit: Dotwin on Morogrim reproduces his measured 32.1% from gear, 
     const withOwl = G.expectedCrit({ stats: { spellCrit: 306, intellect: 469 }, auras: ['Moonkin Aura', 'Chain of the Twilight Owl', 'Arcane Brilliance', 'Adept\'s Elixir', 'Brilliant Wizard Oil'], classToken: 'WARLOCK', spec: 'Destruction', role: 'caster' });
     assert.strictEqual(withOwl.buffs, 7, 'Moonkin 5 + Owl 2; Arcane Brilliance is intellect, not counted again');
     assert.ok(withOwl.consumables > 1.7 && withOwl.consumables < 1.8, '(24 + 14) / 22.08 = 1.72: ' + withOwl.consumables);
+    assert.strictEqual(Math.round(withOwl.total * 10) / 10, 38, '1.7 + 8 + 306/22.08 + 469/81.9 + 38/22.08 + 7 = 38.0');
     assert.deepStrictEqual(G.expectedCrit({ stats: null, auras: [], classToken: 'WARLOCK', spec: 'Destruction', role: 'caster' }), null, 'no stats, no expectation');
     const melee = G.expectedCrit({ stats: { meleeCrit: 300, agility: 500 }, auras: ['Leader of the Pack'], classToken: 'ROGUE', spec: 'Combat', role: 'melee' });
     assert.ok(melee.buffs === 5 && melee.gear > 0);
