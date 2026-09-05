@@ -1,0 +1,15 @@
+.back-link { color: #9ab; text-decoration: none; }
+.verdict-banner { background: rgba(255, 215, 0, 0.08); border: 1px solid #665; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 1.05em; }
+.report-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.report-card { background: rgba(0, 0, 0, 0.25); border: 1px solid #444; border-radius: 8px; padding: 14px; }
+.report-card h3 { color: #ffd700; font-size: 1em; margin: 0 0 10px; }
+.report-card.wide { grid-column: 1 / -1; }
+.report-row { display: grid; grid-template-columns: 1.4em 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.06); }
+.report-row:first-of-type { border-top: none; }
+.report-row .mark { font-weight: 700; text-align: center; }
+.report-row.fail .mark { color: #ff6b6b; } .report-row.warn .mark { color: #ffd166; } .report-row.pass .mark { color: #8fe38f; } .report-row.info .mark { color: #9ab; }
+.report-row .fix { display: block; font-weight: 600; margin-top: 2px; }
+.report-row .value { color: #9ab; margin-left: 6px; }
+.report-more { margin-top: 6px; } .report-more summary { cursor: pointer; color: #9ab; font-size: 0.9em; }
+.stand-table td, .stand-table th { padding: 3px 8px; text-align: left; }
+.fine-line { color: #8fe38f; }

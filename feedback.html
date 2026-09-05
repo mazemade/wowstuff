@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedback report</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="assignments.css">
+    <link rel="stylesheet" href="vetting.css">
+    <link rel="stylesheet" href="feedback.css">
+</head>
+<body>
+    <div class="container">
+        <nav class="page-tabs">
+            <a href="./" class="page-tab">Assignments</a>
+            <a href="positions.html" class="page-tab">Positioning</a>
+            <a href="vetting.html" class="page-tab active">Vetting</a>
+        </nav>
+        <header>
+            <h1 id="title">Feedback report</h1>
+            <p><a href="vetting.html" class="back-link">← Back to vetting</a></p>
+        </header>
+        <section class="panel" id="controls">
+            <div class="import-row">
+                <select id="nightSelect" class="feedback-night hidden"></select>
+                <button id="refreshBtn" class="btn">Refresh</button>
+                <button id="copyBtn" class="btn btn-primary" disabled>Copy text</button>
+                <a id="wclLink" class="btn hidden" target="_blank" rel="noopener">Worst pull on WCL</a>
+                <span id="stamp" class="status"></span>
+            </div>
+            <div id="statusLine" class="status">Loading…</div>
+            <div id="errorBox" class="warn hidden"></div>
+        </section>
+        <div id="verdict" class="verdict-banner hidden"></div>
+        <div id="cards" class="report-cards"></div>
+        <section class="panel hidden" id="factsPanel"><h2>Facts</h2><div class="table-wrap" id="factsWrap"></div></section>
+    </div>
+    <script src="assignments-engine.js"></script>
+    <script src="vet-engine.js"></script>
+    <script src="feedback.js"></script>
+</body>
+</html>
