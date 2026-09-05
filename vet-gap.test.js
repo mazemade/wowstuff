@@ -234,6 +234,25 @@ test('statPriorityFindings: hit under the cap hides the stats below it; at the c
     assert.strictEqual(capped[0].text, 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses');
     assert.deepStrictEqual(G.statPriorityFindings({ me, reference: null, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'X' }), []);
 });
+test('statPriorityFindings (final review item 2): a stat line carries share null, never a literal 0% of the gap', () => {
+    const me = { spellHit: 205, spellDamage: 846, spellCrit: 253, spellHaste: 0 }, ref = { spellHit: 202, spellDamage: 1004, spellCrit: 306, spellHaste: 80 };
+    const out = G.statPriorityFindings({ me, reference: ref, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'Morogrim Tidewalker' });
+    assert.ok(out.length >= 1);
+    out.forEach(f => assert.strictEqual(f.share, null, f.stat + ' must carry no share, not 0'));
+});
+test('share (final review item 11): a tiny negative log rounds to a plain 0, never -0', () => {
+    assert.ok(Object.is(G.share(-1e-9, 1), 0), 'Math.round of a tiny negative is -0 without the || 0');
+    assert.strictEqual(G.share(0, 1), 0);
+    assert.strictEqual(G.share(Math.log(2), Math.log(2)), 100);
+});
+test('statPriorityFindings (final review item 11): without a hitCap the bar is the raid cap in rating, not the reference gear', () => {
+    const caster = G.statPriorityFindings({ me: { spellHit: 69, spellDamage: 846 }, reference: { spellHit: 100, spellDamage: 1004 }, spec: 'Destruction', role: 'caster', hitCap: null, boss: 'Anetheron' });
+    assert.strictEqual(caster[0].stat, 'spellHit');
+    assert.ok(/against the 202 the raid asks for/.test(caster[0].text), caster[0].text);
+    assert.strictEqual(caster[0].reference, 202);
+    const melee = G.statPriorityFindings({ me: { meleeHit: 50, attackPower: 1000 }, reference: { meleeHit: 100, attackPower: 2000 }, spec: 'Combat', role: 'melee', boss: 'Gruul' });
+    assert.ok(/against the 142 the raid asks for/.test(melee[0].text), melee[0].text);
+});
 test('FINDING_ANCHOR (fix round 2): every key gapFindings can emit has an anchor phrase that is actually in its own text', () => {
     const KEYS = ['raid_activity', 'own_activity', 'channel_time', 'cast_pacing', 'hit_under_cap', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs', 'rotation', 'crit_gear', 'crit_buffs'];
     KEYS.forEach(k => assert.ok(k in G.FINDING_ANCHOR, k + ' has no anchor'));

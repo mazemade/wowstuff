@@ -140,7 +140,7 @@ test('fightContext on Kaz\'rogal: an 1131 s pull where all 19 DPS parsed under 5
     const fc = F.fightContext(FX.kills['50620'].context, 'Rotminster', 'caster', 93);
     assert.strictEqual(fc.fight.durationSec, 1130.6);
     assert.strictEqual(fc.fight.badPull, true);
-    assert.ok(/1131s against the fastest reference kills at 93s/.test(fc.fight.badPullReason), fc.fight.badPullReason);
+    assert.ok(/1131s against 93s for top-page kills/.test(fc.fight.badPullReason), fc.fight.badPullReason);
     assert.ok(/19 of 19 dps in the raid parsed under 5/.test(fc.fight.badPullReason), fc.fight.badPullReason);
     assert.strictEqual(fc.me.activePercent, 16.7);
     assert.strictEqual(fc.me.potionUse, 2);
@@ -355,7 +355,7 @@ test('v3 measurements: me and reference carry damaging casts, damage per cast, c
     // there are none") array — see the dedicated Important 1 test below for the populated case's
     // shape via a clone, and vet-gap.test.js for how explainGap treats this null.
     assert.strictEqual(ref.debuffs, null, 'no Anetheron reference player in this fixture carries a debuff table');
-    assert.strictEqual(ref.fastestDurationSec, null, 'a direct referenceSummary call has no ceiling pages');
+    assert.strictEqual(ref.topDurationSec, null, 'a direct referenceSummary call has no ceiling pages');
     assert.strictEqual(typeof ref.stats.intellect, 'number');
     const k = killFor(50619);
     assert.ok(k.me.damagingCastsPerMinute > 0 && k.me.damagingCastsPerMinute < k.me.castsPerMinute);
@@ -372,13 +372,22 @@ test('v3 measurements (Important 1): a reference with every player\'s debuff tab
     const ref2 = F.referenceSummary(ranks2, R2.players, db, 'WARLOCK', 'caster', [122, 126]);
     assert.strictEqual(ref2.debuffs, null);
 });
-test('v3 measurements: getReference records the fastest in-band kill from the ceiling pages', async () => {
+test('v3 measurements (final review item 1): getReference records the MEDIAN in-band duration of the ceiling page, so one broken log cannot set the bad-pull bar', async () => {
     const lb = leaderboard(20, [124]);
-    const query = async (q, vars) => { if (q === F.FIGHT_QUERY) return { reportData: { report: null } }; return lb.query(q, vars); };
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
+        const res = await lb.query(q, vars);
+        const cr = res.worldData && res.worldData.encounter && res.worldData.encounter.characterRankings;
+        // Page-1 durations become [30000, 100000, 100000, ...]: one 30 s log (a mis-split fight) in
+        // an otherwise 100 s page. Math.min would make 30 s the baseline every real pull is judged
+        // against; the median must stay 100.
+        if (cr && cr.page === 1 && Array.isArray(cr.rankings)) cr.rankings[0].duration = 30000;
+        return res;
+    };
     const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
-    assert.strictEqual(ref.summary.fastestDurationSec, 100, 'every synthetic rank lasts 100 s');
+    assert.strictEqual(ref.summary.topDurationSec, 100, 'median of [30, 100, 100, ...] is 100, not the 30 s outlier');
 });
-test('getReference (v3 fix): a ceiling rank missing duration does not poison fastestDurationSec into NaN', async () => {
+test('getReference (v3 fix): a ceiling rank missing duration does not poison topDurationSec into NaN', async () => {
     const lb = leaderboard(20, [124]);
     const query = async (q, vars) => {
         if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
@@ -388,10 +397,10 @@ test('getReference (v3 fix): a ceiling rank missing duration does not poison fas
         return res;
     };
     const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
-    assert.strictEqual(ref.summary.fastestDurationSec, null, 'every in-band rank on the ceiling page is missing duration');
-    assert.strictEqual(Number.isNaN(ref.summary.fastestDurationSec), false);
+    assert.strictEqual(ref.summary.topDurationSec, null, 'every in-band rank on the ceiling page is missing duration');
+    assert.strictEqual(Number.isNaN(ref.summary.topDurationSec), false);
 });
-test('getReference (v3 fix): fastestDurationSec still finds the fastest among the ceiling rows that do have a duration', async () => {
+test('getReference (v3 fix): topDurationSec still takes the median among the ceiling rows that do have a duration', async () => {
     const lb = leaderboard(20, [124]);
     const query = async (q, vars) => {
         if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
@@ -401,7 +410,7 @@ test('getReference (v3 fix): fastestDurationSec still finds the fastest among th
         return res;
     };
     const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
-    assert.strictEqual(ref.summary.fastestDurationSec, 100, 'the surviving half of the rows still last 100 s');
+    assert.strictEqual(ref.summary.topDurationSec, 100, 'the surviving half of the rows still last 100 s');
 });
 test('v3: killFacts carries kill.gap for a pull below its reference; buildFacts carries overall.gap', () => {
     const k = killFor(50619);
@@ -487,7 +496,7 @@ test('killFacts on Kaz\'rogal: bad pull, consumables unknown, Curse of Doom unus
     assert.deepStrictEqual(k.me.consumablesAtPull, []);
     assert.strictEqual(k.me.stats, null);   // no CombatantInfo and no gear on this kill
     assert.strictEqual(k.gap, null, 'no accounting on a bad pull');
-    assert.ok(/1131s/.test(k.fight.badPullReason) && /fastest reference kills/.test(k.fight.badPullReason) && /trash waves/.test(k.fight.badPullReason), k.fight.badPullReason);
+    assert.ok(/1131s/.test(k.fight.badPullReason) && /top-page kills/.test(k.fight.badPullReason) && /trash waves/.test(k.fight.badPullReason), k.fight.badPullReason);
     const keys = keysOf(k.findings);
     assert.ok(k.findings.some(f => f.key === 'ability_unused' && f.ability === 'Curse of Doom'), keys.join());
 });
@@ -712,7 +721,58 @@ test('mergeFindings (v3): a later pull with a larger share for the same finding 
     assert.strictEqual(rot.measuredOn, 'Anetheron (' + bDate + ')', 'the larger-share pull\'s numbers win');
     assert.strictEqual(rot.me, 9999);
     assert.strictEqual(rot.reference, 8888);
-    assert.strictEqual(rot.share, bigger, 'the larger share survives the merge');
+    // Final review item 3: the merged share is now the AVERAGE over the accounted pulls, so the
+    // larger pull's numbers/text/measuredOn still win while the reported share is the mean of the
+    // two — a share is a share of the gap, and the gap is measured per pull.
+    assert.strictEqual(rot.share, Math.round((a.findings.find(f => f.key === 'rotation').share + bigger) / 2), 'the average over the two accounted pulls');
+});
+test('killFindings (final review item 2): a finding that does not come from the accounting carries share null, never 0', () => {
+    const k = killFor(50619);
+    ['ability_extra', 'wrong_elixir', 'gear_stat'].forEach(key => {
+        const f = k.findings.find(x => x.key === key);
+        assert.ok(f, key + ' missing from the fixture kill: ' + k.findings.map(x => x.key).join());
+        assert.strictEqual(f.share, null, key + ' must carry no share at all, so the note never says "0% of the gap"');
+    });
+    k.findings.filter(x => ['rotation', 'cast_pacing', 'crit_buffs'].includes(x.key)).forEach(f => assert.strictEqual(typeof f.share, 'number', f.key));
+});
+test('mergeFindings (final review item 2): numeric shares sort first, share-less findings after them', () => {
+    const m = F.mergeFindings([killFor(50619)], []);
+    const lastNumeric = m.map(f => typeof f.share === 'number').lastIndexOf(true);
+    const firstNull = m.findIndex(f => typeof f.share !== 'number');
+    assert.ok(lastNumeric >= 0 && firstNull >= 0, m.map(f => f.key + ':' + f.share).join(' | '));
+    assert.ok(lastNumeric < firstNull, 'every accounted finding comes before every share-less one: ' + m.map(f => f.key + ':' + f.share).join(' | '));
+});
+test('mergeFindings (final review item 3): a share is the average over the pulls that have an accounting, with the numbers from the biggest pull', () => {
+    const a = killFor(50619);
+    const at = share => a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share }) : f));
+    const low = Object.assign({}, a, { findings: at(10) });
+    const high = Object.assign({}, a, { date: '2026-09-01', findings: at(30).map(f => (f.key === 'rotation' ? Object.assign({}, f, { me: 9999, reference: 8888 }) : f)) });
+    const m = F.mergeFindings([low, high], []);
+    const rot = m.find(f => f.key === 'rotation');
+    assert.strictEqual(rot.share, 20, '(10 + 30) / 2 accounted pulls');
+    assert.ok(/Worth 20% of the gap, averaged over 2 pulls/.test(rot.text), rot.text);
+    assert.strictEqual(rot.measuredOn, 'Anetheron (2026-09-01)', 'text and numbers still come from the biggest-share pull');
+    assert.strictEqual(rot.me, 9999);
+    assert.strictEqual(rot.reference, 8888);
+});
+test('mergeFindings (final review item 3): a finding seen on one of two accounted pulls is halved, not reported at its own pull\'s share', () => {
+    const a = killFor(50619);
+    const one = Object.assign({}, a, { findings: a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share: 30 }) : f)) });
+    const other = Object.assign({}, a, { name: 'Archimonde', findings: a.findings.filter(f => f.key !== 'rotation') });
+    const m = F.mergeFindings([one, other], []);
+    const rot = m.find(f => f.key === 'rotation');
+    assert.strictEqual(rot.count, 1, 'seen on one pull only');
+    assert.strictEqual(rot.share, 15, '30 over the two pulls that carry an accounting');
+    assert.ok(/Worth 15% of the gap, averaged over 2 pulls/.test(rot.text), rot.text);
+});
+test('mergeFindings (final review item 3): the number guard still accepts a reply quoting the averaged share', () => {
+    const a = killFor(50619);
+    const at = share => a.findings.map(f => (f.key === 'rotation' ? Object.assign({}, f, { share }) : f));
+    const kills = [Object.assign({}, a, { findings: at(10) }), Object.assign({}, a, { date: '2026-09-01', findings: at(30) })];
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills, thresholds: {}, now: Date.now(), limited: false });
+    const rot = facts.overall.findings.find(f => f.key === 'rotation');
+    assert.strictEqual(rot.share, 20);
+    assert.strictEqual(F.checkNumbers('Your rotation is worth 20% of the gap.', facts).ok, true);
 });
 test('mergeFindings / positives (v2 §4): two pulls of one boss count as pulls and name the date; one pull per boss keeps the v1 wording', () => {
     const a = killFor(50619);
@@ -849,6 +909,11 @@ test('buildPrompt (v3): six owner-based sections, the gap summary, the relabelle
     assert.ok(/owner is "player"/.test(p.system) && /owner is "group"/.test(p.system) && /owner is "raid"/.test(p.system));
     assert.ok(/Under 450 words/.test(p.system) && !/at most 5/.test(p.system));
     assert.ok(/share/.test(p.system), 'the model is told what share means');
+});
+test('buildPrompt (final review item 2): the model is told that a share of null is not a percentage', () => {
+    const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });
+    const p = F.buildPrompt(facts, RULES);
+    assert.ok(/share is null/.test(p.system), p.system);
 });
 test('completeReply (v3): findings the model left out are appended under "Also:"; nothing appended when all are present', () => {
     const facts = F.buildFacts({ profile: rotProfile(), player: PLAYER, kills: [killFor(50619)], thresholds: {}, now: Date.now(), limited: false });

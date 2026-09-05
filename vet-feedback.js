@@ -169,8 +169,11 @@ function fightContext(ctx, playerName, role, refDurationSec, metric, name) {
     const raidSize = dpsGroup.length + groupOf('healers').length + groupOf('tanks').length;
 
     const reasons = [];
+    // Final review item 1: the baseline is the MEDIAN in-band duration of the ceiling page
+    // (reference.topDurationSec), not its fastest kill — one mis-split 30 s log used to set the bar
+    // every real pull was judged against, so ordinary kills read as bad pulls.
     if (refDurationSec && durationSec > T.longFightRatio * refDurationSec)
-        reasons.push('the pull took ' + Math.round(durationSec) + 's against the fastest reference kills at ' + Math.round(refDurationSec) + 's' + (GAP.PHASE_BOSSES[name] ? ' (' + GAP.PHASE_BOSSES[name] + ')' : ''));
+        reasons.push('the pull took ' + Math.round(durationSec) + 's against ' + Math.round(refDurationSec) + 's for top-page kills' + (GAP.PHASE_BOSSES[name] ? ' (' + GAP.PHASE_BOSSES[name] + ')' : ''));
     if (dpsGroup.length && dpsUnder >= T.raidUnderShare * dpsGroup.length) reasons.push(dpsUnder + ' of ' + dpsGroup.length + ' dps in the raid parsed under ' + T.raidUnderPercent);
     if (speed != null && speed < T.raidSpeedLow && idx >= 0 && idx < group.length / 2) reasons.push('the raid\'s kill speed ranked ' + speed + ' while you were ' + ordinal(idx + 1) + ' of ' + group.length + ' ' + groupKey);
     if (raidSize && deaths.length >= T.raidDeathsShare * raidSize) reasons.push(deaths.length + ' of ' + raidSize + ' in the raid died');
@@ -445,7 +448,7 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
             ? Object.keys(countNames(per.map(p => p.debuffs.map(d => d.name)))).filter(n => countNames(per.map(p => p.debuffs.map(d => d.name)))[n] >= majority)
                 .map(n => ({ name: n, uptimePercent: medOf(per.map(p => { const d = p.debuffs.find(x => x.name === n); return d ? d.uptimePercent : null; })) }))
             : null,
-        fastestDurationSec: typeof o.fastestDurationSec === 'number' ? o.fastestDurationSec : null,
+        topDurationSec: typeof o.topDurationSec === 'number' ? o.topDurationSec : null,
         playersDps: typeof playersDpsMed === 'number' ? Math.round(playersDpsMed) : null,
         stats,
     };
@@ -621,8 +624,20 @@ function gearFindings(profile, thresholds, now) {
 // One list for the whole report: bad pulls contribute nothing, the same finding on several
 // bosses is one line, stat shortfalls attach to the weak-hit line they explain, majors first.
 const SEVERITY_ORDER = { major: 0, minor: 1, info: 2 };
+// Final review item 5: the grouped rotation findings already name every ability on one line per
+// boss, so they merge by boss rather than by their first ability (which would fold two bosses'
+// different ability lists into one sentence naming only the first boss's abilities).
+const GROUPED_KEYS = new Set(['ability_unused', 'ability_extra']);
+function findingId(fd, kill) {
+    return GROUPED_KEYS.has(fd.key) ? fd.key + '|' + kill.name : fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
+}
 function mergeFindings(kills, gear) {
     const live = kills.filter(k => !k.fight.badPull);
+    // Final review item 3: a share is a share OF THE GAP, and the gap is measured per pull. The
+    // merged number is therefore the average over every live pull that has an accounting — a pull
+    // where the finding never appeared contributes 0 — not the largest pull's own share, which
+    // over-stated a one-pull problem as if it held all night.
+    const accounted = live.filter(k => k.gap).length;
     // v2 §4: with more than one pull of a boss in the sheet, counts are over pulls and the
     // measured-on label carries the pull's date; with one pull per boss the v1 wording stands.
     const multi = new Set(live.map(k => k.name)).size < live.length;
@@ -630,9 +645,10 @@ function mergeFindings(kills, gear) {
     // Minor 6 (whole-branch review): a rank with no startTime has k.date === null; without the
     // guard this printed the literal string "Boss (null)".
     const label = k => (multi && live.filter(x => x.name === k.name).length > 1) ? (k.date ? k.name + ' (' + k.date + ')' : k.name) : k.name;
-    const byId = new Map();
+    const byId = new Map(), shareSum = new Map();
     live.forEach(k => k.findings.forEach(fd => {
-        const id = fd.key + '|' + (fd.ability || fd.stat || fd.debuff || '');
+        const id = findingId(fd, k);
+        if (typeof fd.share === 'number') shareSum.set(id, (shareSum.get(id) || 0) + fd.share);
         const cur = byId.get(id);
         if (cur) {
             cur.count++; cur.bosses.push(k.name);
@@ -640,7 +656,7 @@ function mergeFindings(kills, gear) {
             // is per-pull); the pull whose share is largest is the one worth reporting the numbers
             // from, so its text/numbers/measuredOn replace whatever was kept before, and the larger
             // share itself is what survives the merge.
-            if ((fd.share || 0) > (cur.share || 0)) { Object.assign(cur, fd); cur.measuredOn = label(k); }
+            if ((typeof fd.share === 'number' ? fd.share : -1) > (typeof cur.share === 'number' ? cur.share : -1)) { Object.assign(cur, fd); cur.measuredOn = label(k); }
         }
         // Important 2: the merged record keeps the first-seen finding's text and numbers verbatim
         // (they are one boss's real measurement), while `bosses` can list several. `measuredOn`
@@ -650,14 +666,24 @@ function mergeFindings(kills, gear) {
         // are genuine facts, just misattributed).
         else byId.set(id, Object.assign({}, fd, { count: 1, bosses: [k.name], measuredOn: label(k) }));
     }));
+    // Final review item 3: average the accounting shares over the pulls that have an accounting
+    // before anything reads them (ordering, text, the sheet).
+    if (accounted) byId.forEach((f, id) => { if (typeof f.share === 'number' && shareSum.has(id)) f.share = Math.round(shareSum.get(id) / accounted); });
     let merged = Array.from(byId.values());
     // Minor 12: append the "seen on N of M bosses" count — naming the boss the numbers were
     // measured on, per Important 2 — as its own clause.
     merged.forEach(f => { if (f.count > 1) f.text += ' (numbers measured on ' + f.measuredOn + '; seen on ' + f.count + ' of ' + live.length + ' ' + unit + ')'; });
-    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null }, g)));
+    // The per-pull text carries the per-pull share ("Worth 46% of the gap"); once the share is an
+    // average, the sentence has to say the number the sheet now holds, and say what it averages.
+    merged.forEach(f => {
+        if (typeof f.share !== 'number') return;
+        f.text = f.text.replace(/ Worth \d+% of the gap/, ' Worth ' + f.share + '% of the gap' + (accounted > 1 ? ', averaged over ' + accounted + ' pulls' : ''));
+    });
+    merged = merged.concat((gear || []).map(g => Object.assign({ count: live.length || 1, bosses: [], measuredOn: null, share: null }, g)));
     // v3: every finding is kept (no cap), ordered by the accounting's own share first — the
     // number that says how much of the gap it actually explains — then severity, then count.
-    merged.sort((a, b) => ((b.share || 0) - (a.share || 0)) || (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count));
+    // Final review item 2: a share-less finding sorts after every share, including a share of 0.
+    merged.sort((a, b) => ((b.share ?? -1) - (a.share ?? -1)) || (SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]) || (b.count - a.count));
     return merged;
 }
 
@@ -772,7 +798,10 @@ function killFindings(kill, player) {
         GAP.statPriorityFindings({ me: kill.me.stats, reference: kill.reference && kill.reference.stats, spec: player.spec, role: player.role, hitCap, boss: kill.name }),
         rotationFindings(kill), consumableFindings(kill), debuffFindings(kill, player));
     if (!kill.reference && kill.referenceNote) f.push(finding('no_reference', 'info', 'player', kill.referenceNote + ' on ' + kill.name));
-    return f.map(x => Object.assign({ owner: x.owner || (x.scope === 'group' ? 'group' : 'player'), share: typeof x.share === 'number' ? x.share : 0 }, x));
+    // Final review item 2: only a finding that came out of the accounting carries a share. The old
+    // default of 0 was written into the note as "0% of the gap" on every rotation, consumable and
+    // gear line — a raid leader reads that as "none of this matters".
+    return f.map(x => Object.assign({ owner: x.owner || (x.scope === 'group' ? 'group' : 'player'), share: typeof x.share === 'number' ? x.share : null }, x));
 }
 
 function killFacts(input) {
@@ -782,7 +811,7 @@ function killFacts(input) {
     // the pre-existing single-rank call shape.
     const killsOnBoss = typeof input.killsOnBoss === 'number' ? input.killsOnBoss : 1;
     const killIndex = typeof input.killIndex === 'number' ? input.killIndex : 1;
-    const fc = fightContext(context, player.name, player.role, reference ? (reference.fastestDurationSec || reference.durationSec) : null, player.metric, name);
+    const fc = fightContext(context, player.name, player.role, reference ? (reference.topDurationSec || reference.durationSec) : null, player.metric, name);
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
     const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
@@ -821,7 +850,7 @@ function buildPrompt(facts, rulesLines) {
         'Second person, friendly, direct, no fluff. Plain text: no markdown, no # headings, no ** bold.',
         'Use ONLY the facts in the JSON sheet. Never invent a number, an ability, a buff, an item or a percentage. If the sheet does not support a claim, leave it out.',
         '"Comparable players" means ' + GAP.REF_LABEL + ' on the same boss (each kill\'s reference). reference.topDps is what the best players at that item level reach.',
-        'Every finding carries an owner and a share. owner is "player" for things the player can change themselves; owner is "group" for party buffs, raid debuffs and Bloodlust, which are things to ask the raid leader for and never the player\'s failing; owner is "raid" for kill speed, phases and deaths, which are not on the player. share is the percentage of the DPS gap that input accounts for.',
+        'Every finding carries an owner and, when it comes from the accounting, a share. owner is "player" for things the player can change themselves; owner is "group" for party buffs, raid debuffs and Bloodlust, which are things to ask the raid leader for and never the player\'s failing; owner is "raid" for kill speed, phases and deaths, which are not on the player. share is the percentage of the DPS gap that input accounts for. A finding whose share is null has no share: never give it a percentage, not even 0%.',
         // Important 2: a merged finding can name several bosses in `bosses` while its text and
         // numbers belong to only one of them (kept verbatim from where they were first measured).
         // A live report once attributed one boss's crit numbers to another for exactly this reason.
@@ -1095,15 +1124,19 @@ async function getReference(query, o) {
         ranks = ranks.slice(0, REF.target);
         // Ceiling: the band's best DPS from the top pages, at most REF.topPages of them.
         let topDps = null;
-        let fastest = null;
+        let topDuration = null;
         for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
             const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, band);
             if (ib.length) {
                 topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
-                // v3 fix: a rank missing `duration` would otherwise poison Math.min into NaN,
+                // v3 fix: a rank missing `duration` would otherwise poison the aggregate into NaN,
                 // and `typeof NaN === 'number'` slips past the null guard below.
+                // Final review item 1: the bad-pull baseline is the MEDIAN of these in-band
+                // durations, not their minimum — a single broken log (a fight WCL split oddly, 30 s
+                // where the page's real kills take 100 s) used to become the bar, and every honest
+                // pull past twice that read as a bad pull with no accounting at all.
                 const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
-                fastest = durs.length ? Math.round(Math.min.apply(null, durs) / 1000) : null;
+                topDuration = durs.length ? Math.round(median(durs) / 1000) : null;
             }
         }
         const players = [];
@@ -1119,7 +1152,7 @@ async function getReference(query, o) {
                 if (e && e.code === 'RATE_LIMIT') throw e;
             }
         }
-        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps, { fastestDurationSec: fastest }), note: null, band };
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps, { topDurationSec: topDuration }), note: null, band };
     })();
     o.refCache.set(key, { at: o.now, pending });
     try {

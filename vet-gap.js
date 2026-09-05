@@ -120,7 +120,10 @@ const FINDING_ANCHOR = {
     gear_gs: 'gearscore', gear_ilvl: 'item level', gear_hit: 'hit rating', gear_expertise: 'expertise', gear_defense: 'defense',
 };
 
-function share(logValue, G) { return G > 0 ? Math.round(100 * logValue / G) : 0; }
+// Final review item 11: Math.round of a tiny negative log is -0, which JSON.stringify writes as
+// 0 but Object.is tells apart and a strict test would catch; `|| 0` normalises -0 (and any NaN a
+// degenerate input could produce) to a plain 0.
+function share(logValue, G) { return (G > 0 ? Math.round(100 * logValue / G) : 0) || 0; }
 function splitLog(remaining, weights) {
     const w = (weights || []).map(x => (typeof x === 'number' && x > 0 ? x : 0));
     const sum = w.reduce((s, x) => s + x, 0);
@@ -374,16 +377,26 @@ function statPriorityFindings(o) {
     const { me, reference, spec, role, hitCap, boss } = o;
     if (!me || !reference) return [];
     const order = STAT_PRIORITY[spec] || STAT_PRIORITY[role === 'caster' ? 'Destruction' : 'Combat'];
+    // Final review item 11: without a caller-supplied cap the hit bar used to fall back to the
+    // REFERENCE's own hit rating, which is a middle-of-the-board player's gear, not a cap — the
+    // live note showed "spell hit 69 vs 202" on one line and a reference-derived bar on another.
+    // The raid's cap in rating is the only correct bar: 16% for spells, 9% for melee/ranged.
+    const capBar = (role === 'caster' || role === 'healer')
+        ? Math.round(C.HIT_CAP.spell * C.HIT_RATING_PER_PCT)
+        : Math.round(C.HIT_CAP.melee * C.MELEE_HIT_RATING_PER_PCT);
     const out = [];
     for (const stat of order) {
-        const mine = me[stat], bar = (stat === 'spellHit' || stat === 'meleeHit') && typeof hitCap === 'number' ? hitCap : reference[stat];
+        const isHitStat = stat === 'spellHit' || stat === 'meleeHit';
+        const mine = me[stat], bar = isHitStat ? (typeof hitCap === 'number' ? hitCap : capBar) : reference[stat];
         if (typeof mine !== 'number' || typeof bar !== 'number' || !bar) continue;
         const under = (stat === 'spellHit' || stat === 'meleeHit') ? mine < bar : mine < 0.9 * bar;
         if (!under) continue;
         const isHit = stat === 'spellHit' || stat === 'meleeHit';
         const text = isHit ? STAT_TEXT[stat] + ' ' + mine + ' against the ' + bar + ' the raid asks for; get hit to the cap before any other stat'
                            : STAT_TEXT[stat] + ' ' + mine + ' against ' + bar + ' for ' + REF_LABEL;
-        out.push({ key: 'gear_stat', owner: 'player', severity: isHit ? 'major' : 'minor', scope: 'player', share: 0, stat, text, me: mine, reference: bar, boss });
+        // Final review item 2: a stat line is not part of the accounting, so it carries no share at
+        // all. A literal 0 here read as "0% of the gap" in the live note.
+        out.push({ key: 'gear_stat', owner: 'player', severity: isHit ? 'major' : 'minor', scope: 'player', share: null, stat, text, me: mine, reference: bar, boss });
         if (isHit) break;
     }
     return out;
