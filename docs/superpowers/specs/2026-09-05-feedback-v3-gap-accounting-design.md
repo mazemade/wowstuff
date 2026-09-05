@@ -159,13 +159,19 @@ reports for the player and unknowable for reference players, so neither side cou
 
 Not a multiplicative measurement on the player's numbers (raid activity already carries phases);
 the fight factor is the **bad-pull** decision (v1 §4.1) with one change: the duration rule
-compares against `reference.fastestDurationSec` (the shortest in-band kill on the ceiling pages)
+compares against `reference.topDurationSec` — the **median** of the in-band durations on the
+ceiling page, not their minimum (final review item 1: one mis-split 30 s log otherwise became the
+bar every honest pull was judged against, and ordinary kills lost their accounting entirely) —
 with `T.longFightRatio` unchanged — a raid that took twice the fastest kill saw phases the
 reference skipped. A bad pull is excluded from the accounting and listed under "Not on you" with
 its reason, including the phase explanation for bosses in `PHASE_BOSSES` (Lurker submerge at
 90 s, Vashj phases, Morogrim graves, Kael'thas phases — text table).
 
 ### 3.5 Cooldowns and bursts
+
+**Not implemented in v3** (`BURST_VALUE` is exported and reserved for it): burst timing and
+`no_potion` are emitted as findings with no share of their own, and the accounting never claims a
+share for them. The rule below is the design a later version can pick up.
 
 v2 §6's burst timing stays a finding (player) with a share estimated as
 `uses outside Bloodlust × BURST_VALUE[name]` where `BURST_VALUE` is the fraction of a fight's
@@ -174,15 +180,21 @@ carried under the damage-per-cast factor's rotation input. `no_potion` likewise 
 
 ### 3.6 Residual
 
-After all factors: `residual = R / (castsFactor × dmgFactor × critFactor)`. Its share is reported
-as "unexplained" in the sheet and in the facts table; the model is told it exists and told not to
+After all factors: `residual = R / (castsFactor × dmgFactor × critFactor)`. With reference players
+drawn from adjacent ranks of a DPS-sorted board the residual is ~0 by construction (the factors are
+measured on the same players the ratio is measured against, so they multiply back to it); the
+unmeasured remainder is reported inside the damage-per-cast factor, in `rotation` and
+`cast_pacing`, not here. Its share is reported as "unexplained" in the sheet and in the facts table; the model is told it exists and told not to
 explain it. The facts table shows it per pull so the leader can see how much a pull's gap the measurements
 left unaccounted for.
 
 ### 3.7 Two pulls per boss, several bosses
 
-Shares are averaged over the live pulls where the input applies; an input's finding text uses the
-pull where its share is largest (`measuredOn`, v2 rule). The overall ordering is by average share.
+Shares are averaged over **every live pull that has an accounting** — a pull where the input never
+appeared contributes 0 — and the finding's sentence says so: "Worth 20% of the gap, averaged over 2
+pulls". An input's finding text and numbers still come from the pull where its share is largest
+(`measuredOn`, v2 rule). The overall ordering is by average share; a finding that does not come from
+the accounting carries `share: null` and is never given a percentage.
 
 ## 4. Findings (replaces v1 §4.3–4.8 outcome rules)
 
@@ -204,8 +216,34 @@ Retribution, Enhancement, Feral): hit → expertise → attack power (strength/a
 haste. Ranged (hunters): hit → agility/attack power → crit → haste. Bars: hit = the raid's cap
 from thresholds; everything else = the reference's gear-derived value.
 
-`positives` keeps its v1/v2 lines and adds "Where you beat comparable players" for any input whose
-share is ≤ −3% (the player is ahead).
+`positives` keeps its v1/v2 lines, adds "Where you beat comparable players" for any input whose
+share is ≤ −3% (the player is ahead), and adds one "Above <reference> on <boss>: <me> against
+<ref> DPS" line per live pull that has a reference and no accounting (the player matched or beat
+them there).
+
+**Findings that are one line, not many** (final review):
+- `active_low` stays, for pulls **without** an accounting only (healers, no reference, a pull the
+  player was ahead on, a bad pull); where there is an accounting, `own_activity` carries it with
+  its share.
+- `ability_unused` and `ability_extra` are **one grouped finding per boss** each, naming every
+  ability with the reference's rate (`Never cast on <boss>: Curse of Doom (comparable players
+  0.7/min), Shadowburn (0.3/min); never used Destruction Potion (0.3/min)`) or the player's own
+  count (`Cast on <boss> while comparable players do not: Immolate (12)`). They carry `abilities`
+  (every name) as well as `ability` (the first, for anchoring), and merge by boss.
+- Racials, encounter-handed items and threat casts (`RACIAL`, `ENCOUNTER_ITEM`, Soulshatter in
+  `UTILITY_CAST`) are never reported as unused.
+- Curses are one family: a player who casts any curse is never told they "never cast" another one;
+  instead, when the reference's most-cast curse differs from theirs, a single `curse_choice`
+  (player) asks whether the curse they run is their assignment.
+- Dedupe, one topic one line: `no_potion` is dropped when the grouped `ability_unused` already
+  names the potion; `debuff_missing` when the accounting's `debuffs` input is present (that line
+  now names the missing debuffs itself); `buffs_missing` when `crit_buffs` or `power_buffs` is
+  present (those lines now name the buffs missing at the pull); a `gear_stat` line when the
+  accounting already reports that topic (`hit_under_cap`, `power_gear`, `crit_gear`); and the
+  profile-wide `gear_hit` finding folds into the pull's hit line as "(your current profile shows
+  N)".
+- Without a caller-supplied hit cap, the `gear_stat` hit bar is the raid's cap in rating (202
+  spell, 142 melee), never the reference player's own hit rating.
 
 ## 5. The sheet and the note
 
@@ -219,11 +257,17 @@ Prompt structure (replaces v1 §5.1 items 2–4):
 1. Header as v2.
 2. "Where the gap comes from": one sentence per factor with its share, from `overall.gap`, plus
    "the rest is luck / unexplained" when those shares are ≥ 3%.
-3. "What you can fix": every `owner: 'player'` finding, biggest share first, each with your
-   number, the reference number, its share, one concrete fix.
-4. "Ask your raid leader": every `owner: 'group'` finding, with the share.
+3. "What you can fix": every `owner: 'player'` entry **of `overall.findings`** (never `kills[]`),
+   biggest share first, each with your number, the reference number **when the finding has one**,
+   its share **when it has one**, one concrete fix.
+4. "Ask your raid leader": every `owner: 'group'` entry of `overall.findings`, with the share when
+   it has one.
 5. "What's fine": positives.
-6. "Not on you": raid findings and bad pulls with reasons.
+6. "Where you stand": the ceiling line, written as numbers ("you did 1300 DPS; players at your
+   item level among the top 2000 parses do 2152; the best reach 2976"), never as field names.
+7. "Not on you": raid findings and bad pulls with reasons, each naming its boss and dating it when
+   the sheet lists that boss more than once.
+A finding whose `share` is null has no share and is never given a percentage, not even 0%.
 Under 450 words. "Do not drop any finding" stays. **Completeness guard**: after the number
 guard, the server checks that each finding's `me` value (or, for findings without a number, its
 `key`'s anchor word from `FINDING_ANCHOR`) appears in the reply; missing ones are appended
@@ -271,8 +315,12 @@ shares and asks, never a number the player is judged against.
   `ability_extra` fires for Drain Soul at 1/min against a reference that never casts it.
 - Prompt/guard: the six sections; completeness guard appends a missing finding under "Also:";
   number guard accepts shares.
-- Route: unchanged shape plus `facts.gap`; client: headless smoke on Dotwin (Morogrim decomposes
-  to casts ≈ 35%, per cast ≈ 40%, crit ≈ 13% within ± 5) and Rotminster.
+- Route: unchanged shape plus `facts.gap`; client: headless smoke on Dotwin and Rotminster. The
+  measured expectation is the residual: **0 ± 1 on every live pull**, with `rotation` the largest
+  single input inside the damage-per-cast factor. (The earlier per-factor expectation — Morogrim at
+  casts ≈ 35 / per cast ≈ 40 / crit ≈ 13 / residual ≈ 12 — was written before the ratio was
+  measured against the same players the factors come from; live pulls now land near casts 28 /
+  per cast 61 / crit 11 / residual 0, and the split moves with each new pull WCL records.)
 
 ## 9. Out of scope
 

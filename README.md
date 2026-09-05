@@ -32,7 +32,8 @@ groups, and checks live whether assignments were actually done.
     "Not on you". Needs `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET` and, for the prose, `OPENAI_API_KEY`
     (`OPENAI_MODEL` optional) in `.env`. Optional `report=<WCL report code>` analyses one raid
     night; the default response's `facts.nights` lists the codes. The facts sheet carries
-    `overall.gap` and per-pull `gap` with the DPS-gap accounting.
+    `overall.gap` and per-pull `gap` with the DPS-gap accounting, and findings the model omits are
+    appended under "Also:".
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
