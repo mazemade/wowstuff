@@ -323,6 +323,33 @@ test('referenceSummary on Anetheron: medians over 8 ranks and 3 players', () => 
     assert.ok(ref.topDps >= ref.dps);
     assert.deepStrictEqual(ref.itemLevelBand, [122, 126]);
 });
+test('v3 measurements: me and reference carry damaging casts, damage per cast, crit rate, channel time, raid activity, consumables and debuffs', () => {
+    const ref = refFor(50619);
+    ['damagingCastsPerMinute', 'damagePerDamagingCast', 'critRate', 'channelSecPerMin'].forEach(k => assert.strictEqual(typeof ref[k], 'number', k));
+    // The reference fixture's players carry only {fights, dmgAll, masterData} on `context` (captured
+    // before v3), not the `rankings` a live reference fetch gets from FIGHT_QUERY. fightContext's
+    // raid-group lookup needs `rankings` to find who else is in the raid, so with none it can't form
+    // a group and correctly reports null here — the same nullable shape `uptimeFindings` already
+    // guards for `fight.raidActivePercent` (`typeof fight.raidActivePercent === 'number'`).
+    assert.strictEqual(ref.raidActivePercent, null, 'the reference fixture has no rankings to build a raid group from');
+    assert.ok(ref.damagingCastsPerMinute < ref.castsPerMinute, 'Life Tap is not a damaging cast');
+    assert.ok(Array.isArray(ref.consumablesAtPull) && ref.consumablesAtPull.includes('Flask of Pure Death'));
+    assert.ok(Array.isArray(ref.debuffs) && ref.debuffs.every(d => typeof d.name === 'string' && typeof d.uptimePercent === 'number'));
+    assert.strictEqual(ref.fastestDurationSec, null, 'a direct referenceSummary call has no ceiling pages');
+    assert.strictEqual(typeof ref.stats.intellect, 'number');
+    const k = killFor(50619);
+    assert.ok(k.me.damagingCastsPerMinute > 0 && k.me.damagingCastsPerMinute < k.me.castsPerMinute);
+    assert.strictEqual(k.me.damagePerDamagingCast, Math.round(k.me.abilities.reduce((s, a) => s + a.total, 0) / k.me.abilities.reduce((s, a) => s + (a.total > 0 ? (k.me.casts[a.name] || 0) : 0), 0)));
+    assert.ok(k.me.critRate > 20 && k.me.critRate < 35, 'Rotminster crits about a quarter of his damaging hits: ' + k.me.critRate);
+    assert.strictEqual(k.me.channelSecPerMin, 0, 'the fixture has no bands');
+    assert.strictEqual(typeof k.me.stats.intellect, 'number');
+});
+test('v3 measurements: getReference records the fastest in-band kill from the ceiling pages', async () => {
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => { if (q === F.FIGHT_QUERY) return { reportData: { report: null } }; return lb.query(q, vars); };
+    const ref = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.strictEqual(ref.summary.fastestDurationSec, 100, 'every synthetic rank lasts 100 s');
+});
 
 // --- Task 5: kill facts and player findings
 function killFor(enc) {

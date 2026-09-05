@@ -3,6 +3,7 @@
 // builds the prompt that turns that sheet into a player-facing report. The GraphQL `query`
 // function is injected, as in vet-profile.js: the server passes wclQuery, the tests pass a stub.
 const V = require('./vet-engine.js');
+const GAP = require('./vet-gap.js');
 
 const KILL_LIMIT = 8;
 // Reference selection (spec v2 §3): same spec, same boss, same region, item level within `band`
@@ -309,7 +310,7 @@ function canonBuffs(names, role) {
 // Gear-derived stats, the same way the vetting profile computes them: WCL-reported ratings win
 // where the CombatantInfo row carries them, gear fills the rest. The fight-wide DamageDone row
 // carries gear too, which is what reference players (no CombatantInfo query) use.
-const STAT_KEYS = ['spellDamage', 'healing', 'attackPower', 'rangedAttackPower', 'spellCrit', 'meleeCrit', 'rangedCrit', 'spellHit', 'meleeHit', 'spellHaste', 'meleeHaste', 'mp5'];
+const STAT_KEYS = ['spellDamage', 'healing', 'attackPower', 'rangedAttackPower', 'spellCrit', 'meleeCrit', 'rangedCrit', 'spellHit', 'meleeHit', 'spellHaste', 'meleeHaste', 'mp5', 'intellect', 'strength', 'agility'];
 function playerStats(ci, row, dbIndex, classToken) {
     const gear = ci && Array.isArray(ci.gear) ? ci.gear : (row && Array.isArray(row.gear) ? row.gear : null);
     if (!gear || !gear.length || !dbIndex) return null;
@@ -340,7 +341,8 @@ function mostCommon(names) {
 // rank collected; everything that needs a fight's tables (casts, per-ability numbers, buffs,
 // consumables, stats) is a median over the fetched reference players. An ability or buff counts
 // only when a majority of those players show it, so one player's one-off cast is not "unused".
-function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDps) {
+function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDps, o) {
+    o = o || {};
     const per = (players || []).map(p => {
         const fight = Array.isArray(p.context.fights) ? p.context.fights[0] : null;
         const dur = fight ? (fight.endTime - fight.startTime) / 1000 : null;
@@ -355,6 +357,11 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
             buffs: aur ? canonBuffs(aur.buffs, role) : [], bloodlust: lustPercent(p.tables.buffs),
             burst: burstStats(p.tables.buffs, p.tables.casts),
             stats: playerStats(ci, row, dbIndex, classToken),
+            dcs: GAP.damagingCastStats(casts, abilityStats(p.tables.dmg)),
+            channelSec: GAP.channelSeconds(p.tables.buffs),
+            consumables: aur ? aur.consumables : [],
+            raidActive: fightContext(p.context, p.rank.name, role, null, 'dps').fight.raidActivePercent,
+            debuffs: debuffFacts(p.context.debuffs, schoolsOf(classToken, p.rank.spec, role)).present,
         };
     });
     const n = per.length, majority = Math.floor(n / 2) + 1;
@@ -397,7 +404,17 @@ function referenceSummary(ranks, players, dbIndex, classToken, role, band, topDp
         activePercent: medOf(per.map(p => p.activePercent)), castsPerMinute: medOf(per.map(p => p.castsPerMinute)),
         casts, abilities, buffsAtPull: Object.keys(buffCounts).filter(b => buffCounts[b] >= majority),
         flaskShare: withCi ? round1(flasks.length / withCi) : 0, flask: mostCommon(flasks),
-        bloodlustPercent: medOf(per.map(p => p.bloodlust)), burst, stats,
+        bloodlustPercent: medOf(per.map(p => p.bloodlust)), burst,
+        damagingCastsPerMinute: medOf(per.map(p => p.dur ? round1(60 * p.dcs.casts / p.dur) : null)),
+        damagePerDamagingCast: Math.round(median(per.map(p => p.dcs.casts ? p.dcs.damage / p.dcs.casts : null))),
+        critRate: medOf(per.map(p => p.dcs.hits ? 100 * p.dcs.crits / p.dcs.hits : null)),
+        channelSecPerMin: medOf(per.map(p => p.dur ? 60 * p.channelSec / p.dur : null)),
+        raidActivePercent: medOf(per.map(p => p.raidActive)),
+        consumablesAtPull: Object.keys(countNames(per.map(p => p.consumables))).filter(n => countNames(per.map(p => p.consumables))[n] >= majority),
+        debuffs: Object.keys(countNames(per.map(p => p.debuffs.map(d => d.name)))).filter(n => countNames(per.map(p => p.debuffs.map(d => d.name)))[n] >= majority)
+            .map(n => ({ name: n, uptimePercent: medOf(per.map(p => { const d = p.debuffs.find(x => x.name === n); return d ? d.uptimePercent : null; })) })),
+        fastestDurationSec: typeof o.fastestDurationSec === 'number' ? o.fastestDurationSec : null,
+        stats,
     };
 }
 
@@ -761,6 +778,7 @@ function killFacts(input) {
     const casts = castCounts(tables.casts);
     const ci = tables.ci && tables.ci.data && tables.ci.data[0];
     const aur = ci ? classifyAuras((ci.auras || []).map(a => a.name)) : null;
+    const dcs = GAP.damagingCastStats(casts, abilityStats(tables.dmg));
     const me = Object.assign(fc.me, {
         consumablesKnown: !!ci, consumablesAtPull: aur ? aur.consumables : [], buffsAtPull: aur ? aur.buffs : [],
         partyBuffs: aur ? canonBuffs(aur.buffs, player.role) : [],
@@ -768,6 +786,10 @@ function killFacts(input) {
         castsPerMinute: castsPerMinute(casts, fc.fight.durationSec), casts, abilities: abilityStats(tables.dmg),
         bloodlustPercent: lustPercent(tables.buffs), burst: burstStats(tables.buffs, tables.casts),
         stats: playerStats(ci, fc.meRow, dbIndex, player.classToken),
+        damagingCastsPerMinute: fc.fight.durationSec ? round1(60 * dcs.casts / fc.fight.durationSec) : null,
+        damagePerDamagingCast: dcs.casts ? Math.round(dcs.damage / dcs.casts) : null,
+        critRate: dcs.hits ? round1(100 * dcs.crits / dcs.hits) : null,
+        channelSecPerMin: fc.fight.durationSec ? round1(60 * GAP.channelSeconds(tables.buffs) / fc.fight.durationSec) : null,
     });
     const kill = {
         encounterId, name, killsOnBoss, killIndex, rankPercent: round1(rank.rankPercent),
@@ -1011,9 +1033,13 @@ async function getReference(query, o) {
         ranks = ranks.slice(0, REF.target);
         // Ceiling: the band's best DPS from the top pages, at most REF.topPages of them.
         let topDps = null;
+        let fastest = null;
         for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
             const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, band);
-            if (ib.length) topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
+            if (ib.length) {
+                topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
+                fastest = Math.round(Math.min.apply(null, ib.map(r => r.duration)) / 1000);
+            }
         }
         const players = [];
         for (const r of ranks.slice(0, REF.players)) {
@@ -1028,7 +1054,7 @@ async function getReference(query, o) {
                 if (e && e.code === 'RATE_LIMIT') throw e;
             }
         }
-        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps), note: null, band };
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps, { fastestDurationSec: fastest }), note: null, band };
     })();
     o.refCache.set(key, { at: o.now, pending });
     try {
