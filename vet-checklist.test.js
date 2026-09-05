@@ -2,7 +2,8 @@
 const assert = require('node:assert');
 let passed = 0, failed = 0;
 function test(name, fn) {
-    try { fn(); passed++; } catch (e) { failed++; console.error('FAIL: ' + name + '\n  ' + e.message); }
+    try { fn(); passed++; console.log('ok -', name); }
+    catch (e) { failed++; console.error('FAIL -', name, '\n   ', e.message); }
 }
 
 const C = require('./vet-checklist.js');
@@ -94,5 +95,42 @@ test('raidRows: raid_activity is a row only at 3% or more', () => {
     assert.deepStrictEqual(C.raidRows(sheet([gapKill('Al\'ar', { raid_activity: 2 })])), []);
 });
 
-console.log(passed + ' passed, ' + failed + ' failed');
+test('consumableRows: flask fails on elixirs when comparable players flask; the value is the larger of the accounting share and the nominal', () => {
+    const k1 = gapKill('Lady Vashj', { power_consumables: 1 }), k2 = gapKill('Al\'ar', { power_consumables: 3 });
+    k1.me.consumablesAtPull = ['Elixir of Draenic Wisdom', 'Major Shadow Power', 'Well Fed']; k1.me.guardianElixir = 'Elixir of Draenic Wisdom';
+    const rows = C.consumableRows(sheet([k1, k2]), C.DEFAULT_T);
+    const fl = rows.find(r => r.id === 'flask');
+    assert.strictEqual(fl.verdict, 'fail'); assert.deepStrictEqual(fl.pulls, { hit: 2, of: 2 }); assert.strictEqual(fl.value, 2);
+    assert.strictEqual(fl.text, 'Flask: Elixir of Draenic Wisdom + Major Shadow Power at the Lady Vashj pull; comparable players run Flask of Pure Death');
+    assert.strictEqual(fl.fix, 'Run Flask of Pure Death at every pull.');
+    assert.strictEqual(rows.find(r => r.id === 'food').verdict, 'pass');
+    assert.ok(!rows.find(r => r.id === 'oil'), 'no oil row when the reference shows none');
+});
+test('consumableRows: flask passes with a flask; fails with neither flask nor both elixirs even without a reference', () => {
+    const ok = gapKill('A', {}); ok.me.flask = 'Flask of Pure Death'; ok.me.consumablesAtPull = ['Flask of Pure Death', 'Well Fed'];
+    assert.strictEqual(C.consumableRows(sheet([ok]), C.DEFAULT_T).find(r => r.id === 'flask').verdict, 'pass');
+    const bare = gapKill('B', {}, { reference: null, gap: null }); bare.me.consumablesAtPull = ['Well Fed']; bare.me.battleElixir = null;
+    const fl = C.consumableRows(sheet([bare]), C.DEFAULT_T).find(r => r.id === 'flask');
+    assert.strictEqual(fl.verdict, 'fail'); assert.strictEqual(fl.text, 'Flask: nothing at the B pull'); assert.strictEqual(fl.fix, 'Run a flask at every pull.');
+});
+test('consumableRows: potion fails on zero potions or on never using the reference\'s damage potion; value 3 per reference potion, capped at 6', () => {
+    const k1 = gapKill('Void Reaver', {}), k2 = gapKill('Al\'ar', {}), k3 = gapKill('Lady Vashj', {});
+    k2.reference.casts = { 'Shadow Bolt': 80, Destruction: 2 }; k3.me.potionUse = 1; k3.me.casts.Destruction = 1;
+    const p = C.consumableRows(sheet([k1, k2, k3]), C.DEFAULT_T).find(r => r.id === 'potion');
+    assert.strictEqual(p.verdict, 'fail'); assert.deepStrictEqual(p.pulls, { hit: 2, of: 3 }); assert.strictEqual(p.value, 3);
+    assert.strictEqual(p.text, 'Destruction Potion: 0 on 2 of 3 pulls; comparable players use 1–2 a pull (up to 2 in a fight this long)');
+    assert.strictEqual(p.fix, 'Pop one on the pull and again every two minutes.');
+    const short = gapKill('Short', {}); short.fight.durationSec = 40;
+    assert.ok(!C.consumableRows(sheet([short]), C.DEFAULT_T).find(r => r.id === 'potion'), 'a fight under potionMinSec is not measurable');
+});
+test('cooldownRows: burst_timing names the item fired outside Bloodlust', () => {
+    const k = gapKill('Void Reaver', {}); k.me.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 }]; k.reference.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 1 }];
+    const b = C.cooldownRows(sheet([k])).find(r => r.id === 'burst_timing');
+    assert.strictEqual(b.verdict, 'fail'); assert.strictEqual(b.value, 2);
+    assert.strictEqual(b.text, 'Blessing of the Silver Crescent used outside Bloodlust on 1 of 1 pulls; comparable players line it up with Bloodlust');
+    assert.strictEqual(b.fix, 'Hold Blessing of the Silver Crescent for Bloodlust.');
+    assert.ok(!C.cooldownRows(sheet([gapKill('A', {})])).find(r => r.id === 'burst_timing'));
+});
+
+console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

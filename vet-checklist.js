@@ -162,5 +162,68 @@ function raidRows(facts) {
     return r && r.value !== null && r.value >= 3 ? [r] : [];
 }
 
+// --- consumables (spec §4.3 "Consumables")
+const OIL = /wizard oil|mana oil|sharpening stone|weightstone/i;
+function habitRow(o) {
+    const v = verdictForHabit(o.failing.length, o.measurable.length);
+    if (!v) return null;
+    const k = o.failing[0] || o.measurable[0];
+    return row(Object.assign({ verdict: v, pulls: { hit: o.failing.length, of: o.measurable.length }, measuredOn: pullLabel(k, o.kills) }, o.build(k, v)));
+}
+function consumableRows(facts, T) {
+    T = Object.assign({}, DEFAULT_T, T || {});
+    const kills = liveKills(facts), out = [];
+    const known = kills.filter(k => k.me.consumablesKnown);
+    const refFlask = k => k.reference && k.reference.flaskShare >= 0.5 && k.reference.flask ? k.reference.flask : null;
+    const noFlask = k => !k.me.flask && (refFlask(k) || !(k.me.battleElixir && k.me.guardianElixir));
+    const flask = habitRow({ kills, measurable: known, failing: known.filter(noFlask), build: (k, v) => {
+        const had = (k.me.consumablesAtPull || []).filter(n => !/^well fed$/i.test(n) && !OIL.test(n));
+        const share = averageShare(kills, 'power_consumables');
+        return { id: 'flask', category: 'consumables', value: v === 'pass' ? null : Math.max(share || 0, NOMINAL_VALUE.flask),
+                 text: v === 'pass' ? 'Flask at every pull' : 'Flask: ' + (had.length ? had.join(' + ') : 'nothing') + ' at the ' + pullLabel(k, kills) + ' pull' + (refFlask(k) ? '; comparable players run ' + refFlask(k) : ''),
+                 fix: 'Run ' + (refFlask(k) || 'a flask') + ' at every pull.' };
+    } });
+    if (flask) out.push(flask);
+    const food = habitRow({ kills, measurable: known, failing: known.filter(k => !k.me.food), build: (k, v) => ({ id: 'food', category: 'consumables', value: v === 'pass' ? null : NOMINAL_VALUE.food,
+        text: v === 'pass' ? 'Food at every pull' : 'No food buff at the ' + pullLabel(k, kills) + ' pull', fix: 'Eat before every pull.' }) });
+    if (food) out.push(food);
+    const refOil = k => (k.reference && (k.reference.consumablesAtPull || []).find(n => OIL.test(n))) || null;
+    const oilable = known.filter(refOil);
+    const oil = habitRow({ kills, measurable: oilable, failing: oilable.filter(k => !(k.me.consumablesAtPull || []).some(n => OIL.test(n))), build: (k, v) => ({ id: 'oil', category: 'consumables', value: v === 'pass' ? null : NOMINAL_VALUE.oil,
+        text: v === 'pass' ? 'Weapon oil at every pull' : 'No ' + refOil(k) + ' at the ' + pullLabel(k, kills) + ' pull', fix: 'Put ' + refOil(k) + ' on your weapon.' }) });
+    if (oil) out.push(oil);
+    // Potions: the reference's damage potion (a Casts-table name in POTION_LABEL) and how often.
+    const refPotion = k => { const casts = (k.reference && k.reference.casts) || {}; const n = Object.keys(casts).filter(x => GAP.POTION_LABEL[x]).sort((a, b) => casts[b] - casts[a])[0]; return n ? { name: n, count: casts[n] } : null; };
+    const potionable = kills.filter(k => num(k.me.potionUse) !== null && k.fight.durationSec > T.potionMinSec);
+    const potionFail = k => { const p = refPotion(k); return k.me.potionUse === 0 || (p && p.count >= 0.5 && !(k.me.casts || {})[p.name]); };
+    const potion = habitRow({ kills, measurable: potionable, failing: potionable.filter(potionFail), build: (k, v) => {
+        const failing = potionable.filter(potionFail);
+        const counts = failing.map(refPotion).filter(Boolean).map(p => Math.round(p.count)).sort((a, b) => a - b);
+        const p = refPotion(k);
+        const median = counts.length ? counts[Math.floor((counts.length - 1) / 2)] : 0;
+        const possible = Math.floor(k.fight.durationSec / 120) + 1;
+        const label = p ? GAP.POTION_LABEL[p.name] : 'potion';
+        const range = counts.length ? (counts[0] === counts[counts.length - 1] ? String(counts[0]) : counts[0] + '–' + counts[counts.length - 1]) : null;
+        return { id: 'potion', category: 'consumables', value: v === 'pass' ? null : Math.min(6, NOMINAL_VALUE.potion * Math.max(1, median)),
+                 text: v === 'pass' ? 'A potion on every pull' : label + ': 0 on ' + pullsText(failing.length, potionable.length) + (range ? '; comparable players use ' + range + ' a pull' : '') + ' (up to ' + possible + ' in a fight this long)',
+                 fix: 'Pop one on the pull and again every two minutes.' };
+    } });
+    if (potion) out.push(potion);
+    return out;
+}
+
+// --- cooldowns (spec §4.3 "Cooldowns"; v2 §6 burst timing)
+function cooldownRows(facts) {
+    const kills = liveKills(facts);
+    const lustKills = kills.filter(k => k.reference && Array.isArray(k.reference.burst) && k.me.bloodlustPercent > 0);
+    const outside = k => (k.me.burst || []).filter(b => { const r = k.reference.burst.find(x => x.name === b.name); return r && r.insideBloodlust >= 1 && b.uses >= 1 && b.insideBloodlust === 0; }).map(b => GAP.POTION_LABEL[b.name] || b.name);
+    const failing = lustKills.filter(k => outside(k).length);
+    if (!failing.length) return [];
+    const names = Array.from(new Set(failing.flatMap(outside)));
+    return [row({ id: 'burst_timing', category: 'cooldowns', verdict: verdictForHabit(failing.length, lustKills.length), pulls: { hit: failing.length, of: lustKills.length }, value: NOMINAL_VALUE.burst_timing, measuredOn: pullLabel(failing[0], kills),
+                  text: names.join(' and ') + ' used outside Bloodlust on ' + pullsText(failing.length, lustKills.length) + '; comparable players line it up with Bloodlust', fix: 'Hold ' + names.join(' and ') + ' for Bloodlust.' })];
+}
+
 module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD,
-                   liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows };
+                   liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
+                   consumableRows, cooldownRows };
