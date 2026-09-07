@@ -150,6 +150,20 @@
     function frameOf(view, sc) {
         const A = FIGHT.arena;
         if (view.fit === 'arena' || !view.fit) return { x0: A.x0, y0: A.y0, x1: A.x1, y1: A.y1, pad: 2 };
+        if (view.fit === 'action') {
+            // the few things this step is about, taken from the scene rather than the frame,
+            // so the camera holds still instead of chasing the animation around
+            const a = [FIGHT.bossAt];
+            Object.keys(sc.cast || {}).forEach(k => {
+                const p = PLACED[sc.formation || 1][sc.cast[k]];
+                if (p) a.push(p.at);
+            });
+            (sc.effects || []).forEach(e => { if (e.at) a.push(e.at); });
+            return {
+                x0: Math.min(...a.map(p => p.x)), x1: Math.max(...a.map(p => p.x)),
+                y0: Math.min(...a.map(p => p.y)), y1: Math.max(...a.map(p => p.y)), pad: 13
+            };
+        }
         const pts = [FIGHT.bossAt];
         const phases = sc.morph ? [sc.morph.from, sc.morph.to] : [sc.formation || 1];
         phases.forEach(ph => {
@@ -162,7 +176,7 @@
         const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
         return {
             x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys),
-            pad: view.fit === 'front' ? 9 : 6
+            pad: view.fit === 'front' ? 9 : 11
         };
     }
 
@@ -210,6 +224,7 @@
 
     // ---- the simulation -------------------------------------------------------
 
+    const KITE = 0.75;        // radians off the line of whatever is chasing you, ~43 degrees
     const WALK = 0.0072;      // yards per ms — a player getting out of something
     const FIRE = 0.0064;      // the gout of flame, slower than you on purpose
     const STEP = 50;
@@ -229,7 +244,11 @@
 
     // Where a raider stands if nothing is chasing them: their spot for this step, or part way
     // between two phases while the raid repositions.
-    function homeAt(sc, p, t) {
+    function homeAt(sc, p, t, boss) {
+        if (p.kind === 'tank' && boss) {
+            const base = PLACED[sc.morph ? sc.morph.to : sc.formation][p.id].at;
+            return { x: base.x + (boss.x - FIGHT.bossAt.x), y: base.y + (boss.y - FIGHT.bossAt.y) };
+        }
         if (!sc.morph) return PLACED[sc.formation][p.id].at;
         const a = PLACED[sc.morph.from][p.id].at, b = PLACED[sc.morph.to][p.id].at;
         if (a === b) return a;
@@ -248,8 +267,9 @@
         const trailEff = (sc.effects || []).find(e => e.kind === 'trail');
         const trail = trailEff ? [] : null;
 
-        sc.raid.forEach(p => { pos[p.id] = homeAt(sc, p, 0); });
+        sc.raid.forEach(p => { pos[p.id] = homeAt(sc, p, 0, boss); });
         if (trail) trail.push({ x: boss.x, y: boss.y, t: trailEff.start });
+        const kite = { side: 0, of: null };
 
         for (let s = 0; ; s += STEP) {
             const now = Math.min(s, t);
@@ -284,11 +304,21 @@
 
             // the raid: stand on your spot unless something is on it
             const solid = { x: boss.x, y: boss.y, yards: 6 };
-            const hunted = trail && now >= trailEff.start && now <= trailEff.start + (trailEff.chaseMs || 4000)
-                ? castId(sc, trailEff.follow) : null;
+            // whoever is being chased right now, and the thing chasing them
+            let chase = null;
+            if (trail && now >= trailEff.start && now <= trailEff.start + (trailEff.chaseMs || 4000)) {
+                chase = { id: castId(sc, trailEff.follow), at: trail[trail.length - 1], reach: trailEff.avoid || 4 };
+            } else if (gaze) {
+                chase = { id: castId(sc, gaze.target), at: boss, reach: gaze.avoid || 10 };
+            }
+            if (chase && kite.of !== chase.id) { kite.of = chase.id; kite.side = 0; }
+
             sc.raid.forEach(p => {
-                if (p.id === hunted) { pos[p.id] = sidestep(sc, p, pos, trail, trailEff.avoid || 4); return; }
-                const home = homeAt(sc, p, now);
+                if (chase && p.id === chase.id) {
+                    pos[p.id] = kiteStep(sc, p, pos, chase.at, chase.reach, kite);
+                    return;
+                }
+                const home = homeAt(sc, p, now, boss);
                 let want = home;
                 if (hz.length) {
                     const mine = apart(home, boss) > 7 ? hz.concat([solid]) : hz;
@@ -341,36 +371,53 @@
             else sc.raid.forEach(p => { if (p.kind === f) set[p.id] = 1; });
         });
         sc.raid.forEach(p => {
-            if (apart(homeAt(sc, p, t), sc._sim.pos[p.id]) > 1.5) set[p.id] = 1;
+            if (apart(homeAt(sc, p, t, sc._sim.boss), sc._sim.pos[p.id]) > 1.5) set[p.id] = 1;
         });
         return set;
     }
 
-    // What the hunted player does: nothing until the fire is nearly on them, then a step
-    // to the side — never straight away, which only drags it further in a straight line —
-    // on whichever side has more room from everybody else.
-    function sidestep(sc, p, pos, trail, reach) {
+    // What the hunted player does once the fire is closing: walk, continuously, at an angle
+    // across its approach rather than straight away from it. Running straight away just drags
+    // it after you in a line; walking across it makes it overshoot and trail behind in a curve,
+    // which is the whole reason the sidestep works. `kite` remembers which way they turned so
+    // the arc keeps bending the same way instead of wobbling.
+    function kiteStep(sc, p, pos, head, reach, kite) {
         const cur = pos[p.id];
-        const head = trail[trail.length - 1];
         const d = apart(cur, head);
-        if (d > reach + 3) return cur;
+        if (d > reach + 10) return cur;                 // it is not near you yet; hold your spot
+
         const ax = (cur.x - head.x) / FIGHT.yard, ay = (cur.y - head.y) / (FIGHT.yard * FIGHT.aspect);
         const al = Math.hypot(ax, ay) || 1;
-        const nx = ax / al, ny = ay / al;
-        const sides = [{ x: -ny, y: nx }, { x: ny, y: -nx }];
-        const probe = s => ({ x: cur.x + s.x * 4 * FIGHT.yard, y: cur.y + s.y * 4 * FIGHT.yard * FIGHT.aspect });
-        const room = s => {
-            const q = probe(s);
-            let best = apart(q, FIGHT.bossAt);
-            sc.raid.forEach(o => { if (o.id !== p.id) best = Math.min(best, apart(q, pos[o.id])); });
-            const A = FIGHT.arena;
-            if (q.x < A.x0 || q.x > A.x1 || q.y < A.y0 || q.y > A.y1) best = -1;
-            return best;
+        const bearing = Math.atan2(ay / al, ax / al);   // from the fire towards you
+
+        if (kite.side === 0) {
+            // turn towards open floor: the side further from him and from everybody else
+            kite.side = [1, -1].map(sgn => {
+                const a = bearing + sgn * KITE;
+                const q = {
+                    x: cur.x + Math.cos(a) * 10 * FIGHT.yard,
+                    y: cur.y + Math.sin(a) * 10 * FIGHT.yard * FIGHT.aspect
+                };
+                const A = FIGHT.arena;
+                if (q.x < A.x0 || q.x > A.x1 || q.y < A.y0 || q.y > A.y1) return { sgn: sgn, room: -1 };
+                let room = apart(q, FIGHT.bossAt);
+                sc.raid.forEach(o => { if (o.id !== p.id) room = Math.min(room, apart(q, pos[o.id])); });
+                return { sgn: sgn, room: room };
+            }).sort((a, b) => b.room - a.room)[0].sgn;
+        }
+
+        const a = bearing + kite.side * KITE;            // across its approach, but gaining ground
+        const target = {
+            x: cur.x + Math.cos(a) * 10 * FIGHT.yard,
+            y: cur.y + Math.sin(a) * 10 * FIGHT.yard * FIGHT.aspect
         };
-        const side = room(sides[0]) >= room(sides[1]) ? sides[0] : sides[1];
-        const out = reach + 9;
-        const target = { x: cur.x + side.x * out * FIGHT.yard, y: cur.y + side.y * out * FIGHT.yard * FIGHT.aspect };
-        return stepToward(cur, target, WALK * STEP);
+        const A = FIGHT.arena;
+        target.x = clamp(target.x, A.x0, A.x1);
+        target.y = clamp(target.y, A.y0, A.y1);
+        // and do not run into somebody else while you are doing it
+        const others = [];
+        sc.raid.forEach(o => { if (o.id !== p.id) others.push({ x: pos[o.id].x, y: pos[o.id].y, yards: 5 }); });
+        return stepToward(cur, L.safePos(FIGHT, target, others), WALK * STEP);
     }
 
     // Read a position out of the current frame: a raid slot, a cast name, or him.
@@ -867,10 +914,9 @@
         const c = px(sc._sim.pos[p.id]);
         const r = clamp(yd(1.7), 9, 21);
         const img = image(ROLE_ICON[p.kind] || ROLE_ICON.ranged);
-        const lit = !sc._dim || sc._focus[p.id];
+        if (sc._dim && !sc._focus[p.id]) return;
 
         ctx.save();
-        if (!lit) ctx.globalAlpha = 0.3;
         ctx.shadowColor = 'rgba(0,0,0,.8)';
         ctx.shadowBlur = 7;
         ctx.beginPath();
@@ -886,8 +932,6 @@
         ctx.strokeStyle = 'rgba(236,230,216,.8)';
         ctx.stroke();
         ctx.restore();
-
-        if (!lit) return;
 
         const hp = valueAt(sc.hp && sc.hp[p.id], t);
         if (hp !== null) {

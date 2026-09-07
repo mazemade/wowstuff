@@ -104,24 +104,34 @@ test('formation: in phase 1 tanks and melee are on him, everyone else is on thei
     });
 });
 
-test('formation: phase 2 puts melee and tanks out on their own slots, still in range', () => {
+test('formation: the tanks never leave him — they hold threat through both phases', () => {
+    const a = L.assign(FIGHT, ROSTER);
+    const p1 = L.formation(FIGHT, 1, a), p2 = L.formation(FIGHT, 2, a);
+    const tanksOf = f => f.filter(p => p.kind === 'tank');
+    tanksOf(p2).forEach((t, i) => {
+        assert.deepStrictEqual(t.at, tanksOf(p1)[i].at, 'a tank stands in the same place all fight');
+        assert.ok(yards(FIGHT, t.at, FIGHT.bossAt) < 8, 'and stays in melee range of him');
+    });
+});
+
+test('formation: phase 2 sends the melee out to their own slots, still in range', () => {
     const a = L.assign(FIGHT, ROSTER);
     const p2 = L.formation(FIGHT, 2, a);
-    p2.forEach(p => {
+    p2.filter(p => p.kind !== 'tank').forEach(p => {
         assert.deepStrictEqual(p.at, p.slot, p.kind + ' stands on its slot in phase 2');
         assert.ok(yards(FIGHT, p.at, FIGHT.bossAt) <= 30, p.kind + ' can still reach him');
     });
 });
 
-test('formation: the back does not move between phases — only tanks and melee do', () => {
+test('formation: only the melee move between phases', () => {
     const a = L.assign(FIGHT, ROSTER);
     const p1 = L.formation(FIGHT, 1, a), p2 = L.formation(FIGHT, 2, a);
     const by = f => Object.fromEntries(f.map(p => [p.id, p.at]));
     const one = by(p1), two = by(p2);
     const moved = Object.keys(one).filter(id => one[id].x !== two[id].x || one[id].y !== two[id].y);
     const movers = p1.filter(p => moved.includes(p.id));
-    assert.strictEqual(movers.length, 9, 'two tanks and seven melee move, nobody else');
-    assert.ok(movers.every(p => p.kind === 'tank' || p.kind === 'melee'));
+    assert.strictEqual(movers.length, 7, 'the seven melee move, nobody else');
+    assert.ok(movers.every(p => p.kind === 'melee'));
 });
 
 // --- getting out of the fire ---------------------------------------------------

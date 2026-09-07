@@ -104,15 +104,18 @@
 
         return assigned.map(p => {
             let at = p.slot;
-            if (phase === 1 && p.kind === 'tank') {
-                // stacked on him, close enough that one healer covers both
+            if (p.kind === 'tank') {
+                // Tanks never leave him. Threat resets at every swap, so they keep hitting him
+                // through Phase 2 to have something built the moment Phase 1 comes back — the
+                // raid sheet's Seal of Vengeance trick only works if they are still in melee.
                 const k = tanks.indexOf(p);
                 at = {
                     x: boss.x + (k === 0 ? -1 : 1) * fight.stack.tankApart * fight.yard,
                     y: boss.y - ydY(fight, fight.stack.tankBack) + (k === 0 ? 0 : ydY(fight, 0.3))
                 };
             } else if (phase === 1 && p.kind === 'melee') {
-                // an arc behind him: out of the cleave, inside his melee range
+                // an arc behind him: out of the cleave, inside his melee range. They walk out
+                // to their own spots before Phase 2 so a fixate cannot land on them at zero range.
                 const k = melee.indexOf(p);
                 const a = lerp(fight.stack.arcFrom, fight.stack.arcTo,
                     melee.length === 1 ? .5 : k / (melee.length - 1)) * Math.PI / 180;
@@ -203,7 +206,7 @@
             lines.push('');
             lines.push(g[0]);
             rows.forEach(p => {
-                const where = (phase === 1 && p.kind === 'tank') ? 'stacked on him'
+                const where = p.kind === 'tank' ? 'stacked on him'
                     : (phase === 1 && p.kind === 'melee') ? 'behind him'
                         : spotName(fight, p.at);
                 lines.push('  ' + p.name + ' — ' + where);
@@ -212,10 +215,10 @@
 
         if (phase === 1) {
             lines.push('');
-            lines.push('Spread stays put all fight. Only tanks and melee move for Phase 2.');
+            lines.push('Only the melee move for Phase 2. Tanks stay on him, everyone else holds their spot.');
         } else {
             lines.push('');
-            lines.push('Melee and tanks are out on their own spots. Everyone else has not moved.');
+            lines.push('Melee are out on their own spots. Tanks are still on him, nobody else has moved.');
         }
         return lines.join('\n');
     }

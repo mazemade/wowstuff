@@ -68,15 +68,20 @@ test('scenes: each has an id, phase, title and one caption', () => {
 });
 
 test('scenes: the room for context, the raid or the front when a mechanic is the point', () => {
-    const FITS = ['arena', 'raid', 'front'];
+    const FITS = ['arena', 'raid', 'front', 'action'];
     FIGHT.scenes.forEach(s => {
         assert.ok(s.view && FITS.includes(s.view.fit), s.id + ' frames: ' + JSON.stringify(s.view));
     });
     const by = id => FIGHT.scenes.find(s => s.id === id).view.fit;
     assert.strictEqual(by('p1-hateful'), 'front', 'the tank stack is a six-person picture');
-    assert.strictEqual(by('p1-flame'), 'raid', 'the fire needs to be fat enough to read');
+    assert.strictEqual(by('p1-flame'), 'action', 'the chase is the picture, not the room');
+    assert.strictEqual(by('p2-fixate'), 'raid', 'the chase needs the room to run in');
     assert.ok(FIGHT.scenes.filter(s => s.formation && !s.effects.length).every(s => s.view.fit === 'arena'),
         'where-you-stand steps show the whole room');
+    FIGHT.scenes.filter(s => s.view.fit === 'action').forEach(s => {
+        assert.ok(Object.keys(s.cast || {}).length || (s.effects || []).some(e => e.at),
+            s.id + ' frames the action but has no cast or placed hazard to frame');
+    });
     assert.ok(FIGHT.scenes.filter(s => s.morph).every(s => s.view.fit === 'arena'),
         'transitions show the whole room');
 });

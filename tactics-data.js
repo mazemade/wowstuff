@@ -181,14 +181,13 @@
                 focus: ['tank', 'melee'],
                 actors: [],
                 effects: [
-                    { kind: 'ring', from: 'boss', radiusYards: 14, label: 'his reach', start: 0, end: 7000 },
                     { kind: 'impact', target: 'p0', start: 1500, end: 2300 },
                     { kind: 'impact', target: 'p1', start: 4300, end: 5100 }
                 ]
             },
             {
                 id: 'p1-flame',
-                view: { fit: 'raid' },
+                view: { fit: 'action' },
                 phase: 1,
                 title: 'Molten Flame',
                 caption: 'He punches the ground and the fire hunts one player for ten seconds. Walk it away from everyone else — it burns for another ten where you leave it.',
@@ -208,7 +207,7 @@
                 view: { fit: 'arena' },
                 phase: 0,
                 title: 'Melee move out',
-                caption: 'As the minute mark comes up, tanks and melee walk out to their own spots. Threat wipes anyway, and nobody wants to be stood on him when he turns.',
+                caption: 'As the minute mark comes up the melee walk out to their own spots, so a fixate can never land on somebody stood at his feet. The tanks stay on him.',
                 duration: 8000,
                 highlight: [],
                 morph: { from: 1, to: 2, start: 700, end: 5200 },
@@ -233,14 +232,13 @@
                 chaseSpeed: 0.0044,
                 actors: [],
                 effects: [
-                    { kind: 'ring', from: 'boss', radiusYards: 8, label: 'knockback', start: 0, end: 10000 },
-                    { kind: 'gaze', from: 'boss', target: 'hunted', avoid: 11, start: 300, end: 5000 },
-                    { kind: 'gaze', from: 'boss', target: 'second', avoid: 11, start: 5200, end: 10000 }
+                    { kind: 'gaze', from: 'boss', target: 'hunted', avoid: 14, start: 300, end: 5000 },
+                    { kind: 'gaze', from: 'boss', target: 'second', avoid: 14, start: 5200, end: 10000 }
                 ]
             },
             {
                 id: 'p2-geyser',
-                view: { fit: 'arena' },
+                view: { fit: 'raid' },
                 phase: 2,
                 title: 'Volcanic Geysers',
                 caption: 'Volcanoes open anywhere in the room and keep firing for eighteen seconds. If one opens under you, move — the spread means it only ever catches one of you.',
@@ -259,7 +257,7 @@
                 view: { fit: 'arena' },
                 phase: 0,
                 title: 'Back to Phase 1',
-                caption: 'Before the next swap, everyone repositions and DPS slows down so the tanks can hold. Misdirects go out the moment he turns back.',
+                caption: 'Melee come back in and damage slows down so the tanks can hold. Misdirects go out the moment he turns back.',
                 duration: 9000,
                 highlight: ['hateful'],
                 morph: { from: 2, to: 1, start: 600, end: 5000 },
