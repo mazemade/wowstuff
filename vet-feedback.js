@@ -16,7 +16,10 @@ const KILL_LIMIT = 8;
 // range of n pages — 7 for 64, 6 for 63 — but spec §3 and §9 both promise "6 queries". 63 is the
 // largest bound that actually holds that promise.
 const REF = { band: 2, wideBand: 4, target: 8, min: 3, players: 3, maxPages: 5, cacheMs: 24 * 60 * 60 * 1000,
-              topPages: 3, maxSearchPages: 63, lengthCacheMs: 7 * 24 * 60 * 60 * 1000 };
+              topPages: 3, maxSearchPages: 63, lengthCacheMs: 7 * 24 * 60 * 60 * 1000,
+              // ref-above A2: the cache key carries the player's own amount rounded to this, so two
+              // players far apart are not served each other's reference.
+              targetBucket: 100 };
 // Finding thresholds (spec §4). Not user-editable in v1. The outcome-based thresholds (active %,
 // crit/hit/resist gaps, primary/secondary stat ratios) were retired in v3 along with the findings
 // they gated (Task 4): the gap accounting (vet-gap.js) and its `minShare` now decide what is worth
@@ -901,12 +904,16 @@ async function findLastPage(fetchPage, maxPages) {
 // Important 4: scan for an existing cache entry belonging to this (encounterId, class, spec,
 // region) group whose stored item-level band already covers `itemLevel`, so two players a level
 // apart (124 and 125, both within REF.band of each other) share one fetch instead of two.
-function findRefEntry(refCache, prefix, itemLevel) {
+// ref-above A2: a covering band is no longer enough — the reference is now built around the
+// player's own amount, so an entry only serves players in the same amount bucket. Without this,
+// the first player of a spec to be scored would hand his reference to everyone behind and ahead
+// of him.
+function findRefEntry(refCache, prefix, itemLevel, bucket) {
     for (const [k, v] of refCache) {
         if (!k.startsWith(prefix)) continue;
         const rest = k.slice(prefix.length).split('/');
         const lo = Number(rest[0]), hi = Number(rest[1]);
-        if (itemLevel >= lo && itemLevel <= hi) return v;
+        if (itemLevel >= lo && itemLevel <= hi && rest[2] === String(bucket)) return v;
     }
     return null;
 }
@@ -932,7 +939,11 @@ async function getReference(query, o) {
     // warlocks at 124 and 125 missed each other and each paid the full ~35-point fetch. Scanning
     // for a covering entry first fixes that without touching the in-flight sharing or expiry below.
     const prefix = [o.encounterId, o.classToken, o.spec, o.region].join('/') + '/';
-    const cached = findRefEntry(o.refCache, prefix, o.itemLevel);
+    // ref-above A2: the reference now depends on the player's own amount, so the key carries a
+    // coarse bucket of it. Two players within a bucket still share one reference (and one fetch).
+    const bucket = typeof o.playerAmount === 'number' && isFinite(o.playerAmount)
+        ? Math.round(o.playerAmount / REF.targetBucket) : 'mid';
+    const cached = findRefEntry(o.refCache, prefix, o.itemLevel, bucket);
     if (cached && cached.value && o.now - cached.at < REF.cacheMs) return cached.value;
     if (cached && cached.pending) return cached.pending;
 
@@ -941,44 +952,65 @@ async function getReference(query, o) {
     const wclClass = WCL_CLASS_NAME[String(o.classToken).toUpperCase()];
     if (!wclClass) return { summary: null, note: 'unrecognised class for a WCL reference lookup: ' + o.classToken };
 
-    const key = prefix + (o.itemLevel - REF.band) + '/' + (o.itemLevel + REF.band);
+    const key = prefix + (o.itemLevel - REF.band) + '/' + (o.itemLevel + REF.band) + '/' + bucket;
     const pending = (async () => {
         const fetchPage = pageFetcher(query, o.encounterId, wclClass, wclSpecName(o.spec), o.region);
         const L = await leaderboardLength(fetchPage, o, 'len:' + prefix);
         const middle = 50 * L;
-        // Benchmark: in-band ranks read outward from the middle page, ordered by distance from
-        // the middle rank (ties toward the higher-ranked, i.e. lower globalRank).
+        // ref-above A2: the ceiling first — the target is measured from it. Reading the top pages
+        // here is the same fetch the ceiling always needed; pageFetcher memoises it, so moving it
+        // above the collection costs nothing.
+        let topDps = null, topDuration = null;
+        const readCeiling = async b => {
+            for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
+                const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, b);
+                if (ib.length) {
+                    topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
+                    // v3 fix, unchanged: a rank missing `duration` must not poison this into NaN,
+                    // and the bad-pull baseline is the MEDIAN in-band duration, not the minimum.
+                    const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
+                    topDuration = durs.length ? Math.round(median(durs) / 1000) : null;
+                }
+            }
+        };
+        await readCeiling(REF.band);
+
+        const myAmount = typeof o.playerAmount === 'number' && isFinite(o.playerAmount) ? o.playerAmount : null;
+        // A player who is already the best at their item level has nobody above them. Say so
+        // rather than inventing a reference below them (spec B).
+        if (myAmount !== null && topDps !== null && myAmount >= topDps) {
+            return { summary: null, note: 'nothing at your item level beat you on this pull', band: REF.band };
+        }
+        // Halfway between the player and the ceiling: far enough to be worth learning from, close
+        // enough to be reachable. Null when we cannot compute it, and then the middle is used —
+        // exactly the old behaviour.
+        const target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
+        // The caller wanted a target and we could not build one: the report must not claim the
+        // comparison is against players ahead when it is against the middle (spec, Error handling).
+        const middleNote = myAmount !== null && target === null ? 'compared against the middle of the leaderboard' : null;
+        // Better parses sit on earlier pages, so a target halfway up in DPS is roughly halfway up
+        // in pages. The sort below is by actual amount, so an imprecise start still lands correctly
+        // as long as the target is inside the pages we read.
+        const myPage = typeof o.playerRankPercent === 'number' && isFinite(o.playerRankPercent)
+            ? Math.min(Math.max(1, Math.ceil((1 - o.playerRankPercent / 100) * L)), L) : Math.max(1, Math.round(L / 2));
+        const startPage = target === null ? Math.max(1, Math.round(L / 2)) : Math.max(1, Math.round(myPage / 2));
+        const near = target === null
+            ? (a, b) => (Math.abs(a.globalRank - middle) - Math.abs(b.globalRank - middle)) || (a.globalRank - b.globalRank)
+            : (a, b) => (Math.abs(a.amount - target) - Math.abs(b.amount - target)) || (a.globalRank - b.globalRank);
         const collect = async band => {
             let found = [];
-            for (const p of middlePageOrder(L, REF.maxPages)) {
+            for (const p of pageOrderFrom(startPage, L, REF.maxPages)) {
                 const cr = await fetchPage(p);
                 found = found.concat(bandRanks(cr.rankings, o.itemLevel, band).map(r => Object.assign({ globalRank: globalRank(p, cr.rankings.indexOf(r)) }, r)));
                 if (found.length >= REF.target) break;
             }
-            return found.sort((a, b) => (Math.abs(a.globalRank - middle) - Math.abs(b.globalRank - middle)) || (a.globalRank - b.globalRank));
+            return found.sort(near);
         };
         let band = REF.band;
         let ranks = await collect(band);
-        if (ranks.length < REF.min) { band = REF.wideBand; ranks = await collect(band); }
+        if (ranks.length < REF.min) { band = REF.wideBand; await readCeiling(band); ranks = await collect(band); }
         if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against', band };
         ranks = ranks.slice(0, REF.target);
-        // Ceiling: the band's best DPS from the top pages, at most REF.topPages of them.
-        let topDps = null;
-        let topDuration = null;
-        for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
-            const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, band);
-            if (ib.length) {
-                topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
-                // v3 fix: a rank missing `duration` would otherwise poison the aggregate into NaN,
-                // and `typeof NaN === 'number'` slips past the null guard below.
-                // Final review item 1: the bad-pull baseline is the MEDIAN of these in-band
-                // durations, not their minimum — a single broken log (a fight WCL split oddly, 30 s
-                // where the page's real kills take 100 s) used to become the bar, and every honest
-                // pull past twice that read as a bad pull with no accounting at all.
-                const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
-                topDuration = durs.length ? Math.round(median(durs) / 1000) : null;
-            }
-        }
         const players = [];
         for (const r of ranks.slice(0, REF.players)) {
             // Important 5: a reference player's report can come back as a GraphQL error (deleted
@@ -992,7 +1024,7 @@ async function getReference(query, o) {
                 if (e && e.code === 'RATE_LIMIT') throw e;
             }
         }
-        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps, { topDurationSec: topDuration }), note: null, band };
+        return { summary: referenceSummary(ranks, players, o.dbIndex, o.classToken, o.role, [o.itemLevel - band, o.itemLevel + band], topDps, { topDurationSec: topDuration }), note: middleNote, band };
     })();
     o.refCache.set(key, { at: o.now, pending });
     try {
@@ -1000,7 +1032,7 @@ async function getReference(query, o) {
         // The band may have widened during the fetch; re-key to the band actually used so a scan
         // for a nearby item level that only the widened band covers finds this entry too.
         const finalBand = typeof value.band === 'number' ? value.band : REF.band;
-        const finalKey = prefix + (o.itemLevel - finalBand) + '/' + (o.itemLevel + finalBand);
+        const finalKey = prefix + (o.itemLevel - finalBand) + '/' + (o.itemLevel + finalBand) + '/' + bucket;
         if (finalKey !== key) o.refCache.delete(key);
         o.refCache.set(finalKey, { at: o.now, value });
         return value;
@@ -1106,7 +1138,10 @@ async function fetchFeedback(query, o) {
                 const got = await fightAndTables(query, rank.report.code, rank.report.fightID, profile.name);
                 if (!got) continue;
                 const ref = (limited || !id.class || !id.spec || typeof rank.bracketData !== 'number') ? { summary: null, note: null }
-                    : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData, dbIndex, refCache, now });
+                    : await getReference(query, { encounterId: t.encounterId, classToken: id.class, spec: id.spec, role, region: profile.region, itemLevel: rank.bracketData,
+                                                  playerAmount: typeof rank.amount === 'number' ? rank.amount : null,
+                                                  playerRankPercent: typeof rank.rankPercent === 'number' ? rank.rankPercent : null,
+                                                  dbIndex, refCache, now });
                 out.push(killFacts({ encounterId: t.encounterId, name: t.name, rank, killsOnBoss: ranks.length, killIndex, context: got.ctx, tables: got.tables, sourceId: got.sourceId, player, reference: ref.summary, referenceNote: ref.note, dbIndex, hitCap, zoneName: t.zoneName }));
             } catch (err) {
                 if (err && err.code === 'RATE_LIMIT') throw err;

@@ -973,13 +973,21 @@ test('fetchFeedback: two kills analysed, references built around the middle of t
     assert.strictEqual(facts.kills[1].killIndex, 1);
     const pageCalls = s.calls.filter(c => c.q.includes('characterRankings('));
     // v2 §3: per boss, the length walk over 64 pages reaches the fixture's 2-page board in 5
-    // reads (32, 16, 8, 4, 2 — page 2 is non-empty with hasMorePages:false), the benchmark then
-    // reads page 1 (6th), and the ceiling re-reads page 1 from the memo. Two bosses → 12.
+    // reads (32, 16, 8, 4, 2 — page 2 is non-empty with hasMorePages:false), the ceiling then
+    // reads page 1 (6th), and the benchmark re-reads pages 1 and 2 from the memo. ref-above A2
+    // swapped the order of the last two — the ceiling is read first because the target is
+    // measured from it — but not the count. Two bosses → 12.
     assert.strictEqual(pageCalls.length, 12, 'pages asked: ' + pageCalls.map(c => /page:(\d+)/.exec(c.q)[1]).join(','));
     assert.strictEqual(facts.kills[1].reference.benchmark, 'median');
     assert.strictEqual(facts.kills[1].reference.topDps, Math.round(Math.max(...MID.reference['50619'].players.map(p => p.rank.amount))), 'the ceiling is the best in-band DPS on the top pages: the three players are the only in-band rows on page 1');
     const playerCalls = s.calls.filter(c => c.q === F.PLAYER_QUERY);
-    assert.strictEqual(playerCalls.length, 2 + 2 * F.REF.players);
+    // ref-above A2: 2, not 2 + 2*REF.players. This fixture's player is far below the whole board
+    // (Anetheron: 1301 against a 2427-2976 in-band spread), so the target — halfway to the 2976
+    // ceiling, i.e. 2138 — sits below every in-band rank. The nearest eight are therefore the
+    // WEAKEST in band, on page 2, and midFixture only carries captured fight data for the three
+    // rows it put at the middle (global ranks 98-100). Those three are no longer selected, so no
+    // reference player resolves and only the player's own two kills are fetched.
+    assert.strictEqual(playerCalls.length, 2, 'pages: ' + playerCalls.length);
     // v2 §3: leaderboardLength caches the length under its own 'len:' key in the same refCache,
     // alongside the band-keyed entry — 2 boss encounters -> 4 entries, not 2.
     assert.strictEqual(refCache.size, 4);
@@ -1234,12 +1242,14 @@ test('getReference: widens once when the band is thin, gives a note when still t
     const a = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
     const b = F.getReference(query, Object.assign({ itemLevel: 150, refCache: cache }, base));
     await Promise.all([a, b]);
-    // This stub answers every page number with the same page and hasMorePages:false. If that
-    // page is non-empty the length walk stops at its first probe (32) and the benchmark reads 5
-    // pages outward from 16; if it is empty the walk probes 32,16,8,4,2,1 and the benchmark reads
-    // page 1 from the memo. Six page fetches per reference build either way; the widened pass
-    // and the ceiling always hit the memo. 6 for `none`, 6 shared by the pair.
-    assert.strictEqual(pageCalls, 12, 'six page fetches for the first call, six shared by the pair');
+    // This stub answers every page number with the same non-empty page and hasMorePages:false,
+    // so the length walk stops at its first probe (32) and L is 32.
+    // ref-above A2 moved the ceiling read ahead of the benchmark, so it now happens even on this
+    // path, where every rank is out of band and the build ends in 'too few parses'. Nine page
+    // fetches per build: 1 length probe + 3 ceiling pages (1,2,3 — nothing in band, so the loop
+    // never short-circuits) + 5 benchmark pages outward from 16. The widened pass re-runs both
+    // and hits the memo for all of them. 9 for `none`, 9 shared by the pair.
+    assert.strictEqual(pageCalls, 18, 'nine page fetches for the first call, nine shared by the pair');
 });
 test('getReference (v2 §3): reference players are the in-band ranks nearest the middle, not the top; dps is their median; the ceiling is the band\'s best', async () => {
     // Item levels cycle 120/124/128 by rank, so for a 124 player only ranks ≡ 1 (mod 3) are in
@@ -1262,7 +1272,9 @@ test('getReference (v2 §3): reference players are the in-band ranks nearest the
     assert.strictEqual(ref.summary.topDps, 4999, 'rank 1 is in band: the ceiling comes from page 1, not from the benchmark ranks');
     assert.strictEqual(ref.summary.benchmark, 'median');
     assert.deepStrictEqual(ref.summary.itemLevelBand, [122, 126]);
-    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 10, 1], 'length walk, one benchmark page (page 10 alone clears REF.target), one ceiling page');
+    // ref-above A2: 1 before 10 — the ceiling is read before the benchmark now, because the
+    // target is measured from it. Same pages, same count, opposite order.
+    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 1, 10], 'length walk, one ceiling page, one benchmark page (page 10 alone clears REF.target)');
 });
 test('getReference (Important 2, whole-branch review): topDps is null, not the benchmark\'s own max, when the band never appears on the top pages', async () => {
     // Every rank on this board is item level 124 (in band for a 124 player), so the benchmark
@@ -1302,7 +1314,8 @@ test('getReference (v2 §3): the leaderboard length is cached for a week and sha
     await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache, now });
     const before = lb.calls.length;
     await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 128, dbIndex: db, refCache, now: now + 1000 });
-    assert.deepStrictEqual(lb.calls.slice(before), [10, 1], 'a different band re-reads only the benchmark and ceiling pages, never the length walk');
+    // ref-above A2: [1, 10] rather than [10, 1] — the ceiling page comes first now.
+    assert.deepStrictEqual(lb.calls.slice(before), [1, 10], 'a different band re-reads only the ceiling and benchmark pages, never the length walk');
     assert.strictEqual(refCache.get('len:1/WARLOCK/Destruction/eu/').value, 20);
     await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 100, dbIndex: db, refCache, now: now + F.REF.lengthCacheMs + 1 });
     assert.ok(lb.calls.slice(before + 2).includes(32), 'after a week the length is walked again');
@@ -1442,6 +1455,54 @@ test('pageOrderFrom (ref-above A1): pages ordered outward from the start', () =>
 test('middlePageOrder (ref-above A1): unchanged behaviour, now a wrapper', () => {
     assert.deepStrictEqual(F.middlePageOrder(20, 5), F.pageOrderFrom(10, 20, 5));
     assert.deepStrictEqual(F.middlePageOrder(1, 3), [1]);
+});
+
+// --- ref-above A2: the reference is picked above the player, not at the leaderboard middle
+// Named refAbove, not refFor: this file already has a hoisted refFor() helper (line ~300)
+// building a reference summary for the findings tests, and a second declaration would clobber it.
+function refAbove(over) {
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    return { lb, run: () => F.getReference(query, Object.assign({
+        encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu',
+        itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+    }, over)) };
+}
+test('getReference (ref-above A2): the reference is halfway between the player and the best at their item level', async () => {
+    // Player at amount 3500 (rank 1500 of 2000, so rankPercent 25). Ceiling is rank 1 at 4999.
+    // Target = 3500 + (4999 - 3500) / 2 = 4249.5, which is rank 750 — NOT the middle (rank 1000, 4000).
+    const r = await refAbove({ playerAmount: 3500, playerRankPercent: 25 }).run();
+    assert.strictEqual(r.summary.topDps, 4999, 'the ceiling is still the best in band');
+    assert.ok(Math.abs(r.summary.dps - 4250) <= 50, 'reference dps sits at the halfway target, got ' + r.summary.dps);
+    assert.ok(r.summary.dps > 4000, 'and is above the leaderboard middle (4000), which is what it used to pick');
+    assert.strictEqual(r.note, null);
+});
+test('getReference (ref-above A2): without a player amount it still picks the middle, as before', async () => {
+    const r = await refAbove({}).run();
+    assert.ok(Math.abs(r.summary.dps - 4000) <= 60, 'unchanged middle-rank selection, got ' + r.summary.dps);
+});
+test('getReference (ref-above A2): a player at the ceiling gets no reference and an honest note', async () => {
+    const r = await refAbove({ playerAmount: 5200, playerRankPercent: 99 }).run();
+    assert.strictEqual(r.summary, null);
+    assert.strictEqual(r.note, 'nothing at your item level beat you on this pull');
+});
+test('getReference (ref-above A2): the page budget does not grow', async () => {
+    const above = refAbove({ playerAmount: 3500, playerRankPercent: 25 });
+    await above.run();
+    const middle = refAbove({});
+    await middle.run();
+    assert.ok(above.lb.calls.length <= middle.lb.calls.length,
+        'targeting above the player must not cost more pages: ' + above.lb.calls.length + ' vs ' + middle.lb.calls.length);
+});
+test('getReference (ref-above A2): two players far apart do not share one cached reference', async () => {
+    const refCache = new Map();
+    const lb = leaderboard(20, [124]);
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    const base = { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu', itemLevel: 124, dbIndex: db, refCache, now: Date.now() };
+    const weak = await F.getReference(query, Object.assign({}, base, { playerAmount: 3100, playerRankPercent: 5 }));
+    const strong = await F.getReference(query, Object.assign({}, base, { playerAmount: 4600, playerRankPercent: 90 }));
+    assert.notStrictEqual(weak.summary.dps, strong.summary.dps, 'a weak and a strong player must not get the same reference');
+    assert.ok(strong.summary.dps > weak.summary.dps, 'the stronger player is measured against a stronger reference');
 });
 
 Promise.all(pending).then(() => {
