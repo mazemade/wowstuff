@@ -381,6 +381,9 @@ test('nukeRows (ref-above C1): the power word follows the role', () => {
 });
 test('nukeRemainder (ref-above C1): the remainder clause says ability rank, not spell rank', () => {
     const text = C.nukeRows(nukeFacts({ role: 'melee', myPower: 673, refPower: 835 })).map(r => r.text).join(' ');
+    // Fix round 1, Finding 2: assert the clause is THERE. Absence alone passes trivially if the
+    // fixture's verdict ever flips to pass, because nukeRemainder is then never appended at all.
+    assert.ok(/ability rank/.test(text), 'the remainder clause is present and renamed: ' + text);
     assert.ok(!/spell rank/.test(text), 'no spell rank for a melee: ' + text);
 });
 test('renderReport (ref-above C1): the title names the night\'s tier, not the gating tier', () => {
@@ -391,6 +394,38 @@ test('renderReport (ref-above C1): the title names the night\'s tier, not the ga
     assert.ok(!/SSC \/ TK/.test(out.split('\n')[0]), 'title: ' + out.split('\n')[0]);
     const noNight = reportFacts({ tierZone: 'SSC / TK', nightZone: null, nightDate: null });
     assert.ok(/SSC \/ TK/.test(C.renderReport(C.buildChecklist(noNight), noNight).split('\n')[0]), 'an all-kills report still names the gating tier');
+});
+
+// Fix round 1, Finding 1: the cast-pacing branch needs both sides pinned. A physical role's row is
+// filtered out of the rendered report, so only a direct castingRows call can see its fix text.
+// castFacts gives the pull a real cast_pacing share (gapKill defaults it to 0, which still builds a
+// row but describes nothing) and a reference ability the role would actually press.
+function castFacts(role, cls, spec, main) {
+    const k = gapKill('Anetheron', { cast_pacing: 30 });
+    const physical = role === 'melee' || role === 'ranged' || role === 'tank';
+    k.reference.abilities = (physical ? [{ name: 'Melee', share: 40, avgHit: 900, hits: 200 }] : [])
+        .concat([{ name: main, share: 55, hits: 60, avgHit: 3600, avgCrit: 7200, critPercent: 40, resistPercent: 0 }]);
+    return sheet([k], { player: { name: 'Tester', class: cls, spec, role, metric: 'dps', itemLevel: 141 } });
+}
+const castFix = facts => C.castingRows(facts, C.DEFAULT_T).find(r => r.id === 'cast_rate').fix;
+
+test('castingRows (ref-above C1): the cast-pacing fix follows the role', () => {
+    // A melee presses a button; they have no cast to queue and no movement filler to cast.
+    const melee = castFix(castFacts('melee', 'WARRIOR', 'Arms', 'Mortal Strike'));
+    assert.ok(/Mortal Strike/.test(melee), 'a melee is told which ability: ' + melee);
+    assert.ok(!/Queue the next/.test(melee), 'a melee never queues a cast: ' + melee);
+    assert.ok(!/while moving/.test(melee), 'and gets no movement-filler clause: ' + melee);
+    // 'ranged' is the value a later edit is most likely to drop from the predicate, so pin it.
+    const hunter = castFix(castFacts('ranged', 'HUNTER', 'Marksmanship', 'Steady Shot'));
+    assert.ok(/Steady Shot/.test(hunter), 'a hunter is told which ability: ' + hunter);
+    assert.ok(!/Queue the next/.test(hunter), 'a hunter never queues a cast: ' + hunter);
+    assert.ok(!/while moving/.test(hunter), 'and gets no movement-filler clause: ' + hunter);
+    const tank = castFix(castFacts('tank', 'WARRIOR', 'Protection', 'Devastate'));
+    assert.ok(!/Queue the next/.test(tank), 'a tank never queues a cast: ' + tank);
+    // The mirror: a caster's advice must be exactly what it always was.
+    const caster = castFix(castFacts('caster', 'WARLOCK', 'Destruction', 'Shadow Bolt'));
+    assert.ok(/Queue the next Shadow Bolt before the current one lands/.test(caster), 'a caster still queues: ' + caster);
+    assert.ok(/use Shadowburn or Life Tap while moving/.test(caster), 'and still gets the filler: ' + caster);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
