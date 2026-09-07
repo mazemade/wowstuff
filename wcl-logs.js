@@ -16,8 +16,11 @@ function combatantQuery(fightIds) {
 }
 
 const isoDate = ms => (typeof ms === 'number' ? new Date(ms).toISOString().slice(0, 10) : null);
-// WCL's actor `server` is a display name ("Pyrewood Village"); the API wants the slug.
-const slugOf = s => (s ? String(s).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : null);
+// WCL's actor `server` is a display name ("Pyrewood Village"); the API wants the slug. Fold
+// diacritics (NFD, then drop the combining marks) before stripping — "Confrérie du Thorium" must
+// slug to "confrerie-du-thorium" like WCL does, not "confrrie-du-thorium" (logs-first B1 review).
+const slugOf = s => (s ? String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : null);
 
 async function fetchGuildReports(query, o) {
     const limit = o.limit || 15;
