@@ -430,7 +430,11 @@ function buildChecklist(facts, T) {
 // --- the text (spec §5)
 function renderReport(cl, facts) {
     const p = facts.player || {}, tier = facts.tier || {}, byId = id => cl.rows.find(r => r.id === id);
-    const val = r => (r.value !== null && r.value !== undefined ? ' (~' + r.value + '%)' : '');
+    // ref-above C2: shares above 100% happen when two inputs offset (Tipsi: cast pacing +169%
+    // against damage per cast -62%). The arithmetic is sound but "169% of the gap" means nothing
+    // to a reader, and clamping to 100% would assert something the accounting did not measure —
+    // so the finding stands on its text alone.
+    const val = r => (r.value !== null && r.value !== undefined && r.value <= 100 ? ' (~' + r.value + '%)' : '');
     const line = r => r.text + '.' + (r.fix ? ' ' + r.fix : '') + val(r);
     const head = facts.night ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'median parse ' + Math.round(tier.medianPercent);
     // ref-above C1: a single night's report names that night's tier. The gating tier is only

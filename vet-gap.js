@@ -353,7 +353,9 @@ function gapFindings(kill, player, thresholds) {
     const min = thresholds && typeof thresholds.minShare === 'number' ? thresholds.minShare : 3;
     const out = [];
     ['casts', 'dmg', 'crit'].forEach(fk => g.factors[fk].inputs.forEach(i => {
-        if (i.owner === 'noise' || i.share < min) return;
+        // ref-above C2: a negative share means the player is AHEAD of the reference on this input.
+        // True, and not a fix — reporting it as one is how "damage per cast -62%" became advice.
+        if (i.owner === 'noise' || i.share < min || i.share < 0) return;
         const physical = player.role === 'melee' || player.role === 'ranged' || player.role === 'tank';
         let text = gapText(i, kill.name, kill);
         if (physical) text = text.replace(/Spell power|spell power/g, m => (m[0] === 'S' ? 'Attack power' : 'attack power'));

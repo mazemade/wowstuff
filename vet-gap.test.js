@@ -274,5 +274,31 @@ test('v4: the cast-name tables live in vet-gap so vet-checklist can use them wit
     assert.strictEqual(G.FINDING_ANCHOR, undefined, 'FINDING_ANCHOR is gone with the completeness guard');
 });
 
+// --- ref-above C2: a share is never shown outside 0-100%
+// A bare accounting whose inputs carry exactly the shares the caller asks for. gapFindings reads
+// only owner/share/key and the numbers gapText prints, so the factors need nothing else.
+const GAP_FACTOR = { raid_activity: 'casts', own_activity: 'casts', channel_time: 'casts', cast_pacing: 'casts',
+                     hit_under_cap: 'dmg', debuffs: 'dmg', power_gear: 'dmg', power_consumables: 'dmg', power_buffs: 'dmg', rotation: 'dmg',
+                     crit_gear: 'crit', crit_buffs: 'crit', crit_luck: 'crit' };
+function gapKillWithInputs(shares) {
+    const factors = { casts: { inputs: [] }, dmg: { inputs: [] }, crit: { inputs: [] } };
+    Object.entries(shares).forEach(([key, share]) => {
+        const owner = key === 'crit_luck' ? 'noise' : (key === 'raid_activity' ? 'raid' : 'player');
+        factors[GAP_FACTOR[key]].inputs.push({ key, owner, share, me: 10, reference: 20, unit: 'x' });
+    });
+    return { name: 'Anetheron', gap: { factors } };
+}
+test('gapFindings (ref-above C2): an input the player is BETTER on is not a finding', () => {
+    // Tipsi's real Anetheron pull: cast_pacing +169%, rotation -62%. The negative one says he hits
+    // harder per cast than the reference, which is not a fix.
+    // The threshold is deliberately below the negative share. At the default 3 -- and at 0 --
+    // `share < min` already drops rotation on its own, so the test would pass without the fix and
+    // assert nothing; at -100 the `share < 0` clause is the only rule that can drop it.
+    const kill = gapKillWithInputs({ cast_pacing: 169, rotation: -62 });
+    const keys = G.gapFindings(kill, { role: 'melee' }, { minShare: -100 }).map(f => f.key);
+    assert.ok(keys.includes('cast_pacing'), 'the positive share is still reported: ' + keys.join(','));
+    assert.ok(!keys.includes('rotation'), 'the negative share is not: ' + keys.join(','));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

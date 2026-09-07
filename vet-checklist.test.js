@@ -428,5 +428,22 @@ test('castingRows (ref-above C1): the cast-pacing fix follows the role', () => {
     assert.ok(/use Shadowburn or Life Tap while moving/.test(caster), 'and still gets the filler: ' + caster);
 });
 
+test('renderReport (ref-above C2): a share above 100% is printed without a percentage, not as "169%"', () => {
+    const facts = reportFacts({ tierZone: 'BT / Hyjal', nightZone: 'BT / Hyjal', nightDate: '2026-09-06' });
+    const cl = C.buildChecklist(facts);
+    // The brief named cast_rate; on this fixture that row builds but never reaches a rendered
+    // section, so nothing it carries would be printed and every assertion below would be vacuous.
+    // Take the first row renderReport actually prints instead.
+    const printed = cl.fixFirst.concat(cl.also, cl.asks);
+    assert.ok(printed.length, 'the fixture must print at least one row');
+    const row = cl.rows.find(r => r.id === printed[0]);
+    row.value = 169;
+    const out = C.renderReport(cl, facts);
+    assert.ok(!/169%/.test(out), 'no 169% anywhere: ' + out);
+    assert.ok(!/~1\d\d%/.test(out), 'no three-digit share at all: ' + out);
+    row.value = 54;
+    assert.ok(/\(~54%\)/.test(C.renderReport(cl, facts)), 'an ordinary share still prints');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
