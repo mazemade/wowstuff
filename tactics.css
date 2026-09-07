@@ -1,0 +1,432 @@
+/* Fight briefing — a hazard card for a room, drawn to scale.
+   Palette sampled off the Black Temple courtyard capture: green-black stone, one ember.
+   If it is orange on this page, it hurts you. */
+
+:root {
+    --stone-0: #0b0f0d;
+    --stone-1: #101614;
+    --stone-2: #17201b;
+    --line: #26332c;
+    --line-hi: #3b4d42;
+
+    --bone: #ece6d8;
+    --bone-2: #9ba89f;
+    --bone-3: #6d7a72;
+
+    --ember: #ff6a1f;
+    --ember-2: #ffb066;
+    --ember-3: #ffd9a8;
+
+    --tank: #4d7fbe;
+    --healer: #45a37a;
+    --dps: #c25055;
+
+    --display: 'Barlow Condensed', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+    --body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+
+    --gap: 20px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body.tactics {
+    background: var(--stone-0);
+    color: var(--bone);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+}
+
+/* ---- shell ------------------------------------------------------------- */
+
+.brief {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 366px;
+    gap: var(--gap);
+    height: 100vh;
+    padding: var(--gap);
+}
+
+.stage {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 14px;
+}
+
+/* ---- stage head: who this is, and the clock he runs on ----------------- */
+
+.ident {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.ident__portrait {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--line-hi);
+    background: var(--stone-2);
+    flex: none;
+}
+
+.ident__name {
+    font-family: var(--display);
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.01em;
+}
+
+.ident__where {
+    font-size: 13px;
+    color: var(--bone-3);
+    line-height: 1.2;
+}
+
+.clock {
+    margin-left: auto;
+    display: flex;
+    align-items: stretch;
+    width: 300px;
+    height: 34px;
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--stone-1);
+    overflow: hidden;
+    flex: none;
+}
+
+.clock__half {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--bone-3);
+    transition: color .25s, background-color .25s;
+}
+
+.clock__half + .clock__half { border-left: 1px solid var(--line); }
+.clock__half.is-on { color: var(--bone); background: rgba(255, 106, 31, .10); }
+.clock__half span { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--bone-3); }
+
+.clock__head {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--ember);
+    box-shadow: 0 0 8px rgba(255, 106, 31, .8);
+    opacity: .85;
+}
+
+/* ---- the map ----------------------------------------------------------- */
+
+.stage__map {
+    flex: 1;
+    min-height: 0;
+}
+
+/* the canvas paints the room itself, cropped to whatever the step is about */
+.map {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: #0a0d0c;
+}
+
+.map img { display: none; }
+
+.map canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* a soft inner vignette keeps attention in the middle of the room */
+.map::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 90px 30px rgba(6, 9, 8, .55);
+}
+
+/* ---- stage foot: what you are looking at ------------------------------- */
+
+.stage__foot {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--gap);
+    min-height: 74px;
+    flex: none;
+}
+
+.step { min-width: 0; flex: 1; }
+
+.step__title {
+    font-family: var(--display);
+    font-size: 25px;
+    font-weight: 600;
+    line-height: 1.15;
+    margin-bottom: 3px;
+}
+
+.step__caption {
+    color: var(--bone-2);
+    font-size: 14.5px;
+    max-width: 68ch;
+}
+
+.nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+    padding-top: 6px;
+}
+
+.dots { display: flex; gap: 7px; }
+
+.dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1px solid var(--line-hi);
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color .18s, border-color .18s;
+}
+
+.dot:hover { border-color: var(--bone-3); }
+.dot.is-on { background: var(--ember); border-color: var(--ember); }
+
+.nav__btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--stone-1);
+    color: var(--bone-2);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: var(--body);
+}
+
+.nav__btn:hover { color: var(--bone); border-color: var(--line-hi); }
+
+:where(button, a):focus-visible {
+    outline: 2px solid var(--ember-2);
+    outline-offset: 2px;
+}
+
+/* ---- the hazard rail --------------------------------------------------- */
+
+.rail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-hi) transparent;
+}
+
+.card {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 13px 12px 16px;
+    background: var(--stone-1);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    transition: background-color .2s, border-color .2s;
+}
+
+/* the left edge is the tier: thicker and hotter means it kills you sooner */
+.card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: -1px;
+    bottom: -1px;
+    width: 3px;
+    background: var(--line-hi);
+    transition: box-shadow .2s, background-color .2s;
+}
+
+.card--t1::before { width: 4px; background: var(--ember); opacity: .55; }
+.card--t2::before { width: 3px; background: var(--ember); opacity: .3; }
+
+.card.is-live {
+    background: linear-gradient(97deg, rgba(255, 106, 31, .11), rgba(255, 106, 31, 0) 62%), var(--stone-2);
+    border-color: #4b3a27;
+}
+
+.card.is-live::before {
+    opacity: 1;
+    background: var(--ember);
+    box-shadow: 0 0 14px rgba(255, 106, 31, .75);
+}
+
+.card__icon {
+    border: 1px solid var(--line-hi);
+    border-radius: 2px;
+    display: block;
+    filter: saturate(.75) brightness(.86);
+    transition: filter .2s;
+}
+
+.card.is-live .card__icon { filter: none; }
+.card--t1 .card__icon { width: 50px; height: 50px; }
+.card--t2 .card__icon { width: 36px; height: 36px; }
+
+.card__head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.card__name {
+    font-family: var(--display);
+    font-weight: 600;
+    line-height: 1.1;
+}
+
+.card--t1 .card__name { font-size: 21px; }
+.card--t2 .card__name { font-size: 18px; color: var(--bone); }
+
+.card__cast {
+    font-size: 12px;
+    color: var(--bone-3);
+    white-space: nowrap;
+    flex: none;
+}
+
+.card__meta {
+    font-size: 12px;
+    color: var(--bone-3);
+    margin-top: 1px;
+}
+
+.card__desc {
+    font-size: 13px;
+    color: var(--bone-2);
+    margin-top: 6px;
+}
+
+.card__do {
+    font-size: 13.5px;
+    color: var(--ember-3);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+}
+
+.who {
+    display: inline-block;
+    font-size: 11.5px;
+    line-height: 1.6;
+    padding: 0 7px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    color: var(--bone-3);
+    margin-top: 7px;
+}
+
+.who--tank { color: #86b0e0; }
+.who--raid { color: #d8b48a; }
+
+/* tier 3 lives as a strip: present, named on hover, never in the way */
+.minor {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 13px;
+    background: var(--stone-1);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--bone-3);
+    font-size: 12.5px;
+}
+
+.minor img {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line-hi);
+    border-radius: 2px;
+    filter: saturate(.6) brightness(.8);
+}
+
+.minor.is-live { color: var(--bone-2); border-color: #4b3a27; }
+.minor.is-live img { filter: none; }
+
+/* ---- the raid's own notes ---------------------------------------------- */
+
+.sheet {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--stone-1);
+    padding: 12px 14px;
+}
+
+.sheet__title {
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.sheet p {
+    font-size: 13px;
+    color: var(--bone-2);
+    padding: 7px 0;
+}
+
+.sheet p + p { border-top: 1px solid var(--line); }
+
+.credit {
+    font-size: 11.5px;
+    color: var(--bone-3);
+    padding: 2px 2px 6px;
+}
+
+/* ---- narrow screens ----------------------------------------------------- */
+
+@media (max-width: 1180px) {
+    body.tactics { overflow: auto; }
+    .brief { grid-template-columns: minmax(0, 1fr); height: auto; }
+    .stage__map { height: min(70vh, 620px); }
+    .rail { overflow: visible; }
+}
+
+@media (max-width: 640px) {
+    :root { --gap: 12px; }
+    .ident__name { font-size: 27px; }
+    .clock { width: 100%; margin-left: 0; }
+    .stage__foot { flex-direction: column; align-items: stretch; }
+    .nav { justify-content: space-between; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .clock__head { display: none; }
+    * { transition-duration: 0.01ms !important; }
+}

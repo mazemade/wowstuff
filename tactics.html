@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supremus — fight briefing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="tactics.css">
+</head>
+<body class="tactics">
+    <main class="brief">
+        <section class="stage">
+            <div class="ident">
+                <img class="ident__portrait" id="portrait" alt="">
+                <div>
+                    <h1 class="ident__name" id="bossName">Supremus</h1>
+                    <p class="ident__where" id="bossWhere">Black Temple</p>
+                </div>
+                <div class="clock" id="clock" aria-hidden="true">
+                    <div class="clock__half" id="clockP1">Phase 1 <span>60s</span></div>
+                    <div class="clock__half" id="clockP2">Phase 2 <span>60s</span></div>
+                    <div class="clock__head" id="clockHead"></div>
+                </div>
+            </div>
+
+            <div class="stage__map">
+                <div class="map" id="map">
+                    <img id="mapImg" alt="Top-down view of the Supremus courtyard">
+                    <canvas id="fx"></canvas>
+                </div>
+            </div>
+
+            <div class="stage__foot">
+                <div class="step">
+                    <h2 class="step__title" id="stepTitle"></h2>
+                    <p class="step__caption" id="stepCaption"></p>
+                </div>
+                <div class="nav">
+                    <div class="dots" id="dots" role="tablist" aria-label="Briefing steps"></div>
+                    <button class="nav__btn" id="prev" aria-label="Previous step">&lsaquo;</button>
+                    <button class="nav__btn" id="next" aria-label="Next step">&rsaquo;</button>
+                </div>
+            </div>
+        </section>
+
+        <aside class="rail" id="rail" aria-label="Abilities"></aside>
+    </main>
+
+    <script src="tactics-data.js"></script>
+    <script src="tactics.js"></script>
+</body>
+</html>
