@@ -2,8 +2,14 @@
 /* global VetEngine */
 (function () {
     const params = new URLSearchParams(location.search);
-    const q = { name: params.get('name') || '', server: (params.get('server') || '').toLowerCase(), region: (params.get('region') || 'eu').toLowerCase(), zone: params.get('zone') || '1060', report: params.get('report') || '', thresholds: params.get('thresholds') || '' };
+    const q = { name: params.get('name') || '', server: (params.get('server') || '').toLowerCase(), region: (params.get('region') || 'eu').toLowerCase(), zone: params.get('zone') || '1060',
+                report: params.get('report') || '', all: params.get('all') === '1', thresholds: params.get('thresholds') || '' };
     const key = () => 'raidFeedback:' + encodeURIComponent(q.region) + '/' + encodeURIComponent(q.server) + '/' + encodeURIComponent(q.name.toLowerCase()) + '/' + encodeURIComponent(q.zone) + '/' + encodeURIComponent(q.report || 'all');
+    // logs-first A4: the night list is cached apart from any analysis — it is what the bare URL
+    // shows, and it costs five WCL requests, not 140.
+    const NIGHTS_TTL = 15 * 60 * 1000;
+    const nightsKey = () => 'raidFeedbackNights:' + encodeURIComponent(q.region) + '/' + encodeURIComponent(q.server) + '/' + encodeURIComponent(q.name.toLowerCase()) + '/' + encodeURIComponent(q.zone);
+    const shortTier = z => (/^[^\s/]+/.exec(z || '') || [z || ''])[0];
     const $ = id => document.getElementById(id);
     function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
     // factsTable(facts) — pasted from vetting.js (lines 469-506).
@@ -62,7 +68,46 @@
         return '/api/vet/feedback?name=' + encodeURIComponent(q.name) + '&server=' + encodeURIComponent(q.server) + '&region=' + encodeURIComponent(q.region) + '&zone=' + encodeURIComponent(q.zone) +
                (q.report ? '&report=' + encodeURIComponent(q.report) : '') + (q.thresholds ? '&thresholds=' + encodeURIComponent(q.thresholds) : '');
     }
+    function nightsUrl() {
+        return '/api/vet/nights?name=' + encodeURIComponent(q.name) + '&server=' + encodeURIComponent(q.server) + '&region=' + encodeURIComponent(q.region) + '&zone=' + encodeURIComponent(q.zone);
+    }
+    // One renderer for both states: the bare page (nothing selected) and a finished analysis
+    // (its night, or 'all', selected). Nights are labelled with their tier — the list now spans
+    // BT / Hyjal and SSC / TK.
+    function renderPicker(nights, selected) {
+        const sel = $('nightSelect');
+        sel.classList.remove('hidden');
+        const label = n => n.date + ' · ' + shortTier(n.zoneName) + ' · ' + n.bosses.length + (n.bosses.length === 1 ? ' boss' : ' bosses') + ' · median ' + (n.medianPercent == null ? '—' : Math.round(n.medianPercent));
+        sel.innerHTML = '<option value="">Choose a raid night…</option>' +
+            '<option value="all"' + (nights.length ? '' : ' disabled') + '>Across all kills' + (nights.length ? '' : ' (no ranked kills)') + '</option>' +
+            nights.map(n => '<option value="' + escapeHtml(n.code) + '">' + escapeHtml(label(n)) + '</option>').join('');
+        sel.value = selected;
+    }
+    function showPicker(body) {
+        $('errorBox').classList.add('hidden');
+        $('title').textContent = q.name + ' — feedback report';
+        const nights = Array.isArray(body.nights) ? body.nights : [];
+        renderPicker(nights, '');
+        $('statusLine').textContent = nights.length ? 'Choose a raid night, or analyse across all kills.' : 'No ranked kills on Warcraft Logs for ' + q.name + ' in either tier.';
+    }
+    async function loadNights(force) {
+        let cached = null;
+        if (!force) { try { const c = JSON.parse(localStorage.getItem(nightsKey())); if (c && Array.isArray(c.nights) && Date.now() - c.fetchedAt < NIGHTS_TTL) cached = c; } catch (e) { cached = null; } }
+        if (cached) { showPicker(cached); return; }
+        $('statusLine').textContent = 'Reading ' + q.name + '’s raid nights from Warcraft Logs…';
+        $('refreshBtn').disabled = true;
+        try {
+            const res = await fetch(nightsUrl());
+            const body = await res.json().catch(() => ({}));
+            if (res.status === 429) { showError('Warcraft Logs rate limit reached — try again in a few minutes.'); return; }
+            if (!res.ok) { showError(body.error || ('HTTP ' + res.status)); return; }
+            try { localStorage.setItem(nightsKey(), JSON.stringify(Object.assign({}, body, { fetchedAt: Date.now() }))); } catch (e) { /* quota: the page still renders */ }
+            showPicker(body);
+        } catch (err) { showError('Network error: ' + err.message); }
+        finally { $('refreshBtn').disabled = false; }
+    }
     async function load(force) {
+        if (!q.report && !q.all) return loadNights(force);
         const cached = force ? null : readCache();
         if (cached && cached.facts) { render(cached); return; }
         $('statusLine').textContent = 'Reading Warcraft Logs for ' + q.name + '… this takes up to a minute the first time.';
@@ -98,17 +143,15 @@
         current = body;
         const facts = body.facts, cl = facts.overall.checklist, byId = id => cl.rows.find(r => r.id === id);
         $('errorBox').classList.add('hidden');
-        $('title').textContent = facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + facts.tier.zoneName;
-        $('statusLine').textContent = facts.night ? 'Raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'Median parse ' + Math.round(facts.tier.medianPercent) + ' across kills';
+        const tiers = Array.isArray(facts.tiers) && facts.tiers.length ? facts.tiers : [facts.tier];
+        $('title').textContent = facts.player.name + ' — ' + (facts.player.spec || '?') + ', ' + (facts.night && facts.night.zoneName ? facts.night.zoneName : tiers[0].zoneName);
+        // logs-first A2: across kills, the two tiers' own WCL medians side by side — never a blend.
+        $('statusLine').textContent = facts.night
+            ? 'Raid night of ' + facts.night.date + (facts.night.zoneName ? ' (' + facts.night.zoneName + ')' : '') + ', median parse that night ' + Math.round(facts.night.medianPercent)
+            : 'Median parse across kills: ' + tiers.map(t => t.zoneName + ' ' + Math.round(t.medianPercent)).join(' · ');
         $('stamp').textContent = body.generatedAt ? 'Generated ' + new Date(body.generatedAt).toLocaleString() : '';
         $('copyBtn').disabled = false;
-        // Night selector
-        const sel = $('nightSelect'), nights = Array.isArray(facts.nights) ? facts.nights : [];
-        if (nights.length) {
-            sel.classList.remove('hidden');
-            sel.innerHTML = '<option value="">Across kills</option>' + nights.map(n => '<option value="' + escapeHtml(n.code) + '">' + escapeHtml(n.date + ' · ' + n.bosses.length + (n.bosses.length === 1 ? ' boss' : ' bosses') + ' · median ' + (n.medianPercent == null ? '—' : Math.round(n.medianPercent))) + '</option>').join('');
-            sel.value = q.report;
-        }
+        renderPicker(Array.isArray(facts.nights) ? facts.nights : [], q.report || (q.all ? 'all' : ''));
         // Worst pull link
         const worst = facts.kills.filter(k => !k.fight.badPull).sort((a, b) => (a.rankPercent == null ? 101 : a.rankPercent) - (b.rankPercent == null ? 101 : b.rankPercent))[0];
         if (worst && worst.wclUrl) { $('wclLink').href = worst.wclUrl; $('wclLink').classList.remove('hidden'); }
@@ -152,7 +195,14 @@
         if (!q.name || !q.server) { showError('Open this page from the vetting table (it needs a character name and realm).'); return; }
         $('refreshBtn').addEventListener('click', () => load(true));
         $('copyBtn').addEventListener('click', copyText);
-        $('nightSelect').addEventListener('change', e => { const u = new URL(location.href); if (e.target.value) u.searchParams.set('report', e.target.value); else u.searchParams.delete('report'); location.href = u.toString(); });
+        $('nightSelect').addEventListener('change', e => {
+            const u = new URL(location.href);
+            u.searchParams.delete('report'); u.searchParams.delete('all');
+            if (e.target.value === 'all') u.searchParams.set('all', '1');
+            else if (e.target.value) u.searchParams.set('report', e.target.value);
+            else return;
+            location.href = u.toString();
+        });
         load(false);
     });
 })();
