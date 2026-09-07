@@ -249,12 +249,16 @@ test('burstStats (v2 §6): on-use items and potions are short self-buffs that al
         // no matter how short its bands are — live data caught 7 Drain Soul "uses" on Lady Vashj.
         { name: 'Drain Soul', totalUptime: s(14), totalUses: 7, bands: Array.from({ length: 7 }, (_, i) => ({ startTime: s(20 + i * 5), endTime: s(20 + i * 5 + 2) })) },
         { name: 'Bloodrage', totalUptime: s(10), totalUses: 1, bands: [{ startTime: s(60), endTime: s(70) }] },
+        // Task 8 (live re-run): a hunter's Misdirection is a 30s self-buff with a matching cast, so
+        // it cleared the (a)/(b) rule and was exempted from the damage-share gate as a "burst" —
+        // which is how Funkell's live report told him to cast a threat transfer for more damage.
+        { name: 'Misdirection', totalUptime: s(30), totalUses: 1, bands: [{ startTime: s(5), endTime: s(35) }] },
     ] } };
-    const casts = { data: { entries: [{ name: 'Destruction', total: 1 }, { name: 'Blessing of the Silver Crescent', total: 2 }, { name: 'Fel Armor', total: 1 }, { name: 'Shadow Bolt', total: 40 }, { name: 'Drain Soul', total: 7 }, { name: 'Bloodrage', total: 1 }] } };
+    const casts = { data: { entries: [{ name: 'Destruction', total: 1 }, { name: 'Blessing of the Silver Crescent', total: 2 }, { name: 'Fel Armor', total: 1 }, { name: 'Shadow Bolt', total: 40 }, { name: 'Drain Soul', total: 7 }, { name: 'Bloodrage', total: 1 }, { name: 'Misdirection', total: 1 }] } };
     assert.deepStrictEqual(F.burstStats(buffs, casts), [
         { name: 'Destruction', uses: 1, insideBloodlust: 1 },
         { name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 },
-    ], 'Drain Soul and Bloodrage have a matching cast and short bands too, but BURST_EXCLUDE keeps them out');
+    ], 'Drain Soul, Bloodrage and Misdirection have a matching cast and short bands too, but BURST_EXCLUDE keeps them out');
     assert.deepStrictEqual(F.burstStats(null, casts), []);
     assert.deepStrictEqual(F.burstStats({ data: { totalTime: 1, auras: [] } }, casts), []);
     assert.strictEqual(F.POTION_LABEL.Destruction, 'Destruction Potion');

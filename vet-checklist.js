@@ -11,9 +11,9 @@ const ROW_CAPS = { fixFirst: 3, also: 5, asks: 3 };
 // practice; kept per spec §4.3 rather than synthesised from data the sheet does not carry.
 const FINE_IDS = ['food', 'flask', 'potion', 'activity', 'deaths', 'power_gear', 'hit'];
 const CATEGORY_ORDER = ['consumables', 'cooldowns', 'casting', 'spells', 'nuke', 'gear', 'group', 'raid'];
-// The five thresholds this module reads; vet-feedback.js's T carries the same values and is
+// The six thresholds this module reads; vet-feedback.js's T carries the same values and is
 // passed in by buildFacts so the two never drift.
-const DEFAULT_T = { potionMinSec: 60, unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7 };
+const DEFAULT_T = { potionMinSec: 60, unusedPerMin: 1.5, unusedPerFightCooldown: 1, extraPerMin: 1, ratioLow: 0.7, abilityMinShare: 2 };
 const MOVEMENT_FILLER = { Destruction: 'Shadowburn or Life Tap', Affliction: 'Curse of Agony or Life Tap', Demonology: 'Shadowburn or Life Tap', Fire: 'Fire Blast or Scorch', Arcane: 'Fire Blast or Arcane Explosion', Frost: 'Fire Blast or Ice Lance',
                           Shadow: 'Shadow Word: Death or Devouring Plague', Balance: 'Moonfire or Insect Swarm', Elemental: 'Flame Shock or Earth Shock', default: 'an instant' };
 const ABILITY_FIX = { Shadowburn: 'Use it while moving and under 25% boss health when you have shards.', 'Curse of Doom': 'Put it up on the pull and refresh it the moment it expires.', 'Curse of Agony': 'Keep it up on the boss.',
@@ -256,8 +256,16 @@ function spellRows(facts, T) {
     const used = {}, unusedOn = {}, rates = {};
     kills.forEach(k => {
         const refMin = k.reference.castsDurationSec / 60;
+        // ref-above B1, live re-run (Task 8): the same materiality gate rotationFindings applies.
+        // The rate the reference casts something at is not a reason on its own — the reference has
+        // to have got damage out of it, unless it is a burst cooldown, whose value is what it
+        // multiplies. Without this the row named auras that do no damage at all ("Never cast:
+        // Aspect of the Hawk") because the reference happened to cast one once.
+        const refShare = n => { const a = (k.reference.abilities || []).find(x => x && x.name === n); return a && Number.isFinite(a.share) ? a.share : 0; };
+        const isBurst = n => Array.isArray(k.reference.burst) && k.reference.burst.some(b => b && b.name === n);
         Object.keys(k.reference.casts || {}).forEach(n => {
             if (offLimits(n)) return;
+            if (!isBurst(n) && refShare(n) < T.abilityMinShare) return;
             const r = k.reference.casts[n] / refMin;
             if (!(r >= T.unusedPerMin || k.reference.casts[n] >= T.unusedPerFightCooldown)) return;
             used[n] = (used[n] || 0) + 1;

@@ -286,7 +286,11 @@ const BURST_MAX_SEC = 30;
 // rest below all cleared it live and produced nonsense findings ("Never used Death Wish (on-use
 // item)" for a class spell; burst_outside_bloodlust firing on a warrior's Bloodrage). Named by
 // aura, case-insensitive.
-const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion/i;
+// Task 8 (live re-run): Misdirection is a 30s self-buff with a same-named cast, so it cleared the
+// (a)/(b) rule and counted as a burst — which exempted it from the damage-share gate and told a
+// hunter "never cast Misdirection" in a damage report. It multiplies nothing the hunter does; it
+// moves threat to the tank. Excluded by aura like the rest.
+const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion|misdirection/i;
 const LUST = ['Bloodlust', 'Heroism'];
 // v4: these four tables moved to vet-gap.js so vet-checklist.js can use them without a circular
 // require; re-exported here under the same names so existing callers are unaffected.

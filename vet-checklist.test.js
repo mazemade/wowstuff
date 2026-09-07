@@ -29,7 +29,8 @@ function gapKill(name, inputs, extra) {
               bloodlustPercent: 22, burst: [], stats: { spellHit: 203, spellCrit: 293, spellDamage: 1026 }, damagingCastsPerMinute: 21.3, damagePerDamagingCast: 3841, critRate: 35.4, channelSecPerMin: 0.4 },
         reference: { playersDps: 2217, dps: 2217, topDps: 2600, castsDurationSec: 140, flaskShare: 1, flask: 'Flask of Pure Death', consumablesAtPull: ['Well Fed', 'Flask of Pure Death'],
                      buffsAtPull: ['Moonkin Aura', 'Arcane Brilliance'], casts: { 'Shadow Bolt': 54, 'Curse of Doom': 2, 'Shadowburn': 1, Destruction: 1, 'Life Tap': 6 },
-                     abilities: [{ name: 'Shadow Bolt', share: 91, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 54 }, { name: 'Curse of Doom', share: 7.2, avgHit: null, hits: 0 }],
+                     abilities: [{ name: 'Shadow Bolt', share: 91, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 54 }, { name: 'Curse of Doom', share: 7.2, avgHit: null, hits: 0 },
+                                 { name: 'Shadowburn', share: 4.1, avgHit: 2100, avgCrit: 4400, critPercent: 44, resistPercent: 18, hits: 1 }],
                      bloodlustPercent: 28, burst: [{ name: 'Destruction', uses: 1, insideBloodlust: 1 }], damagingCastsPerMinute: 24.3, damagePerDamagingCast: 5474, critRate: 43.6, channelSecPerMin: 0, raidActivePercent: 96.7, debuffs: [], stats: { spellHit: 164, spellCrit: 370, spellDamage: 1007 } },
         findings: [],
         gap: { ratio: 1.63, factors: { casts: { value: 1.14, share: sum(casts), inputs: casts }, dmg: { value: 1.3, share: sum(dmg), inputs: dmg }, crit: { value: 1.06, share: sum(crit), inputs: crit }, residual: { value: 1, share: 0, inputs: [] } } },
@@ -154,6 +155,21 @@ test('spellRows: one unused row over all pulls, curses/racials/utility/potions e
     assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 0.4–1.3 a minute)');
     assert.strictEqual(u.fix, 'Use it while moving and under 25% boss health when you have shards.');
     assert.strictEqual(rows.filter(r => r.id === 'unused').length, 1);
+});
+test('spellRows (ref-above B1): a reference cast the reference got no damage from is not a "never cast" line; a burst cooldown still is', () => {
+    // Funkell's live report (Task 8) named "Aspect of the Hawk" and "Misdirection" — the reference
+    // cast each once and got no damage from either. Rate alone is not a reason.
+    const k = gapKill('Void Reaver', {});
+    k.reference.casts = { 'Shadow Bolt': 54, Shadowburn: 1, 'Aspect of the Hawk': 1, Misdirection: 1, Destruction: 1 };
+    const u = C.spellRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'unused');
+    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 0.4 a minute)');
+    // Destruction is a potion (offLimits) — a burst the reference does get value from stays, so
+    // pin the exemption on the fixture's on-use trinket instead.
+    k.reference.casts['Blessing of the Silver Crescent'] = 1;
+    k.reference.burst = [{ name: 'Blessing of the Silver Crescent', uses: 1, insideBloodlust: 1 }];
+    const u2 = C.spellRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'unused');
+    assert.ok(/Blessing of the Silver Crescent/.test(u2.text), 'a burst cooldown is exempt from the damage-share gate: ' + u2.text);
+    assert.ok(!/Aspect of the Hawk|Misdirection/.test(u2.text), u2.text);
 });
 test('spellRows: under_used is a warn on the reference\'s top-3 abilities cast under 70% of their rate; extra is info', () => {
     const k = gapKill('Lady Vashj', {}); k.me.casts = { 'Shadow Bolt': 71, Shadowburn: 5, 'Seed of Corruption': 8, 'Curse of the Elements': 8 }; k.fight.durationSec = 465;
