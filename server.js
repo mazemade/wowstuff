@@ -170,6 +170,7 @@ app.get('/api/wcl/player', async (req, res) => {
 // --- Player vetting: one profile per character from Warcraft Logs plus the committed item table.
 const VetEngine = require('./vet-engine.js');
 const VetProfile = require('./vet-profile.js');
+const WclLogs = require('./wcl-logs.js');
 
 const DEFAULT_DB_PATH = path.join(__dirname, 'data', 'tbc-item-db.json');
 let vetDbPath = DEFAULT_DB_PATH; // overridable only by server.test.js, via app.__test.setDbPath
@@ -370,6 +371,92 @@ app.get('/api/vet/nights', async (req, res) => {
   }
 });
 
+// --- logs-first B3: vet a whole raid from the log it was in.
+const LOGS_CACHE_MS = 5 * 60 * 1000;
+const logsCache = new Map();   // region/server/guild -> { at, body }
+const rosterCache = new Map(); // code/zone -> { at, body }
+const parsesCache = new Map(); // identity key + '/parses' -> { at, body }
+function cachedJson(cache, key, ttl, res) {
+  const hit = cache.get(key);
+  if (!hit || Date.now() - hit.at >= ttl) return false;
+  res.set('X-Vet-Cache', 'hit'); res.json(hit.body);
+  return true;
+}
+function storeJson(cache, key, ttl, res, body) {
+  for (const [k, v] of cache) if (Date.now() - v.at >= ttl) cache.delete(k);
+  cache.set(key, { at: Date.now(), body });
+  res.set('X-Vet-Cache', 'miss'); res.json(body);
+}
+
+// The guild's recent raid nights — the log picker. One WCL request.
+app.get('/api/wcl/logs', async (req, res) => {
+  const site = req.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+  const guild = String(req.query.guild || '').trim();
+  const server = String(req.query.server || '').toLowerCase();
+  const region = String(req.query.region || '').toLowerCase();
+  if (!/^[^\/\\"]{2,48}$/.test(guild)) return res.status(400).json({ error: 'Invalid guild name' });
+  if (!/^[a-z0-9-]{2,40}$/.test(server)) return res.status(400).json({ error: 'Invalid server slug' });
+  if (!/^(eu|us|kr|tw|cn)$/.test(region)) return res.status(400).json({ error: 'Invalid region' });
+  const key = region + '/' + server + '/' + guild.toLowerCase();
+  try {
+    if (cachedJson(logsCache, key, LOGS_CACHE_MS, res)) return;
+    const logs = await WclLogs.fetchGuildReports(wclQuery, { guild, server, region, limit: 15 });
+    storeJson(logsCache, key, LOGS_CACHE_MS, res, { logs });
+  } catch (err) { wclErrorResponse(res, err, 'WCL guild logs lookup'); }
+});
+
+// Everyone in one report, each as a profile with scored gear and parses pending. Two WCL requests
+// for a whole raid — versus four per player through /api/vet/player.
+app.get('/api/wcl/log/:code/roster', async (req, res) => {
+  const site = req.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+  const code = String(req.params.code || '');
+  if (!/^[A-Za-z0-9]{16}$/.test(code)) return res.status(400).json({ error: 'Invalid report code' });
+  const zone = parseInt(req.query.zone, 10) || 1060;
+  const fallbackServer = String(req.query.server || '').toLowerCase();
+  const fallbackRegion = String(req.query.region || 'eu').toLowerCase();
+  if (fallbackServer && !/^[a-z0-9-]{2,40}$/.test(fallbackServer)) return res.status(400).json({ error: 'Invalid server slug' });
+  if (!/^(eu|us|kr|tw|cn)$/.test(fallbackRegion)) return res.status(400).json({ error: 'Invalid region' });
+  const key = code + '/' + zone;
+  try {
+    if (cachedJson(rosterCache, key, FEEDBACK_CACHE_MS, res)) return;
+    let db;
+    try { db = getVetDbIndex(); }
+    catch (err) { console.error('item table load failed:', err); return res.status(500).json({ error: 'Item table data/tbc-item-db.json is missing or unreadable' }); }
+    const roster = await WclLogs.fetchReportRoster(wclQuery, { code });
+    if (!roster) return res.status(404).json({ error: 'Warcraft Logs could not open report ' + code });
+    const region = (roster.guild && roster.guild.region) || fallbackRegion;
+    const players = roster.players.map(p => VetProfile.profileFromCombatant({
+      name: p.name, server: p.server || fallbackServer, region, zone, classToken: p.classToken, combatant: p.combatant,
+      report: { code, startTime: roster.startTime, fightName: p.fightName }, dbIndex: db }));
+    storeJson(rosterCache, key, FEEDBACK_CACHE_MS, res, {
+      report: { code, title: roster.title, date: roster.date, zone: roster.zone, guild: roster.guild, fights: roster.fights }, players });
+  } catch (err) { wclErrorResponse(res, err, 'WCL report roster lookup'); }
+});
+
+// The parses half of a profile for a player the page already has gear for. Optional class and
+// talents (from the report's CombatantInfo) let spec detection skip the WCL-label fallback.
+app.get('/api/vet/parses', async (req, res) => {
+  const id = vetIdentity(req);
+  if (id.error) return res.status(id.status).json({ error: id.error });
+  const classToken = req.query.class ? String(req.query.class).toUpperCase() : null;
+  if (classToken && !/^[A-Z]{4,8}$/.test(classToken)) return res.status(400).json({ error: 'Invalid class' });
+  let talentSplit = null;
+  if (req.query.talents) {
+    talentSplit = String(req.query.talents).split(',').map(n => parseInt(n, 10));
+    if (talentSplit.length !== 3 || talentSplit.some(n => !Number.isInteger(n) || n < 0 || n > 61)) return res.status(400).json({ error: 'Invalid talents' });
+  }
+  const key = id.key + '/parses';
+  try {
+    if (cachedJson(parsesCache, key, FEEDBACK_CACHE_MS, res)) return;
+    const rk = await VetProfile.fetchRankings(wclQuery, { name: id.name, server: id.server, region: id.region, zone: id.zone, classToken, talentSplit });
+    const parses = VetProfile.buildParses(rk.rankings, rk.rankingsZone, rk.fallback, rk.metric, rk.otherRankings, rk.otherZone);
+    const identity = { class: classToken, spec: rk.det.spec, role: rk.det.role, talentSplit, detectedFrom: rk.det.detectedFrom };
+    storeJson(parsesCache, key, FEEDBACK_CACHE_MS, res, { parses, identity });
+  } catch (err) { wclErrorResponse(res, err, 'WCL parses lookup'); }
+});
+
 // Advisory AI second opinion on the whole assignment sheet. The client sends its live
 // state; we wrap it in a system prompt that states the Anniversary rules so the model
 // cannot repeat the rule-ignorant critiques a bare ChatGPT produces. Display-only:
@@ -462,8 +549,8 @@ app.__test = {
   setWclQuery(fn) { wclQuery = fn; },
   setOpenaiChat(fn) { openaiChat = fn; },
   setDbPath(p) { vetDbPath = p || DEFAULT_DB_PATH; vetDbIndex = null; },
-  resetCaches() { vetCache.clear(); feedbackCache.clear(); feedbackInFlight.clear(); feedbackRefCache.clear(); nightsCache.clear(); },
-  caches: { vetCache, feedbackCache, feedbackInFlight, feedbackRefCache, nightsCache },
+  resetCaches() { vetCache.clear(); feedbackCache.clear(); feedbackInFlight.clear(); feedbackRefCache.clear(); nightsCache.clear(); logsCache.clear(); rosterCache.clear(); parsesCache.clear(); },
+  caches: { vetCache, feedbackCache, feedbackInFlight, feedbackRefCache, nightsCache, logsCache, rosterCache, parsesCache },
 };
 
 module.exports = app;

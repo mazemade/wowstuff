@@ -16,7 +16,9 @@ const path = require('node:path');
 const P = require('./vet-profile.js');
 const F = require('./vet-feedback.js');
 const V = require('./vet-engine.js');
+const L = require('./wcl-logs.js');
 const app = require('./server.js');
+const NOTT = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wcl-vet-nottomwro.json'), 'utf8'));
 
 let passed = 0, failed = 0;
 // Tests share one running server and its module-level caches, so — unlike the other suites in
@@ -372,6 +374,72 @@ test('GET /api/vet/nights: validation, cross-origin block, unknown character', a
     assert.strictEqual((await fetch(base + '/api/vet/nights?' + QS, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
     app.__test.setWclQuery(async q => { if (q === P.CHAR_QUERY) return { characterData: { character: null } }; throw new Error('unexpected ' + q.slice(0, 40)); });
     assert.strictEqual((await fetch(base + '/api/vet/nights?name=Nobody&server=spineshatter&region=eu&zone=1060', SAME_ORIGIN)).status, 404);
+});
+
+// --- logs-first B3: logs, roster, parses
+const META = { title: 'BT / Hyjal', startTime: 1788700000000, zone: { id: 1060, name: 'BT / Hyjal' },
+    guild: { name: 'Animal Kingdom', server: { slug: 'spineshatter', region: { slug: 'EU' } } },
+    masterData: { actors: [{ id: 19, name: 'Nottomwro', server: 'Spineshatter', subType: 'Shaman' }, { id: 20, name: 'Sspope', server: 'Spineshatter', subType: 'Priest' }] },
+    fights: [{ id: 3, name: 'Rage Winterchill', kill: true }, { id: 9, name: 'Archimonde', kill: true }] };
+function logsStub(o) {
+    o = Object.assign({ meta: META, rankZone: NOTT.zoneRankings }, o);
+    const calls = [];
+    return { calls, query: async (q, vars) => {
+        calls.push({ q, vars });
+        if (q === L.GUILD_REPORTS_QUERY) return { reportData: { reports: { data: [{ code: 'X6mnbPQpGhjJC2TN', title: 'BT / Hyjal', startTime: 1788700000000, zone: { id: 1060, name: 'BT / Hyjal' } }] } } };
+        if (q === L.REPORT_META_QUERY) return { reportData: { report: vars.code === 'X6mnbPQpGhjJC2TN' ? o.meta : null } };
+        if (q.includes('CombatantInfo')) return { reportData: { report: { f3: { data: [Object.assign({}, NOTT.report.combatant, { sourceID: 20 })] }, f9: { data: [NOTT.report.combatant] } } } };
+        if (q === P.RANK_QUERY) return { characterData: { character: vars.name === 'Nobody' ? null : { zoneRankings: JSON.parse(JSON.stringify(o.rankZone[String(vars.zone)])) } } };
+        throw new Error('unexpected query: ' + q.slice(0, 50));
+    } };
+}
+test('GET /api/wcl/logs: the guild\'s recent nights, validated and cached 5 minutes', async () => {
+    app.__test.resetCaches();
+    const s = logsStub(); app.__test.setWclQuery(s.query);
+    let res = await fetch(base + '/api/wcl/logs?guild=Animal%20Kingdom&server=spineshatter&region=eu', SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepStrictEqual(body.logs.map(l => [l.code, l.date, l.zone.name]), [['X6mnbPQpGhjJC2TN', '2026-09-06', 'BT / Hyjal']]);
+    res = await fetch(base + '/api/wcl/logs?guild=Animal%20Kingdom&server=spineshatter&region=eu', SAME_ORIGIN);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'hit');
+    assert.strictEqual(s.calls.length, 1);
+    assert.strictEqual((await fetch(base + '/api/wcl/logs?guild=x&server=spineshatter&region=eu', SAME_ORIGIN)).status, 400);
+    assert.strictEqual((await fetch(base + '/api/wcl/logs?guild=Animal%20Kingdom&server=spineshatter&region=eu', { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+});
+test('GET /api/wcl/log/:code/roster: every player as a pending profile with scored gear; 404 for an unknown report', async () => {
+    app.__test.resetCaches();
+    const s = logsStub(); app.__test.setWclQuery(s.query);
+    let res = await fetch(base + '/api/wcl/log/X6mnbPQpGhjJC2TN/roster?zone=1060', SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepStrictEqual(body.report.guild, { name: 'Animal Kingdom', server: 'spineshatter', region: 'eu' });
+    assert.strictEqual(body.report.date, '2026-09-06');
+    assert.deepStrictEqual(body.players.map(p => [p.name, p.server, p.region, p.parsesPending, p.parses, p.identity.class, p.lastSeen.fightName]), [
+        ['Nottomwro', 'spineshatter', 'eu', true, null, 'SHAMAN', 'Archimonde'], ['Sspope', 'spineshatter', 'eu', true, null, 'PRIEST', 'Rage Winterchill']]);
+    assert.strictEqual(typeof body.players[0].gearSummary.gearScore, 'number');
+    assert.strictEqual(s.calls.length, 2, 'meta + one aliased CombatantInfo request');
+    res = await fetch(base + '/api/wcl/log/X6mnbPQpGhjJC2TN/roster?zone=1060', SAME_ORIGIN);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'hit');
+    assert.strictEqual((await fetch(base + '/api/wcl/log/ktjzamNDCK2Af6TH/roster', SAME_ORIGIN)).status, 404);
+    assert.strictEqual((await fetch(base + '/api/wcl/log/short/roster', SAME_ORIGIN)).status, 400);
+});
+test('GET /api/vet/parses: rankings only — two RANK queries, parses + identity, cached; unknown character → parses null', async () => {
+    app.__test.resetCaches();
+    const s = logsStub(); app.__test.setWclQuery(s.query);
+    const qs = 'name=Nottomwro&server=spineshatter&region=eu&zone=1060&class=SHAMAN&talents=' + NOTT.report.combatant.talents.map(t => t.id).join(',');
+    let res = await fetch(base + '/api/vet/parses?' + qs, SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.parses.zoneName, 'BT / Hyjal');
+    assert.strictEqual(body.parses.bosses.length, 14);
+    assert.deepStrictEqual([body.identity.class, body.identity.spec, body.identity.role], ['SHAMAN', 'Enhancement', 'melee']);
+    assert.deepStrictEqual(s.calls.map(c => c.q === P.RANK_QUERY), [true, true]);
+    res = await fetch(base + '/api/vet/parses?' + qs, SAME_ORIGIN);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'hit');
+    assert.strictEqual((await fetch(base + '/api/vet/parses?name=Nottomwro&server=spineshatter&region=eu&talents=1,2', SAME_ORIGIN)).status, 400, 'talents must be three numbers');
+    res = await fetch(base + '/api/vet/parses?name=Nobody&server=spineshatter&region=eu&zone=1060', SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await res.json()).parses, null);
 });
 
 chain.then(() => {
