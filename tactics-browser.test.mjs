@@ -146,6 +146,47 @@ async function checkReliquary(port) {
   assert.equal(await evaluate(`(()=>{const a=__tactics;return a.scenes.every((s,i)=>{a.show(i);a.playback.pause(performance.now());return [...sceneSpells.querySelectorAll('a')].every(link=>link.href.startsWith('https://')&&!link.href.includes('undefined'))})})()`),true,'every spell card links to a real source');
   pass('Reliquary deep link loads eleven chapters, authentic art and the example raid');
 
+  for (const [width,height] of [[1600,1100],[390,844]]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
+    await showReliquary('positioning');
+    const collisions = await evaluate(`(()=>{
+      const a=__tactics,bad=[];
+      const check=(s,elapsed)=>{
+        const now=performance.now();a.playback.pause(now);a.playback.seek(elapsed,now);
+        const ctx=fx.getContext('2d'),roundRect=ctx.roundRect,fillText=ctx.fillText,labels=[];let box;
+        ctx.roundRect=function(x,y,w,h,...rest){box={x,y,w,h};return roundRect.call(this,x,y,w,h,...rest)};
+        ctx.fillText=function(value,...args){if(/^(Current|Next|Waiting): /.test(String(value)))labels.push({label:String(value),...box});return fillText.call(this,value,...args)};
+        try{a.render(now)}finally{ctx.roundRect=roundRect;ctx.fillText=fillText}
+        const f=s._sim,b=a.px(f.boss),yard=a.px({x:f.boss.x+a.fight.yard,y:f.boss.y}).x-b.x;
+        const minGap=2*Math.max(9,Math.min(21,1.7*yard))+4;
+        const tanks=s.tanks.map(id=>({id,...a.px(f.pos[id])}));
+        const protectedTokens=[...tanks.map(p=>({...p,r:Math.max(12,2.3*yard)})),{id:'boss',...b,r:20}];
+        for(const box of labels)for(const p of protectedTokens){
+          const x=Math.max(box.x,Math.min(p.x,box.x+box.w)),y=Math.max(box.y,Math.min(p.y,box.y+box.h));
+          if(Math.hypot(x-p.x,y-p.y)<p.r+2)bad.push({step:f.explanation?.id,elapsed,label:box.label,covered:p.id});
+        }
+        for(let i=0;i<tanks.length;i++)for(let j=i+1;j<tanks.length;j++){
+          const gap=Math.hypot(tanks[i].x-tanks[j].x,tanks[i].y-tanks[j].y);
+          if(gap<minGap)bad.push({step:f.explanation?.id,elapsed,pair:[tanks[i].id,tanks[j].id],gap,minGap});
+        }
+      };
+      check(a.scenes.find(s=>s.id==='positioning'),0);
+      a.guided.steps.forEach((step,index)=>{if(step.sceneId!=='fixate')return;a.showExplanation(index);const s=a.scenes.find(s=>s.id==='fixate');for(const time of [0,500,1000,60000])check(s,time)});
+      return bad;
+    })()`);
+    assert.deepEqual(collisions,[],'opening tank tokens remain separate at '+width);
+    await showReliquary('fixate',4999);
+    const approachTarget=await evaluate('__reliquaryScene._sim.bossTarget');
+    assert.equal(approachTarget,await evaluate('__reliquaryScene.tanks[0]'),'approach holds before Fixate changes the target');
+    const approachText=await drawnReliquaryText();
+    for(const name of ['Tank 1','Tank 2','Tank 3'])assert(approachText.includes(name),name+' stays identifiable at '+width);
+    await key('ArrowRight');
+    assert.equal(await evaluate('__reliquaryScene._sim.bossTarget'),await evaluate('__reliquaryScene.tanks[1]'),'next explanation shows the target handoff');
+    await screenshot('reliquary-separated-handoff-'+width);
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  pass('opening tanks stay separate and identifiable, with Fixate changing on the next explanation');
+
   await showReliquary('interrupts');
   const interruptChapterTitle=await evaluate('stepTitle.textContent');
   await key('ArrowRight');

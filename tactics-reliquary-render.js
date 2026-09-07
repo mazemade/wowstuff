@@ -38,20 +38,25 @@
         panel(ctx,10,fy,w-20,fh); paragraph(ctx,footer,22,fy+12,w-44,body,'#ceddd3');
     }
     function actorLabels(api, scene, frame, area) {
-        const {ctx}=api,{w,compact}=layout(api), entries=[];
+        const {ctx}=api,{w,compact}=layout(api), entries=[], occupied=[], reserved=[];
+        const reserve = (p, radius) => reserved.push({ x:p.x-radius, y:p.y-radius, w:radius*2, h:radius*2 });
+        const tokenRadius = Math.max(18, api.yd(3.2)) + 7;
+        if(frame.tankLanes) Object.keys(frame.tankLanes).forEach(id=>{ if(point(frame,id)) reserve(api.px(point(frame,id)), tokenRadius); });
+        if(frame.boss) reserve(api.px(frame.boss), Math.max(31, api.yd(4.2)) + 8);
         for(const a of frame.actions||[]) for(const id of [a.visualFromId || a.sourceId,...(a.targetIds || [a.visualToId || a.targetId])]) { if(id && id!=='essence' && point(frame,id) && !entries.includes(id)) entries.push(id); }
         for(const mark of frame.spite || []) if(!entries.includes(mark.targetId)) entries.push(mark.targetId);
         if(frame.bossTarget && ['fixate','suffering','anger'].includes(frame.stage) && !entries.includes(frame.bossTarget)) entries.unshift(frame.bossTarget);
         if(frame.nextTank && frame.essence==='Suffering' && !entries.includes(frame.nextTank)) entries.push(frame.nextTank);
+        if(frame.tankLanes && frame.essence==='Suffering') Object.keys(frame.tankLanes).forEach(id=>{ if(!entries.includes(id)) entries.push(id); });
         if(frame.teaching?.nextKickerId && !entries.includes(frame.teaching.nextKickerId)) entries.push(frame.teaching.nextKickerId);
         for(const id of [frame.teaching?.removerId,frame.teaching?.tonguesId,frame.teaching?.currentKickerId,frame.tipVisual?.sourceId]) if(id && point(frame,id) && !entries.includes(id)) entries.push(id);
-        const occupied=[];
+        const tankIds=frame.tankLanes ? Object.keys(frame.tankLanes) : scene.tanks || [];
         entries.slice(0,5).forEach(id=>{
-            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'' : '', label=prefix+playerName(scene,id), size=compact?13:16;
+            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' && tankIds.includes(id) ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'Waiting: ' : '', label=prefix+playerName(scene,id), size=compact?13:16;
             font(ctx,size); const bw=Math.min(w-30,ctx.measureText(label).width+18), bh=25;
-            const candidates=[{x:p.x+23,y:p.y-12},{x:p.x-bw-23,y:p.y-12},{x:p.x-bw/2,y:p.y+25},{x:p.x-bw/2,y:p.y-48}];
+            const candidates=[{x:p.x-bw/2,y:p.y+tokenRadius+9},{x:p.x-bw-28,y:p.y+12},{x:p.x+28,y:p.y+12},{x:p.x-bw/2,y:p.y-tokenRadius-bh-9}];
             let box;
-            for(let tries=0;tries<12;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,15,w-bw-15),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(!occupied.some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y)){box=b;break;} }
+            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,15,w-bw-15),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(![...occupied,...reserved].some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y)){box=b;break;} }
             if(!box) return; occupied.push(box);
             ring(ctx,p,Math.max(12,api.yd(2.3)),id===frame.bossTarget?gold:mint);
             ctx.strokeStyle='#b4cabe';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(clamp(p.x,box.x,box.x+box.w),box.y+box.h/2);ctx.stroke();

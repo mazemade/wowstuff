@@ -10,9 +10,9 @@
         positioning: [step('formation', 'Use the sheet formation before the pull.', 'Tanks in front, melee behind, ranged split wide and healers central enough to cover both sides.', 0, 0)],
         fixate: [
             step('closest-tank', 'The closest tank receives Suffering.', 'This is positional selection, not a taunt rotation.', 0, 900),
-            step('incoming-tank', 'The next tank moves into the closest spot.', 'The next receiver steps in before Fixate while the current tank starts to leave.', 3900, 5000),
-            step('first-handoff', 'The first handoff completes.', 'The outgoing tank backs away after the new closest receiver is selected.', 5000, 5900),
-            step('second-handoff', 'The second receiver moves in.', 'The next tank again becomes closest before the next five-second selection.', 8900, 10000),
+            step('incoming-tank', 'The next tank moves into its front lane.', 'The next receiver moves closest before Fixate while the current tank retreats along its own lane.', 3900, 4999),
+            step('first-handoff', 'The first handoff completes.', 'The new receiver has Fixate; the previous tank is back in its waiting position.', 5000, 5900),
+            step('second-handoff', 'The second receiver moves in.', 'The next tank again becomes closest in its own front lane before the next five-second selection.', 8900, 9999),
             step('third-handoff', 'The third handoff completes.', 'The rotation continues with damage remaining on prior receivers.', 10000, 10900)
         ],
         suffering: [

@@ -74,6 +74,46 @@ test('incoming Suffering receiver moves in before the boundary and no tank healt
     assert.ok(at10000.hp[sc.tanks[0]] <= at4999.hp[sc.tanks[0]], 'past receiver never receives forbidden healing');
 });
 
+test('Suffering front lanes keep every tank distinct through each handoff', () => {
+    const sc = prepare('fixate');
+    [0, 4000, 4999, 5000, 8999, 9999, 10000].forEach(time => {
+        const frame = R.simulate(fight, sc, time);
+        assert.ok(frame.tankLanes, 'front lanes are exposed for the renderer');
+        sc.tanks.forEach((id, index) => sc.tanks.slice(index + 1).forEach(other => {
+            assert.ok(L.dist(fight, frame.pos[id], frame.pos[other]) > 1.5, time + 'ms keeps ' + id + ' and ' + other + ' readable');
+        }));
+    });
+    const incoming = sc.tanks[1], before = R.simulate(fight, sc, 4999), after = R.simulate(fight, sc, 5000);
+    assert.ok(L.dist(fight, before.pos[incoming], after.pos[incoming]) < .1, 'the incoming tank has no selection-boundary teleport');
+    assert.deepEqual(after.nextTankAt, after.tankLanes[after.nextTank].near, 'the next marker uses that tank’s lane');
+});
+
+test('a fourth Suffering tank keeps an in-bounds lane and becomes closest on its turn', () => {
+    const sc = prepare('fixate', { tanks: ['Tank 1', 'Tank 2', 'Tank 3', 'Tank 4'] }, { 'Tank 1': 'WARRIOR', 'Tank 2': 'WARRIOR', 'Tank 3': 'WARRIOR', 'Tank 4': 'WARRIOR' });
+    [0, 5000, 10000, 15000].forEach(time => {
+        const frame = R.simulate(fight, sc, time), current = frame.pos[frame.bossTarget];
+        assert.ok(current.x >= fight.arena.x0 && current.x <= fight.arena.x1 && current.y >= fight.arena.y0 && current.y <= fight.arena.y1, time + 'ms current lane stays on the arena');
+        sc.tanks.filter(id => id !== frame.bossTarget).forEach(id => assert.ok(L.dist(fight, current, frame.boss) < L.dist(fight, frame.pos[id], frame.boss), time + 'ms selects the closest tank'));
+    });
+});
+
+test('Suffering keeps every partial and oversized tank roster in-bounds with a unique closest receiver', () => {
+    [1, 2, 3, 5, 8].forEach(count => {
+        const tanks = Array.from({ length: count }, (_, index) => 'Tank ' + (index + 1));
+        const classes = Object.fromEntries(tanks.map(name => [name, 'WARRIOR']));
+        const sc = prepare('fixate', { tanks }, classes);
+        for (let time = 0; time < sc.duration; time += 5000) {
+            const frame = R.simulate(fight, sc, time), current = frame.pos[frame.bossTarget];
+            sc.tanks.forEach(id => {
+                const position = frame.pos[id];
+                assert.ok(Number.isFinite(position.x) && Number.isFinite(position.y), count + '-tank roster has finite coordinates');
+                assert.ok(position.x >= fight.arena.x0 && position.x <= fight.arena.x1 && position.y >= fight.arena.y0 && position.y <= fight.arena.y1, count + '-tank roster stays in arena');
+            });
+            sc.tanks.filter(id => id !== frame.bossTarget).forEach(id => assert.ok(L.dist(fight, current, frame.boss) < L.dist(fight, frame.pos[id], frame.boss), count + '-tank roster selects one closest receiver'));
+        }
+    });
+});
+
 test('souls only restore resources after nearby deaths when damage exists', () => {
     const sc = prepare('souls');
     const approaching = R.simulate(fight, sc, 4000), dead = R.simulate(fight, sc, 5000);

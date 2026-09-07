@@ -6,6 +6,11 @@
     const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
     const cls = p => String(p.class || '').trim().toUpperCase();
     const point = (fight, deg, yards) => { const a = deg * Math.PI / 180; return { x: fight.bossAt.x + Math.cos(a) * yards * fight.yard, y: fight.bossAt.y + Math.sin(a) * yards * fight.yard * fight.aspect }; };
+    const tankLane = (fight, index, count = 3) => {
+        const total = Math.max(1, count);
+        const angle = total === 1 ? 270 : total === 3 ? [225, 270, 315][index] : 210 + index * 120 / (total - 1);
+        return { near: point(fight, angle, 6.2), far: point(fight, angle, 12.5) };
+    };
     const interpolate = (a, b, t) => ({ x: a.x + (b.x - a.x) * clamp(t) , y: a.y + (b.y - a.y) * clamp(t) });
     function capable(p, task) {
         const c = cls(p); if (!c) return false;
@@ -28,7 +33,7 @@
         sc.raid.forEach(p => {
             const i = groups[p.kind].indexOf(p), n = groups[p.kind].length;
             let at;
-            if (p.kind === 'tank') at = point(fight, 255 + i * (n === 1 ? 0 : 30 / (n - 1)), 9);
+            if (p.kind === 'tank') at = tankLane(fight, i, n).far;
             else if (p.kind === 'melee') at = point(fight, 55 + i * (n === 1 ? 0 : 70 / (n - 1)), 13);
             else if (p.kind === 'healer') at = point(fight, 68 + i * (n === 1 ? 0 : 44 / (n - 1)), 20);
             else at = point(fight, 30 + i * (n === 1 ? 0 : 120 / (n - 1)), 25 + Math.floor(i / 8) * 3);
@@ -73,15 +78,16 @@
         const rotationTime = enrageLesson ? t + 2000 : t;
         const cycle = Math.floor(rotationTime / 5000), slot = cycle % Math.max(1, rotation.length), current = rotation[slot] || null;
         f.essence = 'Suffering'; f.stage = sc.id === 'fixate' ? 'fixate' : 'suffering'; f.bossTarget = current;
-        const within = rotationTime % 5000, leadIn = within >= 4000 ? rotation[(slot + 1) % Math.max(1, rotation.length)] : null, outgoing = within < 1000 && cycle > 0 ? rotation[(slot - 1 + rotation.length) % rotation.length] : null;
-        const receiveAt = point(fight, 265, 6.5);
+        const within = rotationTime % 5000, leadIn = within >= 4000 ? rotation[(slot + 1) % Math.max(1, rotation.length)] : null;
+        f.tankLanes = Object.fromEntries(rotation.map((id, i) => [id, tankLane(fight, i, rotation.length)]));
         f.nextTank = leadIn || rotation[(slot + 1) % Math.max(1, rotation.length)] || null;
-        f.nextTankAt = receiveAt;
+        f.nextTankAt = f.nextTank ? f.tankLanes[f.nextTank].near : null;
         rotation.forEach((id, i) => {
-            const isIncoming = id === leadIn, isCurrent = i === slot, isOutgoing = id === outgoing;
+            const isIncoming = id === leadIn, isCurrent = i === slot;
             const k = isIncoming ? clamp((within - 4000) / 1000) : 0;
-            const far = point(fight, 220 + i * 40, 12), near = receiveAt, retreat = point(fight, 220 + i * 40, 12);
-            f.pos[id] = isCurrent ? near : isIncoming ? interpolate(far, near, k) : isOutgoing ? interpolate(point(fight, 265, 7), retreat, within / 1000) : far;
+            const lane = f.tankLanes[id];
+            const retreat = isCurrent ? clamp((within - 4000) / 1000) : 0;
+            f.pos[id] = isCurrent ? interpolate(lane.near, lane.far, retreat) : isIncoming ? interpolate(lane.far, lane.near, k) : lane.far;
             let hits = 0; for (let n = 0; n <= cycle; n++) if (rotation[n % rotation.length] === id) hits++;
             f.hp[id] = clamp(1 - hits * .14);
         });
