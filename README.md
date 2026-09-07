@@ -33,7 +33,7 @@ groups, and checks live whether assignments were actually done.
     deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
     `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`. Optional `report=<WCL report code>` analyses one raid
     night. The facts sheet carries `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
-- **Supremus briefing** (`tactics.html`): nine guided scenes for explaining positions,
+- **Fight briefings** ([Supremus](tactics.html?fight=bt-supremus) and [High Warlord Naj’entus](tactics.html?fight=bt-najentus)): Supremus has nine guided scenes for explaining positions,
   Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
   a main raid call, relevant spell tooltip cards, role instructions and a common mistake. Play/pause, replay, speed
   and scrubbing let the raid leader control the demonstration; animations hold at the end.
@@ -44,7 +44,9 @@ groups, and checks live whether assignments were actually done.
   Without a roster it shows a labelled example raid. Positions, routes and danger
   circles are illustrative. "Copy briefing" includes the current guidance and roster;
   "Copy image" includes the current map and main call. Detailed mechanics and source
-  links are under "Mechanics & sources".
+  links are under "Mechanics & sources". Naj’entus has seven state-driven chapters: the loop,
+  positions, Needle splash, freeing an Impaling Spine, healing through Tidal Shield, one called
+  Hurl Spine, and the complete cycle. Its state display and exports follow the current illustrative frame.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 

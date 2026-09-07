@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 import { dirname } from "node:path";
@@ -115,6 +115,12 @@ async function waitForPresenter() {
   }
   throw new Error("Presenter map did not become ready");
 }
+async function screenshot(name) {
+  if (!process.env.TACTICS_SCREENSHOT_DIR) return;
+  await mkdir(process.env.TACTICS_SCREENSHOT_DIR, { recursive: true });
+  const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+  await writeFile(join(process.env.TACTICS_SCREENSHOT_DIR, `${name}.png`), Buffer.from(result.data, "base64"));
+}
 
 async function run() {
   const port = await startServer();
@@ -123,6 +129,8 @@ async function run() {
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
+  assert.match(await evaluate("referenceContent.textContent"), /Hateful Strike[\s\S]*Phase 1/);
+  assert.match(await evaluate("referenceContent.textContent"), /From the guild’s strategy image/); pass("Supremus reference retains ability names, phase, and source heading");
 
   const spread = await evaluate(`(()=>{const a=__tactics,s=a.scenes.find(s=>s.id==='swap'),start=a.simulate(s,0).pos,before=a.simulate(s,4950).pos,after=a.simulate(s,7500).pos;return s.raid.map(p=>({kind:p.kind,before:TacticsLayout.dist(TacticsData.FIGHTS['bt-supremus'],start[p.id],before[p.id]),after:TacticsLayout.dist(TacticsData.FIGHTS['bt-supremus'],start[p.id],after[p.id])}))})()`);
   assert(spread.filter(p => p.kind === 'tank').every(p => p.before < 0.01 && p.after > 1), 'tanks hold until fixate, then move');
@@ -180,12 +188,93 @@ async function run() {
   assert.equal(await evaluate("(()=>{const a=__tactics;return a.assigned.find(p=>p.id===a.scenes[8].cast.md).name})()"), "Hunter"); pass("actual hunter receives Misdirect");
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); await reload(); await evaluate("__tactics.show(5)");
   assert.equal(await evaluate("__tactics.playback.playing"), false); pass("reduced motion starts paused");
+
+  await send("Emulation.setEmulatedMedia", { features: [] });
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=bt-najentus` }); await waitForPresenter();
+  await evaluate("__tactics.render(performance.now())");
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
+  assert.equal(await evaluate("document.querySelectorAll('#dots button').length"), 7);
+  assert.match(await evaluate("document.title"), /Naj.entus/);
+  assert.equal(await evaluate("clock.hidden"), true);
+  assert.match(await evaluate("encounterState.textContent"), /Normal combat/); pass("Najentus routing selects its seven-state presenter");
+  assert.match(await evaluate("referenceContent.textContent"), /Needle Spine[\s\S]*Normal combat/);
+  assert.match(await evaluate("referenceContent.textContent"), /Hurl Spine[\s\S]*Shield break/); pass("Najentus reference uses ability stages and real spell names");
+  assert.equal(await evaluate("[...document.images].every(i => i.complete && i.naturalWidth > 0)"), true, "Najentus local portrait and spell art load");
+  await evaluate("document.querySelector('.boss-tab[href*=\"bt-supremus\"]').click()"); await sleep(250); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-supremus"); await evaluate("history.back()"); await sleep(250); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus"); pass("boss anchors navigate and browser back restores Najentus");
+  await evaluate("__tactics.show(1);__tactics.playback.pause(performance.now());__tactics.render(performance.now())"); await screenshot("najentus-positioning-1600");
+  await evaluate("__tactics.show(3);__tactics.playback.pause(performance.now());__tactics.playback.seek(4000,performance.now());__tactics.render(performance.now())"); await screenshot("najentus-extraction-1600");
+  await evaluate("__tactics.show(6);__tactics.playback.pause(performance.now());__tactics.playback.seek(60000,performance.now());__tactics.render(performance.now())");
+  assert.match(await evaluate("encounterState.textContent"), /Shield: heal up/);
+  assert.equal(await evaluate("__tactics.scenes[6]._sim.shield"), true);
+  assert.equal(await evaluate("Object.keys(__tactics.scenes[6]._sim.focus).length"), await evaluate("__tactics.scenes[6].raid.length"));
+  await screenshot("najentus-shield-1600");
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await evaluate("__tactics.render(performance.now())"); await screenshot("najentus-shield-1280");
+  assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "laptop view has no horizontal overflow");
+  await send("Emulation.clearDeviceMetricsOverride");
+  await evaluate("__tactics.playback.seek(65000,performance.now());__tactics.render(performance.now())");
+  assert.match(await evaluate("sceneCall.textContent"), /Raid ready/);
+  await evaluate("__tactics.playback.seek(67000,performance.now());__tactics.render(performance.now())");
+  assert.match(await evaluate("encounterState.textContent"), /Spine in flight/);
+  await evaluate("__tactics.playback.seek(67700,performance.now());__tactics.render(performance.now())");
+  assert.match(await evaluate("encounterState.textContent"), /Raidwide burst/);
+  assert.equal(await evaluate("__tactics.scenes[6]._sim.burst.damage"), 8500); pass("Najentus seek keeps state, call and burst on the same frame");
+  await evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>{window.__najText=t},write:async items=>{window.__najBlob=await items[0].getType('image/png')}}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}");
+  await evaluate("copyText.click();copyImage.click()"); await sleep(1000);
+  assert.match(await evaluate("__najText"), /Raidwide hit\. Heal everyone\.[\s\S]*State: burst/); assert((await evaluate("__najBlob.size")) > 1000); pass("Najentus text and PNG exports carry the current call and stage");
+  await screenshot("najentus-burst-1600");
+  await evaluate("__tactics.show(5);__tactics.playback.pause(performance.now());__tactics.render(performance.now());__tactics.show(0);__tactics.show(5);__tactics.playback.pause(performance.now());__tactics.render(performance.now())");
+  assert.equal(await evaluate("sceneCall.textContent"), await evaluate("__tactics.scenes[5]._sim.call"));
+  assert.equal(await evaluate("mapCall.textContent"), await evaluate("__tactics.scenes[5]._sim.call")); pass("Najentus current call refreshes when revisiting a scene");
+  await evaluate("__tactics.show(6);__tactics.playback.pause(performance.now());__tactics.playback.seek(67700,performance.now());__tactics.render(performance.now())");
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await evaluate("__tactics.render(performance.now())"); await screenshot("najentus-burst-390");
+  assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "phone view has no horizontal overflow");
+  await send("Emulation.clearDeviceMetricsOverride");
+  await evaluate("localStorage.removeItem('raidAssignmentsState')"); await reload();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
+  assert.equal(await evaluate("__tactics.assigned.length"), 25); await evaluate("__tactics.show(0);__tactics.playback.pause(performance.now());__tactics.render(performance.now())");
+  await screenshot("najentus-overview-default25-1600"); pass("Najentus default 25-player illustration remains available");
+  const bounds = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];a.scenes.forEach((s,i)=>{a.show(i);a.playback.pause(performance.now());const q=[0,s.duration,...(s.sequence.needles||[]).map(x=>x.at),...(s.sequence.impales||[]).flatMap(x=>[x.at,x.extractAt,x.homeAt]),...(s.sequence.shield?[s.sequence.shield.at,s.sequence.shield.readyAt,s.sequence.shield.throwAt,s.sequence.shield.hitAt,s.sequence.shield.recoverAt]:[])].filter(Number.isFinite);q.forEach(t=>{a.playback.seek(t,performance.now());a.render(performance.now());['boss',...s.raid.map(p=>p.id)].forEach(id=>{const p=id==='boss'?s._sim.boss:s._sim.pos[id],v=a.px(p);if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||v.x<0||v.y<0||v.x>b.width||v.y>b.height)bad.push([s.id,t,id]);});});});return bad})()`);
+  assert.equal(bounds.length, 0, "default raid actors remain framed at every authored event boundary"); pass("Najentus boundary frames remain finite and visible");
+  const najRoster = JSON.stringify({ manual: [
+    { name: "NamedMT", class: "WARRIOR", spec: "Protection", mt: true, flags: [], source: "manual" },
+    { name: "NamedHeal", class: "PRIEST", spec: "Holy", flags: [], source: "manual" },
+    { name: "NamedRange", class: "MAGE", spec: "Arcane", flags: [], source: "manual" }
+  ], playerMeta: { NamedMT: { mt: true } } });
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(najRoster)})`); await reload();
+  await evaluate("__tactics.show(1);__tactics.playback.pause(performance.now());__tactics.render(performance.now())");
+  assert.equal(await evaluate("sceneCall.textContent.includes('One tank')"), true);
+  assert.equal(await evaluate("__tactics.scenes[1].raid.every(p => !p.name || p.label.includes(p.name)) && !__tactics.scenes[1]._dim"), true); await screenshot("najentus-positioning-namedpartial-1600"); pass("Najentus positioning labels the actual partial roster");
+  await evaluate(`(()=>{window.__downloads=[];window.__downloadBlobs=[];URL.createObjectURL=b=>{window.__downloadBlobs.push(b);return 'blob:najentus-'+window.__downloadBlobs.length};HTMLAnchorElement.prototype.click=function(){window.__downloads.push({name:this.download,href:this.href})};Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('blocked')},write:async()=>{throw Error('blocked')}}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
+  await evaluate("copyText.click();copyImage.click()"); await sleep(1000);
+  assert.deepEqual(await evaluate("__downloads.map(x=>x.name).sort()"), ["najentus-briefing-positioning.txt", "najentus-positioning.png"]);
+  assert.match(await evaluate("__downloadBlobs[0].text()"), /One tank\. Use your space\.[\s\S]*NamedMT/);
+  assert((await evaluate("__downloadBlobs[1].size")) > 1000); pass("Najentus rejected clipboard fallbacks use slugs and preserve briefing data");
+  await evaluate("__tactics.show(6);__tactics.playback.pause(performance.now());__tactics.render(performance.now());window.__pauseQ=__tactics.scenes[6]._t"); await sleep(250);
+  assert.equal(await evaluate("__tactics.scenes[6]._t"), await evaluate("__pauseQ"));
+  await evaluate("__tactics.playback.seek(76000,performance.now());__tactics.render(performance.now())"); await sleep(200);
+  assert.equal(await evaluate("__tactics.scenes[6]._t"), 76000); pass("Najentus pause and end frame hold exactly");
+  const minimal = JSON.stringify({ manual: [{ name: "OnlyMT", class: "WARRIOR", spec: "Protection", mt: true, flags: [], source: "manual" }], playerMeta: { OnlyMT: { mt: true } } });
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(minimal)})`); await reload(); await evaluate("__tactics.show(5);__tactics.playback.pause(performance.now());__tactics.playback.seek(5700,performance.now());__tactics.render(performance.now())");
+  assert.equal(await evaluate("__tactics.assigned.length"), 1); assert.equal(await evaluate("__tactics.scenes[5]._sim.burst"), null); assert.equal(await evaluate("__tactics.scenes[5]._sim.shield"), true);
+  const oversized = JSON.stringify({ manual: Array.from({length: 29},(_,i)=>({name:'P'+i,class:i===0?'WARRIOR':'MAGE',spec:i===0?'Protection':'Arcane',mt:i===0,flags:[],source:'manual'})), playerMeta:{P0:{mt:true}} });
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(oversized)})`); await reload(); await evaluate("__tactics.show(6);__tactics.playback.pause(performance.now());__tactics.render(performance.now())");
+  assert.equal(await evaluate("__tactics.assigned.length"), 29); assert.equal(await evaluate("Object.values(__tactics.scenes[6]._sim.pos).every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))"), true); pass("Najentus MT-only and oversized browser rosters avoid phantom effects and remain drawable");
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); await reload(); await evaluate("__tactics.show(6)");
+  assert.equal(await evaluate("__tactics.playback.playing"), false); await send("Emulation.setEmulatedMedia", { features: [] }); pass("Najentus reduced motion opens paused");
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=constructor` }); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-supremus");
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=__proto__` }); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-supremus"); pass("unknown and prototype fight ids fall back safely");
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
 try {
   await run();
-  console.log("Supremus browser regression passed");
+  console.log("Tactics browser regression passed");
 } catch (error) {
   console.error(error.stack || error);
   process.exitCode = 1;

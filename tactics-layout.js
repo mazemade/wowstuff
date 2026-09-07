@@ -94,6 +94,27 @@
         const tanks = assigned.filter(p => p.kind === 'tank');
         const melee = assigned.filter(p => p.kind === 'melee');
 
+        if (fight.id === 'bt-najentus') {
+            // Naj'entus has one tanking job. Imported extra tanks remain tanks, but take a
+            // rear position alongside melee instead of receiving a made-up soak assignment.
+            const rear = assigned.filter(p => p.kind === 'melee' || (p.kind === 'tank' && p !== tanks[0]));
+            return assigned.map(p => {
+                let at = p.slot;
+                if (p === tanks[0]) {
+                    at = { x: boss.x, y: boss.y - ydY(fight, fight.stack.tankBack) };
+                } else if (rear.includes(p)) {
+                    const k = rear.indexOf(p);
+                    const a = lerp(fight.stack.arcFrom, fight.stack.arcTo,
+                        rear.length === 1 ? .5 : k / (rear.length - 1)) * Math.PI / 180;
+                    at = {
+                        x: boss.x + Math.cos(a) * fight.stack.arcRadius * fight.yard,
+                        y: boss.y + ydY(fight, Math.sin(a) * fight.stack.arcRadius)
+                    };
+                }
+                return { id: p.id, kind: p.kind, name: p.name, at, slot: p.slot, slotIndex: p.slotIndex };
+            });
+        }
+
         return assigned.map(p => {
             let at = p.slot;
             if (phase === 1 && p.kind === 'tank') {
@@ -177,11 +198,36 @@
     function copyText(fight, phase, assigned) {
         const placed = formation(fight, phase, assigned);
         const named = placed.filter(p => p.name);
-        const lines = [fight.name + ' — where you stand, Phase ' + phase];
+        const lines = [fight.id === 'bt-najentus'
+            ? 'High Warlord Naj’entus — example positions'
+            : fight.name + ' — where you stand, Phase ' + phase];
 
         if (!named.length) {
             lines.push('');
             lines.push('No roster loaded. Import one on the Assignments page and open this again.');
+            return lines.join('\n');
+        }
+
+        if (fight.id === 'bt-najentus') {
+            const tanks = placed.filter(p => p.kind === 'tank' && p.name);
+            const groups = [
+                ['Tanks', tanks],
+                ['Melee', placed.filter(p => p.kind === 'melee' && p.name)],
+                ['Healers', placed.filter(p => p.kind === 'healer' && p.name)],
+                ['Ranged', placed.filter(p => p.kind === 'ranged' && p.name)]
+            ];
+            groups.forEach(([title, rows]) => {
+                if (!rows.length) return;
+                lines.push('', title);
+                rows.forEach(p => {
+                    const where = p.kind === 'tank'
+                        ? (p.id === tanks[0].id ? 'hold boss in front' : 'no second tank mechanic assigned; use the rear area')
+                        : p.kind === 'melee' ? 'behind boss; use available spacing'
+                            : spotName(fight, p.at);
+                    lines.push('  ' + p.name + ' — ' + where);
+                });
+            });
+            lines.push('', 'Spread for Needle splash. Free impaled allies. Keep collected spines and use one on the call after the raid is healed.');
             return lines.join('\n');
         }
 

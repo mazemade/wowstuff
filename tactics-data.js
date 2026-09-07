@@ -1,7 +1,7 @@
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) { module.exports = factory(); }
-    else { root.TacticsData = factory(); }
-}(typeof self !== 'undefined' ? self : this, function () {
+    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js')); }
+    else { root.TacticsData = factory(root.TacticsNajentusData); }
+}(typeof self !== 'undefined' ? self : this, function (NAJENTUS) {
     'use strict';
 
     // Map fractions are illustrative. The sheet and Classic strategy guide supply the
@@ -13,6 +13,15 @@
         portrait: 'maps/tactics/boss-supremus.png',
         map: 'maps/tactics/supremus-map.jpg',
         aspect: 1600 / 889,
+        slug: 'supremus', mapSize: { width: 1600, height: 889 },
+        mapFilter: 'brightness(1.42) contrast(1.04) saturate(.62)', clockMode: 'phases',
+        positioningSceneId: 'p1-stand', referenceTitle: 'Mechanics & sources', remindersTitle: 'From the guild’s strategy image',
+        legend: [
+            { kind: 'fire', label: 'Blue fire', exportLabel: 'Blue: fire' },
+            { kind: 'volcano', label: 'Volcano', exportLabel: 'Orange: volcano' },
+            { kind: 'target', label: 'Target', exportLabel: 'Red: target' },
+            { kind: 'move', label: 'Example route', exportLabel: 'Pale: example route' }
+        ],
 
         // A schematic courtyard scale; no circle or slot is an in-game range check.
         arena: { x0: 0.285, x1: 0.720, y0: 0.060, y1: 0.950 },
@@ -293,5 +302,5 @@
         ]
     };
 
-    return { FIGHTS: { 'bt-supremus': SUPREMUS } };
+    return { FIGHTS: { 'bt-supremus': SUPREMUS, 'bt-najentus': NAJENTUS } };
 }));

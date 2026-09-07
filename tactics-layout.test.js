@@ -149,6 +149,39 @@ test('assign: partial imported rosters do not invent additional players', () => 
     assert.ok(a.every(p => p.name));
 });
 
+test('Najentus: one main tank holds front while every imported name keeps a position', () => {
+    const naj = T.FIGHTS['bt-najentus'];
+    const a = L.assign(naj, { tanks: ['MT', 'Extra'], healers: ['Heal'], melee: ['Melee'], ranged: ['Range'] });
+    const f = L.formation(naj, 1, a);
+    assert.strictEqual(a.length, 5);
+    assert.strictEqual(f.find(p => p.name === 'MT').kind, 'tank');
+    assert.ok(f.find(p => p.name === 'MT').at.y < naj.bossAt.y, 'MT stands in front');
+    assert.ok(f.find(p => p.name === 'Extra').at.y > naj.bossAt.y, 'extra tank uses rear area');
+    const copy = L.copyText(naj, 1, a);
+    ['MT', 'Extra', 'Heal', 'Melee', 'Range'].forEach(name => assert.ok(copy.includes(name), name));
+    assert.doesNotMatch(copy, /Hateful|SOAK|fixate|volcano|Misdirect|Phase 2/i);
+});
+
+test('Najentus: default backline has usable Needle spacing and imports stay finite', () => {
+    const naj = T.FIGHTS['bt-najentus'];
+    const base = L.assign(naj, null), f = L.formation(naj, 1, base);
+    assert.strictEqual(base.length, 25);
+    const back = f.filter(p => p.kind === 'healer' || p.kind === 'ranged');
+    assert.strictEqual(back.length, 17);
+    for (let i = 0; i < back.length; i++) for (let j = i + 1; j < back.length; j++) {
+        assert.ok(yards(naj, back[i].at, back[j].at) > 6, 'backline pair has more than 6 yards');
+    }
+    f.forEach(p => {
+        assert.ok(p.at.x >= naj.arena.x0 && p.at.x <= naj.arena.x1);
+        assert.ok(p.at.y >= naj.arena.y0 && p.at.y <= naj.arena.y1);
+    });
+    const many = L.assign(naj, { tanks: ['A', 'B', 'C'], healers: [], melee: [], ranged: Array.from({ length: 28 }, (_, i) => 'R' + i) });
+    assert.strictEqual(new Set(many.map(p => p.id)).size, many.length);
+    assert.strictEqual(many.length, 31);
+    const tanks = L.formation(naj, 1, many).filter(p => p.kind === 'tank');
+    assert.strictEqual(new Set(tanks.map(p => JSON.stringify(p.at))).size, 3, 'each extra tank has a distinct rear spot');
+});
+
 // --- getting out of the fire ---------------------------------------------------
 
 test('safePos: someone standing in a geyser is pushed clear of it', () => {

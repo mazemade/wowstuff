@@ -24,6 +24,7 @@
               >Tactics</a
             >
           </nav>
+          <nav class="boss-tabs" id="bossNav" aria-label="Boss briefings"></nav>
           <div class="ident">
             <img class="ident__portrait" id="portrait" alt="" />
             <div class="ident__copy">
@@ -40,6 +41,7 @@
               </div>
               <div class="clock__head" id="clockHead" aria-hidden="true"></div>
             </div>
+            <output class="encounter-state" id="encounterState" hidden aria-live="off"></output>
           </div>
         </header>
         <nav class="chapters" id="dots" aria-label="Briefing chapters"></nav>
@@ -51,7 +53,7 @@
               aria-label="Animated tactical positioning map"
             ></canvas>
             <div class="map__meta" aria-label="Map legend">
-              <div class="legend">
+              <div class="legend" id="legend">
                 <span class="legend__item"
                   ><i class="legend__mark legend__mark--fire"></i>Blue
                   fire</span
@@ -170,9 +172,12 @@
       </aside>
     </main>
     <script src="assignments-engine.js"></script>
+    <script src="tactics-najentus-data.js"></script>
     <script src="tactics-data.js"></script>
     <script src="tactics-layout.js"></script>
     <script src="tactics-playback.js"></script>
+    <script src="tactics-najentus.js"></script>
+    <script src="tactics-najentus-render.js"></script>
     <script src="tactics.js"></script>
   </body>
 </html>

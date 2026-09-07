@@ -9,6 +9,7 @@ function test(name, fn) {
 }
 
 const FIGHT = T.FIGHTS['bt-supremus'];
+const fs = require('node:fs');
 const EFFECT_KINDS = ['trail', 'volcano', 'gaze', 'impact', 'threat', 'ring', 'sweep', 'call'];
 const TIERS = [1, 2, 3];
 
@@ -22,6 +23,23 @@ test('registry: bt-supremus carries a map, arena and a yard scale', () => {
         assert.ok(FIGHT.arena[k] >= 0 && FIGHT.arena[k] <= 1, 'arena.' + k + ' is a map fraction');
     });
     assert.ok(FIGHT.arena.x1 > FIGHT.arena.x0 && FIGHT.arena.y1 > FIGHT.arena.y0);
+});
+
+test('registry: bt-najentus carries its seven-state briefing metadata and local art', () => {
+    const naj = T.FIGHTS['bt-najentus'];
+    assert.ok(naj, 'Najentus is registered');
+    assert.deepStrictEqual(naj.mapSize, { width: 2088, height: 1146 });
+    assert.deepStrictEqual(naj.scenes.map(s => s.id),
+        ['overview', 'positioning', 'needle', 'impale', 'shield', 'burst', 'cycle']);
+    naj.scenes.forEach(scene => {
+        assert.ok(scene.call && scene.why && scene.mistake && scene.jobs.length, scene.id + ' has guidance');
+        assert.ok(scene.caption.length < 200, scene.id + ' caption is compact');
+        assert.strictEqual(scene.formation, 1);
+        assert.ok(!scene.morph && !scene.countdown && !scene.continueFrom);
+    });
+    [naj.map, naj.portrait].concat(naj.abilities.map(a => a.icon)).forEach(path => {
+        assert.ok(fs.existsSync(path), path + ' is local');
+    });
 });
 
 // --- abilities: the rail's content ---

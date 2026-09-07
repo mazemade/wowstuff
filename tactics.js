@@ -4,7 +4,9 @@
 (function () {
     'use strict';
 
-    const FIGHT = window.TacticsData.FIGHTS['bt-supremus'];
+    const requestedFight = new URL(location.href).searchParams.get('fight');
+    const fights = window.TacticsData.FIGHTS;
+    const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-supremus'];
     const L = window.TacticsLayout;
     const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -135,7 +137,7 @@
     const ctx = cv.getContext('2d');
     let W = 0, H = 0;
 
-    const MW = 1600, MH = 889;
+    const MW = FIGHT.mapSize.width, MH = FIGHT.mapSize.height;
     let src = { x: 0, y: 0, w: MW, h: MH }, scale = 1;
 
     function resize() {
@@ -220,7 +222,7 @@
         const c = document.createElement('canvas');
         c.width = MW; c.height = MH;
         const g = c.getContext('2d');
-        g.filter = 'brightness(1.42) contrast(1.04) saturate(.62)';
+        g.filter = FIGHT.mapFilter;
         g.drawImage(img, 0, 0, MW, MH);
         lit = c;
         return lit;
@@ -284,6 +286,7 @@
     // Run the step from its beginning up to t. Cheap enough to redo every frame, which keeps
     // every loop identical and lets a jump to any step land on the same picture.
     function simulate(sc, t) {
+        if (FIGHT.id === 'bt-najentus') return window.TacticsNajentus.simulate(FIGHT, sc, t);
         const pos = {};
         const bossActor = sc.bossActor;
         let boss = sc.initial ? sc.initial.boss : bossActor.at;
@@ -973,7 +976,9 @@
         ctx.stroke();
         ctx.restore();
 
-        const hp = valueAt(sc.hp && sc.hp[p.id], t);
+        const hp = FIGHT.id === 'bt-najentus'
+            ? (sc._sim.hp[p.id] ?? null)
+            : valueAt(sc.hp && sc.hp[p.id], t);
         if (hp !== null) {
             const bw = r * 2.4, bh = 4, y = c.y - r - 7;
             ctx.save();
@@ -1001,7 +1006,7 @@
     // ---- steps ----------------------------------------------------------------
 
     const tankSlots = assigned.filter(p => p.kind === 'tank').map(p => p.id);
-    const scenes = FIGHT.scenes.map(s => {
+    const prepareSupremusScene = s => {
         const sc = Object.assign({}, s);
         sc.cast = {};
         Object.keys(s.cast || {}).forEach(ref => {
@@ -1046,8 +1051,11 @@
             if (sc.cast.soak) sc.hp[sc.cast.soak] = [{ t: 0, v: 1 }, { t: 3200, v: 1 }, { t: 3400, v: .40 }, { t: 5200, v: 1 }, { t: 6200, v: 1 }, { t: 6400, v: .42 }, { t: 8000, v: 1 }];
         }
         return sc;
-    });
-    scenes.forEach(sc => {
+    };
+    const scenes = FIGHT.id === 'bt-najentus'
+        ? FIGHT.scenes.map(s => window.TacticsNajentus.prepareScene(FIGHT, s, assigned))
+        : FIGHT.scenes.map(prepareSupremusScene);
+    if (FIGHT.id !== 'bt-najentus') scenes.forEach(sc => {
         if (!sc.continueFrom) return;
         const previous = scenes.find(s => s.id === sc.continueFrom);
         sc.initial = simulate(previous, previous.duration);
@@ -1062,7 +1070,7 @@
     const playback = window.TacticsPlayback.create(scenes[0].duration);
 
     function drawRoutes(sc, t) {
-        Object.entries(sc.pathsById).forEach(([id, path]) => {
+        Object.entries(sc.pathsById || {}).forEach(([id, path]) => {
             const gaze = sc.effects.find(e => e.kind === 'gaze' && castId(sc, e.target) === id && t >= e.start && t < e.end);
             const trail = sc.effects.find(e => e.kind === 'trail' && castId(sc, e.follow) === id && t <= e.start + e.chaseMs);
             if (!gaze && !trail) return;
@@ -1093,15 +1101,18 @@
         const t = playback.time(now);
 
         sc._sim = simulate(sc, t);
-        sc._dim = (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
+        sc._dim = FIGHT.id === 'bt-najentus'
+            ? Object.keys(sc._sim.focus || {}).length > 0
+            : (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
         sc._t = t;
-        sc._focus = sc._dim ? focusOf(sc, t) : {};
-        sc._roles = {};
-        Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
+        sc._focus = FIGHT.id === 'bt-najentus' ? sc._sim.focus : (sc._dim ? focusOf(sc, t) : {});
+        sc._roles = FIGHT.id === 'bt-najentus' ? sc._sim.roles : {};
+        if (FIGHT.id !== 'bt-najentus') Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
         aim(sc.view, sc);
         ctx.clearRect(0, 0, W, H);
         drawMap();
 
+        if (FIGHT.id === 'bt-najentus') window.TacticsNajentusRender.draw('floor', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
         (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
             .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
         drawRoutes(sc, t);
@@ -1110,6 +1121,7 @@
         // the gaze goes last: it is the thing you must notice
         (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
         (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
+        if (FIGHT.id === 'bt-najentus') window.TacticsNajentusRender.draw('foreground', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
     }
 
     // ---- chrome ---------------------------------------------------------------
@@ -1120,6 +1132,21 @@
     el('bossWhere').textContent = FIGHT.where;
     image(FIGHT.map);
     document.title = FIGHT.name + ' — fight briefing';
+    const bossNav = el('bossNav');
+    Object.entries(fights).forEach(([id, fight]) => {
+        const link = document.createElement('a'), url = new URL(location.href);
+        url.searchParams.set('fight', id); url.hash = '';
+        link.href = url.href; link.className = 'boss-tab'; link.textContent = fight.name;
+        if (id === FIGHT.id) link.setAttribute('aria-current', 'page');
+        bossNav.appendChild(link);
+    });
+    const legend = el('legend');
+    legend.replaceChildren();
+    FIGHT.legend.forEach(item => {
+        const row = document.createElement('span'), mark = document.createElement('i');
+        row.className = 'legend__item'; mark.className = 'legend__mark legend__mark--' + item.kind;
+        row.append(mark, document.createTextNode(item.label)); legend.appendChild(row);
+    });
 
     const rail = el('rail');
     rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel"></p>' +
@@ -1127,20 +1154,20 @@
         '<div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>' +
         '<dl class="role-notes" id="roleNotes"></dl><div class="mistake"><span>Watch out</span>' +
         '<p id="sceneMistake"></p></div></section>' +
-        '<details class="reference"><summary>Mechanics &amp; sources</summary><div id="referenceContent"></div></details>';
+        '<details class="reference"><summary>' + FIGHT.referenceTitle + '</summary><div id="referenceContent"></div></details>';
     const reference = el('referenceContent');
     FIGHT.abilities.forEach(a => {
         const card = document.createElement('article');
         card.className = 'card card--t' + a.tier;
         card.innerHTML = '<img class="card__icon" src="' + a.icon + '" alt="">' +
-            '<div><h3 class="card__name">' + a.name + '</h3><p class="card__meta">Phase ' + a.phase + '</p>' +
+            '<div><h3 class="card__name">' + a.name + '</h3><p class="card__meta">' + (a.stageLabel || ('Phase ' + a.phase)) + '</p>' +
             '<p class="card__desc">' + a.tooltip.description + '</p>' +
             '<p class="card__do">' + a.doThis + '</p></div>';
         reference.appendChild(card);
     });
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
-    sheet.innerHTML = '<h3 class="sheet__title">From the guild’s strategy image</h3><ol class="sheet__steps">' +
+    sheet.innerHTML = '<h3 class="sheet__title">' + (FIGHT.remindersTitle || FIGHT.referenceTitle) + '</h3><ol class="sheet__steps">' +
         FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
     reference.appendChild(sheet);
     const credit = document.createElement('div');
@@ -1167,7 +1194,7 @@
             icon.src = a.icon; icon.alt = ''; icon.width = 32; icon.height = 32;
             const title = document.createElement('h3');
             const link = document.createElement('a');
-            link.href = 'https://www.wowhead.com/tbc/spell=' + a.spell;
+            link.href = a.url || ('https://www.wowhead.com/tbc/spell=' + a.spell);
             link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = a.name;
             title.appendChild(link); head.append(icon, title); card.appendChild(head);
             const meta = document.createElement('p');
@@ -1177,6 +1204,11 @@
             description.className = 'spell-tooltip__description';
             description.textContent = a.tooltip.spellText || a.tooltip.description;
             card.append(meta, description);
+            if (a.itemUrl) {
+                const item = document.createElement('a');
+                item.href = a.itemUrl; item.target = '_blank'; item.rel = 'noopener noreferrer';
+                item.textContent = 'Naj’entus Spine item'; card.appendChild(item);
+            }
             if (a.tooltip.duration || a.tooltip.aura) {
                 const note = document.createElement('p');
                 note.className = 'spell-tooltip__note';
@@ -1208,13 +1240,14 @@
     function show(i) {
         idx = clamp(i, 0, scenes.length - 1);
         const sc = scenes[idx];
+        sc.currentCall = null;
         const now = performance.now();
         playback.reset(sc.duration, now);
-        if (!REDUCED && sc.effects.length) playback.play(now);
+        if (!REDUCED && (sc.animated || sc.effects.length)) playback.play(now);
         el('stepTitle').textContent = sc.title;
         el('stepCaption').textContent = sc.caption;
         el('sceneLabel').textContent = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') +
-            ' · ' + (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT');
+            ' · ' + (FIGHT.clockMode === 'state' ? 'NORMAL COMBAT' : (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT'));
         el('sceneCall').textContent = sc.call;
         if (el('mapCall')) el('mapCall').textContent = sc.call;
         el('sceneWhy').textContent = sc.why;
@@ -1224,7 +1257,7 @@
             el('rosterNote').hidden = false;
             const missing = Object.keys(sc.castRoles || {}).filter(ref => !sc.cast[ref]);
             el('rosterNote').textContent = assigned.length + ' players loaded · positions are examples.' +
-                (missing.includes('md') ? ' No hunter loaded: Misdirect is not assigned.' :
+                ((sc.missingRoles || []).length ? ' ' + sc.missingRoles.join(' ') : missing.includes('md') ? ' No hunter loaded: Misdirect is not assigned.' :
                  missing.length ? ' This roster lacks a role used in the example.' : '');
         }
         el('roleNotes').replaceChildren();
@@ -1254,11 +1287,14 @@
 
     async function copyPositions() {
         const btn = el('copyText');
+        render(performance.now());
         const sc = scenes[idx];
         const phase = sc.countdown
             ? ((sc._t || 0) >= sc.countdown.at ? sc.countdown.phase : 3 - sc.countdown.phase)
             : sc.phase || 1;
-        const text = [FIGHT.name + ' — ' + sc.title, sc.call, '', ...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake, '', L.copyText(FIGHT, phase, assigned)].join('\n');
+        const current = sc.currentCall || sc.call;
+        const stage = FIGHT.clockMode === 'state' ? '\nState: ' + (sc._sim?.stage || 'normal') : '';
+        const text = [FIGHT.name + ' — ' + sc.title, current + stage, '', ...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake, '', L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned)].join('\n');
         try {
             await navigator.clipboard.writeText(text);
             flash(btn, 'Copied');
@@ -1266,7 +1302,7 @@
             const a = document.createElement('a');
             const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
             a.href = url;
-            a.download = 'supremus-briefing-phase-' + phase + '.txt';
+            a.download = FIGHT.slug + '-briefing-' + sc.id + '.txt';
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
             flash(btn, 'Saved');
@@ -1274,6 +1310,7 @@
     }
 
     function copyImage() {
+        render(performance.now());
         const btn = el('copyImage'), sc = scenes[idx];
         const out = document.createElement('canvas');
         out.width = cv.width; out.height = cv.height + 180;
@@ -1282,10 +1319,10 @@
         g.fillStyle = '#ece6d8'; g.font = '600 30px "Barlow Condensed", sans-serif';
         g.fillText(FIGHT.name + ' · ' + sc.chapter, 24, 42, out.width - 48);
         g.fillStyle = '#c5f4e9'; g.font = '500 23px "IBM Plex Sans", sans-serif';
-        g.fillText(sc.call, 24, 82, out.width - 48);
+        g.fillText(sc.currentCall || sc.call, 24, 82, out.width - 48);
         g.drawImage(cv, 0, 106);
         g.fillStyle = '#9ba89f'; g.font = '18px "IBM Plex Sans", sans-serif';
-        g.fillText('Example positions and routes · Approximate scale · Blue: fire / Orange: volcano / Red: fixate', 24, out.height - 27, out.width - 48);
+        g.fillText('Example positions and routes · Approximate scale · ' + FIGHT.legend.map(x => x.exportLabel).join(' / '), 24, out.height - 27, out.width - 48);
         out.toBlob(async blob => {
             if (!blob) { flash(btn, 'Export failed'); return; }
             try {
@@ -1293,7 +1330,7 @@
                 flash(btn, 'Copied');
             } catch (e) {
                 const a = document.createElement('a'), url = URL.createObjectURL(blob);
-                a.href = url; a.download = 'supremus-' + sc.id + '.png'; a.click();
+                a.href = url; a.download = FIGHT.slug + '-' + sc.id + '.png'; a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000); flash(btn, 'Saved');
             }
         }, 'image/png');
@@ -1345,7 +1382,7 @@
     if (!roster) {
         const note = el('rosterNote');
         note.hidden = false;
-        note.textContent = 'Example raid · 2 tanks, 6 healers, 7 melee, 10 ranged. Import your roster on Assignments for named positioning.';
+        note.textContent = 'Example raid · ' + [FIGHT.roster.tanks + ' tanks', FIGHT.roster.healers + ' healers', FIGHT.roster.melee + ' melee', FIGHT.roster.ranged + ' ranged'].join(', ') + '. Import your roster on Assignments for named positioning.';
     }
 
     // Encounter seconds follow the example scene. The playhead never runs independently
@@ -1356,6 +1393,14 @@
 
     function tickClock() {
         const sc = scenes[idx], t = sc._t || 0;
+        if (FIGHT.clockMode === 'state') {
+            const stateLabels = { normal: 'Normal combat', shield: 'Shield: heal up', ready: 'Ready: await call', throw: 'Spine in flight', burst: 'Raidwide burst', recover: 'Recover: heal everyone' };
+            el('clock').hidden = true; el('encounterState').hidden = false;
+            const frame = sc._sim || { stage: 'normal', timeMs: 0 };
+            el('encounterState').textContent = stateLabels[frame.stage] + ' · Example ' + (frame.timeMs / 1000).toFixed(1) + 's';
+            return;
+        }
+        el('clock').hidden = false; el('encounterState').hidden = true;
         const seconds = (sc.fightStart || 0) + t / 1000;
         const cycle = seconds % 120;
         const phase = cycle < 60 ? 1 : 2;
@@ -1369,13 +1414,21 @@
         });
     }
     function render(now) {
-        paint(now); tickClock();
+        if (!scenes[idx]) return;
+        paint(now); syncCurrentGuidance(scenes[idx]); tickClock();
         const t = scenes[idx]._t || 0, duration = scenes[idx].duration;
         el('playPause').textContent = playback.playing ? 'Pause' : t >= duration ? 'Play again' : 'Play';
         el('playPause').setAttribute('aria-label', playback.playing ? 'Pause animation' : 'Play animation');
         el('scrub').value = t / duration * 100;
         el('scrub').setAttribute('aria-valuetext', (t / 1000).toFixed(1) + ' of ' + (duration / 1000) + ' seconds');
         el('elapsed').textContent = (t / 1000).toFixed(1) + ' / ' + (duration / 1000) + 's';
+    }
+    function syncCurrentGuidance(sc) {
+        const current = (sc._sim && sc._sim.call) || sc.call;
+        if (sc.currentCall === current) return;
+        sc.currentCall = current;
+        el('sceneCall').textContent = current;
+        if (el('mapCall')) el('mapCall').textContent = current;
     }
     function frame(now) {
         if (playback.playing) render(now);
@@ -1397,5 +1450,5 @@
     Object.values(IMG).forEach(img => img.addEventListener('load', () => render(performance.now())));
 
     // lets the screenshot harness step scenes without synthesising key events
-    window.__tactics = { show, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate };
+    window.__tactics = { show, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT };
 }());
