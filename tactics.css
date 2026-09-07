@@ -55,7 +55,29 @@ body.tactics {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    gap: 14px;
+    gap: 12px;
+}
+
+/* the site's tabs, sized down: this page is screen-shared, so chrome stays thin */
+.page-tabs { display: flex; gap: 4px; flex: none; }
+
+.page-tab {
+    padding: 5px 12px;
+    border-radius: 3px 3px 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    text-decoration: none;
+    color: var(--bone-3);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.page-tab:hover { color: var(--bone-2); }
+
+.page-tab.active {
+    color: var(--bone);
+    background: var(--stone-1);
+    border-color: var(--line);
 }
 
 /* ---- stage head: who this is, and the clock he runs on ----------------- */
