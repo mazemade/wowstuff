@@ -184,20 +184,16 @@ Inside `getReference`, the current body computes `const middle = 50 * L;`, then 
 ```js
         const middle = 50 * L;
         // ref-above A2: the ceiling first — the target is measured from it. Reading the top pages
-        // here is the same fetch the ceiling always needed; pageFetcher memoises it.
+        // here is the same fetch the ceiling always needed; pageFetcher memoises it, so moving it
+        // above the collection costs nothing.
         let topDps = null, topDuration = null;
-        const ceilingBand = b => {
-            for (let p = 1; p <= Math.min(REF.topPages, L); p++) {
-                const ib = bandRanks((pageFetcher_cache[p] || {}).rankings || [], o.itemLevel, b);
-                if (ib.length) return ib;
-            }
-            return [];
-        };
         const readCeiling = async b => {
             for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
                 const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, b);
                 if (ib.length) {
                     topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
+                    // v3 fix, unchanged: a rank missing `duration` must not poison this into NaN,
+                    // and the bad-pull baseline is the MEDIAN in-band duration, not the minimum.
                     const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
                     topDuration = durs.length ? Math.round(median(durs) / 1000) : null;
                 }
@@ -207,14 +203,17 @@ Inside `getReference`, the current body computes `const middle = 50 * L;`, then 
 
         const myAmount = typeof o.playerAmount === 'number' && isFinite(o.playerAmount) ? o.playerAmount : null;
         // A player who is already the best at their item level has nobody above them. Say so
-        // rather than inventing a reference below them (spec §B).
+        // rather than inventing a reference below them (spec B).
         if (myAmount !== null && topDps !== null && myAmount >= topDps) {
             return { summary: null, note: 'nothing at your item level beat you on this pull', band: REF.band };
         }
         // Halfway between the player and the ceiling: far enough to be worth learning from, close
-        // enough to be reachable. Without a player amount this is null and the middle is used, which
-        // is exactly the old behaviour.
+        // enough to be reachable. Null when we cannot compute it, and then the middle is used —
+        // exactly the old behaviour.
         const target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
+        // The caller wanted a target and we could not build one: the report must not claim the
+        // comparison is against players ahead when it is against the middle (spec, Error handling).
+        const middleNote = myAmount !== null && target === null ? 'compared against the middle of the leaderboard' : null;
         // Better parses sit on earlier pages, so a target halfway up in DPS is roughly halfway up
         // in pages. The sort below is by actual amount, so an imprecise start still lands correctly
         // as long as the target is inside the pages we read.
@@ -240,9 +239,10 @@ Inside `getReference`, the current body computes `const middle = 50 * L;`, then 
         ranks = ranks.slice(0, REF.target);
 ```
 
-Delete the old `topDps` / `topDuration` loop that followed the widening block — the ceiling is now read above. Keep everything from `const players = [];` onward unchanged.
+Delete the old `topDps` / `topDuration` loop that followed the widening block — the ceiling is now read above, and leaving both in would fetch the top pages twice and overwrite the widened-band ceiling with the narrow-band one.
 
-`pageFetcher_cache` in the sketch above is not real: `readCeiling` must simply `await fetchPage(p)` as written in its own loop. Remove the unused `ceilingBand` helper — it is shown only to make the ordering explicit and has no callers. Do not add it.
+The final `return` of the inner async function must carry `middleNote` so the fallback is visible to the report. Change its `note: null` to `note: middleNote`.
+
 
 Update the cache key so two distant players do not share one reference. Replace:
 
