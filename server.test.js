@@ -423,6 +423,27 @@ test('GET /api/wcl/log/:code/roster: every player as a pending profile with scor
     assert.strictEqual((await fetch(base + '/api/wcl/log/ktjzamNDCK2Af6TH/roster', SAME_ORIGIN)).status, 404);
     assert.strictEqual((await fetch(base + '/api/wcl/log/short/roster', SAME_ORIGIN)).status, 400);
 });
+// Fix round 1 (Important finding on 4ffc815): a guild-less report's cached body is tagged with
+// whichever caller's ?server=/?region= fallback arrived first — the cache key must include them.
+test('GET /api/wcl/log/:code/roster: the fallback server/region are part of the cache key, so a guild-less report cannot leak the first caller\'s realm to a later, differently-scoped one', async () => {
+    app.__test.resetCaches();
+    const noGuildMeta = Object.assign({}, META, { guild: null,
+        masterData: { actors: [{ id: 19, name: 'Nottomwro', server: '', subType: 'Shaman' }, { id: 20, name: 'Sspope', server: '', subType: 'Priest' }] } });
+    const s = logsStub({ meta: noGuildMeta }); app.__test.setWclQuery(s.query);
+    let res = await fetch(base + '/api/wcl/log/X6mnbPQpGhjJC2TN/roster?zone=1060&server=spineshatter&region=eu', SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    let body = await res.json();
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'miss');
+    assert.deepStrictEqual(body.players.map(p => [p.server, p.region]), [['spineshatter', 'eu'], ['spineshatter', 'eu']]);
+    const callsAfterFirst = s.calls.length;
+
+    res = await fetch(base + '/api/wcl/log/X6mnbPQpGhjJC2TN/roster?zone=1060&server=arathi&region=us', SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'miss', 'a different fallback server/region must be a fresh lookup, not a stale hit tagged with the first caller\'s realm');
+    body = await res.json();
+    assert.deepStrictEqual(body.players.map(p => [p.server, p.region]), [['arathi', 'us'], ['arathi', 'us']]);
+    assert.ok(s.calls.length > callsAfterFirst, 'the second, differently-scoped request actually re-fetched WCL rather than serving the first caller\'s cached body');
+});
 test('GET /api/vet/parses: rankings only — two RANK queries, parses + identity, cached; unknown character → parses null', async () => {
     app.__test.resetCaches();
     const s = logsStub(); app.__test.setWclQuery(s.query);

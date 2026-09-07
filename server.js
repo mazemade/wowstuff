@@ -374,7 +374,7 @@ app.get('/api/vet/nights', async (req, res) => {
 // --- logs-first B3: vet a whole raid from the log it was in.
 const LOGS_CACHE_MS = 5 * 60 * 1000;
 const logsCache = new Map();   // region/server/guild -> { at, body }
-const rosterCache = new Map(); // code/zone -> { at, body }
+const rosterCache = new Map(); // code/zone/fallbackServer/fallbackRegion -> { at, body }
 const parsesCache = new Map(); // identity key + '/parses' -> { at, body }
 function cachedJson(cache, key, ttl, res) {
   const hit = cache.get(key);
@@ -418,7 +418,10 @@ app.get('/api/wcl/log/:code/roster', async (req, res) => {
   const fallbackRegion = String(req.query.region || 'eu').toLowerCase();
   if (fallbackServer && !/^[a-z0-9-]{2,40}$/.test(fallbackServer)) return res.status(400).json({ error: 'Invalid server slug' });
   if (!/^(eu|us|kr|tw|cn)$/.test(fallbackRegion)) return res.status(400).json({ error: 'Invalid region' });
-  const key = code + '/' + zone;
+  // Fix round 1 (Important finding on 4ffc815): fallbackServer/fallbackRegion are baked into the
+  // cached body (server/region below fall back to them for a guild-less report), so they must be
+  // part of the key too — else the first caller's realm sticks to every later, differently-scoped one.
+  const key = code + '/' + zone + '/' + fallbackServer + '/' + fallbackRegion;
   try {
     if (cachedJson(rosterCache, key, FEEDBACK_CACHE_MS, res)) return;
     let db;
