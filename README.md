@@ -33,7 +33,7 @@ groups, and checks live whether assignments were actually done.
     deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
     `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`. Optional `report=<WCL report code>` analyses one raid
     night. The facts sheet carries `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
-- **Fight briefings** ([Supremus](tactics.html?fight=bt-supremus) and [High Warlord Naj’entus](tactics.html?fight=bt-najentus)): Supremus has nine guided scenes for explaining positions,
+- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama)): Supremus has nine guided scenes for explaining positions,
   Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
   a main raid call, relevant spell tooltip cards, role instructions and a common mistake. Play/pause, replay, speed
   and scrubbing let the raid leader control the demonstration; animations hold at the end.
@@ -47,6 +47,11 @@ groups, and checks live whether assignments were actually done.
   links are under "Mechanics & sources". Naj’entus has seven state-driven chapters: the loop,
   positions, Needle splash, freeing an Impaling Spine, healing through Tidal Shield, one called
   Hurl Spine, and the complete cycle. Its state display and exports follow the current illustrative frame.
+  Shade of Akama has eight chapters based on the guild spreadsheet and its strategy image,
+  with channeler and sorcerer bindings, hallway tank control and Frost Traps, Rain of Fire,
+  add cleanup during the Shade’s walk, and the final Lust burn while Akama tanks the Shade.
+  Its map, current calls and roster exports follow the same frame; timing and health are illustrative.
+  Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 

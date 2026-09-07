@@ -77,6 +77,7 @@ button {
 }
 .boss-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   margin: -4px 0 9px;
 }
@@ -338,6 +339,23 @@ button {
 .legend__mark--needle { border-radius: 50%; border: 2px solid #61efff; }
 .legend__mark--spine { border-radius: 50%; background: #f1bc4c; }
 .legend__mark--shield { border-radius: 50%; background: #75baff; }
+.legend__mark--binding { background: #c58bec; height: 3px; }
+.legend__mark--priority { border-radius: 50%; border: 2px solid #f0c46b; }
+.legend__mark--trap { border-radius: 50%; border: 2px solid #8fcfff; }
+.legend__mark--rain { border-radius: 50%; background: #eb6522; }
+.legend__mark--ally { border-radius: 50%; background: #9dd5b9; }
+body[data-fight="bt-akama"] .map { display: flex; flex-direction: column; }
+body[data-fight="bt-akama"] .map canvas { flex: 1 1 0; height: 0; min-height: 0; }
+body[data-fight="bt-akama"] .map__meta {
+  position: relative;
+  inset: auto;
+  flex: none;
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--stone-0);
+}
+body[data-fight="bt-akama"] .legend { max-width: none; border: 0; padding: 0; backdrop-filter: none; }
+body[data-fight="bt-akama"] .map__scale { display: none; }
 .map__scale {
   margin: 0;
   padding: 5px 7px;

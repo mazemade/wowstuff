@@ -1,4 +1,4 @@
-/* Supremus guided briefing. Scenes are illustrative teaching examples, with encounter
+/* Guided raid briefings. Scenes are illustrative teaching examples, with encounter
  * seconds controlled by the presenter. Map scale and hazard radii are approximate.
  */
 (function () {
@@ -6,8 +6,10 @@
 
     const requestedFight = new URL(location.href).searchParams.get('fight');
     const fights = window.TacticsData.FIGHTS;
-    const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-supremus'];
+    const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
+    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : null;
+    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : null;
     const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -42,6 +44,7 @@
 
     const roster = loadRoster();
     const assigned = L.assign(FIGHT, roster);
+    assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; });
     const PLACED = {};
     [1, 2].forEach(phase => {
         PLACED[phase] = {};
@@ -199,6 +202,13 @@
         const wantH = (f.y1 - f.y0 + 2 * padY) * MH;
         // whichever of width or height is the tight fit sets the crop; the other gets air
         let w = Math.max(wantW, wantH * box), h = w / box;
+        if (FIGHT.id === 'bt-akama') {
+            // Both hallways are part of the lesson. On a portrait viewport, retain the
+            // whole authored arena with vertical padding instead of cropping its sides.
+            src = { w, h, x: (f.x0 + f.x1) / 2 * MW - w / 2, y: (f.y0 + f.y1) / 2 * MH - h / 2 };
+            scale = W / src.w;
+            return;
+        }
         if (w > MW) { w = MW; h = w / box; }
         if (h > MH) { h = MH; w = h * box; }
         src = {
@@ -286,7 +296,7 @@
     // Run the step from its beginning up to t. Cheap enough to redo every frame, which keeps
     // every loop identical and lets a jump to any step land on the same picture.
     function simulate(sc, t) {
-        if (FIGHT.id === 'bt-najentus') return window.TacticsNajentus.simulate(FIGHT, sc, t);
+        if (ADAPTER) return ADAPTER.simulate(FIGHT, sc, t);
         const pos = {};
         const bossActor = sc.bossActor;
         let boss = sc.initial ? sc.initial.boss : bossActor.at;
@@ -943,7 +953,7 @@
         ctx.stroke();
         const gaze = sc.effects.find(e => e.kind === 'gaze' && sc._t >= e.start && sc._t < e.end);
         const mt = sc.raid.find(p => p.kind === 'tank');
-        const toward = gaze ? px(at(sc, gaze.target)) : mt ? px(sc._sim.pos[mt.id]) : { x: c.x, y: c.y - 1 };
+        const toward = FIGHT.id === 'bt-akama' ? px(sc._sim.akama) : gaze ? px(at(sc, gaze.target)) : mt ? px(sc._sim.pos[mt.id]) : { x: c.x, y: c.y - 1 };
         const angle = Math.atan2(toward.y - c.y, toward.x - c.x);
         ctx.translate(c.x, c.y); ctx.rotate(angle);
         ctx.beginPath(); ctx.moveTo(r + 8, 0); ctx.lineTo(r - 2, -5); ctx.lineTo(r - 2, 5); ctx.closePath();
@@ -976,7 +986,7 @@
         ctx.stroke();
         ctx.restore();
 
-        const hp = FIGHT.id === 'bt-najentus'
+        const hp = ADAPTER
             ? (sc._sim.hp[p.id] ?? null)
             : valueAt(sc.hp && sc.hp[p.id], t);
         if (hp !== null) {
@@ -1052,10 +1062,10 @@
         }
         return sc;
     };
-    const scenes = FIGHT.id === 'bt-najentus'
-        ? FIGHT.scenes.map(s => window.TacticsNajentus.prepareScene(FIGHT, s, assigned))
+    const scenes = ADAPTER
+        ? FIGHT.scenes.map(s => ADAPTER.prepareScene(FIGHT, s, assigned))
         : FIGHT.scenes.map(prepareSupremusScene);
-    if (FIGHT.id !== 'bt-najentus') scenes.forEach(sc => {
+    if (!ADAPTER) scenes.forEach(sc => {
         if (!sc.continueFrom) return;
         const previous = scenes.find(s => s.id === sc.continueFrom);
         sc.initial = simulate(previous, previous.duration);
@@ -1101,18 +1111,18 @@
         const t = playback.time(now);
 
         sc._sim = simulate(sc, t);
-        sc._dim = FIGHT.id === 'bt-najentus'
+        sc._dim = ADAPTER
             ? Object.keys(sc._sim.focus || {}).length > 0
             : (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
         sc._t = t;
-        sc._focus = FIGHT.id === 'bt-najentus' ? sc._sim.focus : (sc._dim ? focusOf(sc, t) : {});
-        sc._roles = FIGHT.id === 'bt-najentus' ? sc._sim.roles : {};
-        if (FIGHT.id !== 'bt-najentus') Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
+        sc._focus = ADAPTER ? sc._sim.focus : (sc._dim ? focusOf(sc, t) : {});
+        sc._roles = ADAPTER ? sc._sim.roles : {};
+        if (!ADAPTER) Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
         aim(sc.view, sc);
         ctx.clearRect(0, 0, W, H);
         drawMap();
 
-        if (FIGHT.id === 'bt-najentus') window.TacticsNajentusRender.draw('floor', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
+        if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
         (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
             .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
         drawRoutes(sc, t);
@@ -1121,12 +1131,13 @@
         // the gaze goes last: it is the thing you must notice
         (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
         (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
-        if (FIGHT.id === 'bt-najentus') window.TacticsNajentusRender.draw('foreground', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
+        if (OVERLAY) OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
     }
 
     // ---- chrome ---------------------------------------------------------------
 
     const el = id => document.getElementById(id);
+    document.body.dataset.fight = FIGHT.id;
     el('portrait').src = FIGHT.portrait;
     el('bossName').textContent = FIGHT.name;
     el('bossWhere').textContent = FIGHT.where;
@@ -1247,7 +1258,7 @@
         el('stepTitle').textContent = sc.title;
         el('stepCaption').textContent = sc.caption;
         el('sceneLabel').textContent = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') +
-            ' · ' + (FIGHT.clockMode === 'state' ? 'NORMAL COMBAT' : (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT'));
+            ' · ' + (FIGHT.stateLabels ? FIGHT.stateLabels[sc.id === 'burn' ? 'burn' : 'bound'].toUpperCase() : FIGHT.clockMode === 'state' ? 'NORMAL COMBAT' : (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT'));
         el('sceneCall').textContent = sc.call;
         if (el('mapCall')) el('mapCall').textContent = sc.call;
         el('sceneWhy').textContent = sc.why;
@@ -1294,7 +1305,9 @@
             : sc.phase || 1;
         const current = sc.currentCall || sc.call;
         const stage = FIGHT.clockMode === 'state' ? '\nState: ' + (sc._sim?.stage || 'normal') : '';
-        const text = [FIGHT.name + ' — ' + sc.title, current + stage, '', ...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake, '', L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned)].join('\n');
+        const complete = sc._sim?.stage === 'complete';
+        const guidance = complete ? [] : [...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake];
+        const text = [FIGHT.name + ' — ' + (complete ? 'encounter complete' : sc.title), current + stage, '', ...guidance, '', (ADAPTER?.copyText ? ADAPTER.copyText(FIGHT, sc, sc._sim) : L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned))].join('\n');
         try {
             await navigator.clipboard.writeText(text);
             flash(btn, 'Copied');
@@ -1394,10 +1407,10 @@
     function tickClock() {
         const sc = scenes[idx], t = sc._t || 0;
         if (FIGHT.clockMode === 'state') {
-            const stateLabels = { normal: 'Normal combat', shield: 'Shield: heal up', ready: 'Ready: await call', throw: 'Spine in flight', burst: 'Raidwide burst', recover: 'Recover: heal everyone' };
+            const stateLabels = FIGHT.stateLabels || { normal: 'Normal combat', shield: 'Shield: heal up', ready: 'Ready: await call', throw: 'Spine in flight', burst: 'Raidwide burst', recover: 'Recover: heal everyone' };
             el('clock').hidden = true; el('encounterState').hidden = false;
             const frame = sc._sim || { stage: 'normal', timeMs: 0 };
-            el('encounterState').textContent = stateLabels[frame.stage] + ' · Example ' + (frame.timeMs / 1000).toFixed(1) + 's';
+            el('encounterState').textContent = (stateLabels[frame.stage] || frame.stage) + ' · Example ' + (frame.timeMs / 1000).toFixed(1) + 's';
             return;
         }
         el('clock').hidden = false; el('encounterState').hidden = true;
@@ -1425,6 +1438,10 @@
     }
     function syncCurrentGuidance(sc) {
         const current = (sc._sim && sc._sim.call) || sc.call;
+        if (FIGHT.stateLabels && sc._sim) {
+            const stageLabel = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') + ' · ' + FIGHT.stateLabels[sc._sim.stage].toUpperCase();
+            if (el('sceneLabel').textContent !== stageLabel) el('sceneLabel').textContent = stageLabel;
+        }
         if (sc.currentCall === current) return;
         sc.currentCall = current;
         el('sceneCall').textContent = current;

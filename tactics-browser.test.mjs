@@ -126,7 +126,7 @@ async function run() {
   const port = await startServer();
   await startChrome();
   await send("Page.enable"); await send("Runtime.enable");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html` });
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=bt-supremus` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
   assert.match(await evaluate("referenceContent.textContent"), /Hateful Strike[\s\S]*Phase 1/);
@@ -266,9 +266,91 @@ async function run() {
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); await reload(); await evaluate("__tactics.show(6)");
   assert.equal(await evaluate("__tactics.playback.playing"), false); await send("Emulation.setEmulatedMedia", { features: [] }); pass("Najentus reduced motion opens paused");
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=constructor` }); await waitForPresenter();
-  assert.equal(await evaluate("__tactics.fight.id"), "bt-supremus");
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=__proto__` }); await waitForPresenter();
-  assert.equal(await evaluate("__tactics.fight.id"), "bt-supremus"); pass("unknown and prototype fight ids fall back safely");
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus"); pass("unknown and prototype fight ids fall back safely");
+  await evaluate("localStorage.clear()");
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html` }); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama']);
+  await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
+  assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
+  assert.equal(await evaluate("__tactics.count"), 8);
+  assert.equal(await evaluate("bossNav.children[2].getAttribute('aria-current')"), 'page');
+  assert.match(await evaluate("referenceContent.textContent"), /guild’s spreadsheet[\s\S]*Seed of Corruption/);
+  assert.equal(await evaluate("[...document.images].every(i=>i.complete && i.naturalWidth>0)"), true);
+  pass('boss order and default follow the raid; Shade has eight chapters, loaded art and spreadsheet source');
+
+  const shadeBounds = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];a.scenes.forEach((s,i)=>{a.show(i);a.playback.pause(performance.now());for(let t=0;t<=s.duration;t+=500){a.playback.seek(t,performance.now());a.render(performance.now());const f=s._sim;[f.boss,f.akama,...Object.values(f.pos),...f.npcs.map(n=>n.at)].forEach(p=>{const v=a.px(p);if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||v.x<8||v.y<8||v.x>b.width-8||v.y>b.height-8)bad.push([s.id,t,p]);});if(sceneCall.textContent!==f.call||!encounterState.textContent.includes(a.fight.stateLabels[f.stage]))bad.push(['state',s.id,t]);}});return bad})()`);
+  assert.deepEqual(shadeBounds, [], 'Shade actors and state stay visible and synchronized through all scenes');
+  pass('Shade scene boundary sampling keeps raid, NPCs and live guidance synchronized');
+  for (const [chapter, time, name] of [[1,0,'positioning'],[2,4000,'channelers'],[3,6000,'doorways'],[4,5000,'sorcerer'],[5,4000,'fire'],[7,19000,'approach'],[6,5000,'burn']]) {
+    await evaluate(`__tactics.show(${chapter});__tactics.playback.pause(performance.now());__tactics.playback.seek(${time},performance.now());__tactics.render(performance.now())`);
+    await screenshot('akama-' + name + '-1600');
+  }
+  await evaluate("__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(36000,performance.now());__tactics.render(performance.now())");
+  await sleep(200);
+  assert.equal(await evaluate("__tactics.scenes[7]._t"), 36000);
+  assert.match(await evaluate("sceneLabel.textContent"), /SHADE DEFEATED/);
+  await key('r', 'KeyR');
+  assert((await evaluate("__tactics.scenes[7]._t")) < 1000);
+  pass('Shade holds the final victory frame and replay restores the encounter');
+
+  for (const [width,height] of [[1280,800],[390,844]]) {
+    await send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:width<500});
+    await evaluate("__tactics.show(3);__tactics.playback.pause(performance.now());__tactics.playback.seek(6000,performance.now());__tactics.render(performance.now())");
+    await sleep(150); await screenshot('akama-doorways-' + width);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'no horizontal overflow at ' + width);
+    assert.equal(await evaluate(`(()=>{const a=__tactics,s=a.scenes[3],b=fx.getBoundingClientRect();return [s._sim.boss,s._sim.akama,...Object.values(s._sim.pos),...s._sim.npcs.map(n=>n.at)].every(p=>{const q=a.px(p);return q.x>=8&&q.y>=8&&q.x<=b.width-8&&q.y<=b.height-8})})()`), true, 'both doorways and all actors fit at ' + width);
+    assert.match(await evaluate('sceneLabel.textContent'), /CONTROL THE HALLWAYS/);
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setEmulatedMedia', { features: [{name:'prefers-reduced-motion',value:'reduce'}] }); await reload();
+  await evaluate('__tactics.show(7)'); assert.equal(await evaluate('__tactics.playback.playing'), false);
+  await send('Emulation.setEmulatedMedia', {features:[]});
+  pass('Shade supports phone layout and reduced motion');
+
+  const shadeRoster = JSON.stringify({ manual: [
+    {name:'PaladinLeft',class:'PALADIN',spec:'Protection',mt:true,flags:[],source:'manual'},
+    {name:'WarriorRight',class:'WARRIOR',spec:'Protection',flags:[],source:'manual'},
+    {name:'DruidSupport',class:'DRUID',spec:'Guardian',flags:[],source:'manual'},
+    {name:'AssignedHealer',class:'PRIEST',spec:'Holy',flags:[],source:'manual'},
+    {name:'TrapHunter',class:'HUNTER',spec:'Beast Mastery',flags:[],source:'manual'}
+  ],playerMeta:{PaladinLeft:{mt:true}}});
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(shadeRoster)})`); await reload();
+  await evaluate('__tactics.show(1);__tactics.render(performance.now())');
+  assert.equal(await evaluate('__tactics.assigned.length'), 5);
+  assert.equal(await evaluate('__tactics.scenes[1].raid.every(p=>p.label.includes(p.name))'), true);
+  assert.equal(await evaluate('__tactics.scenes[1]._sim.traps.length'), 2);
+  assert.equal(await evaluate('__tactics.scenes[1].tanks.length'), 3);
+  assert.equal(await evaluate("__tactics.scenes[1].tankJobs[__tactics.assigned.find(p=>p.name==='DruidSupport').id]"), 'Right support');
+  await screenshot('akama-positioning-namedpartial-1600');
+  await evaluate(`(()=>{window.__exports=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>window.__exports.push(t),write:async items=>window.__image=await items[0].getType('image/png')}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
+  await evaluate('__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(26000,performance.now());copyText.click();copyImage.click()');
+  await sleep(300);
+  const shadeExport = await evaluate('__exports[0]');
+  assert.match(shadeExport, /Lust now[\s\S]*PaladinLeft[\s\S]*TrapHunter/);
+  assert.doesNotMatch(shadeExport, /Hateful|Misdirect|spine|volcano/i);
+  assert((await evaluate('__image.size')) > 1000);
+  pass('Shade preserves named roster and exports the current burn call and image');
+  await evaluate('__tactics.playback.seek(36000,performance.now());copyText.click()');
+  await sleep(50);
+  const completedExport = await evaluate('__exports[1]');
+  assert.match(completedExport, /Shade defeated\. Akama survives\./);
+  assert.doesNotMatch(completedExport, /\bLust\b|burn the Shade|hold surviving adds|heal assigned add tanks|clean up adds/i);
+  pass('Shade victory exports completed roster jobs without stale combat instructions');
+  await evaluate('__tactics.playback.seek(26000,performance.now());__tactics.render(performance.now())');
+  await evaluate(`(()=>{window.__downloads=[];window.__blobs=[];URL.createObjectURL=b=>{__blobs.push(b);return 'blob:akama-'+__blobs.length};HTMLAnchorElement.prototype.click=function(){__downloads.push(this.download)};Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('blocked')},write:async()=>{throw Error('blocked')}}})})()`);
+  await evaluate('copyText.click();copyImage.click()'); await sleep(250);
+  assert.deepEqual(await evaluate('__downloads.sort()'), ['akama-briefing-cycle.txt','akama-cycle.png']);
+  assert.match(await evaluate('__blobs[0].text()'), /Lust now[\s\S]*TrapHunter/);
+  pass('Shade clipboard fallback saves its current briefing and PNG');
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(minimal)})`); await reload();
+  await evaluate('__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(36000,performance.now());__tactics.render(performance.now())');
+  assert.equal(await evaluate('__tactics.assigned.length'), 1);
+  assert.match(await evaluate('rosterNote.textContent'), /No damage role/);
+  assert.equal(await evaluate('__tactics.scenes[7]._sim.phase'), 1);
+  pass('Shade partial roster does not fabricate a damage team or successful burn');
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
