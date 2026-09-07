@@ -1,0 +1,58 @@
+'use strict';
+const assert = require('node:assert/strict');
+const Steps = require('./tactics-reliquary-steps.js');
+const Data = require('./tactics-data.js');
+const Layout = require('./tactics-layout.js');
+const Reliquary = require('./tactics-reliquary.js');
+const fight = Data.FIGHTS['bt-reliquary'];
+const scene = id => Reliquary.prepareScene(fight, fight.scenes.find(item => item.id === id), Layout.assign(fight));
+
+const suffering = Steps.forScene('suffering');
+assert.ok(suffering.length >= 7, 'Suffering includes each readable action and optional survival tips');
+assert.equal(suffering.find(step => step.id === 'soul-drain').title, 'Soul Drain arrives.');
+assert.equal(Steps.frameAt(suffering[0], 9999), suffering[0].holdAtMs, 'a completed transition holds its semantic result');
+assert.equal(Steps.frameAt(suffering[0], 0), 0, 'replay begins the selected demonstration');
+
+const spite = Steps.forScene('spite');
+const countdown = spite.find(step => step.id === 'spite-countdown');
+assert.equal(countdown.detail, 'Marked players are immune for six seconds. Heal them before the Nature impact.', 'countdown prose remains stable');
+assert.equal(Steps.countdownAt(countdown, 0), 6);
+assert.equal(Steps.countdownAt(countdown, 6000), 0, 'the countdown completes once and holds');
+assert.equal(Steps.frameAt(spite.find(step => step.id === 'spite-countdown'), 9999), 9000, 'the countdown reaches its impact state instead of holding at one second');
+assert.equal(Steps.frameAt(spite.find(step => step.id === 'spite-impact'), 9999), 10799, 'Spite impact does not rewind to marks');
+
+const interruptIndex = Steps.indexFor('interrupts', 6000);
+assert.equal(Steps.all()[interruptIndex].id, 'rune-shield', 'legacy time seeking maps to an authored explanation');
+assert.equal(Steps.all()[Steps.indexFor('desire', 14000)].id, 'mana-depletion', 'a long mana demonstration remains selectable at its final state');
+assert.equal(Steps.chapterBoundary('suffering', -1).sceneId, 'fixate');
+assert.equal(Steps.chapterBoundary('suffering', suffering.length).sceneId, 'souls');
+assert.equal(Steps.forScene('cycle').length, 0, 'Put it together retains continuous playback');
+assert.equal(Steps.get('interrupts', 'tongues').loop, 'effect', 'Tongues can loop a cosmetic effect after its state is held');
+
+const shield = Steps.get('interrupts', 'rune-shield');
+const shieldFrame = Reliquary.simulate(fight, scene('interrupts'), Steps.frameAt(shield, 9999));
+assert.equal(shieldFrame.shield.active, true);
+assert.equal(shieldFrame.actions[0].kind, 'shield-block');
+const handoff = Steps.get('fixate', 'second-handoff');
+const handoffFrame = Reliquary.simulate(fight, scene('fixate'), Steps.frameAt(handoff, 9999));
+assert.ok(handoffFrame.bossTarget, 'a bounded handoff retains the selected tank');
+assert.equal(handoffFrame.teaching.title, 'Tank 3 is closest');
+const impact = Steps.get('spite', 'spite-impact');
+const impactFrame = Reliquary.simulate(fight, scene('spite'), Steps.frameAt(impact, 9999));
+assert.ok(impactFrame.spite.length && impactFrame.spite.every(mark => mark.impacted), 'a held Spite result never rewinds to immunity');
+const recovery = Steps.get('spite', 'spite-recovery');
+const beforeRecovery = Reliquary.simulate(fight, scene('spite'), 10800);
+const recoveryFrame = Reliquary.simulate(fight, scene('spite'), Steps.frameAt(recovery, 9999));
+const markedId = recoveryFrame.spite[0].targetId;
+assert.ok(recoveryFrame.hp[markedId] > beforeRecovery.hp[markedId], 'the recovery explanation reaches the actual healed state');
+const desireHeal = Steps.get('desire', 'desire-heal');
+const desireBeforeHeal = Reliquary.simulate(fight, scene('desire'), 3799);
+const desireRecovered = Reliquary.simulate(fight, scene('desire'), Steps.frameAt(desireHeal, 9999));
+const recoilTarget = desireRecovered.recoil[0].targetId;
+assert.ok(desireRecovered.hp[recoilTarget] > desireBeforeHeal.hp[recoilTarget], 'the Desire healing explanation reaches the recovered health state');
+const soulRecovery = Steps.get('souls', 'soul-recovery');
+const soulRecoveryFrame = Reliquary.simulate(fight, scene('souls'), Steps.frameAt(soulRecovery, 9999));
+assert.equal(soulRecoveryFrame.actions[0].kind, 'soul-recovery', 'the held first recovery never advances into the next soul kill');
+assert.equal(soulRecoveryFrame.actions[0].sourceId, 'soul0');
+
+console.log('Reliquary manual explanation metadata checks passed');

@@ -1,7 +1,7 @@
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js')); }
-    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData); }
-}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA) {
+    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js'), require('./tactics-reliquary-data.js')); }
+    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData, root.TacticsReliquaryData); }
+}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA, RELIQUARY) {
     'use strict';
 
     // Map fractions are illustrative. The sheet and Classic strategy guide supply the
@@ -302,5 +302,5 @@
         ]
     };
 
-    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA } };
+    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA, 'bt-reliquary': RELIQUARY } };
 }));

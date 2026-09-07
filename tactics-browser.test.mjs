@@ -126,6 +126,283 @@ async function showShade(id, time = 0) {
   await evaluate(`(()=>{const a=__tactics,i=a.scenes.findIndex(s=>s.id===${JSON.stringify(id)});if(i<0)throw Error('Missing Shade chapter');a.show(i);window.__shadeScene=a.scenes[i];a.playback.pause(performance.now());a.playback.seek(${time},performance.now());a.render(performance.now())})()`);
 }
 
+async function showReliquary(id, time = 0) {
+  await evaluate(`(()=>{const a=__tactics,i=a.scenes.findIndex(s=>s.id===${JSON.stringify(id)});if(i<0)throw Error('Missing Reliquary chapter');a.show(i);const target=a.guided?.timelineFor(${JSON.stringify(id)},${time});if(target)a.showExplanation(target.index);window.__reliquaryScene=a.scenes[i];a.playback.pause(performance.now());a.playback.seek(target?target.elapsedMs:${time},performance.now());a.render(performance.now())})()`);
+}
+
+async function drawnReliquaryText() {
+  return evaluate(`(()=>{const c=fx.getContext('2d'),original=c.fillText,drawn=[];c.fillText=function(value,...args){drawn.push(String(value));return original.call(this,value,...args)};try{__tactics.render(performance.now())}finally{c.fillText=original}return drawn.join('\\n')})()`);
+}
+
+async function checkReliquary(port) {
+  await evaluate('localStorage.clear()');
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-reliquary`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.fight.id'), 'bt-reliquary');
+  assert.deepEqual(await evaluate('__tactics.scenes.map(s=>s.id)'), ['overview','positioning','fixate','suffering','souls','desire','interrupts','deaden','anger','spite','cycle']);
+  assert.equal(await evaluate('bossNav.children[3].getAttribute("aria-current")'), 'page');
+  assert.equal(await evaluate('[...document.images].every(i=>i.complete&&i.naturalWidth>0)'), true);
+  assert.equal(await evaluate('__tactics.assigned.length'), 25);
+  assert.equal(await evaluate(`(()=>{const a=__tactics;return a.scenes.every((s,i)=>{a.show(i);a.playback.pause(performance.now());return [...sceneSpells.querySelectorAll('a')].every(link=>link.href.startsWith('https://')&&!link.href.includes('undefined'))})})()`),true,'every spell card links to a real source');
+  pass('Reliquary deep link loads eleven chapters, authentic art and the example raid');
+
+  await showReliquary('interrupts');
+  const interruptChapterTitle=await evaluate('stepTitle.textContent');
+  await key('ArrowRight');
+  assert.equal(await evaluate('stepTitle.textContent'),interruptChapterTitle,'Right advances one explanation inside the chapter');
+  await key('ArrowLeft');
+  assert.equal(await evaluate('stepTitle.textContent'),interruptChapterTitle,'Left returns to the previous explanation');
+  pass('Reliquary arrow keys traverse explanations before changing chapters');
+
+  const interruptSteps=await evaluate("__tactics.guided.steps.map((s,index)=>({...s,index})).filter(s=>s.sceneId==='interrupts')");
+  assert.ok(interruptSteps.length>=5,'the interrupt sequence has separate readable explanations');
+  const shieldStep=interruptSteps.find(s=>s.id==='rune-shield');
+  assert.ok(shieldStep);
+  await evaluate(`__tactics.showExplanation(${shieldStep.index})`);
+  const stableLesson=await evaluate('JSON.stringify(__tactics.scenes.find(s=>s.id==="interrupts")._sim.teaching)');
+  const stableExplanation=await evaluate('__tactics.guided.selectedIndex');
+  await evaluate('(()=>{const a=__tactics,now=performance.now();a.render(now+60000);a.render(now+120000)})()');
+  assert.equal(await evaluate('__tactics.guided.selectedIndex'),stableExplanation,'elapsed time cannot advance the selected explanation');
+  assert.equal(await evaluate('JSON.stringify(__tactics.scenes.find(s=>s.id==="interrupts")._sim.teaching)'),stableLesson,'reading text stays fixed after a long wait');
+  assert.equal(await evaluate('scrub.getClientRects().length'),0,'teaching uses steps instead of a running timeline');
+  assert.equal(await evaluate('speed.getClientRects().length'),0);
+  assert.match(await evaluate('document.querySelector(".transport").innerText'),/Explanation\s+\d+\s+of\s+\d+/i);
+  await evaluate('replay.click()');
+  assert.equal(await evaluate('__tactics.guided.selectedIndex'),stableExplanation,'Replay repeats only the current demonstration');
+  assert.equal(await evaluate('JSON.stringify(__tactics.scenes.find(s=>s.id==="interrupts")._sim.teaching)'),stableLesson);
+  pass('Reliquary explanations stay selected and readable until the user advances');
+
+  const tonguesStep=interruptSteps.find(s=>s.id==='tongues');
+  await evaluate(`__tactics.showExplanation(${tonguesStep.index})`);
+  const loopFrames=await evaluate('(()=>{const a=__tactics,n=performance.now(),s=a.scenes.find(s=>s.id==="interrupts");a.playback.play(n);a.render(n+10000);const first=JSON.parse(JSON.stringify(s._sim));a.render(n+10450);const second=JSON.parse(JSON.stringify(s._sim));a.playback.pause(n+10450);return [first,second]})()');
+  assert.notEqual(loopFrames[0].effectLoopProgress,loopFrames[1].effectLoopProgress,'the held demonstration still animates its harmless effect');
+  assert.deepEqual(loopFrames[0].pos,loopFrames[1].pos,'effect repetition cannot reset completed positions');
+  assert.deepEqual(loopFrames[0].hp,loopFrames[1].hp);
+  assert.deepEqual(loopFrames[0].teaching,loopFrames[1].teaching);
+  const countdownStep=await evaluate("__tactics.guided.steps.map((s,index)=>({...s,index})).find(s=>s.id==='spite-countdown')");
+  await evaluate(`__tactics.showExplanation(${countdownStep.index})`);
+  const countdownLesson=await evaluate('JSON.stringify(__tactics.scenes.find(s=>s.id==="spite")._sim.teaching)');
+  await evaluate('(()=>{const a=__tactics,n=performance.now();a.playback.pause(n);a.playback.seek(60000,n);a.render(n)})()');
+  assert.equal(await evaluate('__tactics.scenes.find(s=>s.id==="spite")._sim.spite.every(m=>m.impacted)'),true,'the six-second demonstration finishes at the impact');
+  assert.equal(await evaluate('JSON.stringify(__tactics.scenes.find(s=>s.id==="spite")._sim.teaching)'),countdownLesson);
+  assert.match(await drawnReliquaryText(),/impact.*resolved|impact.*0s|impact.*landed|impact now/i,'countdown resolution remains visible on the map');
+  assert.equal(await evaluate('__tactics.playback.playing'),false,'timed demonstrations hold rather than restarting themselves');
+  pass('harmless effects repeat without undoing state, while the Spite countdown completes once');
+
+  await evaluate(`__tactics.showExplanation(${interruptSteps.at(-1).index})`);
+  await evaluate('next.click()');
+  assert.equal(await evaluate('__tactics.guided.steps[__tactics.guided.selectedIndex].sceneId'),'deaden');
+  await evaluate('prev.click()');
+  assert.equal(await evaluate('__tactics.guided.selectedIndex'),interruptSteps.at(-1).index,'Previous crosses back to the previous chapter final explanation');
+  await evaluate('dots.children[6].click()');
+  assert.equal(await evaluate('__tactics.guided.selectedIndex'),interruptSteps[0].index,'chapter tabs start at the first explanation');
+  const beforeInput=await evaluate('__tactics.guided.selectedIndex');
+  await evaluate("(()=>{const input=document.createElement('input');input.id='guidedInputGuard';document.body.append(input);input.focus()})()");
+  await key('ArrowRight');
+  assert.equal(await evaluate('__tactics.guided.selectedIndex'),beforeInput,'arrows in editable controls keep their editing behavior');
+  await evaluate('guidedInputGuard.remove()');
+  pass('Reliquary chapter boundaries, direct chapter selection and keyboard guards remain predictable');
+
+  assert.equal(await evaluate('roleNotes.getClientRects().length'),0,'Reliquary uses the rail for reference, not required instructions');
+  const visualSequence = [];
+  for (const time of [0,1000,2500,3000,6000,7000,8500,10000]) {
+    await showReliquary('interrupts',time);
+    visualSequence.push(await drawnReliquaryText());
+  }
+  const visualLesson = visualSequence.join('\n');
+  assert.match(visualLesson,/Warlock/i,'the Warlock is identified in the animation');
+  assert.match(visualLesson,/Tongues/i);
+  assert.match(visualLesson,/slow|reaction|longer/i,'the animation explains why Tongues helps');
+  assert.match(visualLesson,/Mage/i);
+  assert.match(visualLesson,/Spellsteal|spell steal/i,'the animation explains the Mage action');
+  assert.match(visualLesson,/kick|interrupt/i);
+  await showReliquary('interrupts',6000);
+  assert.match(await drawnReliquaryText(),/blocks interrupts/i);
+  assert.doesNotMatch(await drawnReliquaryText(),/STOPPED|completed Spirit Shock/i,'old kick result cannot cover the shield warning');
+  await showReliquary('interrupts',7500);
+  assert.match(await drawnReliquaryText(),/Rune Shield/i);
+  assert.match(await drawnReliquaryText(),/Spellsteal/i);
+  await showReliquary('interrupts',10000);
+  assert.match(await drawnReliquaryText(),/stopped/i);
+  pass('Reliquary teaches Tongues, Spellsteal and interrupts in the animation with a reference-only rail');
+
+  const invalid = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];const check=(s,t)=>{a.playback.pause(performance.now());a.playback.seek(t,performance.now());a.render(performance.now());const f=s._sim;for(const p of [f.boss,...Object.values(f.pos),...(f.souls||[]).filter(s=>!s.dead).map(s=>s.at)]){const q=a.px(p);if(!Number.isFinite(q.x)||!Number.isFinite(q.y)||q.x<8||q.y<8||q.x>b.width-8||q.y>b.height-8)bad.push([s.id,t,p]);}if(sceneCall.textContent!==(f.explanation?f.explanation.title:f.call)||(!f.explanation&&!encounterState.textContent.includes(a.fight.stateLabels[f.stage])))bad.push(['state',s.id,t]);};a.guided.steps.forEach((step,index)=>{a.showExplanation(index);const s=a.scenes.find(s=>s.id===step.sceneId);for(const t of [0,500,3000,60000])check(s,t);});const cycle=a.scenes.find(s=>s.id==='cycle');a.show(a.scenes.indexOf(cycle));for(let t=0;t<=cycle.duration;t+=1000)check(cycle,t);return bad})()`);
+  assert.deepEqual(invalid, [], 'Reliquary raid positions, calls and state stay visible and synchronized');
+  pass('all Reliquary chapters remain drawable and synchronized across direct seeks');
+
+  await showReliquary('fixate', 4999);
+  const beforeTarget = await evaluate('__reliquaryScene._sim.bossTarget');
+  await showReliquary('fixate', 5000);
+  assert.notEqual(await evaluate('__reliquaryScene._sim.bossTarget'), beforeTarget);
+  assert.equal(await evaluate(`(()=>{const a=__tactics,f=__reliquaryScene._sim,d=TacticsLayout.dist(a.fight,f.pos[f.bossTarget],f.boss);return Object.entries(f.pos).every(([id,p])=>id===f.bossTarget||TacticsLayout.dist(a.fight,p,f.boss)>d)})()`), true);
+  pass('Suffering visibly selects the closest receiving tank at Fixate');
+
+  await showReliquary('fixate', 4000);
+  const rotationBefore = await drawnReliquaryText();
+  assert.match(rotationBefore, /next/i, 'the next receiver is visible in the animation');
+  const exampleTanks = await evaluate('[...roleNotes.querySelectorAll("dd")].slice(0,2).map(n=>n.textContent.split(" — ")[0])');
+  assert.notEqual(exampleTanks[0], exampleTanks[1], 'example current and next tanks have distinct identities');
+  await showReliquary('fixate', 5500);
+  assert.notEqual(await drawnReliquaryText(), rotationBefore, 'visible tank instructions follow the handoff');
+  const sufferingFrames = [];
+  for (const index of await evaluate("__tactics.guided.steps.map((s,index)=>({s,index})).filter(({s})=>s.sceneId==='suffering').map(({index})=>index)")) { await evaluate(`__tactics.showExplanation(${index})`); sufferingFrames.push(await drawnReliquaryText()); }
+  const sufferingGuide = sufferingFrames.join('\n');
+  assert.match(sufferingGuide, /DPS|damage/i);
+  assert.match(sufferingGuide, /45|0:45/);
+  assert.match(sufferingGuide, /15|1:00/);
+  pass('Suffering shows the live tank rotation and the guild Enrage and healer priorities');
+
+  const phaseOrder = [];
+  for (const time of [0,21000,33000,61000,73000]) {
+    await showReliquary('cycle', time);
+    phaseOrder.push(await evaluate('String(__reliquaryScene._sim.essence).toLowerCase()'));
+  }
+  assert.equal(await evaluate('__tactics.guided.isGuided()'),false,'the final cycle remains continuous');
+  assert.equal(await evaluate('scrub.getClientRects().length'),1);
+  assert.equal(await evaluate('speed.getClientRects().length'),1);
+  assert.equal(await evaluate('manualProgress.getClientRects().length'),0,'continuous playback cannot show stale explanation progress');
+  assert.equal(phaseOrder[0], 'suffering'); assert.equal(phaseOrder[2], 'desire'); assert.equal(phaseOrder[4], 'anger');
+  assert.notEqual(phaseOrder[1], 'suffering'); assert.notEqual(phaseOrder[3], 'desire');
+  await showReliquary('interrupts', 6000);
+  assert(await evaluate('!!__reliquaryScene._sim.shield?.active'));
+  const exampleKicks = await evaluate('[...roleNotes.querySelectorAll("dd")].slice(0,2).map(n=>n.textContent.split(" — ")[0])');
+  assert.notEqual(exampleKicks[0], exampleKicks[1], 'example kickers have distinct identities');
+  await showReliquary('interrupts', 7500);
+  assert.equal(await evaluate('!!__reliquaryScene._sim.shield?.active'), false);
+  await showReliquary('anger', 4000);
+  assert(await evaluate('!!__reliquaryScene._sim.seethe?.active'));
+  await showReliquary('anger', 14000);
+  assert(await evaluate('!!__reliquaryScene._sim.scream?.active'));
+  pass('full cycle includes both soul intermissions, shield removal and Anger mechanics');
+
+  await showReliquary('anger', 1999);
+  assert.match(await drawnReliquaryText(), /off.tank|\bOT\b/i);
+  await showReliquary('anger', 2000);
+  assert.match(await drawnReliquaryText(), /taunt/i);
+  await showReliquary('anger', 5999);
+  assert.equal(await evaluate('__reliquaryScene._sim.lust.active'), false);
+  await showReliquary('anger', 6000);
+  assert.equal(await evaluate('__reliquaryScene._sim.lust.active'), true);
+  assert.equal(await evaluate('__reliquaryScene._sim.seethe.active'), true, 'the raid starts before the ten-second Seethe expires');
+  assert.match(await drawnReliquaryText(), /Bloodlust|Lust/);
+  pass('Anger visibly teaches OT pickup, MT taunt and the guild damage and Bloodlust timing');
+
+  const tips = [];
+  for (const index of await evaluate("__tactics.guided.steps.map((s,index)=>({...s,index})).filter(s=>['spell-reflection','deadly-throw','anger-preparation','soul-scream','spite-healthstone','desire-damage','desire-heal','mana-depletion'].includes(s.id)).map(s=>s.index)")) {
+    await evaluate(`__tactics.showExplanation(${index})`); tips.push(await drawnReliquaryText());
+  }
+  const visualTips=tips.join('\n');
+  for(const concept of [/Reflection/i,/Deadly Throw/i,/Shadow Protection/i,/healthstone/i,/2:40/,/50%|fifty percent/i,/doubled/i]) assert.match(visualTips,concept,'guild tips belong inside the visual lesson: '+concept);
+  pass('the animation includes the guild utility, survival and resource tips');
+
+  for (const [width,height] of [[1600,1100],[390,844]]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
+    await showReliquary('interrupts',6000);
+    await evaluate('scrollTo(0,0)');
+    if(width<500) {
+      assert.equal(await evaluate('(()=>{const b=next.getBoundingClientRect();return b.width>0&&b.top>=0&&b.bottom<=innerHeight})()'),true,'phone Next remains reachable while viewing the animation');
+      assert.equal(await evaluate('(()=>{const b=playPause.getBoundingClientRect();return b.width>0&&b.top>=0&&b.bottom<=innerHeight})()'),true,'phone users can pause and resume the current demonstration');
+      await screenshot('reliquary-manual-phone-controls');
+    }
+    for (const [chapter,time] of [['positioning',0],['fixate',5000],['souls',5500],['interrupts',6000],['anger',14000],['spite',8500],['spite',9500]]) {
+      await showReliquary(chapter,time); await sleep(60);
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,chapter+' has no overflow at '+width);
+      await screenshot('reliquary-'+chapter+'-'+time+'-'+width);
+    }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  pass('Reliquary positioning and mechanics support desktop and phone layouts');
+
+  await showReliquary('cycle');
+  await evaluate("scrub.value='50';scrub.dispatchEvent(new Event('input'))");
+  assert.equal(await evaluate('__reliquaryScene._t'),50000);
+  assert.equal(await evaluate('__tactics.playback.playing'),false);
+  assert.equal(await evaluate(`(()=>{speed.value='2';speed.dispatchEvent(new Event('change'));const a=__tactics.playback,now=performance.now();a.play(now);const delta=a.time(now+100)-a.time(now);a.pause(now);return delta})()`),200);
+  await showReliquary('cycle',100000); await sleep(100);
+  assert.equal(await evaluate('__reliquaryScene._t'),100000);
+  assert.equal(await evaluate('__reliquaryScene._sim.stage'),'complete');
+  assert.equal(await evaluate('__reliquaryScene._sim.pressure'),0);
+  assert.equal(await evaluate('__reliquaryScene._sim.tankResource'),null);
+  assert.equal(await evaluate('__reliquaryScene._sim.spite.length+__reliquaryScene._sim.shadowPulses.length'),0);
+  assert.equal(await evaluate('roleNotes.children.length'),0,'victory has no stale live assignments');
+  await key('r','KeyR'); assert((await evaluate('__reliquaryScene._t'))<1500);
+  await key('ArrowLeft'); assert.match(await evaluate('stepTitle.textContent'),/Spite|marks|burn/i);
+  await evaluate("speed.value='2';speed.dispatchEvent(new Event('change'))");
+  await evaluate('document.activeElement.blur()');
+  await key(' ','Space'); assert.equal(await evaluate('__tactics.playback.playing'),false);
+  await key(' ','Space'); assert.equal(await evaluate('__tactics.playback.playing'),true);
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]}); await reload();
+  await evaluate("__tactics.show(__tactics.scenes.findIndex(s=>s.id==='cycle'))");
+  assert.equal(await evaluate('__tactics.playback.playing'),false);
+  await send('Emulation.setEmulatedMedia',{features:[]});
+  pass('Reliquary holds completion, replays and retains keyboard, speed and reduced-motion controls');
+
+  const roster = JSON.stringify({manual:[
+    {name:'ReliquaryMT',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'},
+    {name:'ReliquaryOT',class:'DRUID',spec:'Guardian',flags:[],source:'manual'},
+    {name:'ReliquaryHealer',class:'PRIEST',spec:'Holy',flags:[],source:'manual'},
+    {name:'ReliquaryKick',class:'ROGUE',spec:'Combat',flags:[],source:'manual'},
+    {name:'ReliquaryMage',class:'MAGE',spec:'Arcane',flags:[],source:'manual'},
+    {name:'ReliquaryLust',class:'SHAMAN',spec:'Elemental',flags:[],source:'manual'},
+    {name:'ReliquaryTongues',class:'WARLOCK',spec:'Destruction',flags:[],source:'manual'}
+  ],playerMeta:{ReliquaryMT:{mt:true}}});
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(roster)})`); await reload();
+  await showReliquary('positioning');
+  assert.equal(await evaluate('__tactics.assigned.length'),7);
+  assert.equal(await evaluate('__reliquaryScene.raid.every(p=>p.label.includes(p.name))'),true);
+  await screenshot('reliquary-named-positioning-1600');
+  await showReliquary('interrupts', 0);
+  const assignedInterrupts = await evaluate('roleNotes.innerText');
+  assert.match(await drawnReliquaryText(),/ReliquaryTongues/);
+  assert.match(assignedInterrupts, /ReliquaryTongues/);
+  assert.match(assignedInterrupts, /Curse of Tongues/i);
+  assert.match(await drawnReliquaryText(), /reaction|lengthen|longer|slow/i);
+  assert.match(assignedInterrupts, /ReliquaryKick/);
+  assert.match(assignedInterrupts, /next|order/i);
+  await showReliquary('interrupts', 6000);
+  const shieldInstructions = await evaluate('roleNotes.innerText');
+  assert.match(shieldInstructions, /ReliquaryMage/);
+  assert.match(shieldInstructions, /Spellsteal|spell steal/i);
+  assert.equal(await evaluate('__reliquaryScene.raid.find(p=>p.id===__reliquaryScene.remover).name'),'ReliquaryMage');
+  await showReliquary('interrupts',7500);
+  assert.match(await drawnReliquaryText(),/ReliquaryMage/);
+  await screenshot('reliquary-named-shield-1600');
+  await showReliquary('interrupts', 8000);
+  assert.notEqual(await evaluate('roleNotes.innerText'), assignedInterrupts);
+  pass('named kick order, Mage Spellsteal and useful Curse of Tongues are visible without exporting');
+  await evaluate(`(()=>{window.__reliquaryExports=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>__reliquaryExports.push(t),write:async items=>window.__reliquaryImage=await items[0].getType('image/png')}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
+  for (const [chapter,time] of [['souls',5500],['interrupts',7500],['spite',9500],['cycle',100000]]) {
+    await showReliquary(chapter,time); await evaluate('copyText.click();copyImage.click()'); await sleep(150);
+    const output=await evaluate('__reliquaryExports.at(-1)');
+    assert(output.includes(await evaluate('sceneCall.textContent')));
+    for(const name of ['ReliquaryMT','ReliquaryOT','ReliquaryHealer','ReliquaryKick','ReliquaryMage','ReliquaryLust','ReliquaryTongues']) assert(output.includes(name));
+    assert((await evaluate('__reliquaryImage.size'))>1000);
+    if(chapter==='cycle') assert.doesNotMatch(output,/Use Bloodlust|Kick next|Dispel Soul Drain|Hold threat|Burn Anger|Hold Anger|Wait behind the boss/i);
+    if(chapter==='spite') assert.match(output,/ReliquaryHealer — [^\n]*(heal|cover|recover)/i,'the healer keeps a healing job during the burn');
+  }
+  pass('Reliquary preserves named roster and exports current jobs, calls and map through completion');
+
+  await showReliquary('spite',9500);
+  await evaluate(`(()=>{window.__reliquaryDownloads=[];window.__reliquaryBlobs=[];URL.createObjectURL=b=>{__reliquaryBlobs.push(b);return 'blob:reliquary-'+__reliquaryBlobs.length};HTMLAnchorElement.prototype.click=function(){__reliquaryDownloads.push(this.download)};Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('blocked')},write:async()=>{throw Error('blocked')}}})})()`);
+  await evaluate('copyText.click();copyImage.click()'); await sleep(200);
+  assert.deepEqual(await evaluate('__reliquaryDownloads.sort()'),['reliquary-briefing-spite.txt','reliquary-spite.png']);
+  assert.match(await evaluate('__reliquaryBlobs[0].text()'),/ReliquaryMT[\s\S]*ReliquaryMage/);
+  pass('Reliquary clipboard fallback saves the current briefing and PNG');
+
+  const onlyTank=JSON.stringify({manual:[{name:'OnlyReliquaryTank',class:'DRUID',spec:'Guardian',mt:true,flags:[],source:'manual'}],playerMeta:{OnlyReliquaryTank:{mt:true}}});
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(onlyTank)})`); await reload();
+  await showReliquary('cycle',100000);
+  assert.equal(await evaluate('__tactics.assigned.length'),1);
+  assert.notEqual(await evaluate('__reliquaryScene._sim.stage'),'complete');
+  assert.match(await evaluate('rosterNote.textContent'),/damage/i);
+  await showReliquary('interrupts',7500);
+  assert.equal(await evaluate('!!__reliquaryScene._sim.shield?.active'),true);
+  assert.doesNotMatch(await evaluate('roleNotes.innerText'),/completed Spirit Shock|completed kick/i,'missing interrupt coverage never shows a completed kick');
+  await showReliquary('anger',3000);
+  assert.doesNotMatch(await evaluate('sceneCall.textContent + roleNotes.innerText'),/taunted at|OT pickup\. Damage waits/i,'a lone tank is not shown completing a two-tank taunt');
+  pass('Reliquary partial roster cannot fabricate damage kills or Rune Shield removal');
+}
+
 async function run() {
   const port = await startServer();
   await startChrome();
@@ -276,7 +553,7 @@ async function run() {
   await evaluate("localStorage.clear()");
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama']);
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
   assert.equal(await evaluate("__tactics.count"), 10);
@@ -287,7 +564,7 @@ async function run() {
   assert.equal(await evaluate("[...document.images].every(i=>i.complete && i.naturalWidth>0)"), true);
   pass('boss order and default follow the raid; Shade has ten chapters, loaded art and spreadsheet source');
 
-  const shadeBounds = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];a.scenes.forEach((s,i)=>{a.show(i);a.playback.pause(performance.now());for(let t=0;t<=s.duration;t+=500){a.playback.seek(t,performance.now());a.render(performance.now());const f=s._sim;[f.boss,f.akama,...Object.values(f.pos),...f.npcs.map(n=>n.at)].forEach(p=>{const v=a.px(p);if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||v.x<8||v.y<8||v.x>b.width-8||v.y>b.height-8)bad.push([s.id,t,p]);});if(sceneCall.textContent!==f.call||!encounterState.textContent.includes(a.fight.stateLabels[f.stage]))bad.push(['state',s.id,t]);}});return bad})()`);
+  const shadeBounds = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];a.scenes.forEach((s,i)=>{a.show(i);a.playback.pause(performance.now());for(let t=0;t<=s.duration;t+=500){a.playback.seek(t,performance.now());a.render(performance.now());const f=s._sim;[f.boss,f.akama,...Object.values(f.pos),...f.npcs.map(n=>n.at)].forEach(p=>{const v=a.px(p);if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||v.x<8||v.y<8||v.x>b.width-8||v.y>b.height-8)bad.push([s.id,t,p]);});if(sceneCall.textContent!==(f.explanation?f.explanation.title:f.call)||(!f.explanation&&!encounterState.textContent.includes(a.fight.stateLabels[f.stage])))bad.push(['state',s.id,t]);}});return bad})()`);
   assert.deepEqual(shadeBounds, [], 'Shade actors and state stay visible and synchronized through all scenes');
   pass('Shade scene boundary sampling keeps raid, NPCs and live guidance synchronized');
   await showShade('walk', shadeMeta.walk.gatherAt);
@@ -423,6 +700,7 @@ async function run() {
   assert.doesNotMatch(await evaluate('encounterState.textContent'), /AoE Channelers and adds/);
   assert.equal(await evaluate('__shadeScene._sim.npcs.every(n=>n.hp===1)'), true);
   pass('alternate strategy with a partial roster preserves real tank ownership and cannot fabricate a kill');
+  await checkReliquary(port);
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
