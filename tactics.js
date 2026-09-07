@@ -8,8 +8,9 @@
     const fights = window.TacticsData.FIGHTS;
     const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
-    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : null;
-    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : null;
+    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : null;
+    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : null;
+    const RELIQUARY_STEPS = FIGHT.id === 'bt-reliquary' ? window.TacticsReliquarySteps : null;
     const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -161,6 +162,7 @@
     // Worked out from the positions in play, so a different roster or layout reframes itself.
     function frameOf(view, sc) {
         const A = FIGHT.arena;
+        if (view.bounds) return view.bounds;
         if (view.fit === 'arena' || (view.fit === 'raid' && sc.paths) || !view.fit) return { x0: A.x0, y0: A.y0, x1: A.x1, y1: A.y1, pad: 2 };
         if (view.fit === 'action') {
             // the few things this step is about, taken from the scene rather than the frame,
@@ -197,6 +199,15 @@
     function aim(view, sc) {
         const box = W / H;
         const f = frameOf(view, sc);
+        if (FIGHT.id === 'bt-reliquary' && (view.fit === 'action' || sc.id === 'positioning')) {
+            // Reserve readable space for the visual lesson above and below the actors.
+            const top = W < 520 ? 150 : 120, bottom = 118;
+            scale = Math.min((W - 46) / ((f.x1 - f.x0) * MW), (H - top - bottom) / ((f.y1 - f.y0) * MH));
+            src = { w: W / scale, h: H / scale,
+                x: (f.x0 + f.x1) / 2 * MW - W / scale / 2,
+                y: (f.y0 + f.y1) / 2 * MH - (top + (H - top - bottom) / 2) / scale };
+            return;
+        }
         const padX = f.pad * FIGHT.yard, padY = f.pad * FIGHT.yard * FIGHT.aspect;
         const wantW = (f.x1 - f.x0 + 2 * padX) * MW;
         const wantH = (f.y1 - f.y0 + 2 * padY) * MH;
@@ -953,7 +964,8 @@
         ctx.stroke();
         const gaze = sc.effects.find(e => e.kind === 'gaze' && sc._t >= e.start && sc._t < e.end);
         const mt = sc.raid.find(p => p.kind === 'tank');
-        const toward = FIGHT.id === 'bt-akama' ? px(sc._sim.akama) : gaze ? px(at(sc, gaze.target)) : mt ? px(sc._sim.pos[mt.id]) : { x: c.x, y: c.y - 1 };
+        const currentTarget = sc._sim.bossTarget && sc._sim.pos[sc._sim.bossTarget] ? px(sc._sim.pos[sc._sim.bossTarget]) : null;
+        const toward = FIGHT.id === 'bt-akama' ? px(sc._sim.akama) : currentTarget || (gaze ? px(at(sc, gaze.target)) : mt ? px(sc._sim.pos[mt.id]) : { x: c.x, y: c.y - 1 });
         const angle = Math.atan2(toward.y - c.y, toward.x - c.x);
         ctx.translate(c.x, c.y); ctx.rotate(angle);
         ctx.beginPath(); ctx.moveTo(r + 8, 0); ctx.lineTo(r - 2, -5); ctx.lineTo(r - 2, 5); ctx.closePath();
@@ -1078,6 +1090,68 @@
 
     let idx = 0;
     const playback = window.TacticsPlayback.create(scenes[0].duration);
+    let lastInstructionRows = null;
+    let explanationIndex = 0;
+
+    function isGuidedScene(sc = scenes[idx]) { return !!(RELIQUARY_STEPS && sc && sc.id !== 'cycle' && RELIQUARY_STEPS.forScene(sc.id).length); }
+    function currentExplanation() { return RELIQUARY_STEPS?.all()[explanationIndex] || null; }
+    function chapterExplanationIndex(sceneId, localIndex = 0) {
+        const found = RELIQUARY_STEPS?.all().findIndex(item => item.sceneId === sceneId && item.localIndex === localIndex);
+        return found == null || found < 0 ? 0 : found;
+    }
+    function resetExplanationDemo(now) {
+        const explanation = isGuidedScene() ? currentExplanation() : null;
+        const duration = explanation ? (explanation.loop === 'effect' ? Number.MAX_SAFE_INTEGER : Math.max(1, explanation.holdAtMs - explanation.startMs)) : scenes[idx].duration;
+        playback.reset(duration, now);
+        if (!REDUCED && (scenes[idx].animated || scenes[idx].effects.length)) playback.play(now);
+    }
+    function resolvedExplanation(explanation, sc) {
+        if (!explanation) return null;
+        const hasClass = value => sc.raid.some(player => String(player.class || '').toUpperCase() === value);
+        const absent = (title, detail) => ({ ...explanation, title, detail });
+        if (['anger-pickup', 'anger-taunt'].includes(explanation.id) && !sc.tanks.length)
+            return absent('No tank pickup is assigned.', 'No tank is loaded, so Anger pickup and the two-tank taunt are not demonstrated.');
+        if (['anger-pickup', 'anger-taunt'].includes(explanation.id) && sc.tanks.length < 2)
+            return absent('Secure Anger with the loaded tank.', 'One tank is loaded, so no off-tank pickup or main-tank taunt is shown.');
+        if (explanation.id === 'anger-burn' && !sc.tanks.length)
+            return absent('Hold damage until Anger has a tank.', 'No tank pickup is assigned, so damage and Bloodlust are not demonstrated.');
+        if (explanation.id === 'anger-burn' && !sc.hasDamage)
+            return absent('Damage coverage is missing.', 'No damage role is loaded, so the burn is not fabricated.');
+        if (['gather-souls', 'kill-soul', 'soul-recovery'].includes(explanation.id) && !sc.hasDamage && explanation.id !== 'gather-souls')
+            return absent('Soul recovery needs damage coverage.', 'No damage role is loaded, so nearby soul deaths and recovery are not demonstrated.');
+        if (explanation.id === 'dispel-drain' && !sc.dispeller)
+            return absent('Soul Drain dispel coverage is missing.', 'No known eligible magic dispeller is loaded, so the drain remains active.');
+        if (explanation.id === 'priest-shield' && !sc.absorber)
+            return absent('Absorb coverage is missing.', 'No known Priest is loaded, so a shield is not fabricated.');
+        if (explanation.id === 'healer-dps' && !sc.raid.some(player => player.kind === 'healer'))
+            return absent('Healer coverage is missing.', 'No healer is loaded; the demonstration does not invent healer damage coverage.');
+        if (explanation.id === 'rogue-evasion' && !hasClass('ROGUE'))
+            return absent('Optional Rogue Evasion is unavailable.', 'No known Rogue is loaded for this optional Enrage reminder.');
+        if (explanation.id === 'hunter-deterrence' && !hasClass('HUNTER'))
+            return absent('Optional Hunter Deterrence is unavailable.', 'No known Hunter is loaded for this optional Enrage reminder.');
+        const missing = sc.missingRoles || [];
+        if (['tongues', 'first-spirit-shock', 'next-spirit-shock', 'deaden-cast', 'deaden-kick'].includes(explanation.id) && missing.some(note => /interrupt coverage/i.test(note)))
+            return { ...explanation, title: 'Interrupt coverage is missing.', detail: 'No known eligible interrupter is loaded. The demonstration keeps that coverage gap explicit.' };
+        if (['rune-shield', 'spellsteal'].includes(explanation.id) && missing.some(note => /Rune Shield removal/i.test(note)))
+            return { ...explanation, title: 'Rune Shield removal is missing.', detail: 'No known eligible removal is loaded. Do not pretend an interrupt can pass through Rune Shield.' };
+        if (explanation.id === 'tongues' && !sc.tongues)
+            return { ...explanation, title: 'Curse of Tongues coverage is missing.', detail: 'No known Warlock is loaded, so Spirit Shock stays at its normal cast speed.' };
+        return explanation;
+    }
+    const explanationTipKinds = { 'anger-preparation': 'shadow-protection', 'rogue-evasion': 'evasion', 'hunter-deterrence': 'deterrence', 'spell-reflection': 'spell-reflection', 'deadly-throw': 'glove-backup', 'spite-healthstone': 'healthstone' };
+
+    function showInstructionRows(rows) {
+        const key = JSON.stringify(rows || []);
+        if (key === lastInstructionRows) return;
+        lastInstructionRows = key;
+        const notes = el('roleNotes');
+        notes.replaceChildren();
+        (rows || []).forEach(([role, job]) => {
+            const dt = document.createElement('dt'), dd = document.createElement('dd');
+            dt.textContent = role; dd.textContent = job;
+            notes.append(dt, dd);
+        });
+    }
 
     function drawRoutes(sc, t) {
         Object.entries(sc.pathsById || {}).forEach(([id, path]) => {
@@ -1108,9 +1182,30 @@
     function paint(now) {
         if (!W) return;
         const sc = scenes[idx];
-        const t = playback.time(now);
+        const elapsed = playback.time(now);
+        const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
+        const t = explanation ? RELIQUARY_STEPS.frameAt(explanation, elapsed) : elapsed;
 
         sc._sim = simulate(sc, t);
+        if (explanation) {
+            const teaching = resolvedExplanation(explanation, sc);
+            const guidance = sc._guidance || sc._sim;
+            sc._sim.call = teaching.title + ' ' + teaching.detail;
+            sc._sim.instructionRows = guidance.instructionRows || [];
+            sc._sim.teaching = { ...guidance.teaching, title: teaching.title, detail: teaching.detail, tip: teaching.tip };
+            if (sc._sim.tipVisual && sc._sim.tipVisual.kind !== explanationTipKinds[explanation.id]) sc._sim.tipVisual = null;
+            sc._sim.explanation = teaching;
+            sc._sim.explanationElapsedMs = elapsed;
+            sc._sim.effectLoopProgress = explanation.loop === 'effect' && elapsed >= explanation.holdAtMs - explanation.startMs
+                ? ((elapsed - (explanation.holdAtMs - explanation.startMs)) % 1200) / 1200 : null;
+            sc._sim.explanationCountdown = teaching.countdownSeconds ? RELIQUARY_STEPS.countdownAt(teaching, elapsed) : null;
+        }
+        if (FIGHT.id === 'bt-reliquary') {
+            const lesson = sc._sim.teaching || {};
+            const description = [sc._sim.essence, lesson.title || sc._sim.call, lesson.detail, lesson.tip,
+                ...(sc._sim.instructionRows || []).map(row => row.join(': '))].filter(Boolean).join('. ');
+            if (cv.getAttribute('aria-label') !== description) cv.setAttribute('aria-label', description);
+        }
         sc._dim = ADAPTER
             ? Object.keys(sc._sim.focus || {}).length > 0
             : (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
@@ -1118,6 +1213,7 @@
         sc._focus = ADAPTER ? sc._sim.focus : (sc._dim ? focusOf(sc, t) : {});
         sc._roles = ADAPTER ? sc._sim.roles : {};
         if (!ADAPTER) Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
+        if (ADAPTER && Array.isArray(sc._sim.instructionRows)) showInstructionRows(sc._sim.instructionRows);
         aim(sc.view, sc);
         ctx.clearRect(0, 0, W, H);
         drawMap();
@@ -1126,7 +1222,7 @@
         (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
             .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
         drawRoutes(sc, t);
-        drawBoss(sc.bossActor, sc);
+        if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
         sc.raid.forEach(p => drawPlayer(p, sc, t));
         // the gaze goes last: it is the thing you must notice
         (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
@@ -1160,10 +1256,11 @@
     });
 
     const rail = el('rail');
-    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel"></p>' +
-        '<h2 class="guide__call" id="sceneCall"></h2><p class="guide__why" id="sceneWhy"></p>' +
+    const reliquaryReferenceOnly = FIGHT.id === 'bt-reliquary';
+    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></p>' +
+        '<h2 class="guide__call" id="sceneCall"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></h2><p class="guide__why" id="sceneWhy"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></p>' +
         '<div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>' +
-        '<dl class="role-notes" id="roleNotes"></dl><div class="mistake"><span>Watch out</span>' +
+        '<dl class="role-notes" id="roleNotes"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></dl><div class="mistake"' + (reliquaryReferenceOnly ? ' hidden' : '') + '><span>Watch out</span>' +
         '<p id="sceneMistake"></p></div></section>' +
         '<details class="reference"><summary>' + FIGHT.referenceTitle + '</summary><div id="referenceContent"></div></details>';
     const reference = el('referenceContent');
@@ -1172,15 +1269,17 @@
         card.className = 'card card--t' + a.tier;
         card.innerHTML = '<img class="card__icon" src="' + a.icon + '" alt="">' +
             '<div><h3 class="card__name">' + a.name + '</h3><p class="card__meta">' + (a.stageLabel || ('Phase ' + a.phase)) + '</p>' +
-            '<p class="card__desc">' + a.tooltip.description + '</p>' +
-            '<p class="card__do">' + a.doThis + '</p></div>';
+                '<p class="card__desc">' + a.tooltip.description + '</p>' +
+                (reliquaryReferenceOnly ? '' : '<p class="card__do">' + a.doThis + '</p>') + '</div>';
         reference.appendChild(card);
     });
-    const sheet = document.createElement('section');
-    sheet.className = 'sheet';
-    sheet.innerHTML = '<h3 class="sheet__title">' + (FIGHT.remindersTitle || FIGHT.referenceTitle) + '</h3><ol class="sheet__steps">' +
-        FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
-    reference.appendChild(sheet);
+    if (!reliquaryReferenceOnly) {
+        const sheet = document.createElement('section');
+        sheet.className = 'sheet';
+        sheet.innerHTML = '<h3 class="sheet__title">' + (FIGHT.remindersTitle || FIGHT.referenceTitle) + '</h3><ol class="sheet__steps">' +
+            FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
+        reference.appendChild(sheet);
+    }
     const credit = document.createElement('div');
     credit.className = 'credit';
     credit.innerHTML = '<p>Illustrative paths and positions. Map scale and danger rings are approximate; leave a margin in game.</p>';
@@ -1237,7 +1336,7 @@
         b.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + s.chapter);
         b.innerHTML = '<span class="chapter__number">' + String(i + 1).padStart(2, '0') + '</span>' +
             '<span class="chapter__title">' + s.chapter + '</span>';
-        b.addEventListener('click', () => show(i)); dots.appendChild(b);
+        b.addEventListener('click', () => show(i, 0)); dots.appendChild(b);
     });
 
     function revealChapter() {
@@ -1248,19 +1347,36 @@
             dots.scrollLeft = Math.max(0, left - dots.clientWidth / 2 + active.offsetWidth / 2);
     }
 
-    function show(i) {
+    function show(i, localExplanation = 0) {
         idx = clamp(i, 0, scenes.length - 1);
         const sc = scenes[idx];
         sc.currentCall = null;
+        lastInstructionRows = null;
         const now = performance.now();
-        playback.reset(sc.duration, now);
-        if (!REDUCED && (sc.animated || sc.effects.length)) playback.play(now);
+        if (isGuidedScene(sc)) explanationIndex = chapterExplanationIndex(sc.id, localExplanation);
+        resetExplanationDemo(now);
+        const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
+        sc._guidance = explanation ? simulate(sc, currentExplanation().startMs) : null;
+        document.body.classList.toggle('has-guided-explanation', !!explanation);
         el('stepTitle').textContent = sc.title;
         el('stepCaption').textContent = sc.caption;
+        el('manualExplanation').hidden = !explanation;
+        el('manualProgress').hidden = !explanation;
+        if (explanation) {
+            el('manualProgress').textContent = 'Explanation ' + (explanation.localIndex + 1) + ' of ' + explanation.count + (explanation.optional ? ' · Optional' : '');
+            el('manualTitle').textContent = explanation.title;
+            el('manualDetail').textContent = explanation.detail;
+            el('manualCountdown').hidden = !explanation.countdownSeconds;
+            el('manualCountdown').textContent = explanation.countdownSeconds ? 'Impact in ' + explanation.countdownSeconds + 's' : '';
+        } else {
+            el('manualProgress').textContent = '';
+            el('manualCountdown').hidden = true;
+            el('manualCountdown').textContent = '';
+        }
         el('sceneLabel').textContent = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') +
-            ' · ' + (FIGHT.stateLabels ? FIGHT.stateLabels[sc.id === 'burn' ? 'burn' : 'bound'].toUpperCase() : FIGHT.clockMode === 'state' ? 'NORMAL COMBAT' : (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT'));
-        el('sceneCall').textContent = sc.call;
-        if (el('mapCall')) el('mapCall').textContent = sc.call;
+            ' · ' + (FIGHT.stateLabels ? (FIGHT.stateLabels[sc.id === 'burn' ? 'burn' : sc.id] || FIGHT.stateLabels.bound || 'NORMAL COMBAT').toUpperCase() : FIGHT.clockMode === 'state' ? 'NORMAL COMBAT' : (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT'));
+        el('sceneCall').textContent = explanation ? explanation.title : sc.call;
+        if (el('mapCall')) el('mapCall').textContent = explanation ? explanation.title : sc.call;
         el('sceneWhy').textContent = sc.why;
         showSpellDetails(sc);
         el('sceneMistake').textContent = sc.mistake;
@@ -1271,20 +1387,39 @@
                 ((sc.missingRoles || []).length ? ' ' + sc.missingRoles.join(' ') : missing.includes('md') ? ' No hunter loaded: Misdirect is not assigned.' :
                  missing.length ? ' This roster lacks a role used in the example.' : '');
         }
-        el('roleNotes').replaceChildren();
-        sc.jobs.forEach(([role, job]) => {
-            const dt = document.createElement('dt'), dd = document.createElement('dd');
-            dt.textContent = role; dd.textContent = job;
-            el('roleNotes').append(dt, dd);
-        });
+        showInstructionRows(sc.jobs);
         [...dots.children].forEach((d, k) => {
             d.classList.toggle('is-on', k === idx);
             if (k === idx) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
         });
         revealChapter();
-        el('prev').disabled = idx === 0;
-        el('next').disabled = idx === scenes.length - 1;
+        const chapterSteps = explanation ? RELIQUARY_STEPS.forScene(sc.id) : [];
+        el('prev').disabled = explanation ? idx === 0 && explanation.localIndex === 0 : idx === 0;
+        el('next').disabled = explanation ? idx === scenes.length - 1 && explanation.localIndex === chapterSteps.length - 1 : idx === scenes.length - 1;
+        el('prev').setAttribute('aria-label', explanation ? 'Previous explanation' : 'Previous scene');
+        el('next').setAttribute('aria-label', explanation ? 'Next explanation' : 'Next scene');
         render(now);
+    }
+
+    function showExplanation(index) {
+        const explanation = RELIQUARY_STEPS?.all()[index];
+        if (!explanation) return;
+        const sceneIndex = scenes.findIndex(sc => sc.id === explanation.sceneId);
+        if (sceneIndex >= 0) show(sceneIndex, explanation.localIndex);
+    }
+    function moveExplanation(delta) {
+        if (!isGuidedScene()) {
+            if (RELIQUARY_STEPS && scenes[idx].id === 'cycle' && delta < 0) {
+                const lastScene = RELIQUARY_STEPS.order[RELIQUARY_STEPS.order.indexOf('cycle') - 1];
+                show(scenes.findIndex(sc => sc.id === lastScene), RELIQUARY_STEPS.forScene(lastScene).length - 1);
+            } else show(idx + delta);
+            return;
+        }
+        const explanation = currentExplanation(), local = explanation.localIndex + delta;
+        const steps = RELIQUARY_STEPS.forScene(explanation.sceneId);
+        if (local >= 0 && local < steps.length) { show(idx, local); return; }
+        const boundary = RELIQUARY_STEPS.chapterBoundary(explanation.sceneId, local);
+        if (boundary) show(scenes.findIndex(sc => sc.id === boundary.sceneId), boundary.localIndex);
     }
 
     // ---- taking it away -------------------------------------------------------
@@ -1325,15 +1460,18 @@
     function copyImage() {
         render(performance.now());
         const btn = el('copyImage'), sc = scenes[idx];
+        const exportRows = FIGHT.id === 'bt-reliquary' ? sc._sim?.instructionRows || [] : null;
+        const rowsHeight = Math.min(exportRows?.length || 0, 5) * 25;
         const out = document.createElement('canvas');
-        out.width = cv.width; out.height = cv.height + 180;
+        out.width = cv.width; out.height = cv.height + 180 + rowsHeight;
         const g = out.getContext('2d');
         g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, out.width, out.height);
         g.fillStyle = '#ece6d8'; g.font = '600 30px "Barlow Condensed", sans-serif';
         g.fillText(FIGHT.name + ' · ' + sc.chapter, 24, 42, out.width - 48);
         g.fillStyle = '#c5f4e9'; g.font = '500 23px "IBM Plex Sans", sans-serif';
         g.fillText(sc.currentCall || sc.call, 24, 82, out.width - 48);
-        g.drawImage(cv, 0, 106);
+        if (exportRows) { g.fillStyle = '#d9dfd9'; g.font = '16px "IBM Plex Sans", sans-serif'; exportRows.slice(0, 5).forEach(([role, job], index) => g.fillText(role + ': ' + job, 24, 108 + index * 25, out.width - 48)); }
+        g.drawImage(cv, 0, 106 + rowsHeight);
         g.fillStyle = '#9ba89f'; g.font = '18px "IBM Plex Sans", sans-serif';
         g.fillText('Example positions and routes · Approximate scale · ' + FIGHT.legend.map(x => x.exportLabel).join(' / '), 24, out.height - 27, out.width - 48);
         out.toBlob(async blob => {
@@ -1351,8 +1489,8 @@
 
     el('copyText').addEventListener('click', copyPositions);
     el('copyImage').addEventListener('click', copyImage);
-    el('next').addEventListener('click', () => show(idx + 1));
-    el('prev').addEventListener('click', () => show(idx - 1));
+    el('next').addEventListener('click', () => moveExplanation(1));
+    el('prev').addEventListener('click', () => moveExplanation(-1));
     function togglePlay() {
         const now = performance.now();
         if (playback.playing) playback.pause(now); else playback.play(now);
@@ -1384,8 +1522,8 @@
         if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
         if (ev.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable)) return;
         if (ev.key === ' ' && ev.target && /^(BUTTON|SUMMARY|A)$/.test(ev.target.tagName)) return;
-        if (ev.key === 'ArrowRight') { ev.preventDefault(); show(idx + 1); }
-        else if (ev.key === 'ArrowLeft') { ev.preventDefault(); show(idx - 1); }
+        if (ev.key === 'ArrowRight') { ev.preventDefault(); moveExplanation(1); }
+        else if (ev.key === 'ArrowLeft') { ev.preventDefault(); moveExplanation(-1); }
         else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
         else if (ev.key.toLowerCase() === 'r') replay();
         else if (ev.key.toLowerCase() === 'f') fullscreen();
@@ -1406,6 +1544,10 @@
 
     function tickClock() {
         const sc = scenes[idx], t = sc._t || 0;
+        if (isGuidedScene(sc)) {
+            el('clock').hidden = true; el('encounterState').hidden = true;
+            return;
+        }
         if (FIGHT.clockMode === 'state') {
             const stateLabels = FIGHT.stateLabels || { normal: 'Normal combat', shield: 'Shield: heal up', ready: 'Ready: await call', throw: 'Spine in flight', burst: 'Raidwide burst', recover: 'Recover: heal everyone' };
             el('clock').hidden = true; el('encounterState').hidden = false;
@@ -1429,14 +1571,28 @@
     function render(now) {
         if (!scenes[idx]) return;
         paint(now); syncCurrentGuidance(scenes[idx]); tickClock();
-        const t = scenes[idx]._t || 0, duration = scenes[idx].duration;
+        const selected = scenes[idx]._sim?.explanation;
+        const t = selected ? scenes[idx]._sim.explanationElapsedMs : scenes[idx]._t || 0;
+        const duration = selected ? selected.holdAtMs - selected.startMs : scenes[idx].duration;
         el('playPause').textContent = playback.playing ? 'Pause' : t >= duration ? 'Play again' : 'Play';
         el('playPause').setAttribute('aria-label', playback.playing ? 'Pause animation' : 'Play animation');
         el('scrub').value = t / duration * 100;
         el('scrub').setAttribute('aria-valuetext', (t / 1000).toFixed(1) + ' of ' + (duration / 1000) + ' seconds');
         el('elapsed').textContent = (t / 1000).toFixed(1) + ' / ' + (duration / 1000) + 's';
+        const explanation = selected;
+        if (explanation?.countdownSeconds) {
+            const seconds = RELIQUARY_STEPS.countdownAt(explanation, scenes[idx]._sim.explanationElapsedMs || 0);
+            el('manualCountdown').textContent = seconds ? 'Impact in ' + seconds + 's' : 'Impact resolved';
+        }
     }
     function syncCurrentGuidance(sc) {
+        if (sc._sim?.explanation) {
+            const stableCall = sc._sim.explanation.title;
+            sc.currentCall = stableCall;
+            el('sceneCall').textContent = stableCall;
+            if (el('mapCall')) el('mapCall').textContent = stableCall;
+            return;
+        }
         const current = (sc._sim && sc._sim.call) || sc.call;
         if (FIGHT.stateLabels && sc._sim) {
             const stageLabel = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') + ' · ' + FIGHT.stateLabels[sc._sim.stage].toUpperCase();
@@ -1467,5 +1623,6 @@
     Object.values(IMG).forEach(img => img.addEventListener('load', () => render(performance.now())));
 
     // lets the screenshot harness step scenes without synthesising key events
-    window.__tactics = { show, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT };
+    window.__tactics = { show, showExplanation, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
+        guided: RELIQUARY_STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: RELIQUARY_STEPS.all(), chapterSteps: RELIQUARY_STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: RELIQUARY_STEPS.timelineFor, isGuided: isGuidedScene } : null };
 }());

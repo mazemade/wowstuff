@@ -79,6 +79,11 @@
           <div class="step" aria-live="polite">
             <h2 class="step__title" id="stepTitle"></h2>
             <p class="step__caption" id="stepCaption"></p>
+            <div class="manual-explanation" id="manualExplanation" hidden aria-live="polite">
+              <h3 class="manual-explanation__title" id="manualTitle"></h3>
+              <p class="manual-explanation__detail sr-only" id="manualDetail"></p>
+              <output class="manual-explanation__countdown" id="manualCountdown" hidden aria-live="off"></output>
+            </div>
             <p class="step__note" id="rosterNote" hidden></p>
           </div>
           <div class="transport" aria-label="Briefing playback controls">
@@ -91,11 +96,12 @@
                 Play
               </button>
               <button class="control" id="replay" type="button">Replay</button>
+              <output class="manual-progress-control" id="manualProgress" aria-live="polite" hidden></output>
               <button
                 class="nav__btn"
                 id="prev"
                 type="button"
-                aria-label="Previous scene"
+                aria-label="Previous explanation"
               >
                 &lsaquo;
               </button>
@@ -103,7 +109,7 @@
                 class="nav__btn"
                 id="next"
                 type="button"
-                aria-label="Next scene"
+                aria-label="Next explanation"
               >
                 &rsaquo;
               </button>
@@ -174,6 +180,7 @@
     <script src="assignments-engine.js"></script>
     <script src="tactics-najentus-data.js"></script>
     <script src="tactics-akama-data.js"></script>
+    <script src="tactics-reliquary-data.js"></script>
     <script src="tactics-data.js"></script>
     <script src="tactics-layout.js"></script>
     <script src="tactics-playback.js"></script>
@@ -181,6 +188,9 @@
     <script src="tactics-najentus-render.js"></script>
     <script src="tactics-akama.js"></script>
     <script src="tactics-akama-render.js"></script>
+    <script src="tactics-reliquary.js"></script>
+    <script src="tactics-reliquary-render.js"></script>
+    <script src="tactics-reliquary-steps.js"></script>
     <script src="tactics.js"></script>
   </body>
 </html>
