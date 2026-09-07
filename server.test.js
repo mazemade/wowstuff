@@ -463,6 +463,81 @@ test('GET /api/vet/parses: rankings only — two RANK queries, parses + identity
     assert.strictEqual((await res.json()).parses, null);
 });
 
+// Fix round 2 (Important): class and talents change the response — fetchRankings picks the metric
+// from them and identity echoes talentSplit — so they must be part of the /api/vet/parses cache
+// key. Under the old `id.key + '/parses'` key this test fails at the second request: it is a
+// cache HIT that returns the enhancement (dps-gated) parses and identity under a resto request.
+test('GET /api/vet/parses: class and talents are part of the cache key, so a respec inside the TTL is not served the previous spec\'s parses', async () => {
+    app.__test.resetCaches();
+    const metrics = [];
+    app.__test.setWclQuery(async (q, vars) => {
+        if (q !== P.RANK_QUERY) throw new Error('unexpected query: ' + q.slice(0, 50));
+        metrics.push(vars.metric);
+        return { characterData: { character: { zoneRankings: JSON.parse(JSON.stringify(NOTT.zoneRankings[String(vars.zone)])) } } };
+    });
+    const QP = 'name=Nottomwro&server=spineshatter&region=eu&zone=1060';
+
+    const enh = await fetch(base + '/api/vet/parses?' + QP + '&class=SHAMAN&talents=2,45,14', SAME_ORIGIN);
+    assert.strictEqual(enh.status, 200);
+    assert.strictEqual(enh.headers.get('x-vet-cache'), 'miss');
+    const enhBody = await enh.json();
+    assert.deepStrictEqual([enhBody.identity.spec, enhBody.identity.role, enhBody.identity.talentSplit], ['Enhancement', 'melee', [2, 45, 14]]);
+    assert.deepStrictEqual(metrics, ['dps', 'dps'], 'an enhancement shaman is ranked on dps, both tiers');
+
+    // The same character in a later report, respecced: everything but ?talents= is identical.
+    const resto = await fetch(base + '/api/vet/parses?' + QP + '&class=SHAMAN&talents=5,8,48', SAME_ORIGIN);
+    assert.strictEqual(resto.status, 200);
+    assert.strictEqual(resto.headers.get('x-vet-cache'), 'miss', 'a different talent split must not be served the enhancement entry');
+    const restoBody = await resto.json();
+    assert.deepStrictEqual([restoBody.identity.spec, restoBody.identity.role, restoBody.identity.talentSplit], ['Restoration', 'healer', [5, 8, 48]]);
+    assert.deepStrictEqual(metrics.slice(2), ['hps', 'hps'], 'the resto request is gated on its own metric, not the cached dps one');
+
+    // ?class= alone re-keys too: with neither class nor talents there is nothing to detect a spec
+    // from, so this response is a third, distinct body rather than either cached one.
+    const bare = await fetch(base + '/api/vet/parses?' + QP, SAME_ORIGIN);
+    assert.strictEqual(bare.headers.get('x-vet-cache'), 'miss', 'dropping ?class= must not hit the SHAMAN entry');
+    const bareBody = await bare.json();
+    assert.deepStrictEqual([bareBody.identity.class, bareBody.identity.spec, bareBody.identity.talentSplit], [null, null, null]);
+
+    // The key still caches: repeating the first request exactly is a hit with no new WCL traffic.
+    const again = await fetch(base + '/api/vet/parses?' + QP + '&class=SHAMAN&talents=2,45,14', SAME_ORIGIN);
+    assert.strictEqual(again.headers.get('x-vet-cache'), 'hit');
+    assert.deepStrictEqual(await again.json(), enhBody);
+    assert.strictEqual(metrics.length, 6, 'three distinct keys, two RANK queries each, and nothing extra for the hit');
+});
+
+// Spec Testing §4: a WCL rate limit must propagate as 429 (not the generic 502) on the new routes
+// too — /api/vet/feedback's own 429 test above is the pattern; the error shape is wclFetch's.
+function rateLimited() {
+    return async () => { const e = new Error('WCL rate limit reached — try again later'); e.code = 'RATE_LIMIT'; throw e; };
+}
+test('GET /api/vet/nights: a WCL rate limit propagates as 429 (spec Testing §4)', async () => {
+    app.__test.resetCaches();
+    app.__test.setWclQuery(rateLimited());
+    // The profile is seeded, so the only WCL call left is fetchNights' encounterRankings — the
+    // 429 therefore comes from the nights lookup itself, not from profile loading.
+    app.__test.caches.vetCache.set(IDENTITY_KEY, { at: Date.now(), profile: rotProfile() });
+    const r = await fetch(base + '/api/vet/nights?' + QS, SAME_ORIGIN);
+    assert.strictEqual(r.status, 429);
+    assert.match((await r.json()).error, /rate limit/i);
+    assert.strictEqual(app.__test.caches.nightsCache.size, 0, 'a rate-limited lookup caches nothing');
+});
+test('GET /api/wcl/log/:code/roster: a WCL rate limit propagates as 429 (spec Testing §4)', async () => {
+    app.__test.resetCaches();
+    app.__test.setWclQuery(rateLimited());
+    const r = await fetch(base + '/api/wcl/log/X6mnbPQpGhjJC2TN/roster?zone=1060', SAME_ORIGIN);
+    assert.strictEqual(r.status, 429);
+    assert.match((await r.json()).error, /rate limit/i);
+});
+test('GET /api/wcl/logs and /api/vet/parses: a WCL rate limit propagates as 429 (spec Testing §4)', async () => {
+    app.__test.resetCaches();
+    app.__test.setWclQuery(rateLimited());
+    const logs = await fetch(base + '/api/wcl/logs?guild=Animal%20Kingdom&server=spineshatter&region=eu', SAME_ORIGIN);
+    assert.strictEqual(logs.status, 429);
+    const parses = await fetch(base + '/api/vet/parses?name=Nottomwro&server=spineshatter&region=eu&zone=1060', SAME_ORIGIN);
+    assert.strictEqual(parses.status, 429);
+});
+
 chain.then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

@@ -282,11 +282,14 @@ async function refreshLogList() {
         const res = await fetch('/api/wcl/logs?guild=' + encodeURIComponent(wcl.guild) + '&server=' + encodeURIComponent(wcl.server) + '&region=' + encodeURIComponent(wcl.region));
         const body = await res.json().catch(() => ({}));
         if (logListFor !== want) return; // settings changed while this was in flight
-        if (!res.ok) { sel.innerHTML = '<option value="">' + escapeHtml(body.error || ('HTTP ' + res.status)) + '</option>'; return; }
+        // Fix round 2 (Important): logListFor is the in-flight guard, so a failure has to release
+        // it — otherwise one 500 leaves every later refreshLogList() short-circuiting on
+        // `want === logListFor` and the select is stuck on the error text for the whole session.
+        if (!res.ok) { logListFor = ''; sel.innerHTML = '<option value="">' + escapeHtml(body.error || ('HTTP ' + res.status)) + '</option>'; return; }
         const logs = Array.isArray(body.logs) ? body.logs : [];
         sel.innerHTML = '<option value="">' + (logs.length ? 'Recent raid nights…' : 'No logs for ' + escapeHtml(wcl.guild)) + '</option>' +
             logs.map(l => '<option value="' + escapeHtml(l.code) + '">' + escapeHtml(l.date + ' · ' + (l.zone ? shortZoneLabel(l.zone.name) : '?') + ' · ' + l.title) + '</option>').join('');
-    } catch (err) { if (logListFor === want) sel.innerHTML = '<option value="">Network error: ' + escapeHtml(err.message) + '</option>'; }
+    } catch (err) { if (logListFor === want) { logListFor = ''; sel.innerHTML = '<option value="">Network error: ' + escapeHtml(err.message) + '</option>'; } }
 }
 // Loads every player of a report into the table with a pending profile (gear now, parses
 // streaming through the queue). `quiet` (Refresh all) keeps the roster notice as it is.
@@ -329,8 +332,12 @@ async function loadReport(code, opts) {
         // The first log loaded fills in the guild when none is set — the log picker then works.
         if (!wcl.guild && rep.guild && rep.guild.name) { wcl.guild = rep.guild.name; try { saveRealm(); } catch (e) { /* notice below still shows */ } renderRealm(); refreshLogList(); }
         const summary = 'Loaded ' + (body.players || []).length + ' players from ' + (rep.date || code) + (rep.zone ? ' · ' + rep.zone.name : '') + ' (' + added + ' new). Parses are loading.';
+        // Fix round 2 (Minor): the quiet contract holds here too — a failed save must not write
+        // the notice Refresh all promised to leave alone. The fact is not lost: every player just
+        // added is enqueued above, and fetchOne's own save() guard surfaces the same failure as a
+        // per-row error (the house pattern for a quiet save failure).
         try { save(); if (!opts.quiet) rosterNotice = summary; }
-        catch (err) { rosterNotice = summary + ' Could not save locally: ' + err.message; }
+        catch (err) { if (!opts.quiet) rosterNotice = summary + ' Could not save locally: ' + err.message; }
         renderTable();
         return true;
     } catch (err) { rosterNotice = 'Network error: ' + err.message; renderSummary(); return false; }
@@ -345,8 +352,11 @@ function loadLog() {
     const code = typed || document.getElementById('logSelect').value;
     if (!code) { rosterNotice = 'Pick a raid night or paste a Warcraft Logs report code / URL.'; renderSummary(); return; }
     if (!wcl.server) { rosterNotice = 'No realm set — enter the Warcraft Logs realm slug first.'; renderSummary(); return; }
-    document.getElementById('logInput').value = '';
-    loadReport(code);
+    // Fix round 2 (Minor): clear the paste only once the load actually succeeded — a 404/429/
+    // network failure used to wipe it, leaving the user to find the report code again. (A typed-
+    // but-unparseable paste already keeps its text, above.)
+    const input = document.getElementById('logInput');
+    loadReport(code).then(ok => { if (ok) input.value = ''; });
 }
 function removePlayer(name) {
     const key = name.toLowerCase();

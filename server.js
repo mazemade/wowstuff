@@ -375,7 +375,7 @@ app.get('/api/vet/nights', async (req, res) => {
 const LOGS_CACHE_MS = 5 * 60 * 1000;
 const logsCache = new Map();   // region/server/guild -> { at, body }
 const rosterCache = new Map(); // code/zone/fallbackServer/fallbackRegion -> { at, body }
-const parsesCache = new Map(); // identity key + '/parses' -> { at, body }
+const parsesCache = new Map(); // identity key + '/parses/' + class + '/' + talents -> { at, body }
 function cachedJson(cache, key, ttl, res) {
   const hit = cache.get(key);
   if (!hit || Date.now() - hit.at >= ttl) return false;
@@ -450,7 +450,10 @@ app.get('/api/vet/parses', async (req, res) => {
     talentSplit = String(req.query.talents).split(',').map(n => parseInt(n, 10));
     if (talentSplit.length !== 3 || talentSplit.some(n => !Number.isInteger(n) || n < 0 || n > 61)) return res.status(400).json({ error: 'Invalid talents' });
   }
-  const key = id.key + '/parses';
+  // Fix round 2 (Important): class and talents change the RESPONSE — fetchRankings picks dps vs
+  // hps from them and identity echoes talentSplit — so they must be part of the key. Without them
+  // a respec inside the 15-minute TTL serves the previous spec's metric under the new spec's row.
+  const key = id.key + '/parses/' + (classToken || '') + '/' + (talentSplit ? talentSplit.join(',') : '');
   try {
     if (cachedJson(parsesCache, key, FEEDBACK_CACHE_MS, res)) return;
     const rk = await VetProfile.fetchRankings(wclQuery, { name: id.name, server: id.server, region: id.region, zone: id.zone, classToken, talentSplit });
