@@ -17,7 +17,7 @@ function test(name, fn) { fn(); console.log('ok -', name); passed++; }
 test('every chapter has guidance, highlights, assets and independent finite frames', () => {
     const fs = require('node:fs');
     [fight.map, fight.portrait, ...fight.abilities.map(a => a.icon)].forEach(p => assert.ok(fs.existsSync(p), p));
-    assert.equal(fight.scenes.length, 8);
+    assert.equal(fight.scenes.length, 10);
     fight.scenes.forEach(s => {
         ['call', 'why', 'caption', 'mistake', 'chapter'].forEach(k => assert.ok(s[k], s.id + k));
         assert.ok(s.jobs.length >= 3);
@@ -74,6 +74,92 @@ test('final burn begins in its final formation with only a surviving controlled 
     const end = A.simulate(fight, sc, sc.duration);
     assert.equal(end.stage, 'complete'); assert.equal(end.bossHp, 0); assert.ok(end.akamaHp > 0);
     assert.equal(end.npcs.length, 0);
+});
+test('the slow walk gathers stable tank-held adds at the moving Shade before cleanup', () => {
+    const sc = prepare('walk'), at = t => A.simulate(fight, sc, t);
+    assert.deepEqual(sc.sequence, { initialChannels: 1, kills: [2000], wavesAt: 0, approachAt: 2000, gatherAt: 5000, cleanupAt: 7000, engageAt: 14000, winAt: 26000 });
+    const beforeCleanup = at(6000), cleaning = at(7500), engaged = at(14500);
+    const waveIds = frame => frame.npcs.filter(n => n.id !== 'defender').map(n => n.id).sort();
+    assert.equal(beforeCleanup.stage, 'approach');
+    assert.equal(beforeCleanup.damageTarget, 'adds');
+    assert.equal(beforeCleanup.npcs.length, 7);
+    assert.deepEqual(waveIds(beforeCleanup), waveIds(at(5000)));
+    sc.tanks.forEach(id => assert.ok(L.dist(fight, beforeCleanup.pos[id], beforeCleanup.boss) <= 10, id + ' is beside the moving Shade'));
+    beforeCleanup.npcs.forEach(n => {
+        if (!n.targetId) return;
+        assert.ok(sc.tanks.includes(n.targetId));
+        assert.ok(L.dist(fight, n.at, beforeCleanup.pos[n.targetId]) < 10, n.id + ' follows its real tank');
+    });
+    assert.ok(cleaning.npcs.some(n => n.id !== 'defender' && n.hp < 1), 'cleanup shows add health progress');
+    assert.equal(engaged.damageTarget, 'shade');
+    assert.equal(engaged.phase, 2);
+});
+test('default cleanup begins after rendezvous and never clears an add without its tank', () => {
+    for (const id of ['walk', 'cycle']) {
+        const sc = prepare(id), seq = sc.sequence, at = t => A.simulate(fight, sc, t);
+        const gathered = at(seq.gatherAt), beforeCleanup = at(seq.cleanupAt - 1);
+        assert.equal(gathered.npcs.length, 7);
+        assert.equal(beforeCleanup.npcs.length, 7);
+        assert.ok(gathered.npcs.filter(n => n.kind !== 'defender').every(n => L.dist(fight, n.at, gathered.boss) <= 16));
+        assert.ok(at(seq.cleanupAt + 1600).npcs.every(n => n.kind === 'defender'));
+        assert.equal(at(seq.cleanupAt + 3000).npcs.length, 0, 'default cleanup clears the final Defender before engagement');
+        assert.equal(at(seq.engageAt - 1).bossTarget, null);
+        assert.equal(at(seq.engageAt).bossTarget, 'akama');
+    }
+    const partial = prepare('walk', { tanks: ['Left'], ranged: ['Damage'] });
+    const unmanaged = A.simulate(fight, partial, partial.sequence.cleanupAt + 1600).npcs.filter(n => n.targetId === null);
+    assert.ok(unmanaged.length);
+    assert.ok(unmanaged.every(n => n.hp === 1));
+});
+test('alternate tanks keep their stacked positions through release and its AoE covers both target groups', () => {
+    const sc = prepare('aoe'), seq = sc.sequence, at = t => A.simulate(fight, sc, t);
+    const beforeRelease = at(seq.approachAt - 1), release = at(seq.approachAt), cleave = at(seq.aoeAt);
+    sc.tanks.forEach(id => assert.ok(L.dist(fight, beforeRelease.pos[id], release.pos[id]) < 1.5, id + ' does not snap back to a doorway'));
+    cleave.npcs.filter(n => n.kind !== 'channeler').forEach(n => assert.ok(L.dist(fight, n.at, cleave.aoe.at) <= cleave.aoe.radiusYards));
+});
+test('walk exports name the current tank and damage jobs rather than stale doorway assignments', () => {
+    const sc = prepare('walk', { tanks: ['Left', 'Right'], ranged: ['Damage'] }), frame = A.simulate(fight, sc, 7500), text = A.copyText(fight, sc, frame);
+    assert.match(text, /hold adds for cleanup/i);
+    assert.match(text, /clean up adds during the Shade’s walk/i);
+    assert.doesNotMatch(text, /Left door; control incoming adds|Right door; control incoming adds/i);
+});
+test('shared walk and AoE calls replace repeated tank labels on the map', () => {
+    for (const [id, time] of [['walk', 5000], ['walk', 7500], ['aoe', 6000], ['aoe', 7000]]) {
+        const sc = prepare(id), frame = A.simulate(fight, sc, time);
+        assert.ok(frame.call);
+        sc.tanks.forEach(tank => assert.equal(frame.roles[tank], undefined, id + ' shows one shared call instead of overlapping tank labels'));
+    }
+    const positioning = prepare('positioning');
+    assert.ok(positioning.raid.filter(p => p.kind === 'tank').every(p => p.label));
+});
+test('alternate stack keeps its Channeler state and never invents AoE damage without a damage role', () => {
+    const named = prepare('aoe', { tanks: ['Left', 'Right'], ranged: ['Damage'] });
+    const stack = A.simulate(fight, named, named.sequence.stackAt);
+    assert.equal(stack.stage, 'gather');
+    assert.match(A.copyText(fight, named, stack), /hold stacked adds at the Channelers/i);
+    const noDamage = prepare('aoe', { tanks: ['Left', 'Right'], healers: ['Healer'] });
+    const frame = A.simulate(fight, noDamage, noDamage.sequence.aoeAt + 500);
+    assert.equal(frame.stage, 'gather');
+    assert.equal(frame.damageTarget, null);
+    assert.equal(frame.aoe, null);
+    assert.equal(frame.channels.length, 6);
+    assert.ok(frame.npcs.filter(n => n.kind !== 'channeler').every(n => n.hp === 1));
+});
+test('the alternative channeler AoE pull keeps the wave through the stack, cleaves it, then changes damage to the Shade', () => {
+    const sc = prepare('aoe'), at = t => A.simulate(fight, sc, t);
+    assert.equal(sc.sequence.strategy, 'channeler-aoe');
+    assert.equal(at(6000).damageTarget, 'channels');
+    assert.equal(at(6000).npcs.filter(n => n.kind === 'channeler').length, 6);
+    assert.equal(at(6000).npcs.filter(n => n.id !== 'defender' && n.kind !== 'channeler').length, 6);
+    const cleave = at(7000);
+    assert.equal(cleave.stage, 'aoe');
+    assert.equal(cleave.damageTarget, 'channels-and-adds');
+    assert.ok(cleave.aoe, 'AoE is an explicit beneficial effect');
+    assert.ok(cleave.npcs.some(n => n.kind !== 'channeler' && n.id !== 'defender' && n.hp < 1));
+    const release = at(12600);
+    assert.equal(release.channels.length, 0);
+    assert.equal(release.damageTarget, 'shade');
+    assert.ok(release.npcs.some(n => n.id === 'defender' && sc.tanks.includes(n.targetId)));
 });
 test('class names are case-insensitive for traps and third-tank support follows the non-paladin side', () => {
     const roster = { tanks: ['Left tank', 'Right tank', 'Support'], ranged: ['Hunter'] };
@@ -134,6 +220,29 @@ test('partial, two-tank and oversized rosters preserve every player without inve
         assert.doesNotMatch(text, /Hateful|Misdirect|spine|volcano/i);
         frame.npcs.forEach(n => { if (n.targetId) assert.ok(sc.raid.some(p => p.id === n.targetId && p.kind === 'tank')); });
         if ((roster.tanks || []).length < 2) assert.ok(sc.missingRoles.length);
+    }
+});
+test('walk, cycle and alternate frames seek deterministically across incomplete and oversized rosters', () => {
+    const rosters = [
+        { tanks: ['Solo tank'] }, { healers: ['Solo healer'] }, { ranged: ['Solo damage'] },
+        { tanks: ['Tank'], healers: ['Healer'], ranged: ['Damage'] },
+        { tanks: ['Left', 'Right'], healers: ['Healer'], melee: ['Damage'] },
+        { tanks: ['L', 'R', 'S', 'Extra'], ranged: Array.from({ length: 29 }, (_, i) => 'R' + i) }
+    ];
+    for (const id of ['walk', 'cycle', 'aoe']) for (const roster of rosters) {
+        const sc = prepare(id, roster), times = new Set([0, sc.duration]);
+        Object.values(sc.sequence).forEach(value => {
+            if (Number.isFinite(value)) [value - 1, value, value + 1].forEach(t => times.add(t));
+        });
+        [...times].forEach(t => {
+            const frame = A.simulate(fight, sc, t);
+            Object.values(frame.pos).forEach(p => assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y)));
+            assert.ok(Number.isFinite(frame.bossHp) && Number.isFinite(frame.akamaHp));
+            frame.npcs.forEach(n => assert.ok(!n.targetId || sc.tanks.includes(n.targetId)));
+        });
+        const middle = Math.floor(sc.duration / 2), direct = A.simulate(fight, sc, middle);
+        A.simulate(fight, sc, sc.duration); A.simulate(fight, sc, 0);
+        assert.deepEqual(A.simulate(fight, sc, middle), direct, id + ' direct seek');
     }
 });
 console.log(`\n${passed} Shade of Akama checks passed`);

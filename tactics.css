@@ -344,6 +344,7 @@ button {
 .legend__mark--trap { border-radius: 50%; border: 2px solid #8fcfff; }
 .legend__mark--rain { border-radius: 50%; background: #eb6522; }
 .legend__mark--ally { border-radius: 50%; background: #9dd5b9; }
+.legend__mark--aoe { border-radius: 50%; border: 2px solid #73d1bd; background: rgba(77,190,168,.16); }
 body[data-fight="bt-akama"] .map { display: flex; flex-direction: column; }
 body[data-fight="bt-akama"] .map canvas { flex: 1 1 0; height: 0; min-height: 0; }
 body[data-fight="bt-akama"] .map__meta {

@@ -48,6 +48,16 @@
                 for (let x = -r * 2; x <= r * 2; x += 12) line(ctx, { x: p.x + x, y: p.y - r }, { x: p.x + x + r, y: p.y + r }, 'rgba(255,179,86,.28)');
                 ctx.restore(); label(ctx, p.x, p.y + r + 16, 'Rain of Fire', '#ffce9d');
             });
+            if (frame.aoe) {
+                const p = px(frame.aoe.at), r = yd(frame.aoe.radiusYards);
+                ring(ctx, p, r, 'rgba(77,211,191,.16)', 'rgba(126,245,220,.84)');
+                ctx.save(); ctx.strokeStyle = 'rgba(160,255,232,.45)'; ctx.lineWidth = 2;
+                for (let i = 0; i < 8; i++) {
+                    const a = i * Math.PI / 4;
+                    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * r * .82, p.y + Math.sin(a) * r * .82); ctx.stroke();
+                }
+                ctx.restore(); label(ctx, p.x, p.y + r + 16, 'AoE damage', '#b8ffeb');
+            }
             if (frame.stage === 'approach') line(ctx, px(frame.boss), px({ x: frame.akama.x, y: frame.akama.y - .09 }), '#c5f4e9', true);
             if (frame.phase === 2 && frame.stage !== 'complete') line(ctx, px(frame.boss), px(frame.akama), '#e9b86a');
             return;

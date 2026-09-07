@@ -57,9 +57,12 @@ groups, and checks live whether assignments were actually done.
   links are under "Mechanics & sources". Naj’entus has seven state-driven chapters: the loop,
   positions, Needle splash, freeing an Impaling Spine, healing through Tidal Shield, one called
   Hurl Spine, and the complete cycle. Its state display and exports follow the current illustrative frame.
-  Shade of Akama has eight chapters based on the guild spreadsheet and its strategy image,
+  Shade of Akama has ten chapters based on the guild spreadsheet, its strategy image and the raid’s alternate AoE tactic,
   with channeler and sorcerer bindings, hallway tank control and Frost Traps, Rain of Fire,
-  add cleanup during the Shade’s walk, and the final Lust burn while Akama tanks the Shade.
+  a dedicated slow RP walk with tanks gathering their adds around the moving Shade before cleanup,
+  and the final Lust burn while Akama tanks the Shade. The alternative chapter demonstrates
+  pulling doorway packs up to the Channelers, AoEing them together, then focusing the Shade
+  while tanks keep the few surviving adds controlled.
   Its map, current calls and roster exports follow the same frame; timing and health are illustrative.
   Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload

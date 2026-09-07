@@ -122,6 +122,10 @@ async function screenshot(name) {
   await writeFile(join(process.env.TACTICS_SCREENSHOT_DIR, `${name}.png`), Buffer.from(result.data, "base64"));
 }
 
+async function showShade(id, time = 0) {
+  await evaluate(`(()=>{const a=__tactics,i=a.scenes.findIndex(s=>s.id===${JSON.stringify(id)});if(i<0)throw Error('Missing Shade chapter');a.show(i);window.__shadeScene=a.scenes[i];a.playback.pause(performance.now());a.playback.seek(${time},performance.now());a.render(performance.now())})()`);
+}
+
 async function run() {
   const port = await startServer();
   await startChrome();
@@ -275,38 +279,77 @@ async function run() {
   assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
-  assert.equal(await evaluate("__tactics.count"), 8);
+  assert.equal(await evaluate("__tactics.count"), 10);
+  assert.deepEqual(await evaluate('__tactics.scenes.map(s=>s.id)'), ['overview','positioning','channelers','doorways','sorcerers','fire','walk','burn','cycle','aoe']);
+  const shadeMeta = await evaluate('Object.fromEntries(__tactics.scenes.map(s=>[s.id,{duration:s.duration,...s.sequence}]))');
   assert.equal(await evaluate("bossNav.children[2].getAttribute('aria-current')"), 'page');
   assert.match(await evaluate("referenceContent.textContent"), /guild’s spreadsheet[\s\S]*Seed of Corruption/);
   assert.equal(await evaluate("[...document.images].every(i=>i.complete && i.naturalWidth>0)"), true);
-  pass('boss order and default follow the raid; Shade has eight chapters, loaded art and spreadsheet source');
+  pass('boss order and default follow the raid; Shade has ten chapters, loaded art and spreadsheet source');
 
   const shadeBounds = await evaluate(`(()=>{const a=__tactics,b=fx.getBoundingClientRect(),bad=[];a.scenes.forEach((s,i)=>{a.show(i);a.playback.pause(performance.now());for(let t=0;t<=s.duration;t+=500){a.playback.seek(t,performance.now());a.render(performance.now());const f=s._sim;[f.boss,f.akama,...Object.values(f.pos),...f.npcs.map(n=>n.at)].forEach(p=>{const v=a.px(p);if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||v.x<8||v.y<8||v.x>b.width-8||v.y>b.height-8)bad.push([s.id,t,p]);});if(sceneCall.textContent!==f.call||!encounterState.textContent.includes(a.fight.stateLabels[f.stage]))bad.push(['state',s.id,t]);}});return bad})()`);
   assert.deepEqual(shadeBounds, [], 'Shade actors and state stay visible and synchronized through all scenes');
   pass('Shade scene boundary sampling keeps raid, NPCs and live guidance synchronized');
-  for (const [chapter, time, name] of [[1,0,'positioning'],[2,4000,'channelers'],[3,6000,'doorways'],[4,5000,'sorcerer'],[5,4000,'fire'],[7,19000,'approach'],[6,5000,'burn']]) {
-    await evaluate(`__tactics.show(${chapter});__tactics.playback.pause(performance.now());__tactics.playback.seek(${time},performance.now());__tactics.render(performance.now())`);
+  await showShade('walk', shadeMeta.walk.gatherAt);
+  const walkGather = await evaluate(`(()=>{const a=__tactics,s=__shadeScene,f=s._sim,adds=f.npcs.filter(n=>!['channeler','sorcerer'].includes(n.kind));return {stage:f.stage,target:f.damageTarget,channels:f.channels.length,boss:f.boss,bossHp:f.bossHp,akamaHp:f.akamaHp,addIds:adds.map(n=>n.id),tankGaps:s.tanks.map(id=>TacticsLayout.dist(a.fight,f.pos[id],f.boss)),addGaps:adds.map(n=>TacticsLayout.dist(a.fight,n.at,f.boss))}})()`);
+  assert.equal(walkGather.channels, 0); assert.equal(walkGather.addIds.length, 7);
+  assert.equal(walkGather.target, 'adds');
+  assert.equal(walkGather.bossHp, 1); assert.equal(walkGather.akamaHp, 1);
+  assert(walkGather.boss.y > .1 && walkGather.boss.y < .65);
+  assert(walkGather.tankGaps.every(d=>d<=10) && walkGather.addGaps.every(d=>d<=16), 'tank-owned packs actually meet the moving Shade');
+  await showShade('walk', shadeMeta.walk.cleanupAt-1);
+  assert.deepEqual(await evaluate("__shadeScene._sim.npcs.filter(n=>!['channeler','sorcerer'].includes(n.kind)).map(n=>n.id)"), walkGather.addIds);
+  pass('RP walk visibly gathers the same living add packs around the moving Shade before cleanup');
+
+  await showShade('aoe', shadeMeta.aoe.stackAt);
+  assert.equal(await evaluate('__shadeScene._sim.stage'), 'gather');
+  assert.match(await evaluate('encounterState.textContent'), /Bring adds to Channelers/);
+  assert.equal(await evaluate('__shadeScene._sim.npcs.filter(n=>n.kind!=="channeler").every(n=>n.hp===1)'), true);
+  await showShade('aoe', shadeMeta.aoe.aoeAt+500);
+  assert.equal(await evaluate('__shadeScene._sim.strategy'), 'channeler-aoe');
+  assert.equal(await evaluate('__shadeScene._sim.damageTarget'), 'channels-and-adds');
+  assert.equal(await evaluate('__shadeScene._sim.channels.length > 0 && !!__shadeScene._sim.aoe'), true);
+  assert.equal(await evaluate('__shadeScene.tanks.every(id=>__shadeScene._sim.pos[id].y<.27)'), true);
+  await showShade('aoe', shadeMeta.aoe.approachAt+1000);
+  assert.equal(await evaluate('__shadeScene._sim.damageTarget'), 'shade');
+  assert.equal(await evaluate('__shadeScene._sim.channels.length'), 0);
+  assert.equal(await evaluate('__shadeScene._sim.npcs.length > 0 && __shadeScene._sim.npcs.length <= 2'), true);
+  assert.equal(await evaluate('__shadeScene._sim.bossTarget'), null, 'Akama has not engaged during the RP walk');
+  assert.equal(await evaluate(`(()=>{const a=__tactics,s=__shadeScene,t=s.sequence.approachAt,before=a.simulate(s,t-1),after=a.simulate(s,t+1);return s.tanks.every(id=>TacticsLayout.dist(a.fight,before.pos[id],after.pos[id])<.1)})()`), true, 'tanks carry their existing pack forward at release without snapping to the doors');
+  pass('alternative gathers adds at live Channelers, shows AoE and switches focus to Shade while retaining survivors');
+  for (const [chapter, time, name] of [['positioning',0,'positioning'],['channelers',4000,'channelers'],['doorways',6000,'doorways'],['sorcerers',5000,'sorcerer'],['fire',4000,'fire'],['walk',shadeMeta.walk.gatherAt,'walk-gather'],['walk',shadeMeta.walk.cleanupAt+500,'walk-cleanup'],['cycle',shadeMeta.cycle.gatherAt,'approach'],['burn',5000,'burn'],['aoe',shadeMeta.aoe.stackAt,'aoe-stack'],['aoe',shadeMeta.aoe.aoeAt+500,'aoe-cleave'],['aoe',shadeMeta.aoe.approachAt+1000,'aoe-release']]) {
+    await showShade(chapter, time);
     await screenshot('akama-' + name + '-1600');
   }
-  await evaluate("__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(36000,performance.now());__tactics.render(performance.now())");
+  await showShade('cycle', shadeMeta.cycle.duration);
   await sleep(200);
-  assert.equal(await evaluate("__tactics.scenes[7]._t"), 36000);
+  assert.equal(await evaluate('__shadeScene._t'), shadeMeta.cycle.duration);
   assert.match(await evaluate("sceneLabel.textContent"), /SHADE DEFEATED/);
   await key('r', 'KeyR');
-  assert((await evaluate("__tactics.scenes[7]._t")) < 1000);
+  assert((await evaluate('__shadeScene._t')) < 1000);
   pass('Shade holds the final victory frame and replay restores the encounter');
+  await key('ArrowRight');
+  assert.match(await evaluate('stepTitle.textContent'), /Channelers.*cleave|AoE/i);
+  assert.match(await evaluate("document.querySelector('#dots button[aria-current=step]').textContent"), /Alternative/i);
+  await key('ArrowLeft');
+  pass('keyboard navigation reaches the alternative after the standard full sequence');
 
   for (const [width,height] of [[1280,800],[390,844]]) {
     await send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:width<500});
-    await evaluate("__tactics.show(3);__tactics.playback.pause(performance.now());__tactics.playback.seek(6000,performance.now());__tactics.render(performance.now())");
+    await showShade('doorways', 6000);
     await sleep(150); await screenshot('akama-doorways-' + width);
     assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'no horizontal overflow at ' + width);
-    assert.equal(await evaluate(`(()=>{const a=__tactics,s=a.scenes[3],b=fx.getBoundingClientRect();return [s._sim.boss,s._sim.akama,...Object.values(s._sim.pos),...s._sim.npcs.map(n=>n.at)].every(p=>{const q=a.px(p);return q.x>=8&&q.y>=8&&q.x<=b.width-8&&q.y<=b.height-8})})()`), true, 'both doorways and all actors fit at ' + width);
+    assert.equal(await evaluate(`(()=>{const a=__tactics,s=__shadeScene,b=fx.getBoundingClientRect();return [s._sim.boss,s._sim.akama,...Object.values(s._sim.pos),...s._sim.npcs.map(n=>n.at)].every(p=>{const q=a.px(p);return q.x>=8&&q.y>=8&&q.x<=b.width-8&&q.y<=b.height-8})})()`), true, 'both doorways and all actors fit at ' + width);
     assert.match(await evaluate('sceneLabel.textContent'), /CONTROL THE HALLWAYS/);
+    for (const [chapter,time] of [['walk',shadeMeta.walk.gatherAt],['aoe',shadeMeta.aoe.aoeAt+500]]) {
+      await showShade(chapter,time); await screenshot('akama-'+chapter+'-'+width);
+      assert.equal(await evaluate(`(()=>{const a=__tactics,f=__shadeScene._sim,b=fx.getBoundingClientRect();return [f.boss,f.akama,...Object.values(f.pos),...f.npcs.map(n=>n.at)].every(p=>{const q=a.px(p);return q.x>=8&&q.y>=8&&q.x<=b.width-8&&q.y<=b.height-8})})()`), true, chapter+' actors fit at '+width);
+    }
   }
   await send('Emulation.clearDeviceMetricsOverride');
   await send('Emulation.setEmulatedMedia', { features: [{name:'prefers-reduced-motion',value:'reduce'}] }); await reload();
-  await evaluate('__tactics.show(7)'); assert.equal(await evaluate('__tactics.playback.playing'), false);
+  await evaluate("__tactics.show(__tactics.scenes.findIndex(s=>s.id==='walk'))"); assert.equal(await evaluate('__tactics.playback.playing'), false);
+  await evaluate("__tactics.show(__tactics.scenes.findIndex(s=>s.id==='aoe'))"); assert.equal(await evaluate('__tactics.playback.playing'), false);
   await send('Emulation.setEmulatedMedia', {features:[]});
   pass('Shade supports phone layout and reduced motion');
 
@@ -318,39 +361,68 @@ async function run() {
     {name:'TrapHunter',class:'HUNTER',spec:'Beast Mastery',flags:[],source:'manual'}
   ],playerMeta:{PaladinLeft:{mt:true}}});
   await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(shadeRoster)})`); await reload();
-  await evaluate('__tactics.show(1);__tactics.render(performance.now())');
+  await showShade('positioning');
   assert.equal(await evaluate('__tactics.assigned.length'), 5);
-  assert.equal(await evaluate('__tactics.scenes[1].raid.every(p=>p.label.includes(p.name))'), true);
-  assert.equal(await evaluate('__tactics.scenes[1]._sim.traps.length'), 2);
-  assert.equal(await evaluate('__tactics.scenes[1].tanks.length'), 3);
-  assert.equal(await evaluate("__tactics.scenes[1].tankJobs[__tactics.assigned.find(p=>p.name==='DruidSupport').id]"), 'Right support');
+  assert.equal(await evaluate('__shadeScene.raid.every(p=>p.label.includes(p.name))'), true);
+  assert.equal(await evaluate('__shadeScene._sim.traps.length'), 2);
+  assert.equal(await evaluate('__shadeScene.tanks.length'), 3);
+  assert.equal(await evaluate("__shadeScene.tankJobs[__tactics.assigned.find(p=>p.name==='DruidSupport').id]"), 'Right support');
   await screenshot('akama-positioning-namedpartial-1600');
   await evaluate(`(()=>{window.__exports=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>window.__exports.push(t),write:async items=>window.__image=await items[0].getType('image/png')}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
-  await evaluate('__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(26000,performance.now());copyText.click();copyImage.click()');
+  await showShade('cycle', shadeMeta.cycle.engageAt+4000);
+  await evaluate('copyText.click();copyImage.click()');
   await sleep(300);
   const shadeExport = await evaluate('__exports[0]');
   assert.match(shadeExport, /Lust now[\s\S]*PaladinLeft[\s\S]*TrapHunter/);
   assert.doesNotMatch(shadeExport, /Hateful|Misdirect|spine|volcano/i);
   assert((await evaluate('__image.size')) > 1000);
   pass('Shade preserves named roster and exports the current burn call and image');
-  await evaluate('__tactics.playback.seek(36000,performance.now());copyText.click()');
+  await evaluate(`__tactics.playback.seek(${shadeMeta.cycle.duration},performance.now());copyText.click()`);
   await sleep(50);
   const completedExport = await evaluate('__exports[1]');
   assert.match(completedExport, /Shade defeated\. Akama survives\./);
   assert.doesNotMatch(completedExport, /\bLust\b|burn the Shade|hold surviving adds|heal assigned add tanks|clean up adds/i);
   pass('Shade victory exports completed roster jobs without stale combat instructions');
-  await evaluate('__tactics.playback.seek(26000,performance.now());__tactics.render(performance.now())');
+  for (const [chapter,time,target] of [['walk',shadeMeta.walk.gatherAt,'adds'],['aoe',shadeMeta.aoe.stackAt,'channels'],['aoe',shadeMeta.aoe.aoeAt+500,'channels-and-adds'],['aoe',shadeMeta.aoe.approachAt+1000,'shade']]) {
+    await showShade(chapter,time);
+    await evaluate('copyText.click();copyImage.click()'); await sleep(100);
+    const current = await evaluate('__exports.at(-1)');
+    assert(current.includes(await evaluate('sceneCall.textContent')));
+    assert.equal(await evaluate('__shadeScene._sim.damageTarget'), target);
+    assert.match(current, /PaladinLeft[\s\S]*TrapHunter/);
+    if(chapter==='aoe') assert.match(current, /alternative|AoE/i);
+    if(chapter==='aoe' && time===shadeMeta.aoe.stackAt) assert.match(current, /PaladinLeft — [^\n]*Channelers/);
+    assert((await evaluate('__image.size'))>1000);
+  }
+  pass('walk and alternate-strategy exports follow the currently demonstrated jobs');
+  await showShade('cycle', shadeMeta.cycle.engageAt+4000);
+  await evaluate(`__tactics.playback.seek(${shadeMeta.cycle.engageAt+4000},performance.now());__tactics.render(performance.now())`);
   await evaluate(`(()=>{window.__downloads=[];window.__blobs=[];URL.createObjectURL=b=>{__blobs.push(b);return 'blob:akama-'+__blobs.length};HTMLAnchorElement.prototype.click=function(){__downloads.push(this.download)};Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('blocked')},write:async()=>{throw Error('blocked')}}})})()`);
   await evaluate('copyText.click();copyImage.click()'); await sleep(250);
   assert.deepEqual(await evaluate('__downloads.sort()'), ['akama-briefing-cycle.txt','akama-cycle.png']);
   assert.match(await evaluate('__blobs[0].text()'), /Lust now[\s\S]*TrapHunter/);
   pass('Shade clipboard fallback saves its current briefing and PNG');
+  await showShade('aoe',shadeMeta.aoe.aoeAt+500);
+  await evaluate('__downloads=[];__blobs=[];copyText.click();copyImage.click()'); await sleep(250);
+  assert.deepEqual(await evaluate('__downloads.sort()'), ['akama-aoe.png','akama-briefing-aoe.txt']);
+  assert.match(await evaluate('__blobs[0].text()'), /AoE[\s\S]*TrapHunter/);
+  pass('alternative chapter exports use their own filenames');
   await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(minimal)})`); await reload();
-  await evaluate('__tactics.show(7);__tactics.playback.pause(performance.now());__tactics.playback.seek(36000,performance.now());__tactics.render(performance.now())');
+  await showShade('cycle', shadeMeta.cycle.duration);
   assert.equal(await evaluate('__tactics.assigned.length'), 1);
   assert.match(await evaluate('rosterNote.textContent'), /No damage role/);
-  assert.equal(await evaluate('__tactics.scenes[7]._sim.phase'), 1);
+  assert.equal(await evaluate('__shadeScene._sim.phase'), 1);
   pass('Shade partial roster does not fabricate a damage team or successful burn');
+  await showShade('aoe',shadeMeta.aoe.duration);
+  assert.equal(await evaluate('__shadeScene._sim.channels.length'), 6);
+  assert.equal(await evaluate('__shadeScene._sim.phase'), 1);
+  assert.equal(await evaluate('__shadeScene._sim.npcs.every(n=>!n.targetId||__shadeScene.tanks.includes(n.targetId))'), true);
+  assert.equal(await evaluate('__shadeScene._sim.damageTarget'), null);
+  assert.equal(await evaluate('__shadeScene._sim.aoe'), null);
+  assert.equal(await evaluate('__shadeScene._sim.stage'), 'gather');
+  assert.doesNotMatch(await evaluate('encounterState.textContent'), /AoE Channelers and adds/);
+  assert.equal(await evaluate('__shadeScene._sim.npcs.every(n=>n.hp===1)'), true);
+  pass('alternate strategy with a partial roster preserves real tank ownership and cannot fabricate a kill');
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
