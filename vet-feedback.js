@@ -561,7 +561,7 @@ function rotationFindings(kill) {
     if (!ref || !kill.fight.durationSec || !ref.castsDurationSec) return f;
     const min = kill.fight.durationSec / 60, refMin = ref.castsDurationSec / 60;
     const top3 = ref.abilities.slice(0, 3).map(a => a.name);
-    const refShare = name => { const a = (ref.abilities || []).find(x => x && x.name === name); return a && typeof a.share === 'number' ? a.share : 0; };
+    const refShare = name => { const a = (ref.abilities || []).find(x => x && x.name === name); return a && Number.isFinite(a.share) ? a.share : 0; };
     const fmt = x => Math.round(x * 10) / 10;
     // Final review item 5: names nobody should be asked about at all.
     const offLimits = name => RACIAL.test(name) || ENCOUNTER_ITEM.test(name);
@@ -588,8 +588,10 @@ function rotationFindings(kill) {
             // no bands to prove it (POTION_LABEL), so the line reads "Destruction Potion".
             const isBurst = (Array.isArray(ref.burst) && ref.burst.some(b => b.name === name)) || !!POTION_LABEL[name];
             // ref-above B1: rate alone is not a reason — the reference has to have got damage
-            // out of it, unless it is a burst cooldown, whose value is what it multiplies.
-            if (!isBurst && refShare(name) < T.abilityMinShare) return;
+            // out of it, unless it is a burst cooldown, whose value is what it multiplies, or a
+            // curse, whose value is the debuff it applies (fix round 1, Finding 1): a curse-less
+            // player has no other mechanism telling them to run one at all.
+            if (!isBurst && !isCurse(name) && refShare(name) < T.abilityMinShare) return;
             if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown) {
                 unused.push({ name, rate: fmt(r), isBurst, top3: top3.includes(name) });
             }

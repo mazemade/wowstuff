@@ -513,9 +513,10 @@ test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage sh
             castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Shadowburn': 1 },
             // Shadowburn is NOT in the top 3 by damage share, so the old "top3 or r>=1.5/min"
             // condition never fired for it: r = 1 cast / 2 min = 0.5/min, well under 1.5.
-            // ref-above B1: Shadowburn is an execute nuke, so it carries a real (if modest) share of
-            // damage — 2 keeps it above T.abilityMinShare while staying outside the top 3.
-            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Immolate', share: 5 }, { name: 'Curse of Recklessness', share: 3 }, { name: 'Shadowburn', share: 2 }],
+            // ref-above B1: Shadowburn is an execute nuke, so it carries a real damage share.
+            // Fix round 1, Finding 4: 4 (not the boundary value 2) so an off-by-one in the gate's
+            // comparison operator would be caught, not masked; it stays outside the top 3 either way.
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Immolate', share: 5 }, { name: 'Curse of Recklessness', share: 3 }, { name: 'Shadowburn', share: 4 }],
         },
     };
     const f = F.rotationFindings(kill);
@@ -536,9 +537,10 @@ function rotKill(over) {
         me: { casts: { 'Shadow Bolt': 60 } },
         reference: {
             castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Curse of Doom': 1, 'Shadowburn': 1, 'Destruction': 1 },
-            // ref-above B1: Shadowburn is an execute nuke, so it carries a real (if modest) share of
-            // damage — 2 keeps it above T.abilityMinShare while staying outside the top 3.
-            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Curse of Doom', share: 6 }, { name: 'Immolate', share: 3 }, { name: 'Shadowburn', share: 2 }], burst: [],
+            // ref-above B1: Shadowburn is an execute nuke, so it carries a real damage share.
+            // Fix round 1, Finding 4: 4 (not the boundary value 2) so an off-by-one in the gate's
+            // comparison operator would be caught, not masked; it stays outside the top 3 either way.
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Curse of Doom', share: 6 }, { name: 'Immolate', share: 3 }, { name: 'Shadowburn', share: 4 }], burst: [],
         },
     };
     const k = Object.assign({}, base, over || {});
@@ -1625,6 +1627,57 @@ test('rotationFindings (ref-above B1): drinking an elixir is not an ability to c
     } });
     const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
     assert.deepStrictEqual(f, [], 'consumables are not rotation advice: ' + JSON.stringify(f.map(x => x.text)));
+});
+
+// --- Fix round 1 (post-Task-3 review)
+test('rotationFindings (fix round 1, Finding 1): a curse-less player still hears about a curse with zero damage share', () => {
+    // Curse of the Elements/Recklessness/Tongues/Weakness carry no damage of their own — their
+    // value is the debuff, not a nuke — so the ability-share gate must not remove them. This is
+    // the ONLY mechanism telling a curse-less warlock to run a curse at all (curse_choice only
+    // fires when the player already runs some curse), so dropping it silently is a regression.
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, 'Curse of Recklessness': 3 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }, { name: 'Curse of Recklessness', share: 0 }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.strictEqual(f.length, 1, 'a curse-less player must still be told to run a curse: ' + JSON.stringify(f.map(x => x.text)));
+    assert.ok(/Curse of Recklessness/.test(f[0].text), f[0].text);
+});
+test('rotationFindings (fix round 1, Finding 2): the under-used branch is gated on damage share exactly like the never-cast branch', () => {
+    // Immolate is top3, carries a real share, and the player casts it well below the reference's
+    // rate: reported.
+    const reported = rotKill({ me: { casts: { 'Shadow Bolt': 60, Immolate: 1 } }, reference: {
+        casts: { 'Shadow Bolt': 60, Immolate: 12 },
+        abilities: [{ name: 'Shadow Bolt', share: 80 }, { name: 'Immolate', share: 20 }],
+    } });
+    const rf = F.rotationFindings(reported).filter(x => x.key === 'ability_ratio' && x.ability === 'Immolate');
+    assert.strictEqual(rf.length, 1, 'a top-3 ability with real share, cast well below the reference rate, must be reported: ' + JSON.stringify(rf));
+    // Same ratio gap, but Immolate now carries no damage share of its own: not reported.
+    const notReported = rotKill({ me: { casts: { 'Shadow Bolt': 60, Immolate: 1 } }, reference: {
+        casts: { 'Shadow Bolt': 60, Immolate: 12 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }, { name: 'Immolate', share: 0 }],
+    } });
+    const nf = F.rotationFindings(notReported).filter(x => x.key === 'ability_ratio' && x.ability === 'Immolate');
+    assert.deepStrictEqual(nf, [], 'below T.abilityMinShare, the ratio gap is not a finding: ' + JSON.stringify(nf.map(x => x.text)));
+});
+test('rotationFindings (fix round 1, Finding 3): a non-finite share does not silently bypass the gate', () => {
+    // typeof NaN === 'number', and both `NaN < 2` and `NaN >= 2` are false, so a NaN share must
+    // not be treated as "passing" — it has to fall back to 0 like a missing ability entry does.
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, Immolate: 6 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }, { name: 'Immolate', share: NaN }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.deepStrictEqual(f, [], 'a NaN share must not bypass the gate: ' + JSON.stringify(f.map(x => x.text)));
+});
+test('rotationFindings (fix round 1, Finding 4): a share of exactly T.abilityMinShare passes the gate (the boundary is inclusive)', () => {
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, Immolate: 6 },
+        abilities: [{ name: 'Shadow Bolt', share: 98 }, { name: 'Immolate', share: 2 }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.strictEqual(f.length, 1, 'share === T.abilityMinShare must still be reported: ' + JSON.stringify(f.map(x => x.text)));
+    assert.ok(/Immolate/.test(f[0].text), f[0].text);
 });
 
 Promise.all(pending).then(() => {
