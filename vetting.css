@@ -33,3 +33,7 @@
 
 .report-link { color: #9ab; margin-right: 10px; text-decoration: none; }
 .report-link:hover { color: #ffd700; }
+.log-row select { min-width: 280px; }
+.log-row input { flex: 1; min-width: 240px; }
+.cell-pending { color: #9ab; }
+.verdict.pending { color: #9ab; }

@@ -9,7 +9,7 @@ const CONCURRENCY = 3;
 const RATE_LIMIT_PAUSE_MS = 60 * 1000;
 
 const state = { players: [], thresholds: Object.assign({}, V.DEFAULT_THRESHOLDS), profiles: {}, errors: {} };
-const wcl = { server: '', region: 'eu' };
+const wcl = { server: '', region: 'eu', guild: '' };
 let queue = [];
 let inFlight = 0;
 const inFlightKeys = new Set();
@@ -36,7 +36,7 @@ function load() {
     state.thresholds = V.parseThresholds(parsed.thresholds);
     try {
         const a = JSON.parse(localStorage.getItem(ASSIGN_KEY)) || {};
-        if (a.wcl) { wcl.server = a.wcl.server || ''; wcl.region = a.wcl.region || 'eu'; }
+        if (a.wcl) { wcl.server = a.wcl.server || ''; wcl.region = a.wcl.region || 'eu'; wcl.guild = a.wcl.guild || ''; }
     } catch (e) { /* no assignments state yet */ }
 }
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -74,6 +74,7 @@ function renderThresholds() {
 function renderRealm() {
     document.getElementById('realmInput').value = wcl.server;
     document.getElementById('regionInput').value = wcl.region;
+    document.getElementById('guildInput').value = wcl.guild;
     const el = document.getElementById('realmLine');
     if (!wcl.server) {
         el.className = 'status error';
@@ -90,12 +91,13 @@ function saveRealm() {
     let a = {};
     try { a = JSON.parse(localStorage.getItem(ASSIGN_KEY)) || {}; } catch (e) { a = {}; }
     if (!a || typeof a !== 'object' || Array.isArray(a)) a = {};
-    a.wcl = Object.assign({}, a.wcl, { server: wcl.server, region: wcl.region });
+    a.wcl = Object.assign({}, a.wcl, { server: wcl.server, region: wcl.region, guild: wcl.guild });
     localStorage.setItem(ASSIGN_KEY, JSON.stringify(a));
 }
 function onRealmChange() {
     wcl.server = document.getElementById('realmInput').value.trim().toLowerCase();
     wcl.region = document.getElementById('regionInput').value || 'eu';
+    wcl.guild = document.getElementById('guildInput').value.trim();
     try { saveRealm(); } catch (err) { rosterNotice = 'Could not save the realm locally: ' + err.message; }
     renderRealm();
     // Players added before a realm was set are parked on "No realm set"; a realm change is
@@ -108,6 +110,7 @@ function onRealmChange() {
             if (p) enqueue(p.name, true);
         });
     }
+    refreshLogList();
     renderTable();
 }
 
@@ -136,25 +139,53 @@ function pump() {
     }
     renderSummary();
 }
+// Folds a /api/vet/parses answer into a pending profile. The result has exactly the shape
+// /api/vet/player returns, so every renderer below is shared. A failed parses fetch keeps the
+// gear and says why in `missing` — a row is never downgraded to "error" for parses alone.
+function mergeParses(profile, body, error) {
+    const parses = body && body.parses ? body.parses : null;
+    const identity = profile.identity && profile.identity.spec ? profile.identity : (body && body.identity) || profile.identity;
+    const missing = (profile.missing || []).filter(m => !/^no parses|^parses:/.test(m));
+    if (error) missing.push('parses: ' + error);
+    else if (!parses) missing.push('no parses in either tier');
+    if (identity && !identity.spec && !missing.includes('spec could not be determined')) missing.push('spec could not be determined');
+    const out = Object.assign({}, profile, { parses, identity, missing });
+    delete out.parsesPending;
+    return out;
+}
 async function fetchOne(key) {
     const player = state.players.find(p => p.name.toLowerCase() === key);
     if (!player) return;
     delete state.errors[key];
     if (!wcl.server) { state.errors[key] = 'No realm set'; save(); renderTable(); return; }
+    // A profile loaded from a log already has gear; only its parses are outstanding. Those come
+    // from /api/vet/parses (two WCL requests) and are merged in; everything else still goes the
+    // whole way through /api/vet/player.
+    const existing = state.profiles[key];
+    const pendingParses = !!(existing && existing.parsesPending);
+    const server = player.server || wcl.server;
     try {
-        const url = '/api/vet/player?name=' + encodeURIComponent(player.name) + '&server=' + encodeURIComponent(wcl.server) +
-            '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE;
+        const base = '?name=' + encodeURIComponent(player.name) + '&server=' + encodeURIComponent(server) + '&region=' + encodeURIComponent(wcl.region) + '&zone=' + ZONE;
+        const url = pendingParses
+            ? '/api/vet/parses' + base + (existing.identity && existing.identity.class ? '&class=' + encodeURIComponent(existing.identity.class) : '') +
+              (existing.identity && Array.isArray(existing.identity.talentSplit) && existing.identity.talentSplit.length === 3 ? '&talents=' + existing.identity.talentSplit.join(',') : '')
+            : '/api/vet/player' + base;
         const res = await fetch(url);
         // Remove all (or a single ×) can run while this request is in flight; a response arriving
         // after the player is gone from state.players must not resurrect its row.
         if (!state.players.some(p => p.name.toLowerCase() === key)) return;
         if (res.status === 429) { queue.unshift(key); pause(); return; }
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) { state.errors[key] = body.error || ('HTTP ' + res.status); }
+        if (!res.ok) {
+            if (pendingParses) state.profiles[key] = mergeParses(existing, null, body.error || ('HTTP ' + res.status));
+            else state.errors[key] = body.error || ('HTTP ' + res.status);
+        }
+        else if (pendingParses) { state.profiles[key] = mergeParses(existing, body, null); }
         else { state.profiles[key] = body; }
     } catch (err) {
         if (!state.players.some(p => p.name.toLowerCase() === key)) return;
-        state.errors[key] = 'Network error: ' + err.message;
+        if (pendingParses) state.profiles[key] = mergeParses(existing, null, 'Network error: ' + err.message);
+        else state.errors[key] = 'Network error: ' + err.message;
     }
     // save() can throw (e.g. QuotaExceededError). It must not skip renderTable() below, or the
     // row is stuck on "fetching…" forever with no error state — every failure is a row state.
@@ -231,6 +262,70 @@ function takeFragment() {
     history.replaceState(null, '', location.pathname + location.search);
     addPlayers(names, 'link');
 }
+
+// --- logs-first B4: a whole raid from one report ---
+let logListFor = ''; // guild/server/region the select was last filled for
+async function refreshLogList() {
+    const sel = document.getElementById('logSelect');
+    const want = wcl.guild && wcl.server ? wcl.region + '/' + wcl.server + '/' + wcl.guild.toLowerCase() : '';
+    if (want === logListFor) return;
+    logListFor = want;
+    sel.innerHTML = '<option value="">' + (want ? 'Loading raid nights…' : 'Recent raid nights (set a guild)') + '</option>';
+    if (!want) return;
+    try {
+        const res = await fetch('/api/wcl/logs?guild=' + encodeURIComponent(wcl.guild) + '&server=' + encodeURIComponent(wcl.server) + '&region=' + encodeURIComponent(wcl.region));
+        const body = await res.json().catch(() => ({}));
+        if (logListFor !== want) return; // settings changed while this was in flight
+        if (!res.ok) { sel.innerHTML = '<option value="">' + escapeHtml(body.error || ('HTTP ' + res.status)) + '</option>'; return; }
+        const logs = Array.isArray(body.logs) ? body.logs : [];
+        sel.innerHTML = '<option value="">' + (logs.length ? 'Recent raid nights…' : 'No logs for ' + escapeHtml(wcl.guild)) + '</option>' +
+            logs.map(l => '<option value="' + escapeHtml(l.code) + '">' + escapeHtml(l.date + ' · ' + (l.zone ? shortZoneLabel(l.zone.name) : '?') + ' · ' + l.title) + '</option>').join('');
+    } catch (err) { if (logListFor === want) sel.innerHTML = '<option value="">Network error: ' + escapeHtml(err.message) + '</option>'; }
+}
+// Loads every player of a report into the table with a pending profile (gear now, parses
+// streaming through the queue). `quiet` (Refresh all) keeps the roster notice as it is.
+async function loadReport(code, opts) {
+    opts = opts || {};
+    const btn = document.getElementById('loadLogBtn');
+    btn.disabled = true;
+    if (!opts.quiet) { rosterNotice = 'Reading report ' + code + ' from Warcraft Logs…'; renderSummary(); }
+    try {
+        const res = await fetch('/api/wcl/log/' + encodeURIComponent(code) + '/roster?zone=' + ZONE + '&server=' + encodeURIComponent(wcl.server) + '&region=' + encodeURIComponent(wcl.region));
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 429) { pause(); rosterNotice = 'Warcraft Logs rate limit reached — the log was not loaded.'; renderSummary(); return false; }
+        if (!res.ok) { rosterNotice = body.error || ('HTTP ' + res.status); renderSummary(); return false; }
+        const rep = body.report || {};
+        let added = 0;
+        (body.players || []).forEach(p => {
+            const r = insertPlayer(p.name);
+            if (!r) return;
+            if (r.added) added++;
+            const key = r.name.toLowerCase();
+            const player = state.players.find(pl => pl.name.toLowerCase() === key);
+            player.source = { report: code, date: rep.date || null, zone: rep.zone ? rep.zone.name : null, fightName: p.lastSeen ? p.lastSeen.fightName : null };
+            player.server = p.server || null;
+            state.profiles[key] = p;
+            delete state.errors[key];
+            enqueue(r.name, true);
+        });
+        // The first log loaded fills in the guild when none is set — the log picker then works.
+        if (!wcl.guild && rep.guild && rep.guild.name) { wcl.guild = rep.guild.name; try { saveRealm(); } catch (e) { /* notice below still shows */ } renderRealm(); refreshLogList(); }
+        const summary = 'Loaded ' + (body.players || []).length + ' players from ' + (rep.date || code) + (rep.zone ? ' · ' + rep.zone.name : '') + ' (' + added + ' new). Parses are loading.';
+        try { save(); if (!opts.quiet) rosterNotice = summary; }
+        catch (err) { rosterNotice = summary + ' Could not save locally: ' + err.message; }
+        renderTable();
+        return true;
+    } catch (err) { rosterNotice = 'Network error: ' + err.message; renderSummary(); return false; }
+    finally { btn.disabled = false; }
+}
+function loadLog() {
+    const typed = V.parseReportCode(document.getElementById('logInput').value);
+    const code = typed || document.getElementById('logSelect').value;
+    if (!code) { rosterNotice = 'Pick a raid night or paste a Warcraft Logs report code / URL.'; renderSummary(); return; }
+    if (!wcl.server) { rosterNotice = 'No realm set — enter the Warcraft Logs realm slug first.'; renderSummary(); return; }
+    document.getElementById('logInput').value = '';
+    loadReport(code);
+}
 function removePlayer(name) {
     const key = name.toLowerCase();
     state.players = state.players.filter(p => p.name.toLowerCase() !== key);
@@ -261,6 +356,9 @@ function rows() {
         if (state.errors[key]) return { name: p.name, key, verdict: 'error', error: state.errors[key], profile: null, rules: [], reasons: [] };
         if (!profile) return { name: p.name, key, verdict: 'unverified', pending: true, profile: null, rules: [], reasons: ['fetching…'] };
         const ev = V.evaluate(profile, state.thresholds, now);
+        // logs-first B4: gear is here, parses are streaming — shown as pending, never as
+        // "unverified, no parses" while the request is still out.
+        if (profile.parsesPending) return { name: p.name, key, verdict: 'unverified', pending: true, parsesPending: true, profile, rules: ev.rules, reasons: ['parses loading…'] };
         return { name: p.name, key, verdict: ev.verdict, profile, rules: ev.rules, reasons: ev.reasons };
     });
 }
@@ -286,7 +384,7 @@ function renderTable() {
         const tr = document.createElement('tr');
         tr.dataset.name = r.name;
         const verdictTd = document.createElement('td');
-        verdictTd.innerHTML = '<span class="verdict ' + r.realVerdict + '">' + r.realVerdict + '</span>' +
+        verdictTd.innerHTML = (r.parsesPending ? '<span class="verdict pending">…</span>' : '<span class="verdict ' + r.realVerdict + '">' + r.realVerdict + '</span>') +
             (r.reasons.length ? '<span class="reasons">' + escapeHtml(r.reasons.join(', ')) + '</span>' : '');
         tr.appendChild(verdictTd);
         const nameTd = document.createElement('td');
@@ -299,6 +397,7 @@ function renderTable() {
         tr.appendChild(specTd);
         const byKey = Object.fromEntries(r.rules.map(x => [x.key, x]));
         ['gs', 'ilvl', 'hit', 'expertise', 'defense', 'parse', 'enchants', 'sockets', 'stale'].forEach(k => {
+            if (k === 'parse' && r.parsesPending) { const td = document.createElement('td'); td.className = 'cell-pending'; td.textContent = '…'; td.title = 'parses loading'; tr.appendChild(td); return; }
             const td = ruleCell(byKey[k]);
             if (k === 'parse' && r.profile && r.profile.parses) {
                 const parses = r.profile.parses;
@@ -335,7 +434,7 @@ function renderSummary() {
     let text;
     if (!rs.length) { text = 'No players yet — add a name or load the roster.'; }
     else {
-        const count = v => rs.filter(r => r.verdict === v).length;
+        const count = v => rs.filter(r => r.verdict === v && !r.pending).length;
         const pending = rs.filter(r => r.pending).length;
         text = count('pass') + ' pass · ' + count('warn') + ' warn · ' + count('fail') + ' fail · ' +
             count('unverified') + ' unverified · ' + count('error') + ' error' + (pending ? ' · ' + pending + ' fetching' : '');
@@ -344,8 +443,11 @@ function renderSummary() {
 }
 function toggleDetail(key) { expanded = expanded === key ? null : key; renderTable(); }
 function feedbackUrl(r) {
-    return 'feedback.html?name=' + encodeURIComponent(r.name) + '&server=' + encodeURIComponent(wcl.server) + '&region=' + encodeURIComponent(wcl.region) +
-           '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds));
+    const player = state.players.find(p => p.name.toLowerCase() === r.key) || {};
+    return 'feedback.html?name=' + encodeURIComponent(r.name) + '&server=' + encodeURIComponent(player.server || wcl.server) + '&region=' + encodeURIComponent(wcl.region) +
+           '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds)) +
+           // logs-first B4: a row that came from a log opens its report on that night.
+           (player.source && player.source.report ? '&report=' + encodeURIComponent(player.source.report) : '');
 }
 function statRows(p) {
     // computedFromGear is gear-only (never backfilled by what WCL reported), so the left column
@@ -431,7 +533,7 @@ function detailRow(r) {
             parseBox.appendChild(otherHeading);
             parseBox.appendChild(bossTable(p.parses.other.bosses));
         }
-    } else parseBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">No parses.</div>');
+    } else parseBox.insertAdjacentHTML('beforeend', '<div class="cell-unknown">' + (p.parsesPending ? 'Parses loading…' : 'No parses.') + '</div>');
     if (p.lastSeen) parseBox.insertAdjacentHTML('beforeend', '<div class="status">Last seen: ' + escapeHtml(new Date(p.lastSeen.timestamp).toLocaleDateString()) + ' — ' + escapeHtml(p.lastSeen.fightName || '') + '</div>');
     if (p.missing && p.missing.length) parseBox.insertAdjacentHTML('beforeend', '<div class="warn">' + p.missing.map(escapeHtml).join('<br>') + '</div>');
     if (p.parses && wcl.server) {
@@ -470,13 +572,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     window.addEventListener('hashchange', takeFragment);
     document.getElementById('refreshBtn').addEventListener('click', () => {
+        // Rows that came from a log re-load from it (two requests per distinct report), the
+        // rest re-fetch by name as before.
+        const reports = Array.from(new Set(state.players.filter(p => p.source && p.source.report).map(p => p.source.report)));
         state.profiles = {}; state.errors = {}; save(); renderTable();
-        state.players.forEach(p => enqueue(p.name, true));
+        state.players.filter(p => !(p.source && p.source.report)).forEach(p => enqueue(p.name, true));
+        reports.forEach(code => loadReport(code, { quiet: true }));
     });
     document.getElementById('realmInput').addEventListener('change', onRealmChange);
     document.getElementById('regionInput').addEventListener('change', onRealmChange);
     document.getElementById('loadRosterBtn').addEventListener('click', loadRoster);
     document.getElementById('removeAllBtn').addEventListener('click', removeAll);
+    document.getElementById('loadLogBtn').addEventListener('click', loadLog);
+    document.getElementById('logInput').addEventListener('keydown', e => { if (e.key === 'Enter') loadLog(); });
+    document.getElementById('guildInput').addEventListener('change', onRealmChange);
+    refreshLogList();
     // Resume anything not yet fetched (e.g. after a reload mid-queue).
     state.players.forEach(p => enqueue(p.name, false));
     takeFragment();

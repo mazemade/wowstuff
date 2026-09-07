@@ -27,6 +27,11 @@
                 <button id="refreshBtn" class="btn">Refresh all</button>
                 <button id="removeAllBtn" class="btn">Remove all</button>
             </div>
+            <div class="import-row log-row">
+                <select id="logSelect" title="Your guild's recent raid nights on Warcraft Logs"><option value="">Recent raid nights…</option></select>
+                <input id="logInput" type="text" placeholder="…or paste a report code / URL" autocomplete="off">
+                <button id="loadLogBtn" class="btn btn-primary">Load from log</button>
+            </div>
             <div class="realm-row">
                 <label for="realmInput">Warcraft Logs realm</label>
                 <input id="realmInput" type="text" placeholder="realm-slug" autocomplete="off" title="Warcraft Logs realm slug, e.g. &quot;spineshatter&quot;">
@@ -34,6 +39,8 @@
                     <option value="eu">EU</option>
                     <option value="us">US</option>
                 </select>
+                <label for="guildInput">Guild</label>
+                <input id="guildInput" type="text" placeholder="guild name" autocomplete="off" title="Warcraft Logs guild name, e.g. &quot;Animal Kingdom&quot; — fills the raid-night list">
             </div>
             <div class="status" id="realmLine"></div>
         </section>
