@@ -33,6 +33,18 @@ groups, and checks live whether assignments were actually done.
     deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
     `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`. Optional `report=<WCL report code>` analyses one raid
     night. The facts sheet carries `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
+- **Supremus briefing** (`tactics.html`): nine guided scenes for explaining positions,
+  Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
+  a main raid call, relevant spell tooltip cards, role instructions and a common mistake. Play/pause, replay, speed
+  and scrubbing let the raid leader control the demonstration; animations hold at the end.
+  Space plays/pauses, arrows change scenes, R replays and F toggles fullscreen.
+  The page uses the imported roster and its main-tank flag, including an optional third
+  tank. Player names appear during positioning; mechanics use icons and short role labels.
+  Tanks keep tanking during the early melee spread, moving once fixate begins.
+  Without a roster it shows a labelled example raid. Positions, routes and danger
+  circles are illustrative. "Copy briefing" includes the current guidance and roster;
+  "Copy image" includes the current map and main call. Detailed mechanics and source
+  links are under "Mechanics & sources".
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
@@ -69,6 +81,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 
 ```bash
 npm test                          # engine, WCL multiplier, positions, item table, vetting, feedback, gap, checklist and server suites (node, no deps)
+npm run test:tactics-browser       # Node 22+ and Chrome; isolated profile, optional CHROME_BIN override
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking

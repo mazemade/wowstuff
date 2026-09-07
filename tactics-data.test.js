@@ -171,7 +171,8 @@ test('scenes: a step that spans a swap counts down to it and calls it', () => {
         const cd = s.countdown;
         assert.ok(cd, s.id + ' spans a swap but never says when it lands');
         assert.strictEqual(cd.phase, s.morph.to, s.id + ' counts down to the phase it moves into');
-        assert.ok(cd.at >= s.morph.end, s.id + ' the raid is in place before the swap lands');
+        if (cd.phase === 2) assert.ok(cd.at >= s.morph.end, 'spread before fixate');
+        else assert.ok(s.morph.start > cd.at, 'DPS returns only after the reset and pickup');
         assert.ok(cd.at < s.duration, s.id + ' the swap lands inside the step');
         const calls = (s.effects || []).filter(e => e.kind === 'call');
         assert.ok(calls.some(c => c.start >= cd.at), s.id + ' says nothing once the phase flips');
@@ -218,6 +219,32 @@ test('tips: the raid sheet lines are carried verbatim with their source', () => 
     assert.ok(FIGHT.tips.length >= 7, 'all seven of the sheet steps');
     FIGHT.tips.forEach(t => assert.ok(typeof t === 'string' && t.length > 8));
     assert.ok(/cheat sheet/i.test(FIGHT.source), 'the fight credits where the tips came from');
+});
+
+test('briefing: each scene has a main call, role instructions and a mistake to explain', () => {
+    FIGHT.scenes.forEach(s => {
+        assert.ok(s.call && s.call.length < 90, s.id + ' main call');
+        assert.ok(s.why && s.jobs && s.jobs.length > 0, s.id + ' role guidance');
+        assert.ok(s.mistake, s.id + ' common mistake');
+    });
+});
+
+test('briefing: Hateful examples hit the soak tank and distinguish normal attacks', () => {
+    const s = FIGHT.scenes.find(s => s.id === 'p1-hateful');
+    const hits = s.effects.filter(e => e.kind === 'impact');
+    assert.ok(hits.some(e => e.label === 'Melee' && e.target === 'mt'));
+    assert.ok(hits.some(e => e.label === 'Hateful' && e.target === 'soak'));
+    assert.ok(!hits.some(e => e.label === 'Hateful' && e.target === 'mt'));
+});
+
+test('briefing: fixate switches follow ten encounter seconds and combined hazards are taught', () => {
+    const s = FIGHT.scenes.find(s => s.id === 'p2-fixate');
+    const gazes = s.effects.filter(e => e.kind === 'gaze');
+    assert.equal(gazes[1].start - gazes[0].start, 10000);
+    const combined = FIGHT.scenes.find(s => s.id === 'p2-together');
+    assert.ok(combined && combined.effects.some(e => e.kind === 'gaze'));
+    assert.ok(combined.effects.some(e => e.kind === 'volcano'));
+    assert.equal(FIGHT.scenes.find(s => s.id === 'back').continueFrom, 'p2-together');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -6,13 +6,8 @@
 
     // Where the raid stands, and where it goes when the floor catches fire.
     //
-    // The room is cut into one set of slots that serves the whole fight. Healers and ranged
-    // take a slot at the pull and never leave it; only the tanks and the melee move, off him
-    // for Phase 2 and back onto him for Phase 1. That is the raid sheet's own instruction
-    // ("as the 1 minute marker approaches, melee DPS should start moving") and it means the
-    // transition scene has exactly nine things moving, which is what makes it readable.
-    //
-    // Everything here is pure: fractions of the map in, fractions of the map out.
+    // Slots are illustrative starting positions. During Phase 2 everyone reacts to the
+    // boss and hazards; a slot is never a requirement to stay still.
 
     const RAID = 25;
 
@@ -64,21 +59,18 @@
         return deck.sort((a, b) => a.key - b.key);
     }
 
-    // Pad or trim a roster group to the shape the room is drawn for.
-    function fit(names, n) {
-        const out = (names || []).slice(0, n);
-        while (out.length < n) out.push(null);
-        return out;
-    }
-
     function assign(fight, roster) {
         const r = fight.roster;
+        const has = roster && ['tanks', 'healers', 'melee', 'ranged'].some(k => (roster[k] || []).length);
+        const group = k => has ? (roster[k] || []).slice() : Array(r[k]).fill(null);
+        const tanks = group('tanks'), melee = group('melee');
+        const back = ditherBack(group('healers'), group('ranged'));
         const s = slots(fight);
-        const has = roster && (roster.tanks || roster.healers || roster.melee || roster.ranged);
-        const tanks = fit(has ? roster.tanks : [], r.tanks);
-        const melee = fit(has ? roster.melee : [], r.melee);
-        const back = ditherBack(fit(has ? roster.healers : [], r.healers),
-            fit(has ? roster.ranged : [], r.ranged));
+        // Preserve imported names even for an oversized planning roster. Extra positions
+        // are examples too; the UI reports the actual roster size.
+        const count = tanks.length + melee.length + back.length;
+        const extra = Math.max(0, count - s.length);
+        for (let n = 0; n < extra; n++) s.push(bearing(fight, extra === 1 ? 90 : 18 + n / (extra - 1) * 144, 25.5));
 
         const out = [];
         let i = 0;
@@ -104,18 +96,14 @@
 
         return assigned.map(p => {
             let at = p.slot;
-            if (p.kind === 'tank') {
-                // Tanks never leave him. Threat resets at every swap, so they keep hitting him
-                // through Phase 2 to have something built the moment Phase 1 comes back — the
-                // raid sheet's Seal of Vengeance trick only works if they are still in melee.
+            if (phase === 1 && p.kind === 'tank') {
                 const k = tanks.indexOf(p);
                 at = {
-                    x: boss.x + (k === 0 ? -1 : 1) * fight.stack.tankApart * fight.yard,
+                    x: boss.x + (k - (tanks.length - 1) / 2) * 2 * fight.stack.tankApart * fight.yard,
                     y: boss.y - ydY(fight, fight.stack.tankBack) + (k === 0 ? 0 : ydY(fight, 0.3))
                 };
             } else if (phase === 1 && p.kind === 'melee') {
-                // an arc behind him: out of the cleave, inside his melee range. They walk out
-                // to their own spots before Phase 2 so a fixate cannot land on them at zero range.
+                // Melee work behind him, then create distance before Phase 2.
                 const k = melee.indexOf(p);
                 const a = lerp(fight.stack.arcFrom, fight.stack.arcTo,
                     melee.length === 1 ? .5 : k / (melee.length - 1)) * Math.PI / 180;
@@ -206,7 +194,8 @@
             lines.push('');
             lines.push(g[0]);
             rows.forEach(p => {
-                const where = p.kind === 'tank' ? 'stacked on him'
+                const where = phase === 2 ? 'spread in open ground; move for fixate and volcanoes'
+                    : p.kind === 'tank' ? 'in melee; main tank or assigned Hateful soak'
                     : (phase === 1 && p.kind === 'melee') ? 'behind him'
                         : spotName(fight, p.at);
                 lines.push('  ' + p.name + ' — ' + where);
@@ -215,10 +204,10 @@
 
         if (phase === 1) {
             lines.push('');
-            lines.push('Only the melee move for Phase 2. Tanks stay on him, everyone else holds their spot.');
+            lines.push('Melee creates distance before Phase 2; tanks keep tanking until fixate begins. All positions are starting examples; move for fire and fixate.');
         } else {
             lines.push('');
-            lines.push('Melee are out on their own spots. Tanks are still on him, nobody else has moved.');
+            lines.push('Survival first. At the reset, tanks pick up, hunters Misdirect, then DPS resumes after tank control.');
         }
         return lines.join('\n');
     }

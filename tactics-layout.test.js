@@ -104,13 +104,11 @@ test('formation: in phase 1 tanks and melee are on him, everyone else is on thei
     });
 });
 
-test('formation: the tanks never leave him — they hold threat through both phases', () => {
+test('formation: tanks spread for Phase 2 rather than trying to carry threat through the reset', () => {
     const a = L.assign(FIGHT, ROSTER);
-    const p1 = L.formation(FIGHT, 1, a), p2 = L.formation(FIGHT, 2, a);
-    const tanksOf = f => f.filter(p => p.kind === 'tank');
-    tanksOf(p2).forEach((t, i) => {
-        assert.deepStrictEqual(t.at, tanksOf(p1)[i].at, 'a tank stands in the same place all fight');
-        assert.ok(yards(FIGHT, t.at, FIGHT.bossAt) < 8, 'and stays in melee range of him');
+    L.formation(FIGHT, 2, a).filter(p => p.kind === 'tank').forEach(p => {
+        assert.deepStrictEqual(p.at, p.slot);
+        assert.ok(yards(FIGHT, p.at, FIGHT.bossAt) >= 14);
     });
 });
 
@@ -123,15 +121,32 @@ test('formation: phase 2 sends the melee out to their own slots, still in range'
     });
 });
 
-test('formation: only the melee move between phases', () => {
+test('formation: tanks and melee move out before Phase 2', () => {
     const a = L.assign(FIGHT, ROSTER);
     const p1 = L.formation(FIGHT, 1, a), p2 = L.formation(FIGHT, 2, a);
     const by = f => Object.fromEntries(f.map(p => [p.id, p.at]));
     const one = by(p1), two = by(p2);
     const moved = Object.keys(one).filter(id => one[id].x !== two[id].x || one[id].y !== two[id].y);
     const movers = p1.filter(p => moved.includes(p.id));
-    assert.strictEqual(movers.length, 7, 'the seven melee move, nobody else');
-    assert.ok(movers.every(p => p.kind === 'melee'));
+    assert.strictEqual(movers.length, 9, 'tanks and melee spread before fixate');
+    assert.ok(movers.every(p => p.kind === 'melee' || p.kind === 'tank'));
+});
+
+test('assign: an imported three-tank roster preserves every player and role', () => {
+    const roster = { ...ROSTER, tanks: ['Bulwark', 'Ironhide', 'Thirdtank'], melee: ROSTER.melee.slice(1) };
+    const a = L.assign(FIGHT, roster);
+    assert.strictEqual(a.length, 25);
+    assert.deepStrictEqual(a.filter(p => p.kind === 'tank').map(p => p.name), roster.tanks);
+    assert.strictEqual(new Set(a.map(p => p.id)).size, a.length);
+    Object.values(roster).flat().forEach(n => assert.ok(a.some(p => p.name === n), n));
+    const tanks = L.formation(FIGHT, 1, a).filter(p => p.kind === 'tank');
+    assert.strictEqual(new Set(tanks.map(p => JSON.stringify(p.at))).size, 3);
+});
+
+test('assign: partial imported rosters do not invent additional players', () => {
+    const a = L.assign(FIGHT, { tanks: ['Tank'], healers: ['Healer'], ranged: ['Hunter'] });
+    assert.strictEqual(a.length, 3);
+    assert.ok(a.every(p => p.name));
 });
 
 // --- getting out of the fire ---------------------------------------------------

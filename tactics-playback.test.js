@@ -1,0 +1,27 @@
+'use strict';
+const assert = require('node:assert/strict');
+const P = require('./tactics-playback');
+
+const clock = P.create(10000);
+clock.play(100);
+assert.equal(clock.time(2100), 2000);
+clock.pause(2100);
+assert.equal(clock.time(8100), 2000, 'pause holds the illustration');
+clock.play(9000);
+assert.equal(clock.time(10000), 3000, 'resume does not include paused wall time');
+clock.setSpeed(2, 10000);
+assert.equal(clock.time(11000), 5000, 'speed changes preserve the current frame');
+clock.seek(7500, 11000);
+assert.equal(clock.time(12000), 9500);
+assert.equal(clock.time(14000), 10000, 'the last frame holds instead of looping');
+assert.equal(clock.playing, false);
+clock.seek(-20, 14000);
+assert.equal(clock.time(14000), 0);
+clock.seek(20000, 14000);
+assert.equal(clock.time(14000), 10000);
+clock.reset(6000, 15000);
+assert.equal(clock.time(15000), 0);
+assert.equal(clock.playing, false);
+clock.play(15000);
+assert.equal(clock.time(16000), 2000, 'chosen speed survives scene navigation');
+console.log('Playback pause, resume, seek, speed, end hold and scene reset passed');

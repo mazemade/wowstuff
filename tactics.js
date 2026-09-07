@@ -1,15 +1,5 @@
-/* Fight briefing player.
- *
- * Draws a boss fight on top of a top-down capture of the room: the real raid as tokens, the
- * mechanics as animated effects on a canvas over it. Every danger radius comes from the yard
- * figure in the ability's own tooltip, so what you see is the size it really is.
- *
- * The raid is not choreographed. Each frame re-runs a short simulation of the step from its
- * beginning: hazards move, and anyone standing in one walks out and stays out until it is
- * gone. That is why a mechanic can be dropped onto the formation and simply work.
- *
- * Fight data lives in tactics-data.js and the standing spots in tactics-layout.js; this file
- * knows nothing about any particular boss.
+/* Supremus guided briefing. Scenes are illustrative teaching examples, with encounter
+ * seconds controlled by the presenter. Map scale and hazard radii are approximate.
  */
 (function () {
     'use strict';
@@ -43,6 +33,8 @@
             out[group].push(p.name);
             out.classOf[p.name] = p.class;
         });
+        const mainTanks = new Set(players.filter(p => p.mt).map(p => p.name));
+        out.tanks.sort((a, b) => Number(mainTanks.has(b)) - Number(mainTanks.has(a)));
         return out;
     }
 
@@ -92,7 +84,7 @@
         for (let i = 1; i < p.length; i++) {
             if (t <= p[i].t) {
                 const span = p[i].t - p[i - 1].t || 1;
-                const k = easeOut(clamp((t - p[i - 1].t) / span, 0, 1));
+                const k = clamp((t - p[i - 1].t) / span, 0, 1);
                 return { x: lerp(p[i - 1].x, p[i].x, k), y: lerp(p[i - 1].y, p[i].y, k) };
             }
         }
@@ -122,6 +114,21 @@
         return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k };
     }
 
+    function walkSafely(from, to, yards, hazards) {
+        const direct = stepToward(from, to, yards);
+        const blocked = q => hazards.some(h => apart(q, h) < h.yards - 0.02 && apart(q, h) < apart(from, h) - 0.001);
+        if (!blocked(direct)) return direct;
+        const angle = Math.atan2((to.y - from.y) / FIGHT.aspect, to.x - from.x);
+        const choices = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * .75, -Math.PI * .75, Math.PI];
+        const A = FIGHT.arena;
+        const points = choices.map(turn => ({
+            x: clamp(from.x + Math.cos(angle + turn) * yards * FIGHT.yard, A.x0, A.x1),
+            y: clamp(from.y + Math.sin(angle + turn) * yards * FIGHT.yard * FIGHT.aspect, A.y0, A.y1)
+        })).filter(q => !blocked(q));
+        points.sort((a, b) => apart(a, to) - apart(b, to));
+        return points[0] || from;
+    }
+
     // ---- canvas ---------------------------------------------------------------
 
     const cv = document.getElementById('fx');
@@ -149,7 +156,7 @@
     // Worked out from the positions in play, so a different roster or layout reframes itself.
     function frameOf(view, sc) {
         const A = FIGHT.arena;
-        if (view.fit === 'arena' || !view.fit) return { x0: A.x0, y0: A.y0, x1: A.x1, y1: A.y1, pad: 2 };
+        if (view.fit === 'arena' || (view.fit === 'raid' && sc.paths) || !view.fit) return { x0: A.x0, y0: A.y0, x1: A.x1, y1: A.y1, pad: 2 };
         if (view.fit === 'action') {
             // the few things this step is about, taken from the scene rather than the frame,
             // so the camera holds still instead of chasing the animation around
@@ -159,6 +166,8 @@
                 if (p) a.push(p.at);
             });
             (sc.effects || []).forEach(e => { if (e.at) a.push(e.at); });
+            Object.values(sc.paths || {}).forEach(path => path.forEach(p => a.push(p)));
+            Object.values(sc.starts || {}).forEach(p => a.push(p));
             return {
                 x0: Math.min(...a.map(p => p.x)), x1: Math.max(...a.map(p => p.x)),
                 y0: Math.min(...a.map(p => p.y)), y1: Math.max(...a.map(p => p.y)), pad: 13
@@ -245,17 +254,31 @@
     // Where a raider stands if nothing is chasing them: their spot for this step, or part way
     // between two phases while the raid repositions.
     function homeAt(sc, p, t, boss) {
-        if (p.kind === 'tank' && boss) {
-            const base = PLACED[sc.morph ? sc.morph.to : sc.formation][p.id].at;
-            return { x: base.x + (boss.x - FIGHT.bossAt.x), y: base.y + (boss.y - FIGHT.bossAt.y) };
+        const base = PLACED[sc.morph ? sc.morph.to : sc.formation][p.id].at;
+        if (sc.initial) {
+            const start = sc.initial.pos[p.id];
+            if (p.kind === 'tank' && t < sc.countdown.at) {
+                const distance = apart(start, boss);
+                const dest = stepToward(start, boss, Math.max(0, distance - 16));
+                const k = clamp(t / sc.countdown.at, 0, 1);
+                return { x: lerp(start.x, dest.x, k), y: lerp(start.y, dest.y, k) };
+            }
+            if (p.kind === 'tank' && t >= sc.countdown.at) {
+                const dest = { x: base.x + boss.x - FIGHT.bossAt.x, y: base.y + boss.y - FIGHT.bossAt.y };
+                return dest;
+            }
+            const k = easeInOut(clamp((t - sc.morph.start) / (sc.morph.end - sc.morph.start), 0, 1));
+            return { x: lerp(start.x, base.x, k), y: lerp(start.y, base.y, k) };
         }
-        if (!sc.morph) return PLACED[sc.formation][p.id].at;
-        const a = PLACED[sc.morph.from][p.id].at, b = PLACED[sc.morph.to][p.id].at;
-        if (a === b) return a;
-        // stagger the walkers so the raid drifts out rather than marching in lockstep
-        const off = (p.slotIndex % 5) * 220;
+        if (!sc.morph) return sc.startsById[p.id] || base;
+        const a = PLACED[sc.morph.from][p.id].at;
+        if (p.kind === 'tank' && sc.countdown?.phase === 2) {
+            const k = easeInOut(clamp((t - sc.countdown.at) / (sc.duration - sc.countdown.at), 0, 1));
+            return { x: lerp(a.x, base.x, k), y: lerp(a.y, base.y, k) };
+        }
+        const off = (p.slotIndex % 5) * 120;
         const k = easeInOut(clamp((t - sc.morph.start - off) / (sc.morph.end - sc.morph.start), 0, 1));
-        return { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
+        return { x: lerp(a.x, base.x, k), y: lerp(a.y, base.y, k) };
     }
 
     // Run the step from its beginning up to t. Cheap enough to redo every frame, which keeps
@@ -263,7 +286,7 @@
     function simulate(sc, t) {
         const pos = {};
         const bossActor = sc.bossActor;
-        let boss = bossActor.at;
+        let boss = sc.initial ? sc.initial.boss : bossActor.at;
         const trailEff = (sc.effects || []).find(e => e.kind === 'trail');
         const trail = trailEff ? [] : null;
 
@@ -275,8 +298,11 @@
             const now = Math.min(s, t);
 
             // him: a laid-out path, or walking down whoever he has fixated
-            const gaze = (sc.effects || []).find(e => e.kind === 'gaze' && now >= e.start && now <= e.end);
-            if (bossActor.path) boss = actorAt(bossActor, now);
+            const gaze = (sc.effects || []).find(e => e.kind === 'gaze' && now >= e.start && now < e.end);
+            if (sc.initial && now >= sc.morph.start) {
+                const k = easeInOut(clamp((now - sc.morph.start) / (sc.morph.end - sc.morph.start), 0, 1));
+                boss = { x: lerp(sc.pickup.x, FIGHT.bossAt.x, k), y: lerp(sc.pickup.y, FIGHT.bossAt.y, k) };
+            } else if (bossActor.path) boss = actorAt(bossActor, now);
             else if (gaze) {
                 const target = pos[castId(sc, gaze.target)];
                 if (target) boss = stepToward(boss, target, (sc.chaseSpeed || 0.004) * STEP);
@@ -285,13 +311,13 @@
             // what is dangerous at this instant
             const hz = [];
             (sc.effects || []).forEach(e => {
-                if (e.kind === 'volcano' && now - e.start > 150) {
+                if (e.kind === 'volcano' && now - e.start > 150 && now <= e.end) {
                     hz.push({ x: e.at.x, y: e.at.y, yards: e.avoid || (e.radiusYards + 2) });
                 } else if (e.kind === 'gaze' && e === gaze) {
                     hz.push({ x: boss.x, y: boss.y, yards: e.avoid || 10 });
                 }
             });
-            if (trail && trail.length && now >= trailEff.start) {
+            if (trail && trail.length && now >= trailEff.start && now <= trailEff.end) {
                 const reach = trailEff.avoid || 4;
                 let last = null;
                 for (let i = trail.length - 1; i >= 0; i--) {
@@ -314,6 +340,10 @@
             if (chase && kite.of !== chase.id) { kite.of = chase.id; kite.side = 0; }
 
             sc.raid.forEach(p => {
+                if (sc.pathsById[p.id] && now <= sc.pathsById[p.id].at(-1).t) {
+                    pos[p.id] = actorAt({ path: sc.pathsById[p.id] }, now);
+                    return;
+                }
                 if (chase && p.id === chase.id) {
                     pos[p.id] = kiteStep(sc, p, pos, chase.at, chase.reach, kite);
                     return;
@@ -324,7 +354,7 @@
                     const mine = apart(home, boss) > 7 ? hz.concat([solid]) : hz;
                     want = L.safePos(FIGHT, home, mine);
                 }
-                pos[p.id] = stepToward(pos[p.id], want, WALK * STEP);
+                pos[p.id] = walkSafely(pos[p.id], want, WALK * STEP, hz);
             });
 
             // the fire, hunting whoever it picked. It turns rather than snaps, so a sidestep
@@ -499,7 +529,7 @@
     // additive overlap on a slow head turns any per-segment pass into a white blob.
     function drawTrail(e, sc, t) {
         const pts = sc._sim.trail;
-        if (!pts || pts.length < 2 || t < e.start) return;
+        if (!pts || pts.length < 2 || t < e.start || t > e.end) return;
         const last = pts.length - 1;
         const hot = Math.floor(last * 0.45), core = Math.floor(last * 0.78);
 
@@ -519,12 +549,12 @@
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.shadowColor = 'rgba(255,120,36,.9)';
+        ctx.shadowColor = 'rgba(55,174,255,.9)';
         ctx.shadowBlur = 22;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = yd(2.9);
-        ctx.strokeStyle = 'rgba(190,54,10,.22)';
+        ctx.strokeStyle = 'rgba(20,85,175,.22)';
         ctx.beginPath();
         const a0 = px(pts[0]);
         ctx.moveTo(a0.x, a0.y);
@@ -532,16 +562,16 @@
         ctx.stroke();
         ctx.restore();
 
-        trace(0, last, yd(1.75), 'rgba(196,58,12,.92)');
-        trace(hot, last, yd(1.25), 'rgba(255,142,38,.95)');
-        trace(core, last, yd(0.55), 'rgba(255,232,176,.95)');
+        trace(0, last, yd(1.75), 'rgba(28,118,201,.92)');
+        trace(hot, last, yd(1.25), 'rgba(64,191,255,.95)');
+        trace(core, last, yd(0.55), 'rgba(190,243,255,.95)');
 
         withGlow(() => {
             for (let i = 0; i < 26; i++) {
                 const p = px(pts[Math.floor(rnd(i * 3.7) * pts.length)]);
                 const cyc = (t / 1000 + rnd(i)) % 1;
                 ctx.globalAlpha = (1 - cyc) * 0.65;
-                ctx.fillStyle = i % 3 ? '#ffbe63' : '#fff0c8';
+                ctx.fillStyle = i % 3 ? '#70d9ff' : '#defaff';
                 ctx.beginPath();
                 ctx.arc(p.x + Math.sin((t / 260) + i) * yd(0.9), p.y - cyc * yd(5),
                     Math.max(0.7, yd(0.22) * (1 - cyc * 0.5)), 0, Math.PI * 2);
@@ -550,9 +580,9 @@
             ctx.globalAlpha = 1;
             const h = px(pts[last]);
             const g = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, yd(3.2));
-            g.addColorStop(0, 'rgba(255,246,214,.9)');
-            g.addColorStop(.32, 'rgba(255,150,44,.5)');
-            g.addColorStop(1, 'rgba(255,80,10,0)');
+            g.addColorStop(0, 'rgba(218,252,255,.9)');
+            g.addColorStop(.32, 'rgba(67,184,255,.5)');
+            g.addColorStop(1, 'rgba(25,110,255,0)');
             ctx.fillStyle = g;
             ctx.beginPath();
             ctx.arc(h.x, h.y, yd(3.2), 0, Math.PI * 2);
@@ -563,7 +593,7 @@
     // Volcanic Geyser: ground cracks, erupts, then keeps firing inside its radius.
     function drawVolcano(e, sc, t) {
         const age = t - e.start;
-        if (age < 0) return;
+        if (age < 0 || t > e.end) return;
         const c = px(e.at);
         const R = yd(e.radiusYards);
         const seed = e.at.x * 977 + e.at.y * 331;
@@ -645,7 +675,7 @@
 
     // Fixate: he drops threat and walks somebody down.
     function drawGaze(e, sc, t) {
-        if (t < e.start || t > e.end) return;
+        if (t < e.start || t >= e.end) return;
         const a = px(at(sc, e.from)), b = px(at(sc, e.target));
         const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -702,7 +732,7 @@
             ctx.stroke();
         }
         ctx.restore();
-        label(b.x, b.y - r - 11, 'Fixated', '#ff8f74');
+        label(b.x, b.y - r - 11, 'FIXATE · ' + Math.ceil((e.end - t) / 1000) + 's', '#ff9c88', 15);
     }
 
     // Hateful Strike landing on a tank.
@@ -750,29 +780,30 @@
         ctx.strokeStyle = 'rgba(8,10,9,.9)';
         ctx.fillStyle = '#ffdca8';
         const ny = c.y - yd(4) - 26 * nk;
-        ctx.strokeText('7,384', c.x, ny);
-        ctx.fillText('7,384', c.x, ny);
+        ctx.strokeText(e.label || 'Hateful', c.x, ny);
+        ctx.fillText(e.label || 'Hateful', c.x, ny);
         ctx.restore();
     }
 
     // The threat table: wiped at the swap into Phase 2, rebuilt on the way back.
     function drawThreat(e, sc, t) {
-        const c = px(at(sc, e.from));
+        const tankId = assigned.find(p => p.kind === 'tank')?.id;
+        const c = px(at(sc, tankId || e.from));
         const span = e.end - e.start;
         const wipe = e.mode !== 'rebuild';
         const bw = 172, bh = 11, gap = 8;
-        const bx = 62, by = 22;
-        const mark = span * (wipe ? 0.45 : 0.5);
+        const bx = 62, by = W < 500 ? H - 132 : 22;
+        const mark = sc.countdown ? sc.countdown.at - e.start : span * 0.5;
         const after = t - e.start - mark;
 
-        const rows = [{ name: 'MT', tone: '#4d7fbe' }, { name: 'OT', tone: '#3f6ea6' }];
+        const rows = assigned.filter(p => p.kind === 'tank').map((p, i) => ({ name: i ? 'SOAK' + (i > 1 ? ' ' + i : '') : 'MT', tone: i ? '#3f6ea6' : '#4d7fbe' }));
         ctx.save();
         // a plate so the readout survives whatever wall it happens to sit on
         ctx.fillStyle = 'rgba(9,13,11,.72)';
         ctx.strokeStyle = 'rgba(236,230,216,.12)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(bx - 44, by - 24, bw + 58, 2 * (bh + gap) + 34, 3);
+        ctx.roundRect(bx - 44, by - 24, bw + 58, rows.length * (bh + gap) + 34, 3);
         ctx.fill();
         ctx.stroke();
         ctx.font = '600 12px "Barlow Condensed", sans-serif';
@@ -812,7 +843,7 @@
             ctx.font = '700 17px "Barlow Condensed", sans-serif';
             ctx.textAlign = 'left';
             ctx.fillStyle = '#ffb066';
-            ctx.fillText(wipe ? 'threat wiped' : 'misdirect, then build', bx, by + 2 * (bh + gap) + 8);
+            ctx.fillText(wipe ? 'threat wiped' : 'misdirect, then build', bx, by + rows.length * (bh + gap) + 8);
             ctx.globalAlpha = 1;
         }
         ctx.restore();
@@ -839,11 +870,11 @@
         const fade = Math.min(1, (t - e.start) / 260, (e.end - t) / 400);
         ctx.save();
         ctx.globalAlpha = clamp(fade, 0, 1);
-        ctx.font = '600 22px "Barlow Condensed", sans-serif';
+        ctx.font = '600 ' + (W < 500 ? 16 : 22) + 'px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const w = ctx.measureText(e.text).width + 30;
-        const x = W / 2, y = H - 34;
+        const x = W / 2, y = 38;
         ctx.fillStyle = 'rgba(9,13,11,.84)';
         ctx.strokeStyle = 'rgba(255,106,31,.55)';
         ctx.lineWidth = 1;
@@ -907,6 +938,13 @@
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#d0793c';
         ctx.stroke();
+        const gaze = sc.effects.find(e => e.kind === 'gaze' && sc._t >= e.start && sc._t < e.end);
+        const mt = sc.raid.find(p => p.kind === 'tank');
+        const toward = gaze ? px(at(sc, gaze.target)) : mt ? px(sc._sim.pos[mt.id]) : { x: c.x, y: c.y - 1 };
+        const angle = Math.atan2(toward.y - c.y, toward.x - c.x);
+        ctx.translate(c.x, c.y); ctx.rotate(angle);
+        ctx.beginPath(); ctx.moveTo(r + 8, 0); ctx.lineTo(r - 2, -5); ctx.lineTo(r - 2, 5); ctx.closePath();
+        ctx.fillStyle = '#f4c28f'; ctx.fill();
         ctx.restore();
     }
 
@@ -914,7 +952,9 @@
         const c = px(sc._sim.pos[p.id]);
         const r = clamp(yd(1.7), 9, 21);
         const img = image(ROLE_ICON[p.kind] || ROLE_ICON.ranged);
-        if (sc._dim && !sc._focus[p.id]) return;
+        const faint = sc._dim && !sc._focus[p.id];
+        ctx.save();
+        if (faint) ctx.globalAlpha = 0.24;
 
         ctx.save();
         ctx.shadowColor = 'rgba(0,0,0,.8)';
@@ -946,7 +986,7 @@
             ctx.strokeRect(c.x - bw / 2, y, bw, bh);
             ctx.restore();
         }
-        if (p.label) {
+        if (p.label && !faint) {
             // stacked tanks and a tight melee arc would otherwise print their names on top of
             // each other: lift every other one above its token instead of below.
             const above = p.kind === 'tank' ? p.slotIndex % 2 === 1 : p.slotIndex % 2 === 0;
@@ -954,40 +994,103 @@
                 p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 12);
         }
         // the word for what this person is doing about it, which is the thing to read first
-        if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#ffb066', 14);
+        if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#c5f4e9', 14);
+        ctx.restore();
     }
 
     // ---- steps ----------------------------------------------------------------
 
-    // Health for the Hateful Strike step: the tanks trade the hit while the melee behind him
-    // sit low enough that he never looks at them. Keyed by raid slot.
-    const HATEFUL_HP = {
-        p0: [{ t: 0, v: 0.95 }, { t: 1800, v: 0.62 }, { t: 3200, v: 0.86 }, { t: 4600, v: 0.90 }, { t: 7000, v: 0.95 }],
-        p1: [{ t: 0, v: 0.78 }, { t: 1800, v: 0.84 }, { t: 3200, v: 0.94 }, { t: 4600, v: 0.61 }, { t: 7000, v: 0.80 }],
-        p2: [{ t: 0, v: 0.58 }], p3: [{ t: 0, v: 0.63 }], p4: [{ t: 0, v: 0.55 }],
-        p5: [{ t: 0, v: 0.60 }], p6: [{ t: 0, v: 0.52 }], p7: [{ t: 0, v: 0.66 }], p8: [{ t: 0, v: 0.57 }]
-    };
-
     const tankSlots = assigned.filter(p => p.kind === 'tank').map(p => p.id);
     const scenes = FIGHT.scenes.map(s => {
         const sc = Object.assign({}, s);
+        sc.cast = {};
+        Object.keys(s.cast || {}).forEach(ref => {
+            if (ref === 'md') {
+                if (HUNTER) { sc.cast[ref] = HUNTER; return; }
+                if (roster) return;
+            }
+            const role = s.castRoles && s.castRoles[ref];
+            const pool = role ? assigned.filter(p => p.kind === role[0]) : assigned;
+            const used = new Set(Object.values(sc.cast));
+            const chosen = (pool[role ? role[1] : 0] && !used.has(pool[role ? role[1] : 0].id))
+                ? pool[role ? role[1] : 0] : pool.find(p => !used.has(p.id));
+            if (chosen) sc.cast[ref] = chosen.id;
+        });
         sc.bossActor = (s.actors || []).find(a => a.kind === 'boss')
             || { id: 'boss', kind: 'boss', at: FIGHT.bossAt };
         sc.raid = (s.formation || s.morph) ? assigned.map(p => ({
             id: p.id, kind: p.kind, slotIndex: p.slotIndex,
-            label: p.name || (p.kind === 'tank' ? (tankSlots.indexOf(p.id) ? 'OT' : 'MT') : null)
+            label: p.kind === 'tank'
+                ? (tankSlots.indexOf(p.id) ? 'SOAK' : 'MT') + (s.id === 'p1-stand' && p.name ? ' · ' + p.name : '')
+                : s.id === 'p1-stand' ? p.name : ''
         })) : [];
-        if (s.id === 'p1-hateful') sc.hp = HATEFUL_HP;
+        sc.startsById = {};
+        sc.pathsById = {};
+        Object.entries(s.starts || {}).forEach(([ref, point]) => { if (sc.cast[ref]) sc.startsById[sc.cast[ref]] = point; });
+        Object.entries(s.paths || {}).forEach(([ref, path]) => { if (sc.cast[ref]) sc.pathsById[sc.cast[ref]] = path; });
+        // A partial roster can lack a demonstrated role. Do not draw an effect at the boss
+        // as a fallback for a missing player.
+        sc.effects = (s.effects || []).filter(e => ['follow', 'target'].every(k =>
+            !e[k] || e[k] === 'boss' || sc.cast[e[k]] || assigned.some(p => p.id === e[k])))
+            .map(e => { const copy = { ...e }; if (e.md && !sc.cast[e.md]) delete copy.md; return copy; });
+        if (roster && !HUNTER && s.id === 'back') {
+            sc.call = 'Ease off. Tanks pick up. Wait for control.';
+            sc.caption = 'Start where the chase ended. At the reset, tanks take control. Only then does melee return and the boss move back.';
+            sc.jobs = s.jobs.map(([role, job]) => [role, role === 'Hunters'
+                ? 'No hunter is loaded. Give the pickup tank extra time to establish threat.' : job]);
+            sc.effects.forEach(e => { if (e.kind === 'call') e.text = e.text.replace(', MD now', ''); });
+        }
+        if (s.id === 'p1-hateful') {
+            sc.hp = {};
+            if (sc.cast.mt) sc.hp[sc.cast.mt] = [{ t: 0, v: 1 }, { t: 1200, v: 1 }, { t: 1400, v: .72 }, { t: 2600, v: 1 }];
+            if (sc.cast.soak) sc.hp[sc.cast.soak] = [{ t: 0, v: 1 }, { t: 3200, v: 1 }, { t: 3400, v: .40 }, { t: 5200, v: 1 }, { t: 6200, v: 1 }, { t: 6400, v: .42 }, { t: 8000, v: 1 }];
+        }
         return sc;
+    });
+    scenes.forEach(sc => {
+        if (!sc.continueFrom) return;
+        const previous = scenes.find(s => s.id === sc.continueFrom);
+        sc.initial = simulate(previous, previous.duration);
+        sc.pickup = sc.initial.boss;
+        // An eruption already on the floor remains while the raid prepares the pickup.
+        previous.effects.filter(e => e.kind === 'volcano' && e.end > previous.duration).forEach(e => {
+            sc.effects.unshift(Object.assign({}, e, { start: e.start - previous.duration, end: e.end - previous.duration }));
+        });
     });
 
     let idx = 0;
-    let sceneStart = performance.now();
+    const playback = window.TacticsPlayback.create(scenes[0].duration);
+
+    function drawRoutes(sc, t) {
+        Object.entries(sc.pathsById).forEach(([id, path]) => {
+            const gaze = sc.effects.find(e => e.kind === 'gaze' && castId(sc, e.target) === id && t >= e.start && t < e.end);
+            const trail = sc.effects.find(e => e.kind === 'trail' && castId(sc, e.follow) === id && t <= e.start + e.chaseMs);
+            if (!gaze && !trail) return;
+            const ahead = path.filter(p => p.t > t);
+            if (!ahead.length) return;
+            const from = px(sc._sim.pos[id]);
+            ctx.save();
+            ctx.strokeStyle = '#c5f4e9';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 7]);
+            ctx.beginPath(); ctx.moveTo(from.x, from.y);
+            ahead.forEach(p => { const q = px(p); ctx.lineTo(q.x, q.y); });
+            ctx.stroke(); ctx.setLineDash([]);
+            const end = px(ahead[ahead.length - 1]);
+            const prev = ahead.length > 1 ? px(ahead[ahead.length - 2]) : from;
+            const angle = Math.atan2(end.y - prev.y, end.x - prev.x);
+            ctx.beginPath();
+            ctx.moveTo(end.x - Math.cos(angle - .5) * 12, end.y - Math.sin(angle - .5) * 12);
+            ctx.lineTo(end.x, end.y);
+            ctx.lineTo(end.x - Math.cos(angle + .5) * 12, end.y - Math.sin(angle + .5) * 12);
+            ctx.stroke(); ctx.restore();
+        });
+    }
 
     function paint(now) {
         if (!W) return;
         const sc = scenes[idx];
-        const t = REDUCED ? sc.duration * 0.62 : (now - sceneStart) % sc.duration;
+        const t = playback.time(now);
 
         sc._sim = simulate(sc, t);
         sc._dim = (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
@@ -1001,6 +1104,7 @@
 
         (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
             .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
+        drawRoutes(sc, t);
         drawBoss(sc.bossActor, sc);
         sc.raid.forEach(p => drawPlayer(p, sc, t));
         // the gaze goes last: it is the thing you must notice
@@ -1018,89 +1122,125 @@
     document.title = FIGHT.name + ' — fight briefing';
 
     const rail = el('rail');
-    const cardOf = {};
-    const major = FIGHT.abilities.filter(a => a.tier < 3);
-    const minor = FIGHT.abilities.filter(a => a.tier === 3);
-
-    major.forEach(a => {
-        const c = document.createElement('article');
-        c.className = 'card card--t' + a.tier;
-        const meta = [a.tooltip.range, a.tooltip.duration ? a.tooltip.duration + ' duration' : null]
-            .filter(Boolean).join(' · ');
-        const tone = /tank/i.test(a.who) ? ' who--tank' : /every|raid/i.test(a.who) ? ' who--raid' : '';
-        c.innerHTML =
-            '<img class="card__icon" src="' + a.icon + '" alt="">' +
-            '<div>' +
-            '<div class="card__head"><h3 class="card__name">' + a.name + '</h3>' +
-            '<span class="card__cast">' + a.tooltip.castTime + '</span></div>' +
-            (meta ? '<p class="card__meta">' + meta + '</p>' : '') +
+    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel"></p>' +
+        '<h2 class="guide__call" id="sceneCall"></h2><p class="guide__why" id="sceneWhy"></p>' +
+        '<div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>' +
+        '<dl class="role-notes" id="roleNotes"></dl><div class="mistake"><span>Watch out</span>' +
+        '<p id="sceneMistake"></p></div></section>' +
+        '<details class="reference"><summary>Mechanics &amp; sources</summary><div id="referenceContent"></div></details>';
+    const reference = el('referenceContent');
+    FIGHT.abilities.forEach(a => {
+        const card = document.createElement('article');
+        card.className = 'card card--t' + a.tier;
+        card.innerHTML = '<img class="card__icon" src="' + a.icon + '" alt="">' +
+            '<div><h3 class="card__name">' + a.name + '</h3><p class="card__meta">Phase ' + a.phase + '</p>' +
             '<p class="card__desc">' + a.tooltip.description + '</p>' +
-            '<p class="card__do">' + a.doThis + '</p>' +
-            '<span class="who' + tone + '">' + a.who + '</span>' +
-            '</div>';
-        rail.appendChild(c);
-        cardOf[a.id] = c;
+            '<p class="card__do">' + a.doThis + '</p></div>';
+        reference.appendChild(card);
     });
-
-    if (minor.length) {
-        const strip = document.createElement('div');
-        strip.className = 'minor';
-        strip.innerHTML = minor.map(a =>
-            '<img src="' + a.icon + '" alt="" title="' + a.name + ' — ' + a.tooltip.description + '">'
-        ).join('') + '<span>' + minor.map(a => a.name).join(', ') + ' — the tell before the fire</span>';
-        rail.appendChild(strip);
-        minor.forEach(a => { cardOf[a.id] = strip; });
-    }
-
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
-    sheet.innerHTML = '<h3 class="sheet__title">From the raid\'s sheet</h3><ol class="sheet__steps">' +
+    sheet.innerHTML = '<h3 class="sheet__title">From the guild’s strategy image</h3><ol class="sheet__steps">' +
         FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
-    rail.appendChild(sheet);
-
-    const credit = document.createElement('p');
+    reference.appendChild(sheet);
+    const credit = document.createElement('div');
     credit.className = 'credit';
-    credit.textContent = FIGHT.source;
-    rail.appendChild(credit);
+    credit.innerHTML = '<p>Illustrative paths and positions. Map scale and danger rings are approximate; leave a margin in game.</p>';
+    FIGHT.sources.forEach(source => {
+        const link = document.createElement('a');
+        link.href = source.url; link.textContent = source.name; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        credit.appendChild(link);
+    });
+    reference.appendChild(credit);
 
-    // Keep the live ability on screen without ever scrolling the page itself.
-    function revealCard(node) {
-        if (!node || rail.scrollHeight <= rail.clientHeight) return;
-        const top = node.offsetTop, bottom = top + node.offsetHeight;
-        const behavior = REDUCED ? 'auto' : 'smooth';
-        if (top < rail.scrollTop + 8) rail.scrollTo({ top: Math.max(0, top - 12), behavior: behavior });
-        else if (bottom > rail.scrollTop + rail.clientHeight - 8) {
-            rail.scrollTo({ top: bottom - rail.clientHeight + 12, behavior: behavior });
-        }
+    function showSpellDetails(sc) {
+        const container = el('sceneSpells');
+        container.replaceChildren();
+        const abilities = (sc.highlight || []).map(id => FIGHT.abilities.find(a => a.id === id)).filter(Boolean);
+        container.hidden = !abilities.length;
+        abilities.forEach(a => {
+            const card = document.createElement('article');
+            card.className = 'spell-tooltip';
+            const head = document.createElement('div');
+            head.className = 'spell-tooltip__head';
+            const icon = document.createElement('img');
+            icon.src = a.icon; icon.alt = ''; icon.width = 32; icon.height = 32;
+            const title = document.createElement('h3');
+            const link = document.createElement('a');
+            link.href = 'https://www.wowhead.com/tbc/spell=' + a.spell;
+            link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = a.name;
+            title.appendChild(link); head.append(icon, title); card.appendChild(head);
+            const meta = document.createElement('p');
+            meta.className = 'spell-tooltip__meta';
+            meta.textContent = [a.tooltip.range, a.tooltip.castTime, a.tooltip.cooldown].filter(Boolean).join(' · ');
+            const description = document.createElement('p');
+            description.className = 'spell-tooltip__description';
+            description.textContent = a.tooltip.spellText || a.tooltip.description;
+            card.append(meta, description);
+            if (a.tooltip.duration || a.tooltip.aura) {
+                const note = document.createElement('p');
+                note.className = 'spell-tooltip__note';
+                note.textContent = [a.tooltip.duration && 'Effect: ' + a.tooltip.duration, a.tooltip.aura].filter(Boolean).join(' · ');
+                card.appendChild(note);
+            }
+            container.appendChild(card);
+        });
     }
 
     const dots = el('dots');
     scenes.forEach((s, i) => {
         const b = document.createElement('button');
-        b.className = 'dot';
-        b.type = 'button';
-        b.setAttribute('role', 'tab');
-        b.setAttribute('aria-label', s.title);
-        b.addEventListener('click', () => show(i));
-        dots.appendChild(b);
+        b.className = 'dot'; b.type = 'button';
+        b.setAttribute('aria-label', 'Step ' + (i + 1) + ': ' + s.chapter);
+        b.innerHTML = '<span class="chapter__number">' + String(i + 1).padStart(2, '0') + '</span>' +
+            '<span class="chapter__title">' + s.chapter + '</span>';
+        b.addEventListener('click', () => show(i)); dots.appendChild(b);
     });
 
+    function revealChapter() {
+        const active = dots.children[idx];
+        if (!active) return;
+        const left = active.getBoundingClientRect().left - dots.getBoundingClientRect().left + dots.scrollLeft;
+        if (left < dots.scrollLeft || left + active.offsetWidth > dots.scrollLeft + dots.clientWidth)
+            dots.scrollLeft = Math.max(0, left - dots.clientWidth / 2 + active.offsetWidth / 2);
+    }
+
     function show(i) {
-        idx = ((i % scenes.length) + scenes.length) % scenes.length;
+        idx = clamp(i, 0, scenes.length - 1);
         const sc = scenes[idx];
-        sceneStart = performance.now();
+        const now = performance.now();
+        playback.reset(sc.duration, now);
+        if (!REDUCED && sc.effects.length) playback.play(now);
         el('stepTitle').textContent = sc.title;
         el('stepCaption').textContent = sc.caption;
+        el('sceneLabel').textContent = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') +
+            ' · ' + (sc.countdown ? 'TRANSITION' : sc.phase ? 'PHASE ' + sc.phase : 'THE FIGHT');
+        el('sceneCall').textContent = sc.call;
+        if (el('mapCall')) el('mapCall').textContent = sc.call;
+        el('sceneWhy').textContent = sc.why;
+        showSpellDetails(sc);
+        el('sceneMistake').textContent = sc.mistake;
+        if (roster) {
+            el('rosterNote').hidden = false;
+            const missing = Object.keys(sc.castRoles || {}).filter(ref => !sc.cast[ref]);
+            el('rosterNote').textContent = assigned.length + ' players loaded · positions are examples.' +
+                (missing.includes('md') ? ' No hunter loaded: Misdirect is not assigned.' :
+                 missing.length ? ' This roster lacks a role used in the example.' : '');
+        }
+        el('roleNotes').replaceChildren();
+        sc.jobs.forEach(([role, job]) => {
+            const dt = document.createElement('dt'), dd = document.createElement('dd');
+            dt.textContent = role; dd.textContent = job;
+            el('roleNotes').append(dt, dd);
+        });
         [...dots.children].forEach((d, k) => {
             d.classList.toggle('is-on', k === idx);
-            d.setAttribute('aria-selected', k === idx ? 'true' : 'false');
+            if (k === idx) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
         });
-        Object.keys(cardOf).forEach(id => cardOf[id].classList.remove('is-live'));
-        (sc.highlight || []).forEach(id => cardOf[id] && cardOf[id].classList.add('is-live'));
-        if (sc.highlight && sc.highlight.length) revealCard(cardOf[sc.highlight[0]]);
-        el('clockP1').classList.toggle('is-on', sc.phase === 1);
-        el('clockP2').classList.toggle('is-on', sc.phase === 2);
-        if (REDUCED) { paint(performance.now()); tickClock(performance.now()); }
+        revealChapter();
+        el('prev').disabled = idx === 0;
+        el('next').disabled = idx === scenes.length - 1;
+        render(now);
     }
 
     // ---- taking it away -------------------------------------------------------
@@ -1114,33 +1254,47 @@
 
     async function copyPositions() {
         const btn = el('copyText');
-        const phase = scenes[idx].phase === 2 ? 2 : 1;
-        const text = L.copyText(FIGHT, phase, assigned);
+        const sc = scenes[idx];
+        const phase = sc.countdown
+            ? ((sc._t || 0) >= sc.countdown.at ? sc.countdown.phase : 3 - sc.countdown.phase)
+            : sc.phase || 1;
+        const text = [FIGHT.name + ' — ' + sc.title, sc.call, '', ...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake, '', L.copyText(FIGHT, phase, assigned)].join('\n');
         try {
             await navigator.clipboard.writeText(text);
             flash(btn, 'Copied');
         } catch (e) {
             const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-            a.download = 'supremus-positions-phase-' + phase + '.txt';
+            const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+            a.href = url;
+            a.download = 'supremus-briefing-phase-' + phase + '.txt';
             a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
             flash(btn, 'Saved');
         }
     }
 
     function copyImage() {
-        const btn = el('copyImage');
-        cv.toBlob(async blob => {
+        const btn = el('copyImage'), sc = scenes[idx];
+        const out = document.createElement('canvas');
+        out.width = cv.width; out.height = cv.height + 180;
+        const g = out.getContext('2d');
+        g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, out.width, out.height);
+        g.fillStyle = '#ece6d8'; g.font = '600 30px "Barlow Condensed", sans-serif';
+        g.fillText(FIGHT.name + ' · ' + sc.chapter, 24, 42, out.width - 48);
+        g.fillStyle = '#c5f4e9'; g.font = '500 23px "IBM Plex Sans", sans-serif';
+        g.fillText(sc.call, 24, 82, out.width - 48);
+        g.drawImage(cv, 0, 106);
+        g.fillStyle = '#9ba89f'; g.font = '18px "IBM Plex Sans", sans-serif';
+        g.fillText('Example positions and routes · Approximate scale · Blue: fire / Orange: volcano / Red: fixate', 24, out.height - 27, out.width - 48);
+        out.toBlob(async blob => {
             if (!blob) { flash(btn, 'Export failed'); return; }
             try {
                 await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
                 flash(btn, 'Copied');
             } catch (e) {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = 'supremus-' + scenes[idx].id + '.png';
-                a.click();
-                flash(btn, 'Saved');
+                const a = document.createElement('a'), url = URL.createObjectURL(blob);
+                a.href = url; a.download = 'supremus-' + sc.id + '.png'; a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000); flash(btn, 'Saved');
             }
         }, 'image/png');
     }
@@ -1149,79 +1303,99 @@
     el('copyImage').addEventListener('click', copyImage);
     el('next').addEventListener('click', () => show(idx + 1));
     el('prev').addEventListener('click', () => show(idx - 1));
+    function togglePlay() {
+        const now = performance.now();
+        if (playback.playing) playback.pause(now); else playback.play(now);
+        render(now);
+    }
+    function replay() {
+        const now = performance.now();
+        playback.seek(0, now);
+        if (!REDUCED) playback.play(now);
+        render(now);
+    }
+    async function fullscreen() {
+        try {
+            if (document.fullscreenElement) await document.exitFullscreen();
+            else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+        } catch (e) { flash(el('fullscreen'), 'Unavailable'); }
+    }
+    el('playPause').addEventListener('click', togglePlay);
+    el('replay').addEventListener('click', replay);
+    el('fullscreen').addEventListener('click', fullscreen);
+    el('scrub').addEventListener('input', ev => {
+        const now = performance.now(); playback.pause(now);
+        playback.seek(Number(ev.target.value) / 100 * scenes[idx].duration, now); render(now);
+    });
+    el('speed').addEventListener('change', ev => {
+        const now = performance.now(); playback.setSpeed(Number(ev.target.value), now); render(now);
+    });
     document.addEventListener('keydown', ev => {
-        if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
-        if (ev.key === 'ArrowRight') show(idx + 1);
-        else if (ev.key === 'ArrowLeft') show(idx - 1);
-        else if (ev.key === ' ') { ev.preventDefault(); sceneStart = performance.now(); }
-        else if (ev.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+        if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+        if (ev.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable)) return;
+        if (ev.key === ' ' && ev.target && /^(BUTTON|SUMMARY|A)$/.test(ev.target.tagName)) return;
+        if (ev.key === 'ArrowRight') { ev.preventDefault(); show(idx + 1); }
+        else if (ev.key === 'ArrowLeft') { ev.preventDefault(); show(idx - 1); }
+        else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
+        else if (ev.key.toLowerCase() === 'r') replay();
+        else if (ev.key.toLowerCase() === 'f') fullscreen();
         else if (/^[1-9]$/.test(ev.key)) show(parseInt(ev.key, 10) - 1);
     });
 
     if (!roster) {
         const note = el('rosterNote');
         note.hidden = false;
-        note.textContent = 'No roster loaded. Import one on the Assignments page and these become your own names.';
+        note.textContent = 'Example raid · 2 tanks, 6 healers, 7 melee, 10 ranged. Import your roster on Assignments for named positioning.';
     }
 
-    // The clock is the fight's own timer. On a step that spans a swap it counts down to it,
-    // because "phase 1 in three seconds" is the call that makes people move.
+    // Encounter seconds follow the example scene. The playhead never runs independently
+    // of the map, and both freeze when the presenter pauses.
     const clockHead = el('clockHead');
     const half = { 1: el('clockP1'), 2: el('clockP2') };
     const secs = { 1: half[1].querySelector('span'), 2: half[2].querySelector('span') };
 
-    function tickClock(now) {
-        const sc = scenes[idx];
-        const cd = sc.countdown;
-        if (!cd) {
-            const cycle = (now / 1000) % (FIGHT.phaseSeconds * 2) / (FIGHT.phaseSeconds * 2);
-            clockHead.style.left = (cycle * 100) + '%';
-            [1, 2].forEach(p => {
-                secs[p].textContent = FIGHT.phaseSeconds + 's';
-                secs[p].classList.remove('is-soon');
-            });
-            return;
-        }
-        const t = sc._t || 0;
-        const to = cd.phase, from = to === 1 ? 2 : 1;
-        const before = t < cd.at;
-        const k = before ? clamp(t / cd.at, 0, 1)
-            : clamp((t - cd.at) / Math.max(1, sc.duration - cd.at), 0, 1);
-        clockHead.style.left = (((before ? from : to) === 1 ? 0 : 0.5) + k * 0.5) * 100 + '%';
-
-        const live = before ? from : to;
-        half[1].classList.toggle('is-on', live === 1);
-        half[2].classList.toggle('is-on', live === 2);
-        secs[from].textContent = FIGHT.phaseSeconds + 's';
-        secs[from].classList.remove('is-soon');
-        if (before) {
-            secs[to].textContent = 'in ' + Math.max(0, (cd.at - t) / 1000).toFixed(1) + 's';
-            secs[to].classList.add('is-soon');
-        } else {
-            secs[to].textContent = FIGHT.phaseSeconds + 's';
-            secs[to].classList.remove('is-soon');
-        }
+    function tickClock() {
+        const sc = scenes[idx], t = sc._t || 0;
+        const seconds = (sc.fightStart || 0) + t / 1000;
+        const cycle = seconds % 120;
+        const phase = cycle < 60 ? 1 : 2;
+        clockHead.style.visibility = sc.id === 'overview' ? 'hidden' : 'visible';
+        clockHead.style.left = (cycle / 120 * 100) + '%';
+        [1, 2].forEach(p => {
+            half[p].classList.toggle('is-on', sc.id !== 'overview' && phase === p);
+            const remaining = p === phase && sc.id !== 'overview' ? 60 - cycle % 60 : 60;
+            secs[p].textContent = Math.ceil(remaining) + 's';
+            secs[p].classList.toggle('is-soon', remaining <= 5);
+        });
     }
-
+    function render(now) {
+        paint(now); tickClock();
+        const t = scenes[idx]._t || 0, duration = scenes[idx].duration;
+        el('playPause').textContent = playback.playing ? 'Pause' : t >= duration ? 'Play again' : 'Play';
+        el('playPause').setAttribute('aria-label', playback.playing ? 'Pause animation' : 'Play animation');
+        el('scrub').value = t / duration * 100;
+        el('scrub').setAttribute('aria-valuetext', (t / 1000).toFixed(1) + ' of ' + (duration / 1000) + ' seconds');
+        el('elapsed').textContent = (t / 1000).toFixed(1) + ' / ' + (duration / 1000) + 's';
+    }
     function frame(now) {
-        paint(now);
-        if (!REDUCED) tickClock(now);
+        if (playback.playing) render(now);
         requestAnimationFrame(frame);
     }
 
     function start() {
         resize();
         show(0);
-        if (REDUCED) { paint(performance.now()); tickClock(performance.now()); }
-        else requestAnimationFrame(frame);
+        requestAnimationFrame(frame);
     }
 
-    window.addEventListener('resize', () => { if (resize() && REDUCED) paint(performance.now()); });
+    window.addEventListener('resize', () => { if (resize()) render(performance.now()); });
     const mapImg = image(FIGHT.map);
     if (mapImg.complete && mapImg.naturalWidth) start();
     else mapImg.addEventListener('load', start);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { resize(); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (resize()) render(performance.now()); });
+    new ResizeObserver(() => { if (resize()) { render(performance.now()); revealChapter(); } }).observe(cv);
+    Object.values(IMG).forEach(img => img.addEventListener('load', () => render(performance.now())));
 
     // lets the screenshot harness step scenes without synthesising key events
-    window.__tactics = { show, count: scenes.length, scenes, assigned, roster };
+    window.__tactics = { show, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate };
 }());
