@@ -171,7 +171,7 @@
             },
             {
                 id: 'p1-hateful',
-                view: { fit: 'arena' },
+                view: { fit: 'front' },
                 phase: 1,
                 title: 'Hateful Strike',
                 caption: 'He swings at whoever has the most health in melee range. Tanks stack so one healer covers both; melee sit behind him on less health and never get picked.',
@@ -188,7 +188,7 @@
             },
             {
                 id: 'p1-flame',
-                view: { fit: 'arena' },
+                view: { fit: 'raid' },
                 phase: 1,
                 title: 'Molten Flame',
                 caption: 'He punches the ground and the fire hunts one player for ten seconds. Walk it away from everyone else — it burns for another ten where you leave it.',
@@ -222,7 +222,7 @@
             },
             {
                 id: 'p2-fixate',
-                view: { fit: 'arena' },
+                view: { fit: 'raid' },
                 phase: 2,
                 title: 'He hunts you',
                 caption: 'Threat is gone. He picks someone and walks them down, then picks again ten seconds later. Get out of the lane he is walking.',

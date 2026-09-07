@@ -144,27 +144,42 @@
 
     // Point the camera at a patch of the room: centre it, ask for a width in yards, and let
     // it widen to whatever shape the stage is so nothing is ever squashed or letterboxed.
-    function aim(view) {
-        const box = W / H;
+    // The rectangle of the map a step is about, in map fractions. 'arena' is the room;
+    // 'raid' is everyone's standing spot plus him; 'front' is him, the tanks and the melee.
+    // Worked out from the positions in play, so a different roster or layout reframes itself.
+    function frameOf(view, sc) {
         const A = FIGHT.arena;
-        let want;
-        if (view.fit === 'arena') {
-            // cover the whole mat with a little air, in whichever direction is the tight one
-            const wantW = (A.x1 - A.x0) * MW * 1.06;
-            const wantH = (A.y1 - A.y0) * MH * 1.04;
-            want = Math.max(wantW, wantH * box);
-        } else {
-            want = (view.spanYards * FIGHT.yard) * MW;
-        }
-        let w = want, h = want / box;
+        if (view.fit === 'arena' || !view.fit) return { x0: A.x0, y0: A.y0, x1: A.x1, y1: A.y1, pad: 2 };
+        const pts = [FIGHT.bossAt];
+        const phases = sc.morph ? [sc.morph.from, sc.morph.to] : [sc.formation || 1];
+        phases.forEach(ph => {
+            Object.keys(PLACED[ph]).forEach(id => {
+                const p = PLACED[ph][id];
+                if (view.fit === 'front' && p.kind !== 'tank' && p.kind !== 'melee') return;
+                pts.push(p.at);
+            });
+        });
+        const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+        return {
+            x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys),
+            pad: view.fit === 'front' ? 9 : 6
+        };
+    }
+
+    function aim(view, sc) {
+        const box = W / H;
+        const f = frameOf(view, sc);
+        const padX = f.pad * FIGHT.yard, padY = f.pad * FIGHT.yard * FIGHT.aspect;
+        const wantW = (f.x1 - f.x0 + 2 * padX) * MW;
+        const wantH = (f.y1 - f.y0 + 2 * padY) * MH;
+        // whichever of width or height is the tight fit sets the crop; the other gets air
+        let w = Math.max(wantW, wantH * box), h = w / box;
         if (w > MW) { w = MW; h = w / box; }
         if (h > MH) { h = MH; w = h * box; }
-        const cx = view.fit === 'arena' ? (A.x0 + A.x1) / 2 : view.cx;
-        const cy = view.fit === 'arena' ? (A.y0 + A.y1) / 2 : view.cy;
         src = {
             w: w, h: h,
-            x: clamp(cx * MW - w / 2, 0, MW - w),
-            y: clamp(cy * MH - h / 2, 0, MH - h)
+            x: clamp((f.x0 + f.x1) / 2 * MW - w / 2, 0, MW - w),
+            y: clamp((f.y0 + f.y1) / 2 * MH - h / 2, 0, MH - h)
         };
         scale = W / src.w;
     }
@@ -269,7 +284,10 @@
 
             // the raid: stand on your spot unless something is on it
             const solid = { x: boss.x, y: boss.y, yards: 6 };
+            const hunted = trail && now >= trailEff.start && now <= trailEff.start + (trailEff.chaseMs || 4000)
+                ? castId(sc, trailEff.follow) : null;
             sc.raid.forEach(p => {
+                if (p.id === hunted) { pos[p.id] = sidestep(sc, p, pos, trail, trailEff.avoid || 4); return; }
                 const home = homeAt(sc, p, now);
                 let want = home;
                 if (hz.length) {
@@ -279,11 +297,28 @@
                 pos[p.id] = stepToward(pos[p.id], want, WALK * STEP);
             });
 
-            // the fire, hunting whoever it picked
+            // the fire, hunting whoever it picked. It turns rather than snaps, so a sidestep
+            // makes it overshoot and curve — which is the reason sidestepping works.
             if (trail && now >= trailEff.start && now <= trailEff.start + (trailEff.chaseMs || 4000)) {
                 const head = trail[trail.length - 1];
                 const target = pos[castId(sc, trailEff.follow)];
-                if (target) trail.push(Object.assign(stepToward(head, target, FIRE * STEP), { t: now }));
+                if (target) {
+                    const ax = (target.x - head.x) / FIGHT.yard, ay = (target.y - head.y) / (FIGHT.yard * FIGHT.aspect);
+                    const al = Math.hypot(ax, ay) || 1;
+                    let dx = ax / al, dy = ay / al;
+                    if (head.dx !== undefined) {
+                        dx = head.dx * 0.9 + dx * 0.1;
+                        dy = head.dy * 0.9 + dy * 0.1;
+                        const l = Math.hypot(dx, dy) || 1;
+                        dx /= l; dy /= l;
+                    }
+                    const step = Math.min(FIRE * STEP, al);
+                    trail.push({
+                        x: head.x + dx * step * FIGHT.yard,
+                        y: head.y + dy * step * FIGHT.yard * FIGHT.aspect,
+                        dx: dx, dy: dy, t: now
+                    });
+                }
             }
             if (s >= t) break;
         }
@@ -309,6 +344,33 @@
             if (apart(homeAt(sc, p, t), sc._sim.pos[p.id]) > 1.5) set[p.id] = 1;
         });
         return set;
+    }
+
+    // What the hunted player does: nothing until the fire is nearly on them, then a step
+    // to the side — never straight away, which only drags it further in a straight line —
+    // on whichever side has more room from everybody else.
+    function sidestep(sc, p, pos, trail, reach) {
+        const cur = pos[p.id];
+        const head = trail[trail.length - 1];
+        const d = apart(cur, head);
+        if (d > reach + 3) return cur;
+        const ax = (cur.x - head.x) / FIGHT.yard, ay = (cur.y - head.y) / (FIGHT.yard * FIGHT.aspect);
+        const al = Math.hypot(ax, ay) || 1;
+        const nx = ax / al, ny = ay / al;
+        const sides = [{ x: -ny, y: nx }, { x: ny, y: -nx }];
+        const probe = s => ({ x: cur.x + s.x * 4 * FIGHT.yard, y: cur.y + s.y * 4 * FIGHT.yard * FIGHT.aspect });
+        const room = s => {
+            const q = probe(s);
+            let best = apart(q, FIGHT.bossAt);
+            sc.raid.forEach(o => { if (o.id !== p.id) best = Math.min(best, apart(q, pos[o.id])); });
+            const A = FIGHT.arena;
+            if (q.x < A.x0 || q.x > A.x1 || q.y < A.y0 || q.y > A.y1) best = -1;
+            return best;
+        };
+        const side = room(sides[0]) >= room(sides[1]) ? sides[0] : sides[1];
+        const out = reach + 9;
+        const target = { x: cur.x + side.x * out * FIGHT.yard, y: cur.y + side.y * out * FIGHT.yard * FIGHT.aspect };
+        return stepToward(cur, target, WALK * STEP);
     }
 
     // Read a position out of the current frame: a raid slot, a cast name, or him.
@@ -889,7 +951,7 @@
         sc._focus = sc._dim ? focusOf(sc, t) : {};
         sc._roles = {};
         Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
-        aim(sc.view);
+        aim(sc.view, sc);
         ctx.clearRect(0, 0, W, H);
         drawMap();
 

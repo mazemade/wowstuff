@@ -67,18 +67,18 @@ test('scenes: each has an id, phase, title and one caption', () => {
     });
 });
 
-test('scenes: every step frames the whole courtyard', () => {
+test('scenes: the room for context, the raid or the front when a mechanic is the point', () => {
+    const FITS = ['arena', 'raid', 'front'];
     FIGHT.scenes.forEach(s => {
-        assert.ok(s.view, s.id + ' says where to point the camera');
-        if (s.view.fit) {
-            assert.strictEqual(s.view.fit, 'arena', s.id + ' fit: ' + s.view.fit);
-        } else {
-            assert.ok(s.view.cx > 0 && s.view.cx < 1 && s.view.cy > 0 && s.view.cy < 1, s.id + ' centres on the map');
-            assert.ok(s.view.spanYards >= 25, s.id + ' span: ' + s.view.spanYards);
-        }
+        assert.ok(s.view && FITS.includes(s.view.fit), s.id + ' frames: ' + JSON.stringify(s.view));
     });
-    assert.ok(FIGHT.scenes.every(s => s.view.fit === 'arena'),
-        'the room is the context: no step crops it away');
+    const by = id => FIGHT.scenes.find(s => s.id === id).view.fit;
+    assert.strictEqual(by('p1-hateful'), 'front', 'the tank stack is a six-person picture');
+    assert.strictEqual(by('p1-flame'), 'raid', 'the fire needs to be fat enough to read');
+    assert.ok(FIGHT.scenes.filter(s => s.formation && !s.effects.length).every(s => s.view.fit === 'arena'),
+        'where-you-stand steps show the whole room');
+    assert.ok(FIGHT.scenes.filter(s => s.morph).every(s => s.view.fit === 'arena'),
+        'transitions show the whole room');
 });
 
 test('scenes: ids are unique', () => {
