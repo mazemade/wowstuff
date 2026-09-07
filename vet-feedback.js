@@ -290,7 +290,13 @@ const BURST_MAX_SEC = 30;
 // (a)/(b) rule and counted as a burst — which exempted it from the damage-share gate and told a
 // hunter "never cast Misdirection" in a damage report. It multiplies nothing the hunter does; it
 // moves threat to the tank. Excluded by aura like the rest.
-const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion|misdirection/i;
+// Important 4 (whole-branch review): Shamanistic Rage, Shield Block, Divine Shield, Divine
+// Protection and Spell Reflection are all short, same-named self-buffs too, so they cleared the
+// (a)/(b) rule and were exempted from the damage-share gate — reaching the reader as "Never cast:
+// Divine Protection" in a damage report. Excluding a name here does not suppress it outright: it
+// simply stops being a burst and falls through to the share gate, which drops it for carrying no
+// damage. Found by reading, not by a live run — Misdirection above cost one.
+const BURST_EXCLUDE = /bloodrage|power word: shield|fade|barkskin|sprint|shield wall|ice block|fel domination|shadowmeld|stealth|vanish|evasion|feign death|deterrence|last stand|frenzied regeneration|nature's grasp|inner focus|spirit tap|berserker rage|bladestorm|cloak of shadows|dispersion|misdirection|shamanistic rage|shield block|divine shield|divine protection|spell reflection/i;
 const LUST = ['Bloodlust', 'Heroism'];
 // v4: these four tables moved to vet-gap.js so vet-checklist.js can use them without a circular
 // require; re-exported here under the same names so existing callers are unaffected.
@@ -944,9 +950,11 @@ async function leaderboardLength(fetchPage, o, lenKey) {
     catch (e) { o.refCache.delete(lenKey); throw e; }
 }
 
-// Reference per (boss, class, spec, region, band), built around the MIDDLE of the leaderboard
-// (spec v2 §3). Shared across every player of that spec, so it is cached for a day and an
-// in-flight fetch is handed to concurrent callers.
+// Reference per (boss, class, spec, region, band, amount bucket), built AROUND A PARSE ABOVE THE
+// PLAYER: halfway between the player's own amount and the best parse at their item level
+// (ref-above A2), falling back to the leaderboard middle only when no player amount is known.
+// Shared across every player of that spec in the same amount bucket, so it is cached for a day and
+// an in-flight fetch is handed to concurrent callers.
 async function getReference(query, o) {
     // Important 4: keying strictly on `itemLevel ± REF.band` defeated the cost model spec §3.4
     // budgets on ("every player of a spec shares the same reference per boss") — two Destruction
@@ -974,7 +982,6 @@ async function getReference(query, o) {
         // ref-above A2: the ceiling first — the target is measured from it. Reading the top pages
         // here is the same fetch the ceiling always needed; pageFetcher memoises it, so moving it
         // above the collection costs nothing.
-        let topDps = null, topDuration = null;
         // The best parse of band `b` on the top pages, plus the median in-band duration there.
         // Pure, so it can be asked about a band without committing the reference to it.
         const ceilingOf = async b => {
@@ -990,44 +997,44 @@ async function getReference(query, o) {
             }
             return { top: null, duration: null };
         };
-        const readCeiling = async b => {
-            if (topDps !== null) return;
-            const c = await ceilingOf(b);
-            topDps = c.top; topDuration = c.duration;
-        };
-        await readCeiling(REF.band);
-
         const myAmount = typeof o.playerAmount === 'number' && isFinite(o.playerAmount) ? o.playerAmount : null;
-        // A player who is already the best at their item level has nobody above them. Say so
-        // rather than inventing a reference below them (spec B).
-        // Fix B: that sentence is a claim about every parse this reference could ever reach, so it
-        // is decided on the WIDE band. Deciding it on the narrow band alone told a player sitting
-        // at the top of `REF.band` that nothing at his item level beat him while a better parse sat
-        // one or two levels further out, inside `REF.wideBand` — which the widening pass below can
-        // and does fall back to. The narrow band still chooses the candidates and still sets the
-        // target value; only "is anyone above me at all" widens. This costs ZERO extra WCL
-        // requests: pages 1..REF.topPages are already memoised by the narrow read above, and the
-        // wide band can only match on an earlier or equal page than the narrow one did.
-        const wideTop = myAmount === null ? null : (await ceilingOf(REF.wideBand)).top;
-        if (myAmount !== null && wideTop !== null && myAmount >= wideTop) {
-            return { summary: null, note: 'nothing at your item level beat you on this pull', band: REF.band };
+        // Critical 1 (whole-branch review): the "nobody beat you" early return and the target must
+        // come from the SAME ceiling. Deciding the early return on the wide band while measuring the
+        // target from the narrow one left a player sitting between the two ceilings (narrow 4700 <
+        // you 4800 < wide 4999) with a target BELOW himself: a reference of 4697, every gap input
+        // negative and stripped, and a summary reading "You do 102% of what players ahead of you at
+        // your item level do". So a ceiling at or below the player widens the WHOLE reference —
+        // ceiling, target, band and candidates together — instead of widening only the test. The
+        // reference then always sits inside the item-level band the summary advertises. This costs
+        // ZERO extra WCL requests: the wide band is a superset of the narrow one, so ceilingOf can
+        // only match on an earlier or equal page than the narrow read already fetched and memoised.
+        let band = REF.band;
+        let ceiling = await ceilingOf(band);
+        if (myAmount !== null && ceiling.top !== null && myAmount >= ceiling.top && REF.wideBand > REF.band) {
+            band = REF.wideBand;
+            ceiling = await ceilingOf(band);
+        }
+        let topDps = ceiling.top, topDuration = ceiling.duration;
+        // A player who is already the best at their item level has nobody above them — not at the
+        // band we just settled on. Say so rather than inventing a reference below them (spec B).
+        if (myAmount !== null && topDps !== null && myAmount >= topDps) {
+            return { summary: null, note: 'nothing at your item level beat you on this pull', band };
         }
         // Halfway between the player and the ceiling: far enough to be worth learning from, close
         // enough to be reachable. Null when we cannot compute it, and then the middle is used —
         // exactly the old behaviour.
-        const target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
-        // The caller wanted a target and we could not build one: the report must not claim the
-        // comparison is against players ahead when it is against the middle (spec, Error handling).
-        const middleNote = myAmount !== null && target === null ? 'compared against the middle of the leaderboard' : null;
+        let target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
         // Better parses sit on earlier pages, so a target halfway up in DPS is roughly halfway up
         // in pages. The sort below is by actual amount, so an imprecise start still lands correctly
         // as long as the target is inside the pages we read.
         const myPage = typeof o.playerRankPercent === 'number' && isFinite(o.playerRankPercent)
             ? Math.min(Math.max(1, Math.ceil((1 - o.playerRankPercent / 100) * L)), L) : Math.max(1, Math.round(L / 2));
         const startPage = target === null ? Math.max(1, Math.round(L / 2)) : Math.max(1, Math.round(myPage / 2));
-        const near = target === null
-            ? (a, b) => (Math.abs(a.globalRank - middle) - Math.abs(b.globalRank - middle)) || (a.globalRank - b.globalRank)
-            : (a, b) => (Math.abs(a.amount - target) - Math.abs(b.amount - target)) || (a.globalRank - b.globalRank);
+        // Read at call time, not at definition time: the widening pass below can recompute the
+        // ceiling and with it the target, and the sort must follow the target actually in force.
+        const near = (a, b) => (target === null
+            ? Math.abs(a.globalRank - middle) - Math.abs(b.globalRank - middle)
+            : Math.abs(a.amount - target) - Math.abs(b.amount - target)) || (a.globalRank - b.globalRank);
         const collect = async band => {
             let found = [];
             for (const p of pageOrderFrom(startPage, L, REF.maxPages)) {
@@ -1037,10 +1044,25 @@ async function getReference(query, o) {
             }
             return found.sort(near);
         };
-        let band = REF.band;
         let ranks = await collect(band);
-        if (ranks.length < REF.min) { band = REF.wideBand; await readCeiling(band); ranks = await collect(band); }
+        if (ranks.length < REF.min && band !== REF.wideBand) {
+            band = REF.wideBand;
+            // Important 3 (whole-branch review): the ceiling belongs to the band the summary
+            // advertises. The old readCeiling short-circuited on any non-null narrow reading, so a
+            // widened reference carried the ±REF.band ceiling and its duration under a
+            // ±REF.wideBand label — understating "the best at your item level" in Where you stand
+            // and drawing the bad-pull duration baseline from the smaller sample. Recomputing on the
+            // final band costs no WCL request: pages 1..REF.topPages are memoised by the read above.
+            ceiling = await ceilingOf(band);
+            topDps = ceiling.top; topDuration = ceiling.duration;
+            target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
+            ranks = await collect(band);
+        }
         if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against', band };
+        // The caller wanted a target and we could not build one: the report must not claim the
+        // comparison is against players ahead when it is against the middle (spec, Error handling).
+        // Decided on the FINAL target, so a widening that recovers a ceiling clears the note too.
+        const middleNote = myAmount !== null && target === null ? 'compared against the middle of the leaderboard' : null;
         ranks = ranks.slice(0, REF.target);
         const players = [];
         for (const r of ranks.slice(0, REF.players)) {
@@ -1188,4 +1210,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, tierList, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, pageOrderFrom, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback, fetchNights };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, BURST_EXCLUDE, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, tierList, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, pageOrderFrom, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback, fetchNights };

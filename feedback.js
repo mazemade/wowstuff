@@ -129,7 +129,19 @@
         // unnumbered. The number is an addition inside the second (1fr) grid column, ahead of the
         // text — it never touches the 1.4em .mark column, so other cards' alignment is untouched.
         const num = n != null ? '<span class="num">' + n + '.</span> ' : '';
-        div.innerHTML = '<span class="mark">' + mark + '</span><span>' + num + '<span class="text">' + escapeHtml(r.text) + '.</span>' + (r.value != null ? '<span class="value">~' + r.value + '% of the gap</span>' : '') + (r.fix ? '<span class="fix">' + escapeHtml(r.fix) + '</span>' : '') + '</span>';
+        // Critical 2 (whole-branch review): this card view is the primary UI ("Copy text" is
+        // secondary), and it used to print r.value raw — so a share of 169 reached the screen as
+        // "~169% of the gap" even after renderReport() in vet-checklist.js learned to drop it.
+        // There is now ONE rule, not two: vet-checklist.js's row()/displayShare decides what a
+        // share may show and stamps it on every row as `displayValue`; this renderer and
+        // renderReport() both read that field, so they cannot drift again. A shared helper is not
+        // possible here — vet-checklist.js is a CommonJS module that requires vet-gap.js at load
+        // and is never served to the browser (feedback.html loads only assignments-engine.js,
+        // vet-engine.js and this file) — so the rule is shared as data on the row instead.
+        // A body restored from an older localStorage cache carries no displayValue and simply
+        // shows no badge, which is the safe direction; Refresh restores it.
+        const shown = r.displayValue != null ? '<span class="value">~' + r.displayValue + '% of the gap</span>' : '';
+        div.innerHTML = '<span class="mark">' + mark + '</span><span>' + num + '<span class="text">' + escapeHtml(r.text) + '.</span>' + shown + (r.fix ? '<span class="fix">' + escapeHtml(r.fix) + '</span>' : '') + '</span>';
         return div;
     }
     function card(title, rows, wide, more, numbered) {

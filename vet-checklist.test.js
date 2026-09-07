@@ -494,15 +494,79 @@ test('renderReport (ref-above C2): a share above 100% is printed without a perce
     const row = cl.rows.find(r => r.id === id);
     assert.ok(row, 'the fixture must render a gap-share row to pin; also = ' + cl.also.join(','));
     assert.strictEqual(id, 'nuke_hit', 'the pinned row is the rotation-share one, not a nominal-value row');
-    row.value = 169;
+    // Critical 2 (whole-branch review): the 0-100 rule moved into row()/displayShare, which stamps
+    // every row's displayValue when it is built, so planting a share means planting what the rule
+    // decided about it -- exactly what a real accounting hands renderReport. renderReport is still
+    // the thing under test: it reads displayValue, so going back to printing r.value raw would put
+    // the 169 straight back into the report and fail here.
+    const plant = v => { row.value = v; row.displayValue = C.displayShare(v); };
+    plant(169);
     const out = C.renderReport(cl, facts);
     assert.ok(!/169%/.test(out), 'no 169% anywhere: ' + out);
     assert.ok(!/~1\d\d%/.test(out), 'no three-digit share at all: ' + out);
     // Fix round 1, Finding 3: the cap is two-sided -- "outside 0-100%" includes below 0.
-    row.value = -62;
+    plant(-62);
     assert.ok(!/-62%/.test(C.renderReport(cl, facts)), 'a negative share prints no percentage either: ' + C.renderReport(cl, facts));
-    row.value = 54;
+    plant(54);
     assert.ok(/\(~54%\)/.test(C.renderReport(cl, facts)), 'an ordinary share still prints');
+});
+
+// --- Critical 2 (whole-branch review): ONE rule for showing a share, read by BOTH renderers
+test('displayShare (Critical 2): the 0-100 rule, in one place', () => {
+    assert.strictEqual(C.displayShare(169), null, 'Tipsi\'s offsetting inputs');
+    assert.strictEqual(C.displayShare(-62), null);
+    assert.strictEqual(C.displayShare(101), null);
+    assert.strictEqual(C.displayShare(100), 100, 'the bounds are inclusive');
+    assert.strictEqual(C.displayShare(0), 0);
+    assert.strictEqual(C.displayShare(54), 54);
+    assert.strictEqual(C.displayShare(null), null);
+    assert.strictEqual(C.displayShare(undefined), null);
+});
+test('row (Critical 2): every row carries the decided displayValue, so no renderer has to decide again', () => {
+    assert.strictEqual(C.row({ id: 'x', value: 169 }).displayValue, null);
+    assert.strictEqual(C.row({ id: 'x', value: -62 }).displayValue, null);
+    assert.strictEqual(C.row({ id: 'x', value: 54 }).displayValue, 54);
+    assert.strictEqual(C.row({ id: 'x' }).displayValue, null, 'a row with no share shows none');
+    assert.strictEqual(C.row({ id: 'x', value: 169 }).value, 169, 'the raw share is untouched -- it still orders Fix first');
+});
+// The HTML card view in feedback.js is the primary UI ("Copy text" is secondary) and it used to
+// print r.value raw, so a 169 reached the screen as "~169% of the gap" long after renderReport
+// learned to drop it. feedback.js is browser JavaScript with no runner in this repo and
+// vet-checklist.js is never served to the browser, so the rule is shared as data on the row rather
+// than as a function; this pins the card view to that field the way the .lua source assertions in
+// assignments-engine.test.js pin the addon.
+test('feedback.js (Critical 2): the card view renders the share from displayValue, never from the raw value', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'feedback.js'), 'utf8');
+    // Pull out whatever expression builds the badge -- named or inline -- and run it, so this
+    // fails on the string the reader would actually see rather than merely on the shape of the code.
+    const m = /(r\.\w+ != null \? '<span class="value">~' \+ r\.\w+ \+ '% of the gap<\/span>' : '')/.exec(src);
+    assert.ok(m, 'feedback.js must still build the share badge from a row field');
+    const shown = new Function('r', 'return (' + m[1] + ');');
+    assert.strictEqual(shown(C.row({ id: 'x', value: 169 })), '', 'a 169 share shows no badge, got: ' + shown(C.row({ id: 'x', value: 169 })));
+    assert.strictEqual(shown(C.row({ id: 'x', value: -62 })), '', 'nor does a negative one, got: ' + shown(C.row({ id: 'x', value: -62 })));
+    assert.strictEqual(shown(C.row({ id: 'x' })), '', 'nor does a row with no share');
+    assert.ok(/~54% of the gap/.test(shown(C.row({ id: 'x', value: 54 }))), 'an ordinary share still shows: ' + shown(C.row({ id: 'x', value: 54 })));
+    assert.ok(!/r\.value/.test(m[1]), 'and the badge reads the decided field, not the raw share: ' + m[1]);
+});
+
+// --- Minor 5 (whole-branch review): the pacing fix never names the 'spell' placeholder
+test('castingRows (Minor 5): a physical role whose reference has nothing but an auto-attack is never told to "Press spell more often"', () => {
+    // mainAbility() falls back to the literal string 'spell' when the reference's only ability is
+    // an auto-attack -- Tipsi's Anetheron reference is Melee 40%, and a pull where the rest of the
+    // table is missing leaves exactly that. nukeRows already skipped this case; the melee/ranged/
+    // tank pacing branch did not, and printed "Press spell more often; the gap is presses, not gear."
+    const k = gapKill('Anetheron', { cast_pacing: 30 });
+    k.reference.abilities = [{ name: 'Melee', share: 100, avgHit: 900, hits: 200 }];
+    const facts = sheet([k], { player: { name: 'Tipsi', class: 'WARRIOR', spec: 'Arms', role: 'melee', metric: 'dps', itemLevel: 141 } });
+    const fix = C.castingRows(facts, C.DEFAULT_T).find(r => r.id === 'cast_rate').fix;
+    assert.strictEqual(C.mainAbility(k), 'spell', 'sanity: the fixture is the placeholder case');
+    assert.ok(!/\bspell\b/.test(fix), 'the placeholder never reaches the reader: ' + fix);
+    assert.ok(!/Melee/.test(fix), 'and neither does the auto-attack: ' + fix);
+    assert.ok(/the gap is presses, not gear/.test(fix), 'a melee still gets the melee advice: ' + fix);
+    assert.ok(!/Queue the next/.test(fix), 'and is not handed the caster line instead: ' + fix);
+    // The mirror: when there IS a real ability the melee line still names it (ref-above C1).
+    k.reference.abilities = [{ name: 'Melee', share: 40, avgHit: 900, hits: 200 }, { name: 'Mortal Strike', share: 30, avgHit: 3600, hits: 60 }];
+    assert.ok(/Press Mortal Strike more often/.test(C.castingRows(facts, C.DEFAULT_T).find(r => r.id === 'cast_rate').fix));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

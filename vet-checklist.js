@@ -56,7 +56,21 @@ function pullLabel(kill, kills) {
     const twice = kills.filter(k => k.name === kill.name).length > 1;
     return twice && kill.date ? kill.name + ' (' + kill.date + ')' : kill.name;
 }
-function row(o) { return Object.assign({ owner: 'player', me: null, reference: null, unit: null, pulls: null, value: null, text: '', fix: '', measuredOn: null }, o); }
+// Critical 2 (whole-branch review): the ONE rule for showing a share. Shares above 100% happen
+// when two inputs offset (Tipsi: cast pacing +169% against damage per cast -62%); the arithmetic
+// is sound but "~169% of the gap" means nothing to a reader, and clamping to 100% would assert
+// something the accounting did not measure — so out-of-range shares are simply not shown and the
+// finding stands on its text alone. Negative shares are dropped for the same reason.
+// This used to be a bound written into renderReport() alone, which left the HTML card view in
+// feedback.js — the primary UI — printing "~169% of the gap" on screen. Every row now carries the
+// decided `displayValue`, so both renderers read one number rather than each applying its own
+// guard. `value` is untouched: it still orders Fix first/Also by size.
+function displayShare(value) { return (value !== null && value !== undefined && value >= 0 && value <= 100) ? value : null; }
+function row(o) {
+    const r = Object.assign({ owner: 'player', me: null, reference: null, unit: null, pulls: null, value: null, text: '', fix: '', measuredOn: null }, o);
+    r.displayValue = displayShare(r.value);
+    return r;
+}
 function pullsText(hit, of) { return hit + ' of ' + of + ' pulls'; }
 function shareRow(facts, o) {
     const kills = liveKills(facts);
@@ -89,8 +103,18 @@ function castingRows(facts, T) {
             const role = (facts.player && facts.player.role) || 'caster';
             // ref-above C1: a melee or hunter does not queue casts — they press the button more
             // often. Only a caster gets the cast-queue and movement-filler advice.
-            if (role === 'melee' || role === 'ranged' || role === 'tank') return 'Press ' + mainAbility(k) + ' more often; the gap is presses, not gear.';
-            return 'Queue the next ' + mainAbility(k) + ' before the current one lands; move only when you must, and use ' + (MOVEMENT_FILLER[spec] || MOVEMENT_FILLER.default) + ' while moving.';
+            // Minor 5 (whole-branch review): mainAbility() falls back to the literal string 'spell'
+            // when the reference has no ability other than an auto-attack, and this branch printed
+            // "Press spell more often". Guarded on the same test nukeRows uses before it names an
+            // ability; a melee with no nameable ability keeps the role-correct advice without the
+            // placeholder, rather than falling through to the caster's cast-queue line.
+            const main = mainAbility(k);
+            const named = main !== 'spell' && !AUTO_ATTACK.has(main);
+            if (role === 'melee' || role === 'ranged' || role === 'tank') {
+                return named ? 'Press ' + main + ' more often; the gap is presses, not gear.'
+                             : 'Press your rotation more often; the gap is presses, not gear.';
+            }
+            return 'Queue the next ' + main + ' before the current one lands; move only when you must, and use ' + (MOVEMENT_FILLER[spec] || MOVEMENT_FILLER.default) + ' while moving.';
         } });
     if (cr) out.push(cr);
     const act = shareRow(facts, { id: 'activity', key: 'own_activity', category: 'casting',
@@ -443,12 +467,9 @@ function buildChecklist(facts, T) {
 // --- the text (spec §5)
 function renderReport(cl, facts) {
     const p = facts.player || {}, tier = facts.tier || {}, byId = id => cl.rows.find(r => r.id === id);
-    // ref-above C2: shares above 100% happen when two inputs offset (Tipsi: cast pacing +169%
-    // against damage per cast -62%). The arithmetic is sound but "169% of the gap" means nothing
-    // to a reader, and clamping to 100% would assert something the accounting did not measure —
-    // so the finding stands on its text alone. Fix round 1, Finding 3: the guard is two-sided, so
-    // it matches "never outside 0-100%" -- a negative share would otherwise print as "(~-62%)".
-    const val = r => (r.value !== null && r.value !== undefined && r.value >= 0 && r.value <= 100 ? ' (~' + r.value + '%)' : '');
+    // ref-above C2 / Critical 2: the 0-100 rule lives in row()/displayShare, and both this text
+    // renderer and the HTML card view in feedback.js read the `displayValue` it decided.
+    const val = r => (r.displayValue !== null && r.displayValue !== undefined ? ' (~' + r.displayValue + '%)' : '');
     const line = r => r.text + '.' + (r.fix ? ' ' + r.fix : '') + val(r);
     const head = facts.night ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'median parse ' + Math.round(tier.medianPercent);
     // ref-above C1: a single night's report names that night's tier. The gating tier is only
@@ -484,5 +505,5 @@ function renderReport(cl, facts) {
 }
 
 module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD, AUTO_ATTACK,
-                   liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
+                   liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, displayShare, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
                    consumableRows, cooldownRows, spellRows, nukeRows, gearRows, passRows, buildChecklist, renderReport, fractionWord, verdictOf };

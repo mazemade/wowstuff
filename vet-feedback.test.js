@@ -1573,12 +1573,18 @@ test('getReference (ref-above A2): a player at the narrow-band ceiling still get
                                             playerAmount: 4998, playerRankPercent: 99 });
     assert.notStrictEqual(r.note, 'nothing at your item level beat you on this pull', 'rank 1 (4999, item level 128) beat him: the sentence would be false');
     assert.ok(r.summary, 'he gets a reference instead of a dead end');
-    assert.strictEqual(r.summary.topDps, 4998, 'the ceiling shown is still the narrow band\'s — only the "is anyone above me" decision widened');
-    assert.deepStrictEqual(r.summary.itemLevelBand, [122, 126], 'candidates are still chosen from the narrow band');
-    // Fix B costs no WCL requests: the wide-band ceiling re-filters pages fetchPage already
-    // memoised. Pages read: the length walk (32, 16, 24, 20), then the ceiling page 1, then the
-    // benchmark page 1 off the memo — six calls, page 1 fetched exactly once.
-    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 1], 'no page is fetched twice and the wide-band read adds none');
+    // Critical 1 (whole-branch review) replaces Fix B's split ruling. This test used to assert
+    // that the ceiling stayed the narrow band's 4998 and the candidates stayed in [122, 126] while
+    // only the "is anyone above me" decision widened — which is precisely what let the target be
+    // computed from a ceiling BELOW the player. A ceiling at or under the player now widens the
+    // whole reference, so the ceiling, the band and the candidates all agree.
+    assert.strictEqual(r.summary.topDps, 4999, 'the ceiling is the one the decision was made on — the wide band\'s rank 1');
+    assert.deepStrictEqual(r.summary.itemLevelBand, [120, 128], 'candidates come from the band the summary advertises');
+    assert.ok(r.summary.dps > 4990, 'and the reference is drawn from the top of that band, got ' + r.summary.dps);
+    // Costs no WCL requests: the wide-band ceiling re-filters pages fetchPage already memoised.
+    // Pages read: the length walk (32, 16, 24, 20), then the ceiling page 1, then the benchmark
+    // page 1 off the memo — five calls, page 1 fetched exactly once.
+    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 1], 'no page is fetched twice and the widened read adds none');
 });
 // A player above the WIDE ceiling still gets the honest note — the widening is not a licence to
 // invent a reference for someone genuinely at the top.
@@ -1682,6 +1688,107 @@ test('rotationFindings (fix round 1, Finding 4): a share of exactly T.abilityMin
     const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
     assert.strictEqual(f.length, 1, 'share === T.abilityMinShare must still be reported: ' + JSON.stringify(f.map(x => x.text)));
     assert.ok(/Immolate/.test(f[0].text), f[0].text);
+});
+
+// --- Critical 1 (whole-branch review): the early return and the target come from ONE ceiling
+// A board where the NARROW band's ceiling sits BELOW the player and the WIDE band's sits above:
+// one page of 100 ranks, ranks 1-50 at item level 128 (inside +-REF.wideBand of 124, outside
+// +-REF.band) topping out at 4999, ranks 51-100 at item level 124 (the narrow band) topping out
+// at 4700. A player at 4800 is above everything in his narrow band and below the wide ceiling —
+// the exact shape that produced a reference of 4697 and a report reading "You do 102% of what
+// players ahead of you at your item level do".
+function splitCeilingBoard() {
+    const calls = [];
+    const query = async q => {
+        const page = +/page:(\d+)/.exec(q)[1];
+        calls.push(page);
+        if (page > 1) return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 0 } } } };
+        const rankings = Array.from({ length: 100 }, (_, i) => {
+            const rank = i + 1;
+            const wide = rank <= 50;
+            return { name: 'P' + rank, class: 'Warlock', spec: 'Destruction',
+                     amount: wide ? 5000 - rank : 4700 - (rank - 51),
+                     duration: wide ? 200000 : 100000,
+                     bracketData: wide ? 128 : 124, startTime: 1, report: { code: 'R' + rank, fightID: 1 } };
+        });
+        return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 100, rankings } } } };
+    };
+    return { calls, query };
+}
+test('getReference (Critical 1): a player above the narrow ceiling but below the wide one is never measured against a reference BELOW him', async () => {
+    const lb = splitCeilingBoard();
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    const myAmount = 4800;
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu',
+                                            itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+                                            playerAmount: myAmount, playerRankPercent: 40 });
+    // Sanity on the fixture itself: this is the shape, not an accident of the helper.
+    assert.strictEqual(r.note, null, 'note: ' + r.note);
+    assert.ok(r.summary, 'a reference is built, not an empty one');
+    // The point of the test.
+    assert.ok(r.summary.dps > myAmount, 'the reference must sit ABOVE the player, got ' + r.summary.dps + ' against ' + myAmount);
+    assert.ok(r.summary.topDps > myAmount, 'and so must the ceiling it was measured from, got ' + r.summary.topDps);
+    assert.strictEqual(r.summary.topDps, 4999, 'the ceiling is the wide band\'s best, the one the early return was already decided on');
+    // The reference stays inside the item-level band the summary advertises.
+    assert.strictEqual(r.band, F.REF.wideBand, 'the whole reference widened, not just the test');
+    assert.deepStrictEqual(r.summary.itemLevelBand, [124 - F.REF.wideBand, 124 + F.REF.wideBand]);
+    // No extra WCL requests: the wide band can only match on a page the narrow read already
+    // fetched, and pageFetcher memoises every page.
+    assert.deepStrictEqual(lb.calls.filter(p => p === 1).length, 1, 'page 1 fetched once, not once per band: ' + lb.calls.join(','));
+});
+test('getReference (Critical 1): a player above BOTH ceilings still gets the honest note, on the band it was decided at', async () => {
+    const lb = splitCeilingBoard();
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu',
+                                            itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+                                            playerAmount: 5200, playerRankPercent: 99 });
+    assert.strictEqual(r.summary, null);
+    assert.strictEqual(r.note, 'nothing at your item level beat you on this pull');
+    assert.strictEqual(r.band, F.REF.wideBand, 'the note is decided at the band whose ceiling it was decided on');
+});
+
+// --- Important 3 (whole-branch review): a widened reference reports the FINAL band's ceiling
+test('getReference (Important 3): widening the band recomputes the ceiling and its duration, so the summary never advertises one band and report another', async () => {
+    // Ranks 1-100 are item level 128 (only in band once the band widens to +-4) and last 300s;
+    // ranks 101+ are item level 124 but only two of them, so the narrow band has fewer than
+    // REF.min parses and the count-widening pass fires. Before the fix the ceiling short-circuited
+    // on the narrow read and the summary carried topDps null / topDuration null under a +-4 label.
+    const calls = [];
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) return { reportData: { report: null } };
+        const page = +/page:(\d+)/.exec(q)[1];
+        calls.push(page);
+        if (page > 1) return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 0 } } } };
+        const rankings = Array.from({ length: 100 }, (_, i) => {
+            const rank = i + 1;
+            // Two 124s only (ranks 60 and 61) — under REF.min, so the band must widen.
+            const narrow = rank === 60 || rank === 61;
+            return { name: 'P' + rank, class: 'Warlock', spec: 'Destruction', amount: 5000 - rank,
+                     duration: narrow ? 100000 : 300000,
+                     bracketData: narrow ? 124 : 128, startTime: 1, report: { code: 'R' + rank, fightID: 1 } };
+        });
+        return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 100, rankings } } } };
+    };
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster', region: 'eu',
+                                            itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now() });
+    assert.strictEqual(r.band, F.REF.wideBand, 'sanity: the fixture widened the band');
+    assert.deepStrictEqual(r.summary.itemLevelBand, [120, 128], 'sanity: the summary advertises the wide band');
+    assert.strictEqual(r.summary.topDps, 4999, 'the ceiling is the WIDE band\'s best (rank 1, 4999), not the narrow band\'s 4940');
+    assert.strictEqual(r.summary.topDurationSec, 300, 'and the bad-pull duration baseline is the wide band\'s median, not the narrow band\'s 100s');
+    assert.strictEqual(calls.filter(p => p === 1).length, 1, 'recomputing the ceiling costs no extra page fetch: ' + calls.join(','));
+});
+
+// --- Important 4 (whole-branch review): defensives are not bursts
+test('burstStats (Important 4): the five remaining short self-buff defensives are excluded, so the share gate is the only path to the reader', () => {
+    const s = x => x * 1000;
+    const names = ['Shamanistic Rage', 'Shield Block', 'Divine Shield', 'Divine Protection', 'Spell Reflection'];
+    const buffs = { data: { totalTime: s(180), auras: names.map((name, i) => ({
+        name, totalUptime: s(10), totalUses: 1, bands: [{ startTime: s(10 + i * 20), endTime: s(20 + i * 20) }],
+    })).concat([{ name: 'Destruction', totalUptime: s(15), totalUses: 1, bands: [{ startTime: s(110), endTime: s(125) }] }]) } };
+    const casts = { data: { entries: names.map(name => ({ name, total: 1 })).concat([{ name: 'Destruction', total: 1 }]) } };
+    assert.deepStrictEqual(F.burstStats(buffs, casts), [{ name: 'Destruction', uses: 1, insideBloodlust: 0 }],
+        'every defensive satisfies the short-same-named-self-buff heuristic; only the potion is a burst');
+    names.forEach(n => assert.ok(F.BURST_EXCLUDE.test(n), n + ' must be excluded by name'));
 });
 
 Promise.all(pending).then(() => {
