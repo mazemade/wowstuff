@@ -19,6 +19,7 @@ let expanded = null; // name (lower) whose detail row is open
 // renderTable() (e.g. from an in-flight fetch completing) does not silently overwrite it.
 // Cleared whenever the player list next changes (add/remove).
 let rosterNotice = null;
+let saveWarning = null; // set when save() throws; cleared by the next save that succeeds
 
 function load() {
     let raw = {};
@@ -39,7 +40,24 @@ function load() {
         if (a.wcl) { wcl.server = a.wcl.server || ''; wcl.region = a.wcl.region || 'eu'; wcl.guild = a.wcl.guild || ''; }
     } catch (e) { /* no assignments state yet */ }
 }
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (saveWarning) { saveWarning = null; renderSaveWarning(); }
+}
+// A save that throws (browser storage full or disabled) is a page notice, never a row state: the
+// profile is in memory and renders normally — it just has to be fetched again after a reload.
+// Until 2026-09-07 it was written as the row's error, which hid a perfectly good profile behind
+// "error" for every player added after the budget ran out (Bejoux, Smellmystaff).
+function noteSaveFailure(err) {
+    saveWarning = 'Could not save the player list in browser storage — players still load, but are fetched again after a reload. (' + err.message + ')';
+    renderSaveWarning();
+}
+function renderSaveWarning() {
+    const el = document.getElementById('saveWarning');
+    if (!el) return;
+    el.textContent = saveWarning || '';
+    el.classList.toggle('hidden', !saveWarning);
+}
 
 const THRESH_LABELS = [
     ['gs', 'GearScore ≥'],
@@ -191,8 +209,8 @@ async function fetchOne(key) {
         else state.errors[key] = 'Network error: ' + err.message;
     }
     // save() can throw (e.g. QuotaExceededError). It must not skip renderTable() below, or the
-    // row is stuck on "fetching…" forever with no error state — every failure is a row state.
-    try { save(); } catch (err) { if (!state.errors[key]) state.errors[key] = 'Could not save locally: ' + err.message; }
+    // row is stuck on "fetching…" forever; the failure is a page notice, and the row shows the profile.
+    try { save(); } catch (err) { noteSaveFailure(err); }
     renderTable();
 }
 function pause() {
@@ -225,7 +243,7 @@ function addPlayer(name) {
     if (!r) return false;
     rosterNotice = null;
     // save() can throw (e.g. QuotaExceededError); it must not skip renderTable()/enqueue() below.
-    try { save(); } catch (err) { state.errors[r.name.toLowerCase()] = 'Could not save locally: ' + err.message; }
+    try { save(); } catch (err) { noteSaveFailure(err); }
     renderTable();
     enqueue(r.name, false);
     return true;
@@ -334,10 +352,9 @@ async function loadReport(code, opts) {
         const summary = 'Loaded ' + (body.players || []).length + ' players from ' + (rep.date || code) + (rep.zone ? ' · ' + rep.zone.name : '') + ' (' + added + ' new). Parses are loading.';
         // Fix round 2 (Minor): the quiet contract holds here too — a failed save must not write
         // the notice Refresh all promised to leave alone. The fact is not lost: every player just
-        // added is enqueued above, and fetchOne's own save() guard surfaces the same failure as a
-        // per-row error (the house pattern for a quiet save failure).
-        try { save(); if (!opts.quiet) rosterNotice = summary; }
-        catch (err) { if (!opts.quiet) rosterNotice = summary + ' Could not save locally: ' + err.message; }
+        // added is enqueued above, and the failure itself is the page's save notice.
+        try { save(); } catch (err) { noteSaveFailure(err); }
+        if (!opts.quiet) rosterNotice = summary;
         renderTable();
         return true;
     } catch (err) { rosterNotice = 'Network error: ' + err.message; renderSummary(); return false; }
@@ -374,9 +391,9 @@ function removeAll() {
     queue = [];
     expanded = null;
     rosterNotice = null;
-    // save() can throw (e.g. QuotaExceededError); surface it as a status, same as loadRoster's
-    // own guarded save — never throw or alert.
-    try { save(); } catch (err) { rosterNotice = 'Could not save locally: ' + err.message; }
+    // save() can throw (e.g. QuotaExceededError); surface it as the page's save notice — never
+    // throw or alert.
+    try { save(); } catch (err) { noteSaveFailure(err); }
     renderTable();
 }
 
@@ -585,6 +602,10 @@ function detailRow(r) {
 // --- wiring ---
 document.addEventListener('DOMContentLoaded', () => {
     load();
+    // Reports the feedback page cached in localStorage before 2026-09-07 share this page's 5 MB
+    // budget; moving them to IndexedDB from here too means the space comes back as soon as the
+    // vetting page opens, not only after a feedback report is next viewed.
+    if (window.FeedbackCache) FeedbackCache.migrate();
     renderRealm();
     renderThresholds();
     renderTable();

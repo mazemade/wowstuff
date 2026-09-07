@@ -1,10 +1,14 @@
 'use strict';
-/* global VetEngine */
+/* global VetEngine, FeedbackCache */
 (function () {
     const params = new URLSearchParams(location.search);
     const q = { name: params.get('name') || '', server: (params.get('server') || '').toLowerCase(), region: (params.get('region') || 'eu').toLowerCase(), zone: params.get('zone') || '1060',
                 report: params.get('report') || '', all: params.get('all') === '1', thresholds: params.get('thresholds') || '' };
-    const key = () => 'raidFeedback:' + encodeURIComponent(q.region) + '/' + encodeURIComponent(q.server) + '/' + encodeURIComponent(q.name.toLowerCase()) + '/' + encodeURIComponent(q.zone) + '/' + encodeURIComponent(q.report || 'all');
+    // Reports are cached in IndexedDB (feedback-cache.js) under this key — one per player per
+    // raid night, kept indefinitely, since a night's report never changes and costs up to 360 WCL
+    // points to rebuild. They used to sit in localStorage under the same key until the shared
+    // 5 MB budget ran out and broke the vetting page's saves (2026-09-07).
+    const key = () => FeedbackCache.PREFIX + encodeURIComponent(q.region) + '/' + encodeURIComponent(q.server) + '/' + encodeURIComponent(q.name.toLowerCase()) + '/' + encodeURIComponent(q.zone) + '/' + encodeURIComponent(q.report || 'all');
     // logs-first A4: the night list is cached apart from any analysis — it is what the bare URL
     // shows, and it costs five WCL requests, not 140.
     const NIGHTS_TTL = 15 * 60 * 1000;
@@ -53,17 +57,18 @@
     }
 
     let current = null;
+    // Resolves to the cached report, or null. Belt-and-suspenders against a stale/foreign key
+    // format rendering another player's cached report: only trust a cache hit whose own facts
+    // actually name the player this page was opened for.
     function readCache() {
-        try {
-            const c = JSON.parse(localStorage.getItem(key()));
-            // Belt-and-suspenders against a stale/foreign key format (or a pre-encoding key from
-            // before this fix) rendering another player's cached report: only trust a cache hit
-            // whose own facts actually name the player this page was opened for.
+        return FeedbackCache.get(key()).then(c => {
             if (c && c.facts && c.facts.player && typeof c.facts.player.name === 'string' && c.facts.player.name.toLowerCase() === q.name.toLowerCase()) return c;
             return null;
-        } catch (e) { return null; }
+        }).catch(() => null);
     }
-    function writeCache(body) { try { localStorage.setItem(key(), JSON.stringify(Object.assign({}, body, { fetchedAt: Date.now() }))); } catch (e) { /* quota: the page still renders */ } }
+    // Resolves once the write has settled either way; a cache that cannot be written only means the
+    // next open fetches again.
+    function writeCache(body) { return FeedbackCache.set(key(), Object.assign({}, body, { fetchedAt: Date.now() })).catch(() => false); }
     function apiUrl() {
         return '/api/vet/feedback?name=' + encodeURIComponent(q.name) + '&server=' + encodeURIComponent(q.server) + '&region=' + encodeURIComponent(q.region) + '&zone=' + encodeURIComponent(q.zone) +
                (q.report ? '&report=' + encodeURIComponent(q.report) : '') + (q.thresholds ? '&thresholds=' + encodeURIComponent(q.thresholds) : '');
@@ -108,7 +113,7 @@
     }
     async function load(force) {
         if (!q.report && !q.all) return loadNights(force);
-        const cached = force ? null : readCache();
+        const cached = force ? null : await readCache();
         if (cached && cached.facts) { render(cached); return; }
         $('statusLine').textContent = 'Reading Warcraft Logs for ' + q.name + '… this takes up to a minute the first time.';
         $('refreshBtn').disabled = true;
@@ -117,7 +122,7 @@
             const body = await res.json().catch(() => ({}));
             if (res.status === 429) { showError('Warcraft Logs rate limit reached — try again in a few minutes.'); return; }
             if (!res.ok) { showError(body.error || ('HTTP ' + res.status)); return; }
-            writeCache(body); render(body);
+            render(body); await writeCache(body);
         } catch (err) { showError('Network error: ' + err.message); }
         finally { $('refreshBtn').disabled = false; }
     }
@@ -215,6 +220,8 @@
             else return;
             location.href = u.toString();
         });
-        load(false);
+        // Reports a previous version left in localStorage move to IndexedDB first, so a report
+        // opened before the move is still served from cache rather than fetched again.
+        FeedbackCache.migrate().then(() => load(false));
     });
 })();

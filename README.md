@@ -102,6 +102,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 ```bash
 npm test                          # engine, WCL multiplier, positions, item table, vetting, feedback, gap, checklist and server suites (node, no deps)
 npm run test:tactics-browser       # Node 22+ and Chrome; isolated profile, optional CHROME_BIN override
+npm run test:storage-browser       # same harness; vetting/feedback browser storage (IndexedDB report cache, full-localStorage saves)
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking
