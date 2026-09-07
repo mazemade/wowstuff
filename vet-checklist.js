@@ -252,20 +252,25 @@ function spellRows(facts, T) {
     const kills = liveKills(facts).filter(k => k.reference && k.fight.durationSec && k.reference.castsDurationSec);
     const out = [];
     const fmt = x => Math.round(x * 10) / 10;
+    // ref-above B1, live re-run (Task 8): the same materiality gate rotationFindings applies, and
+    // it belongs to every row in this function that names an ability, not just the first one. The
+    // rate the reference casts something at is not a reason on its own — the reference has to have
+    // got damage out of it. Without this on `unused` the row named auras that do no damage at all
+    // ("Never cast: Aspect of the Hawk") because the reference happened to cast one once; without
+    // it on `under_used` a 1.2%-share Rend reached the reader the same way (review round 1).
+    const refShare = (k, n) => { const a = (k.reference.abilities || []).find(x => x && x.name === n); return a && Number.isFinite(a.share) ? a.share : 0; };
+    // A burst cooldown is exempt on `unused` only: its value is what it multiplies, not what it
+    // hits for. `under_used` needs no exemption — it reads the reference's top-3 abilities by
+    // damage, so a burst that earned no damage is never in the list to begin with. This matches
+    // rotationFindings, whose two branches divide the same way.
+    const isBurst = (k, n) => Array.isArray(k.reference.burst) && k.reference.burst.some(b => b && b.name === n);
     // unused: per ability, the pulls the reference used it on vs the pulls the player never cast it.
     const used = {}, unusedOn = {}, rates = {};
     kills.forEach(k => {
         const refMin = k.reference.castsDurationSec / 60;
-        // ref-above B1, live re-run (Task 8): the same materiality gate rotationFindings applies.
-        // The rate the reference casts something at is not a reason on its own — the reference has
-        // to have got damage out of it, unless it is a burst cooldown, whose value is what it
-        // multiplies. Without this the row named auras that do no damage at all ("Never cast:
-        // Aspect of the Hawk") because the reference happened to cast one once.
-        const refShare = n => { const a = (k.reference.abilities || []).find(x => x && x.name === n); return a && Number.isFinite(a.share) ? a.share : 0; };
-        const isBurst = n => Array.isArray(k.reference.burst) && k.reference.burst.some(b => b && b.name === n);
         Object.keys(k.reference.casts || {}).forEach(n => {
             if (offLimits(n)) return;
-            if (!isBurst(n) && refShare(n) < T.abilityMinShare) return;
+            if (!isBurst(k, n) && refShare(k, n) < T.abilityMinShare) return;
             const r = k.reference.casts[n] / refMin;
             if (!(r >= T.unusedPerMin || k.reference.casts[n] >= T.unusedPerFightCooldown)) return;
             used[n] = (used[n] || 0) + 1;
@@ -284,7 +289,7 @@ function spellRows(facts, T) {
     const under = [];
     kills.forEach(k => {
         const top3 = (k.reference.abilities || []).slice(0, 3).map(a => a.name), min = k.fight.durationSec / 60, refMin = k.reference.castsDurationSec / 60;
-        top3.forEach(n => { const r = (k.reference.casts || {})[n], p = (k.me.casts || {})[n]; if (r && p && p / min < T.ratioLow * (r / refMin)) under.push({ k, n, p: fmt(p / min), r: fmt(r / refMin) }); });
+        top3.forEach(n => { if (refShare(k, n) < T.abilityMinShare) return; const r = (k.reference.casts || {})[n], p = (k.me.casts || {})[n]; if (r && p && p / min < T.ratioLow * (r / refMin)) under.push({ k, n, p: fmt(p / min), r: fmt(r / refMin) }); });
     });
     if (under.length) {
         const u = under[0];

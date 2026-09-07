@@ -28,9 +28,16 @@ function gapKill(name, inputs, extra) {
               abilities: [{ name: 'Shadow Bolt', share: 99, hits: 64, avgHit: 3065, avgCrit: 6261, critPercent: 35.9, resistPercent: 17 }],
               bloodlustPercent: 22, burst: [], stats: { spellHit: 203, spellCrit: 293, spellDamage: 1026 }, damagingCastsPerMinute: 21.3, damagePerDamagingCast: 3841, critRate: 35.4, channelSecPerMin: 0.4 },
         reference: { playersDps: 2217, dps: 2217, topDps: 2600, castsDurationSec: 140, flaskShare: 1, flask: 'Flask of Pure Death', consumablesAtPull: ['Well Fed', 'Flask of Pure Death'],
-                     buffsAtPull: ['Moonkin Aura', 'Arcane Brilliance'], casts: { 'Shadow Bolt': 54, 'Curse of Doom': 2, 'Shadowburn': 1, Destruction: 1, 'Life Tap': 6 },
-                     abilities: [{ name: 'Shadow Bolt', share: 91, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 54 }, { name: 'Curse of Doom', share: 7.2, avgHit: null, hits: 0 },
-                                 { name: 'Shadowburn', share: 4.1, avgHit: 2100, avgCrit: 4400, critPercent: 44, resistPercent: 18, hits: 1 }],
+                     buffsAtPull: ['Moonkin Aura', 'Arcane Brilliance'], casts: { 'Shadow Bolt': 54, 'Curse of Doom': 2, 'Shadowburn': 5, Destruction: 1, 'Life Tap': 6 },
+                     abilities: [{ name: 'Shadow Bolt', share: 88.4, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 54 }, { name: 'Curse of Doom', share: 7.2, avgHit: null, hits: 0 },
+                                 // Review round 1, Finding 2: these shares are the ones the fixture's own damage produces,
+                                 // not numbers picked to clear the gate. 54 Shadow Bolts at 44% crit average 5758 a hit
+                                 // for 310,927; 5 Shadowburns at 2100/4400 average 3112 for 15,560. With Curse of Doom
+                                 // taking 7.2% the total is 351,818, which makes Shadow Bolt 88.4% and Shadowburn 4.4%.
+                                 // The reference casts Shadowburn five times, not once, because one filler cast honestly
+                                 // is only 0.9% of the damage — under abilityMinShare, and rightly gated. A fixture that
+                                 // wants a material Shadowburn has to give the reference enough of them to be material.
+                                 { name: 'Shadowburn', share: 4.4, avgHit: 2100, avgCrit: 4400, critPercent: 44, resistPercent: 18, hits: 5 }],
                      bloodlustPercent: 28, burst: [{ name: 'Destruction', uses: 1, insideBloodlust: 1 }], damagingCastsPerMinute: 24.3, damagePerDamagingCast: 5474, critRate: 43.6, channelSecPerMin: 0, raidActivePercent: 96.7, debuffs: [], stats: { spellHit: 164, spellCrit: 370, spellDamage: 1007 } },
         findings: [],
         gap: { ratio: 1.63, factors: { casts: { value: 1.14, share: sum(casts), inputs: casts }, dmg: { value: 1.3, share: sum(dmg), inputs: dmg }, crit: { value: 1.06, share: sum(crit), inputs: crit }, residual: { value: 1, share: 0, inputs: [] } } },
@@ -149,10 +156,17 @@ test('cooldownRows: burst_timing names the item fired outside Bloodlust', () => 
 test('spellRows: one unused row over all pulls, curses/racials/utility/potions excluded, reference rates as a range', () => {
     const k1 = gapKill('Void Reaver', {}), k2 = gapKill('Lady Vashj', {});
     k2.reference.casts = { 'Shadow Bolt': 83, Shadowburn: 9, 'Curse of Agony': 7, 'Blood Fury': 1, 'Life Tap': 14, Destruction: 1 }; k2.reference.castsDurationSec = 420; k2.fight.durationSec = 465;
+    // Review round 1, Finding 2: this pull casts more of both, so it carries its own shares rather
+    // than borrowing the other pull's. 83 Shadow Bolts at 5758 is 477,906 and 9 Shadowburns at 3112
+    // is 28,008; with Curse of Agony at 6% the total is 538,206 — Shadow Bolt 88.8%, Shadowburn 5.2%.
+    k2.reference.abilities = [{ name: 'Shadow Bolt', share: 88.8, avgHit: 3869, avgCrit: 8162, critPercent: 44, resistPercent: 18, hits: 83 },
+                              { name: 'Curse of Agony', share: 6, avgHit: null, hits: 0 },
+                              { name: 'Shadowburn', share: 5.2, avgHit: 2100, avgCrit: 4400, critPercent: 44, resistPercent: 18, hits: 9 }];
     const rows = C.spellRows(sheet([k1, k2]), C.DEFAULT_T);
     const u = rows.find(r => r.id === 'unused');
     assert.strictEqual(u.verdict, 'fail'); assert.strictEqual(u.value, 2); assert.deepStrictEqual(u.pulls, { hit: 2, of: 2 });
-    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 0.4–1.3 a minute)');
+    // 5 casts over 140s on one pull is 2.1 a minute, 9 over 420s on the other is 1.3.
+    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 1.3–2.1 a minute)');
     assert.strictEqual(u.fix, 'Use it while moving and under 25% boss health when you have shards.');
     assert.strictEqual(rows.filter(r => r.id === 'unused').length, 1);
 });
@@ -160,9 +174,12 @@ test('spellRows (ref-above B1): a reference cast the reference got no damage fro
     // Funkell's live report (Task 8) named "Aspect of the Hawk" and "Misdirection" — the reference
     // cast each once and got no damage from either. Rate alone is not a reason.
     const k = gapKill('Void Reaver', {});
-    k.reference.casts = { 'Shadow Bolt': 54, Shadowburn: 1, 'Aspect of the Hawk': 1, Misdirection: 1, Destruction: 1 };
+    // The cast counts match the fixture's abilities: 54 Shadow Bolts and 5 Shadowburns, which is
+    // what its 88.4% / 4.4% shares are computed from. Aspect of the Hawk and Misdirection are cast
+    // but appear nowhere in `abilities`, so their share is 0 — which is the whole point.
+    k.reference.casts = { 'Shadow Bolt': 54, Shadowburn: 5, 'Aspect of the Hawk': 1, Misdirection: 1, Destruction: 1 };
     const u = C.spellRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'unused');
-    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 0.4 a minute)');
+    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 2.1 a minute)');
     // Destruction is a potion (offLimits) — a burst the reference does get value from stays, so
     // pin the exemption on the fixture's on-use trinket instead.
     k.reference.casts['Blessing of the Silver Crescent'] = 1;
@@ -181,6 +198,27 @@ test('spellRows: under_used is a warn on the reference\'s top-3 abilities cast u
     const ex = rows.find(r => r.id === 'extra');
     assert.strictEqual(ex.verdict, 'info'); assert.strictEqual(ex.text, 'Cast while players ahead of you do not: Seed of Corruption (8 on Lady Vashj)');
     assert.ok(!rows.find(r => r.id === 'unused'));
+});
+test('spellRows (review round 1, Finding 1): under_used takes the same damage-share gate as unused', () => {
+    // The `unused` branch was gated and its `under_used` sibling was not — the same drift, one
+    // level down, that rotationFindings and spellRows had. Reference: Shadow Bolt 86, Shadowburn
+    // 12.8, Death Coil 1.2. The player keeps up on the first two and casts Death Coil at a fifth of
+    // the reference's rate, so Death Coil is the only thing under_used could name — and a 1.2%
+    // ability is exactly what abilityMinShare exists to keep away from the reader.
+    const k = gapKill('Lady Vashj', {}); k.fight.durationSec = 420;
+    k.reference.castsDurationSec = 420;
+    k.reference.casts = { 'Shadow Bolt': 83, Shadowburn: 9, 'Death Coil': 7 };
+    k.reference.abilities = [{ name: 'Shadow Bolt', share: 86, avgHit: 3869, avgCrit: 8162, critPercent: 44, hits: 83 },
+                             { name: 'Shadowburn', share: 12.8, avgHit: 2100, avgCrit: 4400, critPercent: 44, hits: 9 },
+                             { name: 'Death Coil', share: 1.2, avgHit: 600, avgCrit: 1200, critPercent: 44, hits: 7 }];
+    k.me.casts = { 'Shadow Bolt': 83, Shadowburn: 9, 'Death Coil': 1 };
+    const rows = C.spellRows(sheet([k]), C.DEFAULT_T);
+    assert.ok(!rows.find(r => r.id === 'under_used'), 'a 1.2%-share ability must not reach the reader: ' + JSON.stringify((rows.find(r => r.id === 'under_used') || {}).text));
+    // The gate is a share test, not a blanket silence: lift Death Coil over the bar and the same
+    // row appears, so the test cannot pass just because under_used stopped working.
+    k.reference.abilities[2].share = 2.1;
+    const uu = C.spellRows(sheet([k]), C.DEFAULT_T).find(r => r.id === 'under_used');
+    assert.strictEqual(uu.text, 'Death Coil 0.1 a minute against 1 for players ahead of you on Lady Vashj');
 });
 
 test('nuke_hit: observed / expected from the accounting\'s power and debuff inputs; fail under 0.9; text explains the split', () => {

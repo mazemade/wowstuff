@@ -27,8 +27,10 @@ groups, and checks live whether assignments were actually done.
   - **Feedback report** (`Report` link in a player's row, opens `feedback.html`): a checklist of
     what is holding their parses back — one row per habit, aggregated over their live pulls,
     each with the measured number, what same-spec players ahead of them at their item level do on
-    the same boss (the reference sits halfway between them and the best parse within two item
-    levels, so it is always a reachable target above them), and a fixed fix. A verdict line says
+    the same boss — the reference sits halfway between them and the best parse within two item
+    levels, so it is a reachable target above them rather than a middle they may already beat.
+    On a pull where nobody at their item level beat them there is no reference at all and the
+    report says so instead of inventing one. Each row also carries a fixed fix. A verdict line says
     what share of the gap is theirs, the raid's setup, or nobody's; "Fix first" holds the three
     biggest items, "Ask your raid leader" the group asks, "Where you stand" shows their DPS next
     to the other same-class players in their raid.
