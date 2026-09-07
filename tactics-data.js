@@ -30,6 +30,14 @@
 
         roster: { tanks: 2, healers: 6, melee: 7, ranged: 10 },
 
+        // Where he is parked for Phase 1, and the grid of standing spots behind him. The
+        // raid's own sheet spreads for the whole fight ("spread out to mitigate those hit by
+        // Molten Flame"), so there is one set of spots, not one per phase — see
+        // tactics-layout.js.
+        bossAt: { x: 0.500, y: 0.205 },
+        grid: { x0: 0.320, x1: 0.690, y0: 0.390, y1: 0.900, jitterX: 0.024, jitterY: 0.038 },
+        stack: { tankApart: 1.7, tankBack: 4.4, arcRadius: 13.5, arcFrom: 18, arcTo: 162 },
+
         source: 'Dungeon journal via raidplan.io · Black Temple cheat sheet',
 
         // ---- the hazard rail ----------------------------------------------------------
@@ -43,7 +51,10 @@
                 tier: 1,
                 phase: 1,
                 who: 'Tanks',
-                rangeYards: 8,
+                // The tooltip says "Melee Range" without a figure. He is a very large model,
+                // so his reach from centre is drawn at 14 yards — an estimate from the model,
+                // not a documented number, and the only radius on this page that is not.
+                rangeYards: 14,
                 tooltip: {
                     castTime: 'Instant',
                     range: 'Melee Range',
@@ -120,6 +131,10 @@
         ],
 
         // ---- the walkthrough ----------------------------------------------------------
+        // Every step after the title card is played on the whole raid: the mechanics land on
+        // the formation people actually stand in, and the engine walks anyone caught in one
+        // out of it. `cast` names the raid members a step happens to; ids are slot order,
+        // so p0/p1 are the tanks, p2..p8 the melee, p9..p24 the spread.
         scenes: [
             {
                 id: 'overview',
@@ -136,196 +151,119 @@
                 ]
             },
             {
+                id: 'p1-stand',
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                phase: 1,
+                title: 'Where you stand in Phase 1',
+                caption: 'Tanks stacked on him, melee behind him, everyone else on their own spot. That spread holds for the whole fight.',
+                duration: 5000,
+                highlight: ['flame'],
+                formation: 1,
+                actors: [],
+                effects: []
+            },
+            {
                 id: 'p1-hateful',
-                view: { cx: 0.500, cy: 0.430, spanYards: 62 },
+                view: { cx: 0.500, cy: 0.330, spanYards: 100 },
                 phase: 1,
                 title: 'Hateful Strike',
                 caption: 'He swings at whoever has the most health in melee range. Tanks stack so one healer covers both; melee sit behind him on less health and never get picked.',
                 duration: 7000,
                 highlight: ['hateful'],
-                actors: [
-                    { id: 'boss', kind: 'boss', at: { x: 0.500, y: 0.400 } },
-                    {
-                        id: 'mt', kind: 'tank', at: { x: 0.4925, y: 0.366 }, label: 'MT', labelDx: -1,
-                        hp: [{ t: 0, v: 0.95 }, { t: 1800, v: 0.62 }, { t: 3200, v: 0.86 }, { t: 4600, v: 0.90 }, { t: 7000, v: 0.95 }]
-                    },
-                    {
-                        id: 'ot', kind: 'tank', at: { x: 0.5075, y: 0.368 }, label: 'OT', labelDx: 1,
-                        hp: [{ t: 0, v: 0.78 }, { t: 1800, v: 0.84 }, { t: 3200, v: 0.94 }, { t: 4600, v: 0.61 }, { t: 7000, v: 0.80 }]
-                    },
-                    { id: 'm1', kind: 'melee', at: { x: 0.470, y: 0.446 }, hp: [{ t: 0, v: 0.58 }] },
-                    { id: 'm2', kind: 'melee', at: { x: 0.500, y: 0.458 }, hp: [{ t: 0, v: 0.63 }] },
-                    { id: 'm3', kind: 'melee', at: { x: 0.530, y: 0.446 }, hp: [{ t: 0, v: 0.55 }] }
-                ],
+                formation: 1,
+                actors: [],
                 effects: [
-                    { kind: 'ring', from: 'boss', radiusYards: 8, label: 'melee range', start: 0, end: 7000 },
-                    { kind: 'impact', target: 'mt', start: 1500, end: 2300 },
-                    { kind: 'impact', target: 'ot', start: 4300, end: 5100 }
+                    { kind: 'ring', from: 'boss', radiusYards: 14, label: 'his reach', start: 0, end: 7000 },
+                    { kind: 'impact', target: 'p0', start: 1500, end: 2300 },
+                    { kind: 'impact', target: 'p1', start: 4300, end: 5100 }
                 ]
             },
             {
                 id: 'p1-flame',
-                view: { cx: 0.520, cy: 0.520, spanYards: 78 },
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
                 phase: 1,
                 title: 'Molten Flame',
-                caption: 'He punches the ground and the fire hunts one player for ten seconds. Step out sideways.',
-                duration: 8000,
+                caption: 'He punches the ground and the fire hunts one player for ten seconds. Walk it away from everyone else — it burns for another ten where you leave it.',
+                duration: 10000,
                 highlight: ['flame', 'punch'],
-                actors: [
-                    { id: 'boss', kind: 'boss', at: { x: 0.500, y: 0.380 } },
-                    {
-                        id: 'r1', kind: 'ranged', at: { x: 0.620, y: 0.560 }, label: 'you',
-                        path: [
-                            { x: 0.620, y: 0.560, t: 0 },
-                            { x: 0.620, y: 0.560, t: 900 },
-                            { x: 0.648, y: 0.520, t: 2100 },
-                            { x: 0.682, y: 0.474, t: 3400 },
-                            { x: 0.700, y: 0.440, t: 4400 },
-                            { x: 0.700, y: 0.440, t: 8000 }
-                        ]
-                    },
-                    { id: 'c1', kind: 'ranged', at: { x: 0.404, y: 0.646 } },
-                    { id: 'c2', kind: 'healer', at: { x: 0.440, y: 0.694 } },
-                    { id: 'c3', kind: 'ranged', at: { x: 0.386, y: 0.706 } }
-                ],
+                formation: 1,
+                cast: { burned: 'p9' },
+                actors: [],
                 effects: [
-                    { kind: 'sweep', from: 'boss', radiusYards: 12, start: 0, end: 1100 },
-                    { kind: 'ring', from: 'c2', radiusYards: 9, label: 'your camp', start: 0, end: 8000 },
-                    { kind: 'trail', from: 'boss', follow: 'r1', start: 800, end: 8000, chaseMs: 4600 }
+                    { kind: 'sweep', from: 'boss', radiusYards: 14, start: 0, end: 1100 },
+                    { kind: 'trail', from: 'boss', follow: 'burned', avoid: 6, start: 700, end: 10000, chaseMs: 7600 }
                 ]
             },
             {
-                id: 'p1-stand',
-                view: { cx: 0.500, cy: 0.545, spanYards: 108 },
-                phase: 1,
-                title: 'Where you stand in Phase 1',
-                caption: 'Tanks stacked on him, melee behind him, everyone else in loose camps well back.',
-                duration: 5000,
-                highlight: ['hateful', 'flame'],
-                formation: 'stack',
-                bossAt: { x: 0.500, y: 0.360 },
-                actors: [],
-                effects: []
-            },
-            {
                 id: 'swap',
-                view: { cx: 0.512, cy: 0.482, spanYards: 76 },
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
                 phase: 0,
-                title: 'Threat resets',
-                caption: 'Every swap wipes the table. Slow down before Phase 1 comes back, and misdirect the moment it does.',
-                duration: 7600,
+                title: 'Melee move out',
+                caption: 'As the minute mark comes up, tanks and melee walk out to their own spots. Threat wipes anyway, and nobody wants to be stood on him when he turns.',
+                duration: 8000,
                 highlight: [],
-                actors: [
-                    { id: 'boss', kind: 'boss', at: { x: 0.500, y: 0.420 } },
-                    { id: 'mt', kind: 'tank', at: { x: 0.4915, y: 0.362 }, label: 'MT', labelDx: -1 },
-                    { id: 'ot', kind: 'tank', at: { x: 0.5085, y: 0.364 }, label: 'OT', labelDx: 1 },
-                    { id: 'hunter', kind: 'ranged', at: { x: 0.588, y: 0.566 }, label: 'misdirect' }
-                ],
-                effects: [{ kind: 'threat', from: 'boss', start: 0, end: 7600 }]
+                morph: { from: 1, to: 2, start: 700, end: 5200 },
+                actors: [],
+                effects: [{ kind: 'threat', mode: 'wipe', from: 'boss', start: 0, end: 8000 }]
             },
             {
                 id: 'p2-fixate',
-                view: { cx: 0.492, cy: 0.548, spanYards: 100 },
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
                 phase: 2,
                 title: 'He hunts you',
-                caption: 'Threat is gone. He picks someone, walks them down, and picks again ten seconds later.',
-                duration: 8000,
+                caption: 'Threat is gone. He picks someone and walks them down, then picks again ten seconds later. Get out of the lane he is walking.',
+                duration: 10000,
                 highlight: ['fixate'],
-                actors: [
-                    {
-                        id: 'boss', kind: 'boss', at: { x: 0.470, y: 0.330 },
-                        path: [
-                            { x: 0.470, y: 0.330, t: 0 },
-                            { x: 0.432, y: 0.430, t: 1700 },
-                            { x: 0.404, y: 0.512, t: 3400 },
-                            { x: 0.450, y: 0.556, t: 4600 },
-                            { x: 0.540, y: 0.598, t: 6200 },
-                            { x: 0.596, y: 0.620, t: 8000 }
-                        ]
-                    },
-                    {
-                        id: 'p1', kind: 'ranged', at: { x: 0.372, y: 0.560 }, label: 'run',
-                        path: [
-                            { x: 0.372, y: 0.560, t: 0 },
-                            { x: 0.348, y: 0.626, t: 1700 },
-                            { x: 0.330, y: 0.694, t: 3400 },
-                            { x: 0.328, y: 0.748, t: 5000 },
-                            { x: 0.328, y: 0.748, t: 8000 }
-                        ]
-                    },
-                    { id: 'p2', kind: 'healer', at: { x: 0.560, y: 0.430 } },
-                    {
-                        id: 'p3', kind: 'ranged', at: { x: 0.648, y: 0.640 },
-                        path: [
-                            { x: 0.648, y: 0.640, t: 0 },
-                            { x: 0.648, y: 0.640, t: 3600 },
-                            { x: 0.686, y: 0.712, t: 5400 },
-                            { x: 0.700, y: 0.790, t: 7200 },
-                            { x: 0.700, y: 0.790, t: 8000 }
-                        ]
-                    },
-                    { id: 'p4', kind: 'melee', at: { x: 0.470, y: 0.760 } }
-                ],
+                formation: 2,
+                cast: { hunted: 'p19', second: 'p11' },
+                chaseSpeed: 0.0044,
+                actors: [],
                 effects: [
-                    { kind: 'ring', from: 'boss', radiusYards: 8, label: 'knockback', start: 0, end: 8000 },
-                    { kind: 'gaze', from: 'boss', target: 'p1', start: 200, end: 3500 },
-                    { kind: 'gaze', from: 'boss', target: 'p3', start: 3700, end: 8000 }
+                    { kind: 'ring', from: 'boss', radiusYards: 8, label: 'knockback', start: 0, end: 10000 },
+                    { kind: 'gaze', from: 'boss', target: 'hunted', avoid: 11, start: 300, end: 5000 },
+                    { kind: 'gaze', from: 'boss', target: 'second', avoid: 11, start: 5200, end: 10000 }
                 ]
             },
             {
                 id: 'p2-geyser',
-                view: { cx: 0.500, cy: 0.545, spanYards: 104 },
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
                 phase: 2,
                 title: 'Volcanic Geysers',
-                caption: 'Volcanoes open anywhere in the room and keep firing for eighteen seconds. Never stand still.',
-                duration: 8000,
+                caption: 'Volcanoes open anywhere in the room and keep firing for eighteen seconds. If one opens under you, move — the spread means it only ever catches one of you.',
+                duration: 9000,
                 highlight: ['geyser'],
-                actors: [
-                    { id: 'boss', kind: 'boss', at: { x: 0.494, y: 0.372 } },
-                    {
-                        id: 'v1', kind: 'ranged', at: { x: 0.590, y: 0.664 }, label: 'move',
-                        path: [
-                            { x: 0.590, y: 0.664, t: 0 },
-                            { x: 0.590, y: 0.664, t: 1900 },
-                            { x: 0.646, y: 0.720, t: 3200 },
-                            { x: 0.672, y: 0.760, t: 4200 },
-                            { x: 0.672, y: 0.760, t: 8000 }
-                        ]
-                    },
-                    { id: 'v2', kind: 'healer', at: { x: 0.360, y: 0.560 } },
-                    { id: 'v3', kind: 'ranged', at: { x: 0.404, y: 0.740 } },
-                    { id: 'v4', kind: 'melee', at: { x: 0.560, y: 0.474 } },
-                    { id: 'v5', kind: 'ranged', at: { x: 0.336, y: 0.664 } },
-                    { id: 'v6', kind: 'healer', at: { x: 0.652, y: 0.500 } },
-                    { id: 'v7', kind: 'ranged', at: { x: 0.612, y: 0.784 } }
-                ],
+                formation: 2,
+                actors: [],
                 effects: [
-                    { kind: 'volcano', at: { x: 0.402, y: 0.430 }, radiusYards: 8, start: 300, end: 8000 },
-                    { kind: 'volcano', at: { x: 0.572, y: 0.648 }, radiusYards: 8, start: 1800, end: 8000 },
-                    { kind: 'volcano', at: { x: 0.442, y: 0.752 }, radiusYards: 8, start: 4200, end: 8000 }
+                    { kind: 'volcano', at: { x: 0.402, y: 0.470 }, radiusYards: 8, avoid: 10, start: 400, end: 9000 },
+                    { kind: 'volcano', at: { x: 0.596, y: 0.660 }, radiusYards: 8, avoid: 10, start: 2400, end: 9000 },
+                    { kind: 'volcano', at: { x: 0.470, y: 0.836 }, radiusYards: 8, avoid: 10, start: 4800, end: 9000 }
                 ]
             },
             {
-                id: 'p2-stand',
-                view: { cx: 0.500, cy: 0.505, spanYards: 112 },
-                phase: 2,
-                title: 'Where you stand in Phase 2',
-                caption: 'Spread before the swap, not after it. Everyone on the ring, nobody sharing a geyser.',
-                duration: 5000,
-                highlight: ['fixate', 'geyser'],
-                formation: 'spread',
-                bossAt: { x: 0.500, y: 0.400 },
+                id: 'back',
+                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                phase: 0,
+                title: 'Back to Phase 1',
+                caption: 'Before the next swap, everyone repositions and DPS slows down so the tanks can hold. Misdirects go out the moment he turns back.',
+                duration: 8000,
+                highlight: ['hateful'],
+                morph: { from: 2, to: 1, start: 600, end: 5000 },
+                cast: { md: 'p13' },
                 actors: [],
-                effects: []
+                effects: [{ kind: 'threat', mode: 'rebuild', from: 'boss', md: 'md', start: 0, end: 8000 }]
             }
         ],
 
         // Carried from the raid's own cheat sheet, in its words.
         tips: [
-            'Have misdirects assigned after every Phase 2.',
-            'Supremus does not crush, and neither do his hatefuls, so tanks can gear towards stamina.',
-            'Both phases are on strict timers: pre-spread before Phase 2, and slow DPS before Phase 1 resets.',
-            'Paladin tanks can stack Seal of Vengeance during Phase 2 for snap threat going into Phase 1.'
+            'Spread out to mitigate those hit by Molten Flame.',
+            'Lust ASAP.',
+            'Have assigned healers on the main tank and the hateful tank. An extra hateful tank helps in early weeks.',
+            'As the 1 minute marker approaches, melee DPS should start moving to avoid fixate deaths.',
+            'Prioritise surviving over DPSing during fixate, and keep an eye out for geyser spawns.',
+            'As the next minute marker approaches, start repositioning back to Phase 1 and slow DPS so the tanks can establish threat.',
+            'Have misdirects ready for the tanks right when Phase 1 restarts.'
         ]
     };
 

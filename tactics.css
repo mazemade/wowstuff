@@ -149,8 +149,6 @@ body.tactics {
     background: #0a0d0c;
 }
 
-.map img { display: none; }
-
 .map canvas {
     display: block;
     width: 100%;
@@ -230,6 +228,27 @@ body.tactics {
 }
 
 .nav__btn:hover { color: var(--bone); border-color: var(--line-hi); }
+
+.take {
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--stone-1);
+    color: var(--bone-2);
+    font-family: var(--body);
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.take:hover { color: var(--bone); border-color: var(--line-hi); }
+
+.step__note {
+    font-size: 12.5px;
+    color: var(--ember-2);
+    margin-top: 5px;
+}
 
 :where(button, a):focus-visible {
     outline: 2px solid var(--ember-2);
@@ -395,13 +414,16 @@ body.tactics {
     margin-bottom: 8px;
 }
 
-.sheet p {
+.sheet__steps {
+    list-style: decimal;
+    padding-left: 19px;
     font-size: 13px;
     color: var(--bone-2);
-    padding: 7px 0;
 }
 
-.sheet p + p { border-top: 1px solid var(--line); }
+.sheet__steps li { padding: 6px 0; }
+.sheet__steps li + li { border-top: 1px solid var(--line); }
+.sheet__steps li::marker { color: var(--bone-3); font-family: var(--display); }
 
 .credit {
     font-size: 11.5px;
@@ -423,7 +445,7 @@ body.tactics {
     .ident__name { font-size: 27px; }
     .clock { width: 100%; margin-left: 0; }
     .stage__foot { flex-direction: column; align-items: stretch; }
-    .nav { justify-content: space-between; }
+    .nav { flex-wrap: wrap; justify-content: space-between; }
 }
 
 @media (prefers-reduced-motion: reduce) {

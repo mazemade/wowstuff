@@ -1,16 +1,58 @@
 /* Fight briefing player.
  *
- * Draws a boss fight on top of a top-down capture of the room: the raid as tokens, the
- * mechanics as animated effects on a canvas over the map. Every danger radius is drawn from
- * the yard figure in the ability's own tooltip, so what you see is the size it really is.
+ * Draws a boss fight on top of a top-down capture of the room: the real raid as tokens, the
+ * mechanics as animated effects on a canvas over it. Every danger radius comes from the yard
+ * figure in the ability's own tooltip, so what you see is the size it really is.
  *
- * Scene data lives in tactics-data.js; this file knows nothing about any particular boss.
+ * The raid is not choreographed. Each frame re-runs a short simulation of the step from its
+ * beginning: hazards move, and anyone standing in one walks out and stays out until it is
+ * gone. That is why a mechanic can be dropped onto the formation and simply work.
+ *
+ * Fight data lives in tactics-data.js and the standing spots in tactics-layout.js; this file
+ * knows nothing about any particular boss.
  */
 (function () {
     'use strict';
 
     const FIGHT = window.TacticsData.FIGHTS['bt-supremus'];
+    const L = window.TacticsLayout;
+    const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const STORAGE_KEY = 'raidAssignmentsState';
+    const LINK_KEY = 'raidAssignmentsLinkMap';
+
+    // ---- the roster -----------------------------------------------------------
+
+    // The same roster the assignments and positioning pages use. Without one the room is
+    // still drawn, just with unnamed tokens.
+    function loadRoster() {
+        if (!E || !E.deriveRoster || !E.bucketOf) return null;
+        let state = {}, links = {};
+        try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch (e) { /* fresh */ }
+        try { links = JSON.parse(localStorage.getItem(LINK_KEY)) || {}; } catch (e) { /* fresh */ }
+        let players = [];
+        try { players = E.deriveRoster(state, links) || []; } catch (e) { return null; }
+        if (!players.length) return null;
+
+        const out = { tanks: [], healers: [], melee: [], ranged: [], classOf: {} };
+        players.forEach(p => {
+            const b = E.bucketOf(p);
+            const group = b === 'tanks' ? 'tanks' : b === 'healers' ? 'healers'
+                : b === 'melee' ? 'melee' : 'ranged';
+            out[group].push(p.name);
+            out.classOf[p.name] = p.class;
+        });
+        return out;
+    }
+
+    const roster = loadRoster();
+    const assigned = L.assign(FIGHT, roster);
+    const PLACED = {};
+    [1, 2].forEach(phase => {
+        PLACED[phase] = {};
+        L.formation(FIGHT, phase, assigned).forEach(p => { PLACED[phase][p.id] = p; });
+    });
 
     // ---- assets ---------------------------------------------------------------
 
@@ -34,14 +76,15 @@
     const lerp = (a, b, t) => a + (b - a) * t;
     const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
     const easeOut = t => 1 - Math.pow(1 - t, 3);
+    const easeInOut = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-    // Deterministic noise so a looping scene looks identical on every pass.
+    // Deterministic noise so a looping step looks identical on every pass.
     function rnd(seed) {
         const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
         return x - Math.floor(x);
     }
 
-    // Position of an actor at time t: follows its waypoints, or stands still.
+    // Position of a hand-placed actor at time t: follows its waypoints, or stands still.
     function actorAt(actor, t) {
         const p = actor.path;
         if (!p || !p.length) return actor.at;
@@ -56,7 +99,6 @@
         return p[p.length - 1];
     }
 
-    // Value of a keyframed number (health, mostly) at time t.
     function valueAt(frames, t) {
         if (!frames || !frames.length) return null;
         if (t <= frames[0].t) return frames[0].v;
@@ -69,17 +111,22 @@
         return frames[frames.length - 1].v;
     }
 
+    // Walk a point some number of yards towards another, in map fractions.
+    function stepToward(from, to, yards) {
+        const dx = to.x - from.x, dy = (to.y - from.y) / FIGHT.aspect;
+        const d = Math.hypot(dx, dy) / FIGHT.yard;
+        if (d <= yards || d < 1e-9) return to;
+        const k = yards / d;
+        return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k };
+    }
+
     // ---- canvas ---------------------------------------------------------------
 
     const cv = document.getElementById('fx');
     const ctx = cv.getContext('2d');
     let W = 0, H = 0;
 
-    // The map is 1600x889 of source pixels. Everything is authored as a fraction of that;
-    // the camera turns a requested patch of the room into the box we actually have.
     const MW = 1600, MH = 889;
-
-    // src is the rectangle of the map, in map pixels, currently filling the canvas.
     let src = { x: 0, y: 0, w: MW, h: MH }, scale = 1;
 
     function resize() {
@@ -96,39 +143,136 @@
     // Point the camera at a patch of the room: centre it, ask for a width in yards, and let
     // it widen to whatever shape the stage is so nothing is ever squashed or letterboxed.
     function aim(view) {
-        const want = (view.spanYards * FIGHT.yard) * MW;      // requested width, in map pixels
+        const want = (view.spanYards * FIGHT.yard) * MW;
         const box = W / H;
         let w = want, h = want / box;
-        const cx = view.cx * MW, cy = view.cy * MH;
-        // never ask for more map than exists, and stay inside its edges
         if (w > MW) { w = MW; h = w / box; }
         if (h > MH) { h = MH; w = h * box; }
         src = {
             w: w, h: h,
-            x: clamp(cx - w / 2, 0, MW - w),
-            y: clamp(cy - h / 2, 0, MH - h)
+            x: clamp(view.cx * MW - w / 2, 0, MW - w),
+            y: clamp(view.cy * MH - h / 2, 0, MH - h)
         };
         scale = W / src.w;
     }
 
-    // map fraction -> canvas pixels, and yards -> canvas pixels, both through the camera
     const px = p => ({ x: (p.x * MW - src.x) * scale, y: (p.y * MH - src.y) * scale });
     const yd = n => n * FIGHT.yard * MW * scale;
-    // a yard measured down the map, expressed as a fraction of the map height
-    const ydY = n => n * FIGHT.yard * FIGHT.aspect;
+
+    // The capture is murky and green, and lifting it costs a full-frame filter. Do it once
+    // into an offscreen copy and blit from that instead.
+    let lit = null;
+    function litMap() {
+        if (lit) return lit;
+        const img = image(FIGHT.map);
+        if (!img.complete || !img.naturalWidth) return null;
+        const c = document.createElement('canvas');
+        c.width = MW; c.height = MH;
+        const g = c.getContext('2d');
+        g.filter = 'brightness(1.42) contrast(1.04) saturate(.62)';
+        g.drawImage(img, 0, 0, MW, MH);
+        lit = c;
+        return lit;
+    }
 
     function drawMap() {
-        const img = image(FIGHT.map);
-        if (!img.complete || !img.naturalWidth) return;
-        ctx.save();
-        // the capture is murky and green; lift it so the fire is the only warm thing in the room
-        ctx.filter = 'brightness(1.42) contrast(1.04) saturate(.62)';
-        ctx.drawImage(img, src.x, src.y, src.w, src.h, 0, 0, W, H);
-        ctx.restore();
+        const m = litMap();
+        if (m) ctx.drawImage(m, src.x, src.y, src.w, src.h, 0, 0, W, H);
+    }
+
+    // ---- the simulation -------------------------------------------------------
+
+    const WALK = 0.0072;      // yards per ms — a player getting out of something
+    const FIRE = 0.0064;      // the gout of flame, slower than you on purpose
+    const STEP = 50;
+
+    // Misdirect is a hunter's job, so point at one if the raid has one rather than at
+    // whichever slot the fight data happened to name.
+    const HUNTER = (function () {
+        if (!roster || !roster.classOf) return null;
+        const found = assigned.find(p => p.name && roster.classOf[p.name] === 'HUNTER');
+        return found ? found.id : null;
+    }());
+
+    function castId(sc, ref) {
+        if (ref === 'md' && HUNTER) return HUNTER;
+        return (sc.cast && sc.cast[ref]) || ref;
+    }
+
+    // Where a raider stands if nothing is chasing them: their spot for this step, or part way
+    // between two phases while the raid repositions.
+    function homeAt(sc, p, t) {
+        if (!sc.morph) return PLACED[sc.formation][p.id].at;
+        const a = PLACED[sc.morph.from][p.id].at, b = PLACED[sc.morph.to][p.id].at;
+        if (a === b) return a;
+        // stagger the walkers so the raid drifts out rather than marching in lockstep
+        const off = (p.slotIndex % 5) * 220;
+        const k = easeInOut(clamp((t - sc.morph.start - off) / (sc.morph.end - sc.morph.start), 0, 1));
+        return { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) };
+    }
+
+    // Run the step from its beginning up to t. Cheap enough to redo every frame, which keeps
+    // every loop identical and lets a jump to any step land on the same picture.
+    function simulate(sc, t) {
+        const pos = {};
+        const bossActor = sc.bossActor;
+        let boss = bossActor.at;
+        const trailEff = (sc.effects || []).find(e => e.kind === 'trail');
+        const trail = trailEff ? [] : null;
+
+        sc.raid.forEach(p => { pos[p.id] = homeAt(sc, p, 0); });
+        if (trail) trail.push({ x: boss.x, y: boss.y, t: trailEff.start });
+
+        for (let s = 0; ; s += STEP) {
+            const now = Math.min(s, t);
+
+            // him: a laid-out path, or walking down whoever he has fixated
+            const gaze = (sc.effects || []).find(e => e.kind === 'gaze' && now >= e.start && now <= e.end);
+            if (bossActor.path) boss = actorAt(bossActor, now);
+            else if (gaze) {
+                const target = pos[castId(sc, gaze.target)];
+                if (target) boss = stepToward(boss, target, (sc.chaseSpeed || 0.004) * STEP);
+            }
+
+            // what is dangerous at this instant
+            const hz = [];
+            (sc.effects || []).forEach(e => {
+                if (e.kind === 'volcano' && now - e.start > 150) {
+                    hz.push({ x: e.at.x, y: e.at.y, yards: e.avoid || (e.radiusYards + 2) });
+                } else if (e.kind === 'gaze' && e === gaze) {
+                    hz.push({ x: boss.x, y: boss.y, yards: e.avoid || 10 });
+                }
+            });
+            if (trail && trail.length && now >= trailEff.start) {
+                const head = trail[trail.length - 1];
+                hz.push({ x: head.x, y: head.y, yards: trailEff.avoid || 4 });
+            }
+
+            // the raid: stand on your spot unless something is on it
+            sc.raid.forEach(p => {
+                const home = homeAt(sc, p, now);
+                const want = hz.length ? L.safePos(FIGHT, home, hz) : home;
+                pos[p.id] = stepToward(pos[p.id], want, WALK * STEP);
+            });
+
+            // the fire, hunting whoever it picked
+            if (trail && now >= trailEff.start && now <= trailEff.start + (trailEff.chaseMs || 4000)) {
+                const head = trail[trail.length - 1];
+                const target = pos[castId(sc, trailEff.follow)];
+                if (target) trail.push(Object.assign(stepToward(head, target, FIRE * STEP), { t: now }));
+            }
+            if (s >= t) break;
+        }
+        return { pos: pos, boss: boss, trail: trail };
+    }
+
+    // Read a position out of the current frame: a raid slot, a cast name, or him.
+    function at(sc, ref) {
+        if (ref === 'boss') return sc._sim.boss;
+        return sc._sim.pos[castId(sc, ref)] || sc._sim.boss;
     }
 
     // ---- effects --------------------------------------------------------------
-    // Each takes (effect, scene, t) and paints in canvas pixels. Times are ms into the scene.
 
     const EMBER = '#ff6a1f';
 
@@ -139,14 +283,10 @@
         ctx.restore();
     }
 
-    // A distance circle, drawn at true scale, with an optional name on its edge.
     function drawRing(e, sc, t) {
-        const a = sc._actors[e.from];
-        if (!a) return;
-        const c = px(actorAt(a, t));
+        const c = px(at(sc, e.from));
         const breathe = e.pulse ? 1 + 0.035 * Math.sin(t / 620) : 1;
         const r = yd(e.radiusYards) * breathe;
-
         ctx.save();
         ctx.setLineDash([6, 7]);
         ctx.lineWidth = 1;
@@ -155,22 +295,19 @@
         ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
-
-        if (e.label) chip(c.x, c.y + r + 13, e.label);
+        // on the left edge: the bottom of a ring is where people are standing
+        if (e.label) chip(c.x - r, c.y, e.label);
     }
 
-    // A small dark plate with a word on it — used to name a ring or a spot.
     function chip(x, y, text) {
         ctx.save();
         ctx.font = '500 12px "IBM Plex Sans", system-ui, sans-serif';
-        const w = ctx.measureText(text).width + 12;
-        const h = 19;
-        const bx = x - w / 2, by = y - h / 2;
+        const w = ctx.measureText(text).width + 12, h = 19;
         ctx.fillStyle = 'rgba(11,15,13,.82)';
         ctx.strokeStyle = 'rgba(236,230,216,.18)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(bx, by, w, h, 2);
+        ctx.roundRect(x - w / 2, y - h / 2, w, h, 2);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = '#c8d0c9';
@@ -182,21 +319,17 @@
 
     // Molten Punch: the ground cracks outward from him.
     function drawSweep(e, sc, t) {
-        const a = sc._actors[e.from];
-        if (!a) return;
         const k = clamp((t - e.start) / (e.end - e.start), 0, 1);
         if (k <= 0 || k >= 1) return;
-        const c = px(actorAt(a, t));
+        const c = px(at(sc, e.from));
         const r = yd(e.radiusYards) * easeOut(k);
         const fade = 1 - k;
-
         withGlow(() => {
             ctx.beginPath();
             for (let i = 0; i <= 46; i++) {
                 const ang = (i / 46) * Math.PI * 2;
                 const wob = 1 + 0.07 * Math.sin(ang * 5 + 1.3) + 0.04 * Math.sin(ang * 11);
-                const x = c.x + Math.cos(ang) * r * wob;
-                const y = c.y + Math.sin(ang) * r * wob;
+                const x = c.x + Math.cos(ang) * r * wob, y = c.y + Math.sin(ang) * r * wob;
                 i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
             }
             ctx.closePath();
@@ -208,53 +341,27 @@
         });
     }
 
-    // Molten Flame: a gout of fire that hunts one player, then burns where it stopped.
+    // Molten Flame. Drawn as a few whole-path strokes rather than segment by segment:
+    // additive overlap on a slow head turns any per-segment pass into a white blob.
     function drawTrail(e, sc, t) {
-        if (t < e.start) return;
-        const src = sc._actors[e.from], tgt = sc._actors[e.follow];
-        if (!src || !tgt) return;
+        const pts = sc._sim.trail;
+        if (!pts || pts.length < 2 || t < e.start) return;
+        const last = pts.length - 1;
+        const hot = Math.floor(last * 0.45), core = Math.floor(last * 0.78);
 
-        // Re-simulate the head from the start every frame: cheap, and identical every loop.
-        const STEP = 34;                      // ms per simulation step
-        const SPEED = yd(0.0055);             // yards per ms, tuned to lag a running player
-        const chaseEnd = e.start + (e.chaseMs || 4000);
-        const head = px(actorAt(src, e.start));
-        const pts = [{ x: head.x, y: head.y, t: e.start }];
-
-        for (let s = e.start + STEP; s <= t; s += STEP) {
-            const last = pts[pts.length - 1];
-            let nx = last.x, ny = last.y;
-            if (s <= chaseEnd) {
-                const aim = px(actorAt(tgt, s));
-                const dx = aim.x - last.x, dy = aim.y - last.y;
-                const d = Math.hypot(dx, dy);
-                if (d > 1) {
-                    const step = Math.min(SPEED * STEP, d);
-                    nx = last.x + dx / d * step;
-                    ny = last.y + dy / d * step;
-                }
-            }
-            pts.push({ x: nx, y: ny, t: s });
-        }
-        if (pts.length < 2) return;
-
-        // Drawn as a few whole-path strokes rather than segment by segment: additive
-        // overlap on a slow-moving head turns any per-segment pass into a white blob.
-        const trace = (from, to, width, colour, additive) => {
+        const trace = (from, to, width, colour) => {
             ctx.save();
-            if (additive) ctx.globalCompositeOperation = 'lighter';
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.lineWidth = width;
             ctx.strokeStyle = colour;
             ctx.beginPath();
-            ctx.moveTo(pts[from].x, pts[from].y);
-            for (let i = from + 1; i <= to; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            const a = px(pts[from]);
+            ctx.moveTo(a.x, a.y);
+            for (let i = from + 1; i <= to; i++) { const q = px(pts[i]); ctx.lineTo(q.x, q.y); }
             ctx.stroke();
             ctx.restore();
         };
-        const last = pts.length - 1;
-        const hot = Math.floor(last * 0.45), core = Math.floor(last * 0.78);
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
@@ -265,32 +372,29 @@
         ctx.lineWidth = yd(2.9);
         ctx.strokeStyle = 'rgba(190,54,10,.22)';
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i <= last; i++) ctx.lineTo(pts[i].x, pts[i].y);
+        const a0 = px(pts[0]);
+        ctx.moveTo(a0.x, a0.y);
+        for (let i = 1; i <= last; i++) { const q = px(pts[i]); ctx.lineTo(q.x, q.y); }
         ctx.stroke();
         ctx.restore();
 
-        trace(0, last, yd(1.75), 'rgba(196,58,12,.92)', false);   // the whole burn, cooling
-        trace(hot, last, yd(1.25), 'rgba(255,142,38,.95)', false); // still hot
-        trace(core, last, yd(0.55), 'rgba(255,232,176,.95)', false); // the live edge
+        trace(0, last, yd(1.75), 'rgba(196,58,12,.92)');
+        trace(hot, last, yd(1.25), 'rgba(255,142,38,.95)');
+        trace(core, last, yd(0.55), 'rgba(255,232,176,.95)');
 
         withGlow(() => {
-            // embers lifting off the fire
             for (let i = 0; i < 26; i++) {
-                const at = pts[Math.floor(rnd(i * 3.7) * pts.length)];
+                const p = px(pts[Math.floor(rnd(i * 3.7) * pts.length)]);
                 const cyc = (t / 1000 + rnd(i)) % 1;
-                const x = at.x + Math.sin((t / 260) + i) * yd(0.9);
-                const y = at.y - cyc * yd(5);
                 ctx.globalAlpha = (1 - cyc) * 0.65;
                 ctx.fillStyle = i % 3 ? '#ffbe63' : '#fff0c8';
                 ctx.beginPath();
-                ctx.arc(x, y, Math.max(0.7, yd(0.22) * (1 - cyc * 0.5)), 0, Math.PI * 2);
+                ctx.arc(p.x + Math.sin((t / 260) + i) * yd(0.9), p.y - cyc * yd(5),
+                    Math.max(0.7, yd(0.22) * (1 - cyc * 0.5)), 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.globalAlpha = 1;
-
-            // the burning head
-            const h = pts[last];
+            const h = px(pts[last]);
             const g = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, yd(3.2));
             g.addColorStop(0, 'rgba(255,246,214,.9)');
             g.addColorStop(.32, 'rgba(255,150,44,.5)');
@@ -310,10 +414,9 @@
         const R = yd(e.radiusYards);
         const seed = e.at.x * 977 + e.at.y * 331;
 
-        // 1. the crack
         const crack = clamp(age / 240, 0, 1);
         ctx.save();
-        ctx.globalAlpha = Math.min(1, crack) * clamp(1 - (age - 900) / 1400, 0, 1);
+        ctx.globalAlpha = crack * clamp(1 - (age - 900) / 1400, 0, 1);
         ctx.strokeStyle = 'rgba(60,20,6,.9)';
         ctx.lineWidth = 2.4;
         for (let i = 0; i < 6; i++) {
@@ -327,7 +430,6 @@
         }
         ctx.restore();
 
-        // 2. the danger circle, at the radius the tooltip states
         if (age > 180) {
             const pulse = 0.5 + 0.5 * Math.sin(age / 300);
             ctx.save();
@@ -347,18 +449,16 @@
             ctx.restore();
         }
 
-        // 3. the eruption
         if (age > 200) {
             const burst = clamp((age - 200) / 520, 0, 1);
             withGlow(() => {
-                if (burst < 1) {                       // shock ring, once
+                if (burst < 1) {
                     ctx.beginPath();
                     ctx.arc(c.x, c.y, R * (0.2 + 1.5 * easeOut(burst)), 0, Math.PI * 2);
                     ctx.lineWidth = lerp(4, 0.6, burst);
                     ctx.strokeStyle = 'rgba(255,196,120,' + (1 - burst) + ')';
                     ctx.stroke();
                 }
-                // the throat, flickering
                 const flick = 0.82 + 0.18 * Math.sin(age / 90) * Math.sin(age / 37);
                 const cr = yd(2.1) * flick * (0.5 + 0.5 * Math.min(1, burst * 2));
                 const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, cr * 2.6);
@@ -370,19 +470,18 @@
                 ctx.arc(c.x, c.y, cr * 2.6, 0, Math.PI * 2);
                 ctx.fill();
 
-                // lava thrown out and falling back inside the circle
                 for (let i = 0; i < 11; i++) {
                     const period = 1150 + rnd(seed + i) * 700;
+                    if ((age - 260 - i * 90) < 0) continue;
                     const k = ((age - 260 - i * 90) % period) / period;
-                    if (k < 0 || (age - 260 - i * 90) < 0) continue;
                     const ang = rnd(seed + i * 5.3) * Math.PI * 2;
                     const reach = R * (0.35 + 0.55 * rnd(seed + i * 7.7));
-                    const x = c.x + Math.cos(ang) * reach * k;
-                    const y = c.y + Math.sin(ang) * reach * k - Math.sin(k * Math.PI) * yd(6);
                     ctx.globalAlpha = 1 - k * k;
                     ctx.fillStyle = k < .5 ? '#ffe6a6' : '#ff8a2a';
                     ctx.beginPath();
-                    ctx.arc(x, y, yd(0.55) * (1 - k * .4), 0, Math.PI * 2);
+                    ctx.arc(c.x + Math.cos(ang) * reach * k,
+                        c.y + Math.sin(ang) * reach * k - Math.sin(k * Math.PI) * yd(6),
+                        yd(0.55) * (1 - k * .4), 0, Math.PI * 2);
                     ctx.fill();
                 }
                 ctx.globalAlpha = 1;
@@ -393,17 +492,13 @@
     // Fixate: he drops threat and walks somebody down.
     function drawGaze(e, sc, t) {
         if (t < e.start || t > e.end) return;
-        const src = sc._actors[e.from], tgt = sc._actors[e.target];
-        if (!src || !tgt) return;
-        const a = px(actorAt(src, t)), b = px(actorAt(tgt, t));
+        const a = px(at(sc, e.from)), b = px(at(sc, e.target));
         const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.hypot(dx, dy) || 1;
-        const ux = dx / d, uy = dy / d;
-        const nx = -uy, ny = ux;
+        const ux = dx / d, uy = dy / d, nx = -uy, ny = ux;
         const age = t - e.start;
 
         withGlow(() => {
-            // the lane between them: wide at him, narrow at you
             const w0 = yd(2.6), w1 = yd(1.0);
             const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
             g.addColorStop(0, 'rgba(255,58,32,.05)');
@@ -417,13 +512,11 @@
             ctx.closePath();
             ctx.fill();
 
-            // chevrons running down the lane towards you
             ctx.strokeStyle = 'rgba(255,120,90,.75)';
             ctx.lineWidth = 2;
             for (let i = 0; i < 3; i++) {
                 const k = ((age / 760) + i / 3) % 1;
-                const cx = a.x + ux * d * k, cy = a.y + uy * d * k;
-                const s = yd(1.5);
+                const cx = a.x + ux * d * k, cy = a.y + uy * d * k, s = yd(1.5);
                 ctx.globalAlpha = Math.sin(k * Math.PI) * .9;
                 ctx.beginPath();
                 ctx.moveTo(cx - nx * s - ux * s, cy - ny * s - uy * s);
@@ -433,7 +526,6 @@
             }
             ctx.globalAlpha = 1;
 
-            // the moment he switches to you
             const onset = clamp(age / 300, 0, 1);
             if (onset < 1) {
                 ctx.beginPath();
@@ -444,7 +536,6 @@
             }
         });
 
-        // brackets closing on the target
         const r = yd(2.4) + Math.sin(age / 280) * yd(0.22);
         ctx.save();
         ctx.strokeStyle = '#ff5638';
@@ -462,11 +553,9 @@
 
     // Hateful Strike landing on a tank.
     function drawImpact(e, sc, t) {
-        const a = sc._actors[e.target];
-        if (!a) return;
         const age = t - e.start;
         if (age < 0 || age > 1100) return;
-        const c = px(actorAt(a, t));
+        const c = px(at(sc, e.target));
 
         withGlow(() => {
             const flash = clamp(age / 150, 0, 1);
@@ -487,8 +576,7 @@
                 ctx.stroke();
                 for (let i = 0; i < 9; i++) {
                     const ang = i * Math.PI * 2 / 9 + 0.2;
-                    const r0 = yd(2.6) + yd(4) * easeOut(k);
-                    const r1 = r0 + yd(1.8) * (1 - k);
+                    const r0 = yd(2.6) + yd(4) * easeOut(k), r1 = r0 + yd(1.8) * (1 - k);
                     ctx.beginPath();
                     ctx.moveTo(c.x + Math.cos(ang) * r0, c.y + Math.sin(ang) * r0);
                     ctx.lineTo(c.x + Math.cos(ang) * r1, c.y + Math.sin(ang) * r1);
@@ -499,7 +587,6 @@
             }
         });
 
-        // the number, rising and fading
         const nk = clamp(age / 1000, 0, 1);
         ctx.save();
         ctx.globalAlpha = 1 - Math.pow(nk, 2.2);
@@ -514,33 +601,39 @@
         ctx.restore();
     }
 
-    // The threat table filling up and then being wiped.
+    // The threat table: wiped at the swap into Phase 2, rebuilt on the way back.
     function drawThreat(e, sc, t) {
-        const boss = sc._actors[e.from];
-        if (!boss) return;
-        const c = px(actorAt(boss, t));
+        const c = px(at(sc, e.from));
         const span = e.end - e.start;
-        const wipeAt = span * 0.45;
-        const k = clamp((t - e.start) / wipeAt, 0, 1);
-        const after = t - e.start - wipeAt;
-
+        const wipe = e.mode !== 'rebuild';
         const bw = 172, bh = 11, gap = 8;
-        const bx = clamp(c.x + yd(7), 46, W - bw - 12);
-        const by = clamp(c.y - yd(6), 14, H - 60);
-        const rows = [
-            { name: 'MT', v: k, tone: '#4d7fbe' },
-            { name: 'OT', v: k * 0.72, tone: '#3f6ea6' }
-        ];
+        const bx = 62, by = 22;
+        const mark = span * (wipe ? 0.45 : 0.5);
+        const after = t - e.start - mark;
 
+        const rows = [{ name: 'MT', tone: '#4d7fbe' }, { name: 'OT', tone: '#3f6ea6' }];
         ctx.save();
+        // a plate so the readout survives whatever wall it happens to sit on
+        ctx.fillStyle = 'rgba(9,13,11,.72)';
+        ctx.strokeStyle = 'rgba(236,230,216,.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(bx - 44, by - 24, bw + 58, 2 * (bh + gap) + 34, 3);
+        ctx.fill();
+        ctx.stroke();
         ctx.font = '600 12px "Barlow Condensed", sans-serif';
         ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#6d7a72';
+        ctx.font = '600 13px "Barlow Condensed", sans-serif';
+        ctx.fillText('threat', bx, by - 9);
+        ctx.font = '600 12px "Barlow Condensed", sans-serif';
         rows.forEach((row, i) => {
             const y = by + i * (bh + gap);
-            let v = row.v;
-            if (after > 0) v = after < 160 ? row.v * (1 - after / 160) : 0;
-            // misdirect puts the main tank straight back on top
-            if (after > 900 && i === 0) v = clamp((after - 900) / 700, 0, 1) * 0.9;
+            const build = clamp((t - e.start) / mark, 0, 1) * (i ? 0.72 : 1);
+            let v;
+            if (wipe) v = after <= 0 ? build : after < 160 ? build * (1 - after / 160) : 0;
+            else v = after <= 0 ? 0 : clamp(after / (span - mark), 0, 1) * (i ? 0.62 : 0.95);
 
             ctx.fillStyle = 'rgba(10,14,12,.72)';
             ctx.strokeStyle = 'rgba(236,230,216,.22)';
@@ -549,9 +642,8 @@
             ctx.roundRect(bx, y, bw, bh, 2);
             ctx.fill();
             ctx.stroke();
-
-            ctx.fillStyle = row.tone;
             if (v > 0.01) {
+                ctx.fillStyle = row.tone;
                 ctx.beginPath();
                 ctx.roundRect(bx + 1, y + 1, (bw - 2) * v, bh - 2, 1.5);
                 ctx.fill();
@@ -561,17 +653,20 @@
             ctx.fillText(row.name, bx - 6, y + bh / 2);
         });
 
-        if (after > 0 && after < 2100) {
-            ctx.globalAlpha = clamp(1 - after / 2100, 0, 1);
+        if (after > 0 && after < 2400) {
+            ctx.globalAlpha = clamp(1 - after / 2400, 0, 1);
             ctx.font = '700 17px "Barlow Condensed", sans-serif';
             ctx.textAlign = 'left';
             ctx.fillStyle = '#ffb066';
-            ctx.fillText('threat wiped', bx, by + 2 * (bh + gap) + 6);
+            ctx.fillText(wipe ? 'threat wiped' : 'misdirect, then build', bx, by + 2 * (bh + gap) + 8);
             ctx.globalAlpha = 1;
         }
-        if (after > 900) {
-            const md = clamp((after - 900) / 500, 0, 1);
-            const h = px(actorAt(sc._actors.hunter, t));
+        ctx.restore();
+
+        if (!wipe && e.md && after > 0) {
+            const md = clamp(after / 700, 0, 1);
+            const h = px(at(sc, e.md));
+            ctx.save();
             ctx.setLineDash([5, 5]);
             ctx.lineDashOffset = -after / 30;
             ctx.strokeStyle = 'rgba(180,224,150,' + (0.95 * md) + ')';
@@ -580,17 +675,15 @@
             ctx.moveTo(h.x, h.y);
             ctx.lineTo(lerp(h.x, c.x, md), lerp(h.y, c.y, md));
             ctx.stroke();
+            ctx.restore();
         }
-        ctx.restore();
     }
 
-    // On a close-up the room all looks alike, so show where the camera is pointed.
+    // On a close-up the room all looks alike, so say which corner you are looking at.
     function drawLocator(sc) {
-        if (sc.view.spanYards > 88) return;
+        if (sc.view.spanYards > 110) return;
         const w = 104, h = w * (MH / MW), m = 14;
-        const x = W - w - m, y = H - h - m;
-        const A = FIGHT.arena;
-
+        const x = W - w - m, y = H - h - m, A = FIGHT.arena;
         ctx.save();
         ctx.fillStyle = 'rgba(9,13,11,.78)';
         ctx.strokeStyle = 'rgba(236,230,216,.16)';
@@ -599,10 +692,8 @@
         ctx.roundRect(x, y, w, h, 2);
         ctx.fill();
         ctx.stroke();
-        // the courtyard floor
         ctx.fillStyle = 'rgba(120,148,128,.22)';
         ctx.fillRect(x + A.x0 * w, y + A.y0 * h, (A.x1 - A.x0) * w, (A.y1 - A.y0) * h);
-        // and the patch of it on screen
         ctx.strokeStyle = '#ff8a3d';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x + (src.x / MW) * w, y + (src.y / MH) * h, (src.w / MW) * w, (src.h / MH) * h);
@@ -616,9 +707,9 @@
 
     // ---- tokens ---------------------------------------------------------------
 
-    function label(x, y, text, colour) {
+    function label(x, y, text, colour, size) {
         ctx.save();
-        ctx.font = '600 12.5px "Barlow Condensed", sans-serif';
+        ctx.font = '600 ' + (size || 12.5) + 'px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineWidth = 3.2;
@@ -630,12 +721,10 @@
         ctx.restore();
     }
 
-    function drawBoss(a, t) {
-        const c = px(actorAt(a, t));
+    function drawBoss(a, sc) {
+        const c = px(sc._sim.boss);
         const r = clamp(yd(3.6), 15, 34) * (a.scale || 1);
         const img = image(FIGHT.portrait);
-
-        // he is made of lava; the floor under him glows
         withGlow(() => {
             const g = ctx.createRadialGradient(c.x, c.y, r * .6, c.x, c.y, r * 2.9);
             g.addColorStop(0, 'rgba(255,110,30,.30)');
@@ -645,7 +734,6 @@
             ctx.arc(c.x, c.y, r * 2.9, 0, Math.PI * 2);
             ctx.fill();
         });
-
         ctx.save();
         ctx.shadowColor = 'rgba(0,0,0,.75)';
         ctx.shadowBlur = 10;
@@ -665,10 +753,10 @@
         ctx.restore();
     }
 
-    function drawPlayer(a, t) {
-        const c = px(actorAt(a, t));
+    function drawPlayer(p, sc, t) {
+        const c = px(sc._sim.pos[p.id]);
         const r = clamp(yd(1.7), 9, 21);
-        const img = image(ROLE_ICON[a.kind] || ROLE_ICON.ranged);
+        const img = image(ROLE_ICON[p.kind] || ROLE_ICON.ranged);
 
         ctx.save();
         ctx.shadowColor = 'rgba(0,0,0,.8)';
@@ -687,9 +775,9 @@
         ctx.stroke();
         ctx.restore();
 
-        const hp = valueAt(a.hp, t);
+        const hp = valueAt(sc.hp && sc.hp[p.id], t);
         if (hp !== null) {
-            const bw = r * 2.6, bh = 4, y = c.y - r - 8;
+            const bw = r * 2.4, bh = 4, y = c.y - r - 7;
             ctx.save();
             ctx.fillStyle = 'rgba(10,14,12,.85)';
             ctx.fillRect(c.x - bw / 2, y, bw, bh);
@@ -700,76 +788,36 @@
             ctx.strokeRect(c.x - bw / 2, y, bw, bh);
             ctx.restore();
         }
-
-        if (a.label) label(c.x + (a.labelDx || 0) * r * 1.15, c.y + r + 13, a.label);
-    }
-
-    // ---- formations -----------------------------------------------------------
-    // Where the raid actually stands, generated rather than hand-placed, so the shape is
-    // the shape the fight asks for: stacked for Phase 1, spread for Phase 2.
-
-    function formation(kind, bossAt) {
-        const R = FIGHT.roster;
-        const out = [{ id: 'boss', kind: 'boss', at: bossAt }];
-        const at = (dxY, dyY) => ({ x: bossAt.x + dxY * FIGHT.yard, y: bossAt.y + ydY(dyY) });
-        let n = 0;
-        const add = (kind_, p, lbl, dx) => out.push({ id: 'f' + (n++), kind: kind_, at: p, label: lbl, labelDx: dx });
-
-        if (kind === 'stack') {
-            out.push({ id: 'ft0', kind: 'tank', at: at(-1.6, -6.6), label: 'MT', labelDx: -1 });
-            out.push({ id: 'ft1', kind: 'tank', at: at(1.6, -6.3), label: 'OT', labelDx: 1 });
-            for (let i = 0; i < R.melee; i++) {                    // an arc behind him
-                const ang = lerp(36, 144, R.melee === 1 ? .5 : i / (R.melee - 1)) * Math.PI / 180;
-                add('melee', at(Math.cos(ang) * 16.5, Math.sin(ang) * 16.5));
-            }
-            const camps = [[-27, 25], [-9.5, 35], [9.5, 35], [27, 25]];
-            // one healer to roughly every two ranged, so no camp is left without one
-            const back = [];
-            let hLeft = R.healers, rLeft = R.ranged;
-            while (hLeft || rLeft) {
-                if (hLeft && (!rLeft || back.length % 3 === 0)) { back.push('healer'); hLeft--; }
-                else { back.push('ranged'); rLeft--; }
-            }
-            back.forEach((role, i) => {
-                const camp = camps[i % camps.length];
-                const slot = Math.floor(i / camps.length);
-                const ox = (slot % 2 ? 3.4 : -3.4) + (slot > 1 ? 1.1 : 0);
-                const oy = (slot < 2 ? -3.2 : 3.2);
-                add(role, at(camp[0] + ox, camp[1] + oy));
-            });
-        } else {                                                   // spread: everyone on a ring
-            // Dither the roles around the ring so no arc of it is all healers or all melee.
-            const deck = [];
-            const push = (role, count) => {
-                for (let i = 0; i < count; i++) deck.push({ role: role, key: (i + 0.5) / count });
-            };
-            push('healer', R.healers);
-            push('ranged', R.ranged);
-            push('melee', R.melee);
-            deck.sort((a, b) => a.key - b.key);
-
-            const total = R.tanks + deck.length;
-            for (let i = 0; i < total; i++) {
-                const ang = (i / total) * Math.PI * 2 - Math.PI / 2;
-                const rad = 30 + (i % 2 ? 1.6 : -1.6);
-                const tank = i < R.tanks;
-                const p = {
-                    x: 0.5025 + Math.cos(ang) * rad * FIGHT.yard,
-                    y: 0.505 + ydY(Math.sin(ang) * rad)
-                };
-                add(tank ? 'tank' : deck[i - R.tanks].role, p, tank ? (i ? 'OT' : 'MT') : null, i ? 1 : -1);
-            }
+        if (p.label) {
+            // stacked tanks and a tight melee arc would otherwise print their names on top of
+            // each other: lift every other one above its token instead of below.
+            const above = p.kind === 'tank' ? p.slotIndex % 2 === 1 : p.slotIndex % 2 === 0;
+            const dy = above ? -(r + 6) : r + 12;
+            label(c.x, c.y + dy, p.label, p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 12);
         }
-        return out;
     }
 
-    // ---- scenes ---------------------------------------------------------------
+    // ---- steps ----------------------------------------------------------------
 
+    // Health for the Hateful Strike step: the tanks trade the hit while the melee behind him
+    // sit low enough that he never looks at them. Keyed by raid slot.
+    const HATEFUL_HP = {
+        p0: [{ t: 0, v: 0.95 }, { t: 1800, v: 0.62 }, { t: 3200, v: 0.86 }, { t: 4600, v: 0.90 }, { t: 7000, v: 0.95 }],
+        p1: [{ t: 0, v: 0.78 }, { t: 1800, v: 0.84 }, { t: 3200, v: 0.94 }, { t: 4600, v: 0.61 }, { t: 7000, v: 0.80 }],
+        p2: [{ t: 0, v: 0.58 }], p3: [{ t: 0, v: 0.63 }], p4: [{ t: 0, v: 0.55 }],
+        p5: [{ t: 0, v: 0.60 }], p6: [{ t: 0, v: 0.52 }], p7: [{ t: 0, v: 0.66 }], p8: [{ t: 0, v: 0.57 }]
+    };
+
+    const tankSlots = assigned.filter(p => p.kind === 'tank').map(p => p.id);
     const scenes = FIGHT.scenes.map(s => {
         const sc = Object.assign({}, s);
-        sc.actors = s.formation ? formation(s.formation, s.bossAt) : (s.actors || []);
-        sc._actors = {};
-        sc.actors.forEach(a => { sc._actors[a.id] = a; });
+        sc.bossActor = (s.actors || []).find(a => a.kind === 'boss')
+            || { id: 'boss', kind: 'boss', at: FIGHT.bossAt };
+        sc.raid = (s.formation || s.morph) ? assigned.map(p => ({
+            id: p.id, kind: p.kind, slotIndex: p.slotIndex,
+            label: p.name || (p.kind === 'tank' ? (tankSlots.indexOf(p.id) ? 'OT' : 'MT') : null)
+        })) : [];
+        if (s.id === 'p1-hateful') sc.hp = HATEFUL_HP;
         return sc;
     });
 
@@ -781,13 +829,15 @@
         const sc = scenes[idx];
         const t = REDUCED ? sc.duration * 0.62 : (now - sceneStart) % sc.duration;
 
+        sc._sim = simulate(sc, t);
         aim(sc.view);
         ctx.clearRect(0, 0, W, H);
         drawMap();
+
         (sc.effects || []).filter(e => e.kind !== 'gaze').forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
-        sc.actors.forEach(a => { if (a.kind === 'boss') drawBoss(a, t); });
-        sc.actors.forEach(a => { if (a.kind !== 'boss') drawPlayer(a, t); });
-        // the gaze is drawn last: it is the thing you must notice
+        drawBoss(sc.bossActor, sc);
+        sc.raid.forEach(p => drawPlayer(p, sc, t));
+        // the gaze goes last: it is the thing you must notice
         (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
         drawLocator(sc);
     }
@@ -796,12 +846,11 @@
 
     const el = id => document.getElementById(id);
     el('portrait').src = FIGHT.portrait;
-    image(FIGHT.map);
     el('bossName').textContent = FIGHT.name;
     el('bossWhere').textContent = FIGHT.where;
+    image(FIGHT.map);
     document.title = FIGHT.name + ' — fight briefing';
 
-    // the rail: one card per ability, sized by how much it matters
     const rail = el('rail');
     const cardOf = {};
     const major = FIGHT.abilities.filter(a => a.tier < 3);
@@ -839,8 +888,8 @@
 
     const sheet = document.createElement('section');
     sheet.className = 'sheet';
-    sheet.innerHTML = '<h3 class="sheet__title">From the raid\'s sheet</h3>' +
-        FIGHT.tips.map(t => '<p>' + t + '</p>').join('');
+    sheet.innerHTML = '<h3 class="sheet__title">From the raid\'s sheet</h3><ol class="sheet__steps">' +
+        FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
     rail.appendChild(sheet);
 
     const credit = document.createElement('p');
@@ -848,7 +897,17 @@
     credit.textContent = FIGHT.source;
     rail.appendChild(credit);
 
-    // the step dots
+    // Keep the live ability on screen without ever scrolling the page itself.
+    function revealCard(node) {
+        if (!node || rail.scrollHeight <= rail.clientHeight) return;
+        const top = node.offsetTop, bottom = top + node.offsetHeight;
+        const behavior = REDUCED ? 'auto' : 'smooth';
+        if (top < rail.scrollTop + 8) rail.scrollTo({ top: Math.max(0, top - 12), behavior: behavior });
+        else if (bottom > rail.scrollTop + rail.clientHeight - 8) {
+            rail.scrollTo({ top: bottom - rail.clientHeight + 12, behavior: behavior });
+        }
+    }
+
     const dots = el('dots');
     scenes.forEach((s, i) => {
         const b = document.createElement('button');
@@ -872,14 +931,60 @@
         });
         Object.keys(cardOf).forEach(id => cardOf[id].classList.remove('is-live'));
         (sc.highlight || []).forEach(id => cardOf[id] && cardOf[id].classList.add('is-live'));
+        if (sc.highlight && sc.highlight.length) revealCard(cardOf[sc.highlight[0]]);
         el('clockP1').classList.toggle('is-on', sc.phase === 1);
         el('clockP2').classList.toggle('is-on', sc.phase === 2);
         if (REDUCED) paint(performance.now());
     }
 
+    // ---- taking it away -------------------------------------------------------
+
+    function flash(btn, msg) {
+        const was = btn.dataset.label || btn.textContent;
+        btn.dataset.label = was;
+        btn.textContent = msg;
+        setTimeout(() => { btn.textContent = was; }, 1600);
+    }
+
+    async function copyPositions() {
+        const btn = el('copyText');
+        const phase = scenes[idx].phase === 2 ? 2 : 1;
+        const text = L.copyText(FIGHT, phase, assigned);
+        try {
+            await navigator.clipboard.writeText(text);
+            flash(btn, 'Copied');
+        } catch (e) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+            a.download = 'supremus-positions-phase-' + phase + '.txt';
+            a.click();
+            flash(btn, 'Saved');
+        }
+    }
+
+    function copyImage() {
+        const btn = el('copyImage');
+        cv.toBlob(async blob => {
+            if (!blob) { flash(btn, 'Export failed'); return; }
+            try {
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                flash(btn, 'Copied');
+            } catch (e) {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'supremus-' + scenes[idx].id + '.png';
+                a.click();
+                flash(btn, 'Saved');
+            }
+        }, 'image/png');
+    }
+
+    el('copyText').addEventListener('click', copyPositions);
+    el('copyImage').addEventListener('click', copyImage);
     el('next').addEventListener('click', () => show(idx + 1));
     el('prev').addEventListener('click', () => show(idx - 1));
     document.addEventListener('keydown', ev => {
+        if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
         if (ev.key === 'ArrowRight') show(idx + 1);
         else if (ev.key === 'ArrowLeft') show(idx - 1);
         else if (ev.key === ' ') { ev.preventDefault(); sceneStart = performance.now(); }
@@ -887,11 +992,16 @@
         else if (/^[1-9]$/.test(ev.key)) show(parseInt(ev.key, 10) - 1);
     });
 
+    if (!roster) {
+        const note = el('rosterNote');
+        note.hidden = false;
+        note.textContent = 'No roster loaded. Import one on the Assignments page and these become your own names.';
+    }
+
     // the clock keeps running whatever step you are on: he never stops
     const clockHead = el('clockHead');
     function tickClock(now) {
-        const cycle = (now / 1000) % (FIGHT.phaseSeconds * 2) / (FIGHT.phaseSeconds * 2);
-        clockHead.style.left = (cycle * 100) + '%';
+        clockHead.style.left = ((now / 1000) % (FIGHT.phaseSeconds * 2) / (FIGHT.phaseSeconds * 2) * 100) + '%';
     }
 
     function frame(now) {
@@ -914,5 +1024,5 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { resize(); });
 
     // lets the screenshot harness step scenes without synthesising key events
-    window.__tactics = { show, count: scenes.length, scenes };
+    window.__tactics = { show, count: scenes.length, scenes, assigned, roster };
 }());

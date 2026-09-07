@@ -74,8 +74,9 @@ test('scenes: each frames its own patch of the room', () => {
         assert.ok(s.view.spanYards >= 30 && s.view.spanYards <= 160, s.id + ' span: ' + s.view.spanYards);
     });
     const spans = FIGHT.scenes.map(s => s.view.spanYards);
-    assert.ok(Math.min(...spans) < 70, 'mechanics are shown close up');
-    assert.ok(Math.max(...spans) > 95, 'formations are shown wide');
+    assert.ok(Math.max(...spans) > 120, 'the raid-wide steps show the whole room');
+    assert.ok(Math.min(...spans) < Math.max(...spans) * 0.8,
+        'and at least one step comes in closer than the room-wide ones');
 });
 
 test('scenes: ids are unique', () => {
@@ -103,30 +104,64 @@ test('scenes: every actor sits inside the map', () => {
     });
 });
 
-test('scenes: every effect is a known kind and points at an actor that exists', () => {
+test('scenes: every effect is a known kind and points at something that exists', () => {
     FIGHT.scenes.forEach(s => {
-        const actors = new Set((s.actors || []).map(a => a.id));
+        const known = new Set((s.actors || []).map(a => a.id));
+        Object.keys(s.cast || {}).forEach(k => known.add(k));
+        if (s.formation || s.morph) known.add('boss');
         (s.effects || []).forEach(e => {
             assert.ok(EFFECT_KINDS.includes(e.kind), s.id + ': unknown effect kind ' + e.kind);
-            ['follow', 'from', 'target'].forEach(ref => {
-                if (typeof e[ref] === 'string') {
-                    assert.ok(actors.has(e[ref]), s.id + ': effect ' + ref + ' names missing actor ' + e[ref]);
-                }
+            ['follow', 'from', 'target', 'md'].forEach(ref => {
+                if (typeof e[ref] !== 'string') return;
+                const ok = known.has(e[ref]) || /^p\d+$/.test(e[ref]);
+                assert.ok(ok, s.id + ': effect ' + ref + ' names missing actor ' + e[ref]);
             });
         });
     });
 });
 
-test('scenes: the roster scenes ask for a generated formation, not hand-placed dots', () => {
-    const layouts = FIGHT.scenes.filter(s => s.formation);
-    assert.ok(layouts.length >= 2, 'both phases show where the raid stands');
-    layouts.forEach(s => assert.ok(['stack', 'spread'].includes(s.formation), s.id + ' formation: ' + s.formation));
+test('scenes: the mechanics play on the whole raid, not a handful of demo dots', () => {
+    const played = FIGHT.scenes.filter(s => s.formation || s.morph);
+    assert.ok(played.length >= 6, 'all but the title card put the raid on the floor');
+    played.forEach(s => {
+        assert.ok(!(s.formation && s.morph), s.id + ' is either a still or a move, not both');
+        if (s.formation) assert.ok([1, 2].includes(s.formation), s.id + ' formation: ' + s.formation);
+        if (s.morph) {
+            assert.ok([1, 2].includes(s.morph.from) && [1, 2].includes(s.morph.to), s.id + ' morphs between phases');
+            assert.notStrictEqual(s.morph.from, s.morph.to, s.id + ' morphs somewhere else');
+            assert.ok(s.morph.end > s.morph.start, s.id + ' morph runs forwards');
+            assert.ok(s.morph.end < s.duration, s.id + ' morph settles before the loop restarts');
+        }
+    });
+    assert.ok(FIGHT.scenes.some(s => s.morph && s.morph.from === 1 && s.morph.to === 2),
+        'the raid is shown moving out before Phase 2');
+    assert.ok(FIGHT.scenes.some(s => s.morph && s.morph.from === 2 && s.morph.to === 1),
+        'and moving back in for Phase 1');
 });
 
-// --- the cheat sheet's own words ---
+test('scenes: cast members name real raid slots', () => {
+    const total = FIGHT.roster.tanks + FIGHT.roster.healers + FIGHT.roster.melee + FIGHT.roster.ranged;
+    FIGHT.scenes.forEach(s => {
+        Object.keys(s.cast || {}).forEach(k => {
+            const id = s.cast[k];
+            assert.ok(/^p\d+$/.test(id), s.id + '/' + k + ' is a raid slot: ' + id);
+            assert.ok(parseInt(id.slice(1), 10) < total, s.id + '/' + k + ' is inside the raid: ' + id);
+        });
+    });
+});
+
+test('the room is laid out for exactly one raid', () => {
+    const r = FIGHT.roster;
+    assert.strictEqual(r.tanks + r.healers + r.melee + r.ranged, 25);
+    ['x0', 'x1', 'y0', 'y1'].forEach(k => assert.ok(typeof FIGHT.grid[k] === 'number', 'grid.' + k));
+    assert.ok(FIGHT.grid.x1 > FIGHT.grid.x0 && FIGHT.grid.y1 > FIGHT.grid.y0);
+    assert.ok(FIGHT.bossAt.y < FIGHT.grid.y0, 'he is parked in front of the spread, not inside it');
+    assert.ok(FIGHT.stack.arcRadius > 8, 'melee stand behind him, outside the tank stack');
+});
+
 test('tips: the raid sheet lines are carried verbatim with their source', () => {
-    assert.ok(FIGHT.tips.length >= 3);
-    FIGHT.tips.forEach(t => assert.ok(typeof t === 'string' && t.length > 15));
+    assert.ok(FIGHT.tips.length >= 7, 'all seven of the sheet steps');
+    FIGHT.tips.forEach(t => assert.ok(typeof t === 'string' && t.length > 8));
     assert.ok(/cheat sheet/i.test(FIGHT.source), 'the fight credits where the tips came from');
 });
 

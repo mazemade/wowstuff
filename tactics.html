@@ -27,7 +27,6 @@
 
             <div class="stage__map">
                 <div class="map" id="map">
-                    <img id="mapImg" alt="Top-down view of the Supremus courtyard">
                     <canvas id="fx"></canvas>
                 </div>
             </div>
@@ -36,8 +35,11 @@
                 <div class="step">
                     <h2 class="step__title" id="stepTitle"></h2>
                     <p class="step__caption" id="stepCaption"></p>
+                    <p class="step__note" id="rosterNote" hidden></p>
                 </div>
                 <div class="nav">
+                    <button class="take" id="copyText">Copy positions</button>
+                    <button class="take" id="copyImage">Copy image</button>
                     <div class="dots" id="dots" role="tablist" aria-label="Briefing steps"></div>
                     <button class="nav__btn" id="prev" aria-label="Previous step">&lsaquo;</button>
                     <button class="nav__btn" id="next" aria-label="Next step">&rsaquo;</button>
@@ -48,7 +50,9 @@
         <aside class="rail" id="rail" aria-label="Abilities"></aside>
     </main>
 
+    <script src="assignments-engine.js"></script>
     <script src="tactics-data.js"></script>
+    <script src="tactics-layout.js"></script>
     <script src="tactics.js"></script>
 </body>
 </html>
