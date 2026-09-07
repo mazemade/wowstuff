@@ -201,7 +201,7 @@
         const f = frameOf(view, sc);
         if (FIGHT.id === 'bt-reliquary' && (view.fit === 'action' || sc.id === 'positioning')) {
             // Reserve readable space for the visual lesson above and below the actors.
-            const top = W < 520 ? 150 : 120, bottom = 118;
+            const top = W < 520 ? 150 : ['fixate', 'suffering', 'cycle'].includes(sc.id) ? 160 : 120, bottom = 118;
             scale = Math.min((W - 46) / ((f.x1 - f.x0) * MW), (H - top - bottom) / ((f.y1 - f.y0) * MH));
             src = { w: W / scale, h: H / scale,
                 x: (f.x0 + f.x1) / 2 * MW - W / scale / 2,
@@ -1109,6 +1109,13 @@
         if (!explanation) return null;
         const hasClass = value => sc.raid.some(player => String(player.class || '').toUpperCase() === value);
         const absent = (title, detail) => ({ ...explanation, title, detail });
+        const tankCount = sc.tanks.length;
+        if (['hold-fixates', 'low-health', 'incoming-tank', 'first-handoff', 'enrage-prep', 'enrage-survival'].includes(explanation.id) && !tankCount)
+            return absent('No tank is loaded.', 'No Suffering tank example can be shown for this roster.');
+        if (explanation.id === 'low-health' && tankCount === 1)
+            return absent('Tank health is getting low.', 'No fresh tank is loaded. Prepare survival cooldowns; a handoff cannot be shown.');
+        if (['incoming-tank', 'first-handoff'].includes(explanation.id) && tankCount < 2)
+            return absent('No fresh tank is loaded.', 'One tank is loaded, so this health-based handoff is not demonstrated.');
         if (['anger-pickup', 'anger-taunt'].includes(explanation.id) && !sc.tanks.length)
             return absent('No tank pickup is assigned.', 'No tank is loaded, so Anger pickup and the two-tank taunt are not demonstrated.');
         if (['anger-pickup', 'anger-taunt'].includes(explanation.id) && sc.tanks.length < 2)

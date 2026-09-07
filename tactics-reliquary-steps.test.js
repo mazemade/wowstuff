@@ -12,8 +12,8 @@ assert.ok(suffering.length >= 7, 'Suffering includes each readable action and op
 assert.equal(suffering.find(step => step.id === 'soul-drain').title, 'Soul Drain arrives.');
 assert.equal(Steps.frameAt(suffering[0], 9999), suffering[0].holdAtMs, 'a completed transition holds its semantic result');
 assert.equal(Steps.frameAt(suffering[0], 0), 0, 'replay begins the selected demonstration');
-assert.equal(Steps.get('fixate', 'incoming-tank').holdAtMs, 4999, 'incoming movement holds before the handoff boundary');
-assert.equal(Steps.get('fixate', 'second-handoff').holdAtMs, 9999, 'the next incoming movement holds before its boundary');
+assert.equal(Steps.get('fixate', 'incoming-tank').holdAtMs, 14999, 'incoming movement holds before the health-based handoff boundary');
+assert.equal(Steps.get('fixate', 'low-health').startMs, 11000, 'low health is its own readable decision before movement');
 
 const spite = Steps.forScene('spite');
 const countdown = spite.find(step => step.id === 'spite-countdown');
@@ -35,10 +35,10 @@ const shield = Steps.get('interrupts', 'rune-shield');
 const shieldFrame = Reliquary.simulate(fight, scene('interrupts'), Steps.frameAt(shield, 9999));
 assert.equal(shieldFrame.shield.active, true);
 assert.equal(shieldFrame.actions[0].kind, 'shield-block');
-const handoff = Steps.get('fixate', 'second-handoff');
+const handoff = Steps.get('fixate', 'first-handoff');
 const handoffFrame = Reliquary.simulate(fight, scene('fixate'), Steps.frameAt(handoff, 9999));
 assert.ok(handoffFrame.bossTarget, 'a bounded handoff retains the selected tank');
-assert.equal(handoffFrame.teaching.title, 'Tank 2 is closest');
+assert.equal(handoffFrame.teaching.title, 'Tank 2 has Fixate');
 const impact = Steps.get('spite', 'spite-impact');
 const impactFrame = Reliquary.simulate(fight, scene('spite'), Steps.frameAt(impact, 9999));
 assert.ok(impactFrame.spite.length && impactFrame.spite.every(mark => mark.impacted), 'a held Spite result never rewinds to immunity');

@@ -9,19 +9,19 @@
         overview: [step('encounter-plan', 'Three essences. One controlled sequence.', 'Suffering → souls → Desire → souls → Anger. Each essence changes the raid job.', 0, 0)],
         positioning: [step('formation', 'Use the sheet formation before the pull.', 'Tanks in front, melee behind, ranged split wide and healers central enough to cover both sides.', 0, 0)],
         fixate: [
-            step('closest-tank', 'The closest tank receives Suffering.', 'This is positional selection, not a taunt rotation.', 0, 900),
-            step('incoming-tank', 'The next tank moves into its front lane.', 'The next receiver moves closest before Fixate while the current tank retreats along its own lane.', 3900, 4999),
-            step('first-handoff', 'The first handoff completes.', 'The new receiver has Fixate; the previous tank is back in its waiting position.', 5000, 5900),
-            step('second-handoff', 'The second receiver moves in.', 'The next tank again becomes closest in its own front lane before the next five-second selection.', 8900, 9999),
-            step('third-handoff', 'The third handoff completes.', 'The rotation continues with damage remaining on prior receivers.', 10000, 10900)
+            step('hold-fixates', 'Keep the same tank while healthy.', 'Fixate checks who is closest every five seconds. Swap when health, shields or cooldowns call for it.', 0, 10999),
+            step('low-health', 'Tank health is getting low.', 'Prepare a fresh tank before it is unsafe, then hand off at the next Fixate.', 11000, 13999),
+            step('incoming-tank', 'Next tank in; current tank out.', 'The fresh tank becomes closest for the next check.', 14000, 14999),
+            step('first-handoff', 'Fresh tank has Fixate.', 'The previous tank keeps its lost health while the fresh tank holds closest.', 15000, 16999)
         ],
         suffering: [
             step('suffering-rule', 'No healing or mana regeneration.', 'Armor is removed and defense is reduced by 500 while Suffering is active.', 0, 900),
             step('soul-drain', 'Soul Drain arrives.', 'It drains health and mana. Magic dispel takes priority.', 1000, 2900),
             step('dispel-drain', 'Dispel Soul Drain first.', 'Remove the magic debuff before other dispels.', 3000, 4900),
             step('priest-shield', 'Priest shield still works.', 'Absorbs protect the current tank even though healing cannot.', 5000, 6900),
-            step('healer-dps', 'Healers DPS during Suffering.', 'Healing and mana regeneration remain disabled.', 7000, 8900),
-            step('enrage-rotation', 'Enrage needs three closest-tank turns.', 'At real fight time 0:45, Enrage lasts 15 seconds. Each tank survives five seconds with avoidance and cooldowns.', 12000, 17999),
+            step('healer-dps', 'Healers DPS during Suffering.', 'Healing and mana regeneration remain disabled.', 7000, 8999),
+            step('enrage-prep', 'Prepare cooldowns for Enrage.', 'Around 0:45, Enrage lasts 15 seconds. Prepare a tank with cooldowns and avoidance.', 9000, 11999),
+            step('enrage-survival', 'Use cooldowns to survive Enrage.', 'Use cooldowns and avoidance; hold the prepared tank while safe.', 12000, 17999),
             step('rogue-evasion', 'Optional: Rogue Evasion.', 'A Rogue can use Evasion as an optional Enrage survival reminder.', 14900, 14900, { optional: true, loop: 'effect' }),
             step('hunter-deterrence', 'Optional: Hunter Deterrence.', 'A Hunter can use Deterrence as an optional Enrage survival reminder.', 15100, 16900, { optional: true, loop: 'effect' })
         ],

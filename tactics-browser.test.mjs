@@ -146,6 +146,30 @@ async function checkReliquary(port) {
   assert.equal(await evaluate(`(()=>{const a=__tactics;return a.scenes.every((s,i)=>{a.show(i);a.playback.pause(performance.now());return [...sceneSpells.querySelectorAll('a')].every(link=>link.href.startsWith('https://')&&!link.href.includes('undefined'))})})()`),true,'every spell card links to a real source');
   pass('Reliquary deep link loads eleven chapters, authentic art and the example raid');
 
+  await showReliquary('fixate',0);
+  const heldTank=await evaluate('__reliquaryScene._sim.bossTarget');
+  const initialTankHp=await evaluate('__reliquaryScene._sim.hp[__reliquaryScene._sim.bossTarget]');
+  const initialTankPositions=await evaluate('Object.fromEntries(__reliquaryScene.tanks.map(id=>[id,__reliquaryScene._sim.pos[id]]))');
+  for(const time of [5000,10000]) {
+    await showReliquary('fixate',time);
+    assert.equal(await evaluate('__reliquaryScene._sim.bossTarget'),heldTank,'a healthy tank can receive consecutive Fixates');
+    assert.deepEqual(await evaluate('Object.fromEntries(__reliquaryScene.tanks.map(id=>[id,__reliquaryScene._sim.pos[id]]))'),initialTankPositions,'standby tanks remain still while the current tank holds');
+    assert.equal(await evaluate('!!__reliquaryScene._sim.nextTankAt'),false,'no movement arrow invites an unnecessary swap');
+  }
+  assert((await evaluate('__reliquaryScene._sim.hp[__reliquaryScene._sim.bossTarget]'))<initialTankHp,'the holding tank visibly accumulates damage');
+  assert.match(await drawnReliquaryText(),/same tank|keep tanking|hold/i,'the canvas explains why the next Fixate does not require a swap');
+  await showReliquary('fixate',13000);
+  assert.match(await drawnReliquaryText(),/health|low/i,'the health reason is visible before the approach');
+  await showReliquary('fixate',14999);
+  const outgoingHp=await evaluate('__reliquaryScene._sim.hp[__reliquaryScene.tanks[0]]');
+  await showReliquary('fixate',15000);
+  assert.notEqual(await evaluate('__reliquaryScene._sim.bossTarget'),heldTank,'the later Fixate completes the chosen health-based swap');
+  const swappedHp=await evaluate('__reliquaryScene._sim.hp[__reliquaryScene.tanks[0]]');
+  assert(swappedHp<=outgoingHp,'handing over does not heal the previous tank');
+  await showReliquary('fixate',16000);
+  assert.equal(await evaluate('__reliquaryScene._sim.hp[__reliquaryScene.tanks[0]]'),swappedHp,'the previous tank keeps its lost health while waiting');
+  pass('Suffering holds multiple Fixates and only demonstrates a handoff after the tank health drops');
+
   for (const [width,height] of [[1600,1100],[390,844]]) {
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
     await showReliquary('positioning');
@@ -153,14 +177,23 @@ async function checkReliquary(port) {
       const a=__tactics,bad=[];
       const check=(s,elapsed)=>{
         const now=performance.now();a.playback.pause(now);a.playback.seek(elapsed,now);
-        const ctx=fx.getContext('2d'),roundRect=ctx.roundRect,fillText=ctx.fillText,labels=[];let box;
-        ctx.roundRect=function(x,y,w,h,...rest){box={x,y,w,h};return roundRect.call(this,x,y,w,h,...rest)};
-        ctx.fillText=function(value,...args){if(/^(Current|Next|Waiting): /.test(String(value)))labels.push({label:String(value),...box});return fillText.call(this,value,...args)};
+        const ctx=fx.getContext('2d'),roundRect=ctx.roundRect,fillText=ctx.fillText,labels=[];let box,lessonBox;
+        ctx.roundRect=function(x,y,w,h,...rest){box={x,y,w,h};if(x===10&&y===10)lessonBox=box;return roundRect.call(this,x,y,w,h,...rest)};
+        ctx.fillText=function(value,...args){
+          if(/^(Current|Next|Waiting): /.test(String(value)))labels.push({label:String(value),...box});
+          if(/^(LOW HEALTH|COOLDOWNS (READY|ACTIVE))$/.test(String(value))&&box&&(args[0]<box.x||args[0]+this.measureText(value).width>box.x+box.w))bad.push({step:s.id,elapsed,statusOverflow:String(value)});
+          return fillText.call(this,value,...args);
+        };
         try{a.render(now)}finally{ctx.roundRect=roundRect;ctx.fillText=fillText}
         const f=s._sim,b=a.px(f.boss),yard=a.px({x:f.boss.x+a.fight.yard,y:f.boss.y}).x-b.x;
         const minGap=2*Math.max(9,Math.min(21,1.7*yard))+4;
         const tanks=s.tanks.map(id=>({id,...a.px(f.pos[id])}));
         const protectedTokens=[...tanks.map(p=>({...p,r:Math.max(12,2.3*yard)})),{id:'boss',...b,r:20}];
+        if(s.id!=='positioning')for(const [index,p] of tanks.entries()){
+          if(!labels.some(box=>box.label.includes('Tank '+(index+1))))bad.push({step:f.explanation?.id,elapsed,missingTankLabel:p.id});
+          if(lessonBox&&p.y-Math.max(9,Math.min(21,1.7*yard))-12<lessonBox.y+lessonBox.h+4)bad.push({step:f.explanation?.id,elapsed,coveredByLesson:p.id});
+        }
+
         for(const box of labels)for(const p of protectedTokens){
           const x=Math.max(box.x,Math.min(p.x,box.x+box.w)),y=Math.max(box.y,Math.min(p.y,box.y+box.h));
           if(Math.hypot(x-p.x,y-p.y)<p.r+2)bad.push({step:f.explanation?.id,elapsed,label:box.label,covered:p.id});
@@ -171,11 +204,11 @@ async function checkReliquary(port) {
         }
       };
       check(a.scenes.find(s=>s.id==='positioning'),0);
-      a.guided.steps.forEach((step,index)=>{if(step.sceneId!=='fixate')return;a.showExplanation(index);const s=a.scenes.find(s=>s.id==='fixate');for(const time of [0,500,1000,60000])check(s,time)});
+      a.guided.steps.forEach((step,index)=>{if(!['fixate','suffering'].includes(step.sceneId))return;a.showExplanation(index);const s=a.scenes.find(s=>s.id===step.sceneId);for(const time of [0,500,1000,60000])check(s,time)});
       return bad;
     })()`);
     assert.deepEqual(collisions,[],'opening tank tokens remain separate at '+width);
-    await showReliquary('fixate',4999);
+    await showReliquary('fixate',14999);
     const approachTarget=await evaluate('__reliquaryScene._sim.bossTarget');
     assert.equal(approachTarget,await evaluate('__reliquaryScene.tanks[0]'),'approach holds before Fixate changes the target');
     const approachText=await drawnReliquaryText();
@@ -271,19 +304,19 @@ async function checkReliquary(port) {
   assert.deepEqual(invalid, [], 'Reliquary raid positions, calls and state stay visible and synchronized');
   pass('all Reliquary chapters remain drawable and synchronized across direct seeks');
 
-  await showReliquary('fixate', 4999);
+  await showReliquary('fixate', 14999);
   const beforeTarget = await evaluate('__reliquaryScene._sim.bossTarget');
-  await showReliquary('fixate', 5000);
+  await showReliquary('fixate', 15000);
   assert.notEqual(await evaluate('__reliquaryScene._sim.bossTarget'), beforeTarget);
   assert.equal(await evaluate(`(()=>{const a=__tactics,f=__reliquaryScene._sim,d=TacticsLayout.dist(a.fight,f.pos[f.bossTarget],f.boss);return Object.entries(f.pos).every(([id,p])=>id===f.bossTarget||TacticsLayout.dist(a.fight,p,f.boss)>d)})()`), true);
   pass('Suffering visibly selects the closest receiving tank at Fixate');
 
-  await showReliquary('fixate', 4000);
+  await showReliquary('fixate', 14000);
   const rotationBefore = await drawnReliquaryText();
   assert.match(rotationBefore, /next/i, 'the next receiver is visible in the animation');
   const exampleTanks = await evaluate('[...roleNotes.querySelectorAll("dd")].slice(0,2).map(n=>n.textContent.split(" — ")[0])');
   assert.notEqual(exampleTanks[0], exampleTanks[1], 'example current and next tanks have distinct identities');
-  await showReliquary('fixate', 5500);
+  await showReliquary('fixate', 15500);
   assert.notEqual(await drawnReliquaryText(), rotationBefore, 'visible tank instructions follow the handoff');
   const sufferingFrames = [];
   for (const index of await evaluate("__tactics.guided.steps.map((s,index)=>({s,index})).filter(({s})=>s.sceneId==='suffering').map(({index})=>index)")) { await evaluate(`__tactics.showExplanation(${index})`); sufferingFrames.push(await drawnReliquaryText()); }
@@ -291,7 +324,21 @@ async function checkReliquary(port) {
   assert.match(sufferingGuide, /DPS|damage/i);
   assert.match(sufferingGuide, /45|0:45/);
   assert.match(sufferingGuide, /15|1:00/);
-  pass('Suffering shows the live tank rotation and the guild Enrage and healer priorities');
+  await showReliquary('suffering',9000);
+  assert.match(await drawnReliquaryText(),/prepare|ready/i,'Enrage preparation is a separate visible explanation');
+  let enrageTank, standbyHealth;
+  for(const time of [12000,14999,17000]) {
+    await showReliquary('suffering',time);
+    const target=await evaluate('__reliquaryScene._sim.bossTarget');
+    const waitingHp=await evaluate('Object.fromEntries(__reliquaryScene.tanks.filter(id=>id!==__reliquaryScene._sim.bossTarget).map(id=>[id,__reliquaryScene._sim.hp[id]]))');
+    if(enrageTank===undefined){enrageTank=target;standbyHealth=waitingHp;}
+    assert.deepEqual(waitingHp,standbyHealth,"standby tanks are not shown taking the active tank's damage");
+    assert.equal(target,enrageTank,'prepared Enrage survival does not require a new tank every five seconds');
+    assert.match(await drawnReliquaryText(),/cooldown|defensive|avoidance/i,'the survival action is explained on the canvas');
+  }
+  await showReliquary('overview');
+  assert.doesNotMatch((await drawnReliquaryText())+'\n'+sufferingGuide,/Rotate closest tanks? every (5s|five seconds)|Enrage needs three|Each tank survives five seconds/i,'current visual instructions cannot restore mandatory five-second swapping');
+  pass('Suffering separates health-based handoffs from prepared Enrage survival');
 
   const phaseOrder = [];
   for (const time of [0,21000,33000,61000,73000]) {
@@ -304,6 +351,17 @@ async function checkReliquary(port) {
   assert.equal(await evaluate('manualProgress.getClientRects().length'),0,'continuous playback cannot show stale explanation progress');
   assert.equal(phaseOrder[0], 'suffering'); assert.equal(phaseOrder[2], 'desire'); assert.equal(phaseOrder[4], 'anger');
   assert.notEqual(phaseOrder[1], 'suffering'); assert.notEqual(phaseOrder[3], 'desire');
+  let cycleTank;
+  for(const time of [0,5000,10000]) {
+    await showReliquary('cycle',time);
+    const target=await evaluate('__reliquaryScene._sim.bossTarget');
+    if(cycleTank===undefined)cycleTank=target;
+    assert.equal(target,cycleTank,'continuous playback also holds through repeated Fixates');
+  }
+  await showReliquary('cycle',17500);
+  assert.equal(await evaluate('!!__reliquaryScene._sim.tankDefense?.active'),true,'the full cycle retains prepared Enrage survival after the health handoff');
+  assert.match(await drawnReliquaryText(),/Enrage/i);
+
   await showReliquary('interrupts', 6000);
   assert(await evaluate('!!__reliquaryScene._sim.shield?.active'));
   const exampleKicks = await evaluate('[...roleNotes.querySelectorAll("dd")].slice(0,2).map(n=>n.textContent.split(" — ")[0])');
@@ -412,10 +470,11 @@ async function checkReliquary(port) {
   assert.notEqual(await evaluate('roleNotes.innerText'), assignedInterrupts);
   pass('named kick order, Mage Spellsteal and useful Curse of Tongues are visible without exporting');
   await evaluate(`(()=>{window.__reliquaryExports=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>__reliquaryExports.push(t),write:async items=>window.__reliquaryImage=await items[0].getType('image/png')}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
-  for (const [chapter,time] of [['souls',5500],['interrupts',7500],['spite',9500],['cycle',100000]]) {
+  for (const [chapter,time] of [['fixate',13000],['suffering',16000],['souls',5500],['interrupts',7500],['spite',9500],['cycle',100000]]) {
     await showReliquary(chapter,time); await evaluate('copyText.click();copyImage.click()'); await sleep(150);
     const output=await evaluate('__reliquaryExports.at(-1)');
     assert(output.includes(await evaluate('sceneCall.textContent')));
+    assert.doesNotMatch(output,/Rotate closest tanks? every (5s|five seconds)|Enrage needs three|Each tank survives five seconds/i,'exported guidance follows the corrected swap strategy');
     for(const name of ['ReliquaryMT','ReliquaryOT','ReliquaryHealer','ReliquaryKick','ReliquaryMage','ReliquaryLust','ReliquaryTongues']) assert(output.includes(name));
     assert((await evaluate('__reliquaryImage.size'))>1000);
     if(chapter==='cycle') assert.doesNotMatch(output,/Use Bloodlust|Kick next|Dispel Soul Drain|Hold threat|Burn Anger|Hold Anger|Wait behind the boss/i);
@@ -436,6 +495,10 @@ async function checkReliquary(port) {
   assert.equal(await evaluate('__tactics.assigned.length'),1);
   assert.notEqual(await evaluate('__reliquaryScene._sim.stage'),'complete');
   assert.match(await evaluate('rosterNote.textContent'),/damage/i);
+  await showReliquary('fixate',13000);
+  assert.match(await drawnReliquaryText(),/no fresh tank|no second tank|one tank/i,'a low-health tank without relief gets an honest coverage instruction');
+  await showReliquary('fixate',15000);
+  assert.match(await drawnReliquaryText(),/no fresh tank|no second tank|one tank/i,'a missing fresh tank never becomes a successful handoff');
   await showReliquary('interrupts',7500);
   assert.equal(await evaluate('!!__reliquaryScene._sim.shield?.active'),true);
   assert.doesNotMatch(await evaluate('roleNotes.innerText'),/completed Spirit Shock|completed kick/i,'missing interrupt coverage never shows a completed kick');

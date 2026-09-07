@@ -73,55 +73,62 @@
         return fallback;
     };
     function suffering(fight, sc, f, t) {
-        const rotation = sc.tanks.length ? sc.tanks : [];
-        const enrageLesson = sc.id === 'suffering';
-        const rotationTime = enrageLesson ? t + 2000 : t;
-        const cycle = Math.floor(rotationTime / 5000), slot = cycle % Math.max(1, rotation.length), current = rotation[slot] || null;
+        const tanks = sc.tanks.length ? sc.tanks : [], enrageLesson = sc.id === 'suffering', cycleLesson = sc.id === 'cycle';
+        const checks = [0, 5000, 10000, 15000].filter(at => t >= at);
+        const primary = tanks[0] || null, fresh = tanks[1] || null;
+        const handoffDue = !enrageLesson && !!fresh && t >= 14000 && t < 15000;
+        const current = enrageLesson ? primary : (fresh && t >= 15000 ? fresh : primary);
         f.essence = 'Suffering'; f.stage = sc.id === 'fixate' ? 'fixate' : 'suffering'; f.bossTarget = current;
-        const within = rotationTime % 5000, leadIn = within >= 4000 ? rotation[(slot + 1) % Math.max(1, rotation.length)] : null;
-        f.tankLanes = Object.fromEntries(rotation.map((id, i) => [id, tankLane(fight, i, rotation.length)]));
-        f.nextTank = leadIn || rotation[(slot + 1) % Math.max(1, rotation.length)] || null;
+        f.fixateChecks = checks.map(at => ({ at, targetId: enrageLesson || at < 15000 ? primary : fresh || primary }));
+        f.lowHealth = !enrageLesson && !!primary && t >= 11000 && t < 15000;
+        f.handoffDue = handoffDue;
+        f.tankLanes = Object.fromEntries(tanks.map((id, i) => [id, tankLane(fight, i, tanks.length)]));
+        f.nextTank = handoffDue ? fresh : null;
         f.nextTankAt = f.nextTank ? f.tankLanes[f.nextTank].near : null;
-        rotation.forEach((id, i) => {
-            const isIncoming = id === leadIn, isCurrent = i === slot;
-            const k = isIncoming ? clamp((within - 4000) / 1000) : 0;
-            const lane = f.tankLanes[id];
-            const retreat = isCurrent ? clamp((within - 4000) / 1000) : 0;
-            f.pos[id] = isCurrent ? interpolate(lane.near, lane.far, retreat) : isIncoming ? interpolate(lane.far, lane.near, k) : lane.far;
-            let hits = 0; for (let n = 0; n <= cycle; n++) if (rotation[n % rotation.length] === id) hits++;
-            f.hp[id] = clamp(1 - hits * .14);
+        tanks.forEach(id => {
+            const lane = f.tankLanes[id], isPrimary = id === primary, isIncoming = id === fresh && handoffDue;
+            const approach = handoffDue ? clamp((t - 14000) / 1000) : 0;
+            f.pos[id] = isPrimary && handoffDue ? interpolate(lane.near, lane.far, approach) : id === current ? lane.near : isIncoming ? interpolate(lane.far, lane.near, approach) : lane.far;
+            if (id === primary) f.hp[id] = enrageLesson ? clamp(.92 - t / 18000 * .30) : clamp(.94 - (fresh ? Math.min(t, 15000) : t) / 15000 * .54);
+            else if (!enrageLesson && id === fresh && t >= 15000) f.hp[id] = clamp(.94 - (t - 15000) / 2000 * .12);
         });
         const drainLesson = sc.id !== 'fixate';
         if (drainLesson && t >= 1000) f.drains = [{ targetId: current, dispelled: !!sc.dispeller && t >= 3000 }];
         if (drainLesson && sc.absorber && t >= 3000) f.absorbs = [{ targetId: current, sourceId: sc.absorber }];
-        if (drainLesson && t >= 3000) { f.seethe = { active: true, label: 'ENRAGE · 0:45 · 15 SEC' }; f.call = f.drains[0]?.dispelled ? 'Soul Drain removed. At real fight time 0:45, rotate closest tanks through 15s Enrage.' : 'Soul Drain needs an eligible dispel. At real fight time 0:45, rotate closest tanks through 15s Enrage.'; }
-        f.focus[current] = true; if (leadIn) f.focus[leadIn] = true;
-        rotation.forEach(id => { f.jobs[id] = id === current ? 'Receive Suffering: stay closest' : id === leadIn ? 'Move in for next Fixate' : 'Wait outside closest range'; });
+        const enragePrepared = enrageLesson ? t >= 9000 : cycleLesson && t >= 16000;
+        const enrageActive = enrageLesson ? t >= 12000 : cycleLesson && t >= 17000;
+        f.tankDefense = enragePrepared && current ? { targetId: current, prepared: true, active: enrageActive, label: enrageActive ? 'Prepared cooldown survival' : 'Prepare defensive cooldowns' } : null;
+        if (drainLesson && t >= 3000) f.call = f.drains[0]?.dispelled ? 'Soul Drain removed. Hold the current tank while health and cooldowns are ready.' : 'Soul Drain needs an eligible dispel.';
+        if (current) f.focus[current] = true; if (handoffDue) f.focus[fresh] = true;
+        tanks.forEach(id => { f.jobs[id] = id === current ? 'Hold closest position for Suffering' : id === fresh && handoffDue ? 'Move closest for the health-based handoff' : 'Wait outside closest range'; });
         if (drainLesson && sc.dispeller) f.jobs[sc.dispeller] = 'Dispel Soul Drain';
         if (drainLesson && sc.absorber) f.jobs[sc.absorber] = (f.jobs[sc.absorber] ? f.jobs[sc.absorber] + '; shield receiving tank' : 'Shield receiving tank');
         if (drainLesson && sc.dispeller) f.focus[sc.dispeller] = true;
         if (drainLesson && sc.absorber) f.focus[sc.absorber] = true;
-        if (current && t < 1000) f.actions.push({ kind: 'boss-hit', sourceId: 'essence', targetId: current, label: 'Suffering hits current tank', result: 'No healing' });
+        const latestCheck = f.fixateChecks.at(-1);
+        if (latestCheck && t - latestCheck.at < 900) f.actions.push({ kind: 'fixate-check', sourceId: 'essence', targetId: latestCheck.targetId, label: 'Fixate selects the closest tank', result: latestCheck.targetId === primary ? 'Current tank continues while health is safe' : 'Fresh tank receives the chosen handoff' });
         if (drainLesson && t >= 1000 && t < 3000) f.actions.push({ kind: 'drain', sourceId: 'essence', targetId: current, label: 'Soul Drain · health + mana', result: 'Magic dispel is first priority' });
         if (drainLesson && sc.dispeller && f.drains[0] && t >= 3000 && t < 5000) f.actions.push({ kind: 'dispel', sourceId: sc.dispeller, targetId: current, label: nameOf(sc, sc.dispeller, 'Dispeller') + ' · dispel Soul Drain', result: f.drains[0].dispelled ? 'Drain removed first' : 'Drain still active' });
         if (drainLesson && sc.absorber && t >= 5000 && t < 7000) f.actions.push({ kind: 'shield', sourceId: sc.absorber, targetId: current, label: nameOf(sc, sc.absorber, 'Priest') + ' · shield tank', result: 'Absorb works; heals do not' });
         const healer = sc.raid.find(p => p.kind === 'healer');
-        if (drainLesson && healer && t >= 7000 && t < 12000) f.actions.push({ kind: 'heal-dps', sourceId: healer.id, targetId: 'essence', label: 'Healers · DPS during Suffering', result: 'No healing or mana regen' });
+        if (drainLesson && healer && t >= 7000 && t < 9000) f.actions.push({ kind: 'heal-dps', sourceId: healer.id, targetId: 'essence', label: 'Healers · DPS during Suffering', result: 'No healing or mana regen' });
+        if (enragePrepared && !enrageActive && current) f.actions.push({ kind: 'defensive-prep', sourceId: current, targetId: current, label: nameOf(sc, current, 'Prepared tank') + ' · defensive cooldown ready', result: 'Prepared tank holds Enrage checks' });
+        if (enrageActive && current) f.actions.push({ kind: 'enrage-survival', sourceId: 'essence', targetId: current, label: 'Enrage · prepared tank survives', result: 'Cooldowns and avoidance are prepared; no forced swap' });
         const rogue = sc.raid.find(p => cls(p) === 'ROGUE'), hunter = sc.raid.find(p => cls(p) === 'HUNTER');
-        f.teaching = !drainLesson ? { step: 'Suffering', title: (current ? nameOf(sc, current, 'Current tank') : 'Tank') + ' is closest', detail: (f.nextTank ? nameOf(sc, f.nextTank, 'Next tank') : 'Next tank') + ' moves in before the five-second Fixate; the outgoing tank backs away.' } : t < 1000 ? { step: 'Suffering', title: 'No healing or mana regeneration', detail: 'Armor is reduced by 100% and defense by 500. Current tank takes Suffering while the next tank prepares the closest position.' } : t < 3000 ? { step: '1', title: 'Soul Drain arrives', detail: 'It drains health and mana. Magic dispel takes priority.' } : t < 5000 ? { step: '2', title: 'Dispel Soul Drain', detail: 'Remove the magic debuff before other dispels.' } : t < 7000 ? { step: '3', title: 'Priest shield still works', detail: 'Absorbs protect the current tank even though healing cannot.' } : t < 12000 ? { step: '4', title: 'Healers DPS in Suffering', detail: 'Healing and mana regeneration remain disabled.' } : { step: 'Enrage', title: '0:45–1:00 Enrage: three turns', detail: 'Each tank survives five seconds with avoidance and cooldowns.' };
-        if (drainLesson && rogue && t >= 12000 && t < 15000) f.tipVisual = { kind: 'evasion', sourceId: rogue.id, targetId: current, progress: clamp((t - 12000) / 3000), label: 'Optional · Rogue Evasion for Enrage survival', optional: true };
-        if (drainLesson && hunter && t >= 15000) f.tipVisual = { kind: 'deterrence', sourceId: hunter.id, targetId: current, progress: clamp((t - 15000) / 3000), label: 'Optional · Hunter Deterrence for Enrage survival', optional: true };
-        const nextAt = enrageLesson ? (cycle + 1) * 5000 - 2000 : Math.ceil((t + 1) / 5000) * 5000;
+        f.teaching = !drainLesson ? !primary ? { step: 'Fixate', title: 'No tank is loaded', detail: 'No closest-tank example can be shown.' } : f.lowHealth && !fresh ? { step: 'Health', title: 'Tank health is getting low.', detail: 'Health is low; no fresh tank is loaded for the next Fixate.' } : handoffDue ? { step: 'Handoff', title: 'Next tank in; current tank out.', detail: 'The fresh tank becomes closest for the next check.' } : fresh && t >= 15000 ? { step: 'Handoff', title: nameOf(sc, current, 'Fresh tank') + ' has Fixate', detail: 'The previous tank keeps its lost health while the fresh tank holds closest.' } : f.lowHealth ? { step: 'Health', title: 'Tank health is getting low.', detail: 'Prepare a fresh tank before it is unsafe, then hand off at the next Fixate.' } : { step: 'Hold', title: 'Keep the same tank while healthy.', detail: 'Fixate checks who is closest every five seconds. Swap when health, shields or cooldowns call for it.' } : t < 1000 ? { step: 'Suffering', title: 'No healing or mana regeneration', detail: 'Armor is reduced by 100% and defense by 500. The prepared tank holds while support is ready.' } : t < 3000 ? { step: '1', title: 'Soul Drain arrives', detail: 'It drains health and mana. Magic dispel takes priority.' } : t < 5000 ? { step: '2', title: 'Dispel Soul Drain', detail: 'Remove the magic debuff before other dispels.' } : t < 7000 ? { step: '3', title: 'Priest shield still works', detail: 'Absorbs protect the prepared tank even though healing cannot.' } : t < 9000 ? { step: '4', title: 'Healers DPS in Suffering', detail: 'Healing and mana regeneration remain disabled.' } : t < 12000 ? { step: 'Enrage', title: 'Prepare cooldowns for Enrage.', detail: 'Around 0:45, Enrage lasts 15 seconds. Prepare a tank with cooldowns and avoidance.' } : { step: 'Enrage', title: 'Use cooldowns to survive Enrage.', detail: 'Use cooldowns and avoidance; hold the prepared tank while safe.' };
+        const avoidanceStart = enrageLesson ? 12000 : cycleLesson ? 17000 : Infinity;
+        if (drainLesson && rogue && t >= avoidanceStart && t < avoidanceStart + 3000) f.tipVisual = { kind: 'evasion', sourceId: rogue.id, targetId: current, progress: clamp((t - avoidanceStart) / 3000), label: 'Optional · Rogue Evasion for Enrage survival', optional: true };
+        if (drainLesson && hunter && t >= avoidanceStart + 3000) f.tipVisual = { kind: 'deterrence', sourceId: hunter.id, targetId: current, progress: clamp((t - (avoidanceStart + 3000)) / 3000), label: 'Optional · Hunter Deterrence for Enrage survival', optional: true };
+        const nextAt = Math.ceil((t + 1) / 5000) * 5000;
         f.fixateAtMs = nextAt;
-        const realNextMs = enrageLesson ? 42000 + nextAt : nextAt;
-        const nextLabel = Math.floor(realNextMs / 60000) + ':' + String(Math.floor(realNextMs / 1000) % 60).padStart(2, '0');
+        const nextLabel = Math.floor(nextAt / 60000) + ':' + String(Math.floor(nextAt / 1000) % 60).padStart(2, '0');
         f.nextFixateLabel = nextLabel;
         f.instructionRows = [
-            ['Current tank', (current ? nameOf(sc, current, 'Tank') : 'No tank') + ' — closest until Fixate'],
-            ['Next tank', (f.nextTank ? nameOf(sc, f.nextTank, 'Tank') : 'Rotate next tank') + ' — move closest for ' + nextLabel + ' Fixate'],
-            ['Raid priority', drainLesson ? 'No healing or mana regeneration. Healers DPS; dispel magic first.' : 'Rotate closest tank every five seconds; current tank backs out.']
+            ['Current tank', (current ? nameOf(sc, current, 'Tank') : 'No tank') + ' — closest through the next Fixate check'],
+            ['Swap decision', handoffDue ? nameOf(sc, fresh, 'Fresh tank') + ' — move closest for the health-based handoff.' : f.lowHealth && !fresh ? 'Health is low; no fresh tank is loaded.' : f.lowHealth ? 'Health is low in this example: prepare a fresh tank for the next check.' : 'Hold the current tank while health, shields and cooldowns are enough.'],
+            ['Raid priority', drainLesson ? 'No healing or mana regeneration. Healers DPS; dispel magic first.' : 'Fixate checks closest every five seconds; do not swap automatically.']
         ];
-        if (drainLesson) f.instructionRows.push(['Tank survival', sc.absorber ? nameOf(sc, sc.absorber, 'Priest') + ' shields the current tank; Enrage at 0:45 lasts 15s.' : 'Use avoidance and cooldowns for Enrage at 0:45 (15s).']);
+        if (drainLesson) f.instructionRows.push(['Tank survival', enrageLesson ? 'Prepared tank uses available cooldowns and avoidance for Enrage; no fixed rotation is required.' : (sc.absorber ? nameOf(sc, sc.absorber, 'Priest') + ' shields the current tank.' : 'Use available absorbs and cooldowns as needed.')]);
     }
     function souls(fight, sc, f, t, carryState = null) {
         f.phase = 1; f.essence = 'Souls'; f.stage = 'souls'; f.bossTarget = null; f.call = sc.hasDamage ? 'Gather souls at the group. Kill them here to recover.' : 'No damage role loaded: souls are gathered but not fabricated as dead.';
@@ -266,7 +273,7 @@
             else if (t < 60000) { desire(fight, sc, f, t - 32000, 20); if (t >= 40000 && t < 50000) interrupts(sc, f, t - 40000, false); else if (t >= 50000) interrupts(sc, f, t - 50000, true); }
             else if (t < 72000) { const prior = baseFrame(fight, sc, 0); desire(fight, sc, prior, 27999, 20); souls(fight, sc, f, t - 60000, { hp: prior.hp, mana: prior.mana }); }
             else { anger(fight, sc, f, t - 72000, t >= 88000); if (t >= 99000 && sc.hasDamage) { f.stage = 'complete'; f.bossHp = 0; f.bossTarget = null; f.pressure = 0; f.tankResource = null; f.call = 'Reliquary defeated. No active jobs remain.'; f.roles = {}; f.jobs = {}; f.focus = {}; f.instructionRows = []; f.actions = []; f.teaching = { title: '', detail: '', step: '' }; f.debuffs = {}; f.lust = { active: false, sourceId: null }; f.scream = { active: false, facing: null, tankHit: 0, resourceKind: null }; f.spite = []; f.seethe = { active: false }; f.shadowPulses = []; f.drains = []; f.absorbs = []; f.recoil = []; f.cast = { active: false, interrupted: false, kind: null }; f.shield = { active: false }; } }
-        } else if (sc.id === 'overview') { f.essence = t < 1500 ? 'Suffering' : t < 2800 ? 'Souls' : t < 4200 ? 'Desire' : t < 5200 ? 'Souls' : 'Anger'; f.call = 'Suffering → souls → Desire → souls → Anger.'; f.phasePlan = [{ phase: '1 Suffering', rule: 'No healing: rotate closest tanks, dispel, shield, DPS.' }, { phase: 'Souls', rule: 'Gather and kill at raid for recovery.' }, { phase: '2 Desire', rule: 'Tongues, remove Shield, assigned kicks.' }, { phase: 'Souls', rule: 'Recover again after shrinking mana.' }, { phase: '3 Anger', rule: 'OT, MT taunt, then burn and Bloodlust.' }]; f.teaching = { step: 'Plan', title: 'Three essences, one sequence', detail: 'Suffering → souls → Desire → souls → Anger. Each phase changes the raid job.' }; }
+        } else if (sc.id === 'overview') { f.essence = t < 1500 ? 'Suffering' : t < 2800 ? 'Souls' : t < 4200 ? 'Desire' : t < 5200 ? 'Souls' : 'Anger'; f.call = 'Suffering → souls → Desire → souls → Anger.'; f.phasePlan = [{ phase: '1 Suffering', rule: 'No healing: hold while safe; hand off by health, shields and cooldowns; dispel, shield, DPS.' }, { phase: 'Souls', rule: 'Gather and kill at raid for recovery.' }, { phase: '2 Desire', rule: 'Tongues, remove Shield, assigned kicks.' }, { phase: 'Souls', rule: 'Recover again after shrinking mana.' }, { phase: '3 Anger', rule: 'OT, MT taunt, then burn and Bloodlust.' }]; f.teaching = { step: 'Plan', title: 'Three essences, one sequence', detail: 'Suffering → souls → Desire → souls → Anger. Each phase changes the raid job.' }; }
         else { f.essence = 'Suffering'; f.stage = 'positioning'; f.call = sc.call; }
         if (!f.teaching.title && f.stage !== 'complete') f.teaching = { step: f.stage, title: sc.title, detail: f.call || sc.call };
         const active = f.actions[0];

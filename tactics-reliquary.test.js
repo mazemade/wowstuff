@@ -25,17 +25,19 @@ test('registers an eleven-chapter Reliquary after Akama with complete guidance',
     fight.abilities.forEach(a => assert.ok(a.url && !a.url.includes('undefined'), a.id + ' source URL'));
 });
 
-test('Fixate selects the receiving tank only after it has stepped closest', () => {
+test('Fixate holds one tank through repeated checks, then makes a health-based handoff', () => {
     const sc = prepare('fixate');
-    const before = R.simulate(fight, sc, 4999);
-    const after = R.simulate(fight, sc, 5000);
-    assert.notEqual(after.bossTarget, before.bossTarget);
-    const chosen = after.pos[after.bossTarget];
-    for (const [id, p] of Object.entries(after.pos)) {
-        if (id !== after.bossTarget) assert(L.dist(fight, chosen, after.boss) < L.dist(fight, p, after.boss), id + ' is farther than receiver');
-    }
-    assert.ok(after.hp[after.bossTarget] < 1, 'damage persists on the selected receiver');
-    assert(L.dist(fight, before.pos[before.bossTarget], after.pos[before.bossTarget]) < 2, 'outgoing tank starts a continuous retreat');
+    const [start, check5, check10, low, incoming, handoff, settled] = [0, 5000, 10000, 13000, 14999, 15000, 16000].map(time => R.simulate(fight, sc, time));
+    assert.equal(start.bossTarget, check5.bossTarget);
+    assert.equal(check5.bossTarget, check10.bossTarget);
+    assert.equal(check10.nextTankAt, null, 'no movement cue while the tank is healthy enough');
+    assert.ok(check10.hp[check10.bossTarget] < check5.hp[check5.bossTarget], 'same tank visibly loses health across checks');
+    assert.equal(low.lowHealth, true);
+    assert.equal(incoming.handoffDue, true);
+    assert.notEqual(handoff.bossTarget, incoming.bossTarget);
+    assert.ok(Math.abs(handoff.hp[incoming.bossTarget] - incoming.hp[incoming.bossTarget]) < .001, 'previous tank damage remains through the boundary');
+    assert.equal(settled.hp[incoming.bossTarget], handoff.hp[incoming.bossTarget], 'previous tank health holds after handoff');
+    assert.ok(handoff.hp[handoff.bossTarget] < 1, 'fresh receiver takes the next check');
 });
 
 test('Suffering keeps health lost across rotations and only assigns known valid utility', () => {
@@ -53,39 +55,46 @@ test('Suffering keeps health lost across rotations and only assigns known valid 
     assert.equal(R.simulate(fight, mage, 3000).drains[0].dispelled, false, 'mages do not receive invented friendly dispels');
 });
 
-test('Suffering lesson gives exactly three five-second Enrage tank turns at real 0:45, 0:50 and 0:55', () => {
+test('Suffering prepares one tank for Enrage without forcing a five-second rotation', () => {
     const sc = prepare('suffering');
-    const before = R.simulate(fight, sc, 2000), start = R.simulate(fight, sc, 3000), beforeSecond = R.simulate(fight, sc, 7999), second = R.simulate(fight, sc, 8000), third = R.simulate(fight, sc, 13000), end = R.simulate(fight, sc, 17999);
-    assert.equal(before.bossTarget, sc.tanks[0]);
-    assert.match(before.instructionRows.find(row => row[0] === 'Next tank')[1], /0:45/);
-    assert.equal(start.bossTarget, sc.tanks[1]);
-    assert.equal(beforeSecond.bossTarget, sc.tanks[1]);
-    assert.equal(second.bossTarget, sc.tanks[2]);
-    assert.equal(third.bossTarget, sc.tanks[0]);
-    assert.equal(end.bossTarget, sc.tanks[0]);
-    assert.match(start.instructionRows.find(row => row[0] === 'Next tank')[1], /0:50/);
-    assert.match(second.instructionRows.find(row => row[0] === 'Next tank')[1], /0:55/);
+    const prep = R.simulate(fight, sc, 9000), survival = R.simulate(fight, sc, 12000), end = R.simulate(fight, sc, 17999);
+    assert.equal(prep.bossTarget, survival.bossTarget);
+    assert.equal(survival.bossTarget, end.bossTarget);
+    assert.equal(prep.tankDefense.prepared, true);
+    assert.equal(survival.tankDefense.active, true);
+    assert.match(survival.actions[0].kind, /enrage-survival/);
+    assert.doesNotMatch(survival.instructionRows.map(row => row.join(' ')).join(' '), /rotate|five-second turn/i);
+    assert.equal(end.hp[sc.tanks[1]], 1, 'a waiting tank does not take damage during the prepared-tank lesson');
 });
 
-test('incoming Suffering receiver moves in before the boundary and no tank health is restored', () => {
+test('a one-tank Fixate roster keeps taking damage and states that no handoff is available', () => {
+    const sc = prepare('fixate', { tanks: ['Tank'] }, { Tank: 'WARRIOR' });
+    const low = R.simulate(fight, sc, 13000), later = R.simulate(fight, sc, 16000);
+    assert.ok(later.hp[sc.tanks[0]] < low.hp[sc.tanks[0]], 'the active tank does not freeze at a handoff that cannot happen');
+    assert.equal(low.instructionRows.find(row => row[0] === 'Swap decision')[1], 'Health is low; no fresh tank is loaded.');
+    assert.equal(later.bossTarget, sc.tanks[0]);
+});
+
+test('a fresh Suffering receiver moves in only after the health decision and no health is restored', () => {
     const sc = prepare('fixate');
-    const incoming = sc.tanks[1], at4000 = R.simulate(fight, sc, 4000), at4999 = R.simulate(fight, sc, 4999), at10000 = R.simulate(fight, sc, 10000);
-    assert(L.dist(fight, at4999.pos[incoming], at4999.boss) < L.dist(fight, at4000.pos[incoming], at4000.boss));
-    assert.ok(at10000.hp[sc.tanks[0]] <= at4999.hp[sc.tanks[0]], 'past receiver never receives forbidden healing');
+    const incoming = sc.tanks[1], healthy = R.simulate(fight, sc, 10000), at14000 = R.simulate(fight, sc, 14000), at14999 = R.simulate(fight, sc, 14999), at15000 = R.simulate(fight, sc, 15000);
+    assert.equal(healthy.nextTankAt, null);
+    assert(L.dist(fight, at14999.pos[incoming], at14999.boss) < L.dist(fight, at14000.pos[incoming], at14000.boss));
+    assert.ok(at15000.hp[sc.tanks[0]] <= at14999.hp[sc.tanks[0]], 'past receiver never receives forbidden healing');
 });
 
 test('Suffering front lanes keep every tank distinct through each handoff', () => {
     const sc = prepare('fixate');
-    [0, 4000, 4999, 5000, 8999, 9999, 10000].forEach(time => {
+    [0, 5000, 10000, 13000, 14000, 14999, 15000].forEach(time => {
         const frame = R.simulate(fight, sc, time);
         assert.ok(frame.tankLanes, 'front lanes are exposed for the renderer');
         sc.tanks.forEach((id, index) => sc.tanks.slice(index + 1).forEach(other => {
             assert.ok(L.dist(fight, frame.pos[id], frame.pos[other]) > 1.5, time + 'ms keeps ' + id + ' and ' + other + ' readable');
         }));
     });
-    const incoming = sc.tanks[1], before = R.simulate(fight, sc, 4999), after = R.simulate(fight, sc, 5000);
+    const incoming = sc.tanks[1], before = R.simulate(fight, sc, 14999), after = R.simulate(fight, sc, 15000);
     assert.ok(L.dist(fight, before.pos[incoming], after.pos[incoming]) < .1, 'the incoming tank has no selection-boundary teleport');
-    assert.deepEqual(after.nextTankAt, after.tankLanes[after.nextTank].near, 'the next marker uses that tank’s lane');
+    assert.deepEqual(before.nextTankAt, before.tankLanes[before.nextTank].near, 'the next marker uses that tank’s lane');
 });
 
 test('a fourth Suffering tank keeps an in-bounds lane and becomes closest on its turn', () => {
@@ -212,8 +221,8 @@ test('Rune Shield focus does not retain a completed interrupt chip', () => {
 
 test('live instruction rows make tank, Tongues, shield and kick ownership readable', () => {
     const suffering = prepare('suffering', { tanks: ['MT', 'OT', 'Tank 3'], healers: ['Priest'] }, { Priest: 'PRIEST' });
-    const handoff = R.simulate(fight, suffering, 4500);
-    assert.deepEqual(handoff.instructionRows.slice(0, 2), [['Current tank', 'OT — closest until Fixate'], ['Next tank', 'Tank 3 — move closest for 0:50 Fixate']]);
+    const held = R.simulate(fight, suffering, 4500);
+    assert.deepEqual(held.instructionRows.slice(0, 2), [['Current tank', 'MT — closest through the next Fixate check'], ['Swap decision', 'Hold the current tank while health, shields and cooldowns are enough.']]);
 
     const desire = prepare('interrupts', { tanks: ['Tank'], healers: ['Priest'], ranged: ['Mage', 'Warlock'], melee: ['Rogue'] }, { Priest: 'PRIEST', Mage: 'MAGE', Warlock: 'WARLOCK', Rogue: 'ROGUE' });
     const shield = R.simulate(fight, desire, 5000);
@@ -267,6 +276,9 @@ test('Anger shows an honest two-tank handoff and Spite resolves immunity then im
 
 test('cycle preserves mechanic boundaries and direct seeking never mutates inputs', () => {
     const sc = prepare('cycle'), snapshot = JSON.stringify({ fight, sc });
+    assert.equal(R.simulate(fight, sc, 0).bossTarget, R.simulate(fight, sc, 5000).bossTarget);
+    assert.equal(R.simulate(fight, sc, 5000).bossTarget, R.simulate(fight, sc, 10000).bossTarget);
+    assert.equal(R.simulate(fight, sc, 17500).tankDefense.active, true, 'cycle includes prepared Enrage survival after the health-based handoff');
     assert.equal(R.simulate(fight, sc, 20000).essence, 'Souls');
     assert.equal(R.simulate(fight, sc, 32000).essence, 'Desire');
     assert.equal(R.simulate(fight, sc, 72000).essence, 'Anger');

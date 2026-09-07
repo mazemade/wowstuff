@@ -52,16 +52,30 @@
         for(const id of [frame.teaching?.removerId,frame.teaching?.tonguesId,frame.teaching?.currentKickerId,frame.tipVisual?.sourceId]) if(id && point(frame,id) && !entries.includes(id)) entries.push(id);
         const tankIds=frame.tankLanes ? Object.keys(frame.tankLanes) : scene.tanks || [];
         entries.slice(0,5).forEach(id=>{
-            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' && tankIds.includes(id) ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'Waiting: ' : '', label=prefix+playerName(scene,id), size=compact?13:16;
-            font(ctx,size); const bw=Math.min(w-30,ctx.measureText(label).width+18), bh=25;
-            const candidates=[{x:p.x-bw/2,y:p.y+tokenRadius+9},{x:p.x-bw-28,y:p.y+12},{x:p.x+28,y:p.y+12},{x:p.x-bw/2,y:p.y-tokenRadius-bh-9}];
+            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' && tankIds.includes(id) ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'Waiting: ' : '', label=prefix+playerName(scene,id), status=frame.lowHealth && id===frame.bossTarget?'LOW HEALTH':frame.tankDefense?.targetId===id?(frame.tankDefense.active?'COOLDOWNS ACTIVE':'COOLDOWNS READY'):'', size=compact?13:16;
+            font(ctx,size); const labelWidth=ctx.measureText(label).width;
+            font(ctx,Math.max(11,size-2));
+            const bw=Math.min(w-30,Math.max(labelWidth,status?ctx.measureText(status).width:0)+18), bh=status?42:25;
+            const candidates=[{x:p.x-bw/2,y:p.y+tokenRadius+9},{x:p.x-bw-tokenRadius-9,y:p.y+12},{x:p.x+tokenRadius+9,y:p.y+12},{x:p.x-bw/2,y:p.y-tokenRadius-bh-9}];
+            const blocked=[...occupied,...reserved];
+            const fits=b=>!blocked.some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y);
             let box;
-            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,15,w-bw-15),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(![...occupied,...reserved].some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y)){box=b;break;} }
+            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,15,w-bw-15),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(fits(b)){box=b;break;} }
+            // When nearby slots are occupied, keep the name visible in the nearest clear slot.
+            if(!box) {
+                let distance=Infinity;
+                for(let y=area.top;y<=area.bottom-bh;y+=16) for(let x=15;x<=w-bw-15;x+=24) {
+                    const candidate={x,y,w:bw,h:bh}; if(!fits(candidate))continue;
+                    const d=(p.x-clamp(p.x,x,x+bw))**2+(p.y-clamp(p.y,y,y+bh))**2;
+                    if(d<distance){distance=d;box=candidate;}
+                }
+            }
             if(!box) return; occupied.push(box);
             ring(ctx,p,Math.max(12,api.yd(2.3)),id===frame.bossTarget?gold:mint);
             ctx.strokeStyle='#b4cabe';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(clamp(p.x,box.x,box.x+box.w),box.y+box.h/2);ctx.stroke();
             panel(ctx,box.x,box.y,box.w,box.h);text(ctx,label,box.x+9,box.y+4,size);
-            if(frame.hp?.[id]!=null) bar(ctx,box.x+3,box.y+box.h-2,box.w-6,frame.hp[id],mint);
+            if(status) text(ctx,status,box.x+9,box.y+20,Math.max(11,size-2),frame.lowHealth&&id===frame.bossTarget?'#ff95bc':frame.tankDefense?.active?gold:mint);
+            if(frame.hp?.[id]!=null) bar(ctx,box.x+3,box.y+box.h-2,box.w-6,frame.hp[id],frame.lowHealth && id===frame.bossTarget?'#ff95bc':mint);
         });
     }
     function actions(api,frame) {
@@ -80,10 +94,18 @@
     function mechanics(api,scene,frame,area) {
         const {ctx}=api,{w,compact}=layout(api),boss=api.px(frame.boss);
         if(frame.bossTarget && frame.pos[frame.bossTarget] && frame.essence!=='Souls') path(ctx,boss,api.px(frame.pos[frame.bossTarget]),'rgba(255,207,135,.65)',true);
+        if(frame.lowHealth && frame.bossTarget && frame.pos[frame.bossTarget]) {
+            const p=api.px(frame.pos[frame.bossTarget]);
+            ring(ctx,p,Math.max(23,api.yd(3.8)),'#ff95bc','rgba(255,80,120,.16)');
+        }
         if(frame.nextTank && frame.nextTankAt && frame.pos[frame.nextTank] && frame.nextTank!==frame.bossTarget) path(ctx,api.px(frame.pos[frame.nextTank]),api.px(frame.nextTankAt),mint,true);
         (frame.absorbs||[]).forEach(a=>{if(frame.pos[a.targetId])ring(ctx,api.px(frame.pos[a.targetId]),Math.max(19,api.yd(3)),mint);});
         (frame.drains||[]).filter(d=>!d.dispelled).forEach(d=>{if(frame.pos[d.targetId])ring(ctx,api.px(frame.pos[d.targetId]),Math.max(17,api.yd(2.8)),'#ff9db4');});
         (frame.souls||[]).forEach((s,i)=>{const p=api.px(s.at);ring(ctx,p,s.dead?7:11,s.dead?mint:purple);if(!s.dead)text(ctx,String(i+1),p.x-3,p.y-7,13);});
+        if(frame.tankDefense?.prepared && frame.pos[frame.tankDefense.targetId]) {
+            const p=api.px(frame.pos[frame.tankDefense.targetId]), tone=frame.tankDefense.active?gold:mint;
+            ring(ctx,p,Math.max(24,api.yd(4)),tone,'rgba(158,241,205,.12)');
+        }
         if(frame.shield?.active) ring(ctx,boss,Math.max(27,api.yd(5)),purple,'rgba(160,120,250,.2)');
         if(frame.shield?.stolenBy && frame.pos[frame.shield.stolenBy]) ring(ctx,api.px(frame.pos[frame.shield.stolenBy]),Math.max(19,api.yd(3.2)),purple);
         if(frame.cast?.active || frame.cast?.interrupted && !frame.shield?.active && (frame.actions||[]).some(a=>a.kind==='kick')) {
@@ -126,7 +148,7 @@
         }
     }
     function overview(api) {
-        const {ctx}=api,{w,h,compact}=layout(api), rows=[['1 · Suffering','Rotate closest tank every 5s.','Healers DPS; dispel Drain; shield tanks.'],['Souls · recover','Gather and kill beside the raid.','Soul deaths restore health and mana.'],['2 · Desire','Tongues → remove shield → ordered kicks.','50% recoil; doubled healing; mana shrinks.'],['Souls · recover again','Regroup and refill for the final phase.','Prepare Shadow Protection.'],['3 · Anger','OT → MT taunt → wait 3–5s → burn + Lust.','Top Spite targets before and after the hit.']];
+        const {ctx}=api,{w,h,compact}=layout(api), rows=[['1 · Suffering','Fixate checks closest every 5s.','Hold while safe; hand off by health, shields and cooldowns.'],['Souls · recover','Gather and kill beside the raid.','Soul deaths restore health and mana.'],['2 · Desire','Tongues → remove shield → ordered kicks.','50% recoil; doubled healing; mana shrinks.'],['Souls · recover again','Regroup and refill for the final phase.','Prepare Shadow Protection.'],['3 · Anger','OT → MT taunt → wait 3–5s → burn + Lust.','Top Spite targets before and after the hit.']];
         const step=Math.min(compact?101:110,(h-36)/5),x=compact?14:Math.max(24,(w-650)/2),pw=compact?w-28:Math.min(650,w-48);
         rows.forEach((r,i)=>{const y=16+i*step;panel(ctx,x,y,pw,step-8);text(ctx,r[0],x+14,y+9,compact?19:23,gold);let end=y+34;end+=paragraph(ctx,r[1],x+14,end,pw-28,compact?15:18);paragraph(ctx,r[2],x+14,end+3,pw-28,compact?14:16,'#bacec0');});
     }
