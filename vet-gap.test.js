@@ -288,12 +288,14 @@ function gapKillWithInputs(shares) {
     });
     return { name: 'Anetheron', gap: { factors } };
 }
-test('gapFindings (ref-above C2): an input the player is BETTER on is not a finding', () => {
-    // Tipsi's real Anetheron pull: cast_pacing +169%, rotation -62%. The negative one says he hits
-    // harder per cast than the reference, which is not a fix.
-    // The threshold is deliberately below the negative share. At the default 3 -- and at 0 --
-    // `share < min` already drops rotation on its own, so the test would pass without the fix and
-    // assert nothing; at -100 the `share < 0` clause is the only rule that can drop it.
+test('gapFindings (ref-above C2): the negative-share clause drops a negative input even below any threshold', () => {
+    // What this actually guards: `i.share < 0`, exercised at a minShare BELOW the negative share so
+    // it is the only rule that can fire. It is NOT the live Tipsi case -- on that report (cast_pacing
+    // +169%, rotation -62%) the production threshold is 3, and the pre-existing `share < min` is what
+    // drops a -62 share. Review round 1 traced `thresholds` end to end and found minShare cannot
+    // reach gapFindings from user input at all, so the clause is an intent marker, not load-bearing.
+    // A threshold of 0 would not test it either: with min 0, `share < min` and `share < 0` are the
+    // same predicate. Hence -100.
     const kill = gapKillWithInputs({ cast_pacing: 169, rotation: -62 });
     const keys = G.gapFindings(kill, { role: 'melee' }, { minShare: -100 }).map(f => f.key);
     assert.ok(keys.includes('cast_pacing'), 'the positive share is still reported: ' + keys.join(','));

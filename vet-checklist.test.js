@@ -433,14 +433,20 @@ test('renderReport (ref-above C2): a share above 100% is printed without a perce
     const cl = C.buildChecklist(facts);
     // The brief named cast_rate; on this fixture that row builds but never reaches a rendered
     // section, so nothing it carries would be printed and every assertion below would be vacuous.
-    // Take the first row renderReport actually prints instead.
-    const printed = cl.fixFirst.concat(cl.also, cl.asks);
-    assert.ok(printed.length, 'the fixture must print at least one row');
-    const row = cl.rows.find(r => r.id === printed[0]);
+    // Nor will any nominal-value row do: a consumables row's value is structurally small, so it
+    // could never carry the 169 under test. Pin a real gap-share row -- nuke_hit's value IS
+    // averageShare(kills, 'rotation'), the same family of number that produced the 169% report.
+    const id = cl.also[0];
+    const row = cl.rows.find(r => r.id === id);
+    assert.ok(row, 'the fixture must render a gap-share row to pin; also = ' + cl.also.join(','));
+    assert.strictEqual(id, 'nuke_hit', 'the pinned row is the rotation-share one, not a nominal-value row');
     row.value = 169;
     const out = C.renderReport(cl, facts);
     assert.ok(!/169%/.test(out), 'no 169% anywhere: ' + out);
     assert.ok(!/~1\d\d%/.test(out), 'no three-digit share at all: ' + out);
+    // Fix round 1, Finding 3: the cap is two-sided -- "outside 0-100%" includes below 0.
+    row.value = -62;
+    assert.ok(!/-62%/.test(C.renderReport(cl, facts)), 'a negative share prints no percentage either: ' + C.renderReport(cl, facts));
     row.value = 54;
     assert.ok(/\(~54%\)/.test(C.renderReport(cl, facts)), 'an ordinary share still prints');
 });
