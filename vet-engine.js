@@ -474,6 +474,13 @@
         try { decoded = decodeURIComponent(m[1]); } catch (e) { return []; }
         return parseNameList(decoded);
     }
+    // A Warcraft Logs report is a 16-character code; people paste either the bare code or a
+    // report URL (…/reports/<code>#fight=3). Anything else is null.
+    function parseReportCode(text) {
+        const s = String(text || '').trim();
+        const m = /\/reports\/([A-Za-z0-9]{16})(?:[\/?#]|$)/.exec(s) || /^([A-Za-z0-9]{16})$/.exec(s);
+        return m ? m[1] : null;
+    }
 
     const VERDICT_ORDER = { fail: 0, warn: 1, unverified: 2, pass: 3 };
     function sortRows(rows) {
@@ -486,6 +493,6 @@
         GS_SCALE, GS_FORMULA, GS_SLOTMOD, gsInvType, itemGearScore,
         indexDb, summarizeGear, derivedStats,
         normalizeWclSpec, roleOf, detectSpec, hitAllowanceRating, defenseAllowanceSkill, parseThresholds, evaluate, sortRows,
-        parseNameList, namesFromHash,
+        parseNameList, namesFromHash, parseReportCode,
     };
 }));

@@ -466,6 +466,16 @@ test('evaluate: a prot warrior whose split cannot hold Anticipation gets no allo
     assert.ok(r.reasons.indexOf('defense 480/490') !== -1, r.reasons.join(','));
 });
 
+test('parseReportCode (logs-first B1): a bare code, a report URL with a fragment, anything else null', () => {
+    assert.strictEqual(V.parseReportCode('X6mnbPQpGhjJC2TN'), 'X6mnbPQpGhjJC2TN');
+    assert.strictEqual(V.parseReportCode('  X6mnbPQpGhjJC2TN\n'), 'X6mnbPQpGhjJC2TN');
+    assert.strictEqual(V.parseReportCode('https://classic.warcraftlogs.com/reports/X6mnbPQpGhjJC2TN#fight=3&type=damage-done'), 'X6mnbPQpGhjJC2TN');
+    assert.strictEqual(V.parseReportCode('https://classic.warcraftlogs.com/reports/X6mnbPQpGhjJC2TN/'), 'X6mnbPQpGhjJC2TN');
+    assert.strictEqual(V.parseReportCode('X6mnbPQpGhjJC2T'), null);
+    assert.strictEqual(V.parseReportCode('https://classic.warcraftlogs.com/character/eu/spineshatter/utopik'), null);
+    assert.strictEqual(V.parseReportCode(''), null);
+    assert.strictEqual(V.parseReportCode(null), null);
+});
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
