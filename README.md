@@ -17,9 +17,11 @@ groups, and checks live whether assignments were actually done.
 - Group layout optimizer: hill-climb with sim-calibrated, duration-aware buff weights
   (see `calibration/`), optional per-player performance multipliers prefetched from
   Warcraft Logs.
-- Player vetting page (`vetting.html`): type a character name or load the roster, and get gear,
-  hit and other stats, enchants, sockets and parses from Warcraft Logs with a pass / warn /
-  fail / unverified verdict against editable thresholds. Gear is scored primarily with GearScore
+- Player vetting page (`vetting.html`): type a character name, load the roster, or **load a whole
+  raid from a Warcraft Logs report** (pick one of your guild's recent nights, or paste a report
+  code / URL) — gear, hit, enchants and sockets appear at once from that log's combatant data and
+  parses stream in behind them. Each row gets a pass / warn / fail / unverified verdict against
+  editable thresholds. Gear is scored primarily with GearScore
   (the same TacoTip formula TBC players run), with average item level shown alongside it. Needs
   the WCL credentials below.
   - **Feedback report** (`Report` link in a player's row, opens `feedback.html`): a checklist of
@@ -31,8 +33,12 @@ groups, and checks live whether assignments were actually done.
     Raid-wide bad pulls are counted under "Not on you". Everything is measured from Warcraft Logs
     (`/api/vet/feedback`, `vet-feedback.js`, `vet-gap.js`, `vet-checklist.js`) and rendered
     deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
-    `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`. Optional `report=<WCL report code>` analyses one raid
-    night. The facts sheet carries `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
+    `WCL_CLIENT_ID` / `WCL_CLIENT_SECRET`.
+    The page opens on a night picker listing every raid night from both tiers (BT / Hyjal and
+    SSC / TK); choosing one runs the analysis for that night, "Across all kills" runs it over
+    both tiers. `report=<WCL report code>` in the URL (which a Report link from a log-loaded
+    vetting row carries) opens straight onto that night. The facts sheet carries
+    `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
