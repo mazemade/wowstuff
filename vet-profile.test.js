@@ -243,6 +243,44 @@ test('buildProfile: the WCL spec fallback reads the first ranking row that has a
     assert.strictEqual(p.identity.detectedFrom, 'wcl');
 });
 
+// --- logs-first B2: the rankings half on its own, and a profile from one CombatantInfo row
+test('fetchRankings: the same gating and metric fetchProfile does, from class + talents alone', async () => {
+    const s = stubQuery();
+    const talentSplit = FX.report.combatant.talents.map(t => t.id);
+    const rk = await P.fetchRankings(s.query, Object.assign({}, PARAMS, { classToken: 'SHAMAN', talentSplit }));
+    assert.strictEqual(rk.det.spec, 'Enhancement');
+    assert.strictEqual(rk.metric, 'dps');
+    assert.strictEqual(rk.rankingsZone, 1060);
+    assert.strictEqual(rk.fallback, false);
+    assert.deepStrictEqual(s.calls.map(c => c.q === P.RANK_QUERY ? c.vars.zone : c.q.slice(0, 5)), [1060, 1056], 'only the two rank queries — no character or report probe');
+    const parses = P.buildParses(rk.rankings, rk.rankingsZone, rk.fallback, rk.metric, rk.otherRankings, rk.otherZone);
+    assert.strictEqual(parses.zoneName, 'BT / Hyjal');
+    assert.strictEqual(parses.bosses.length, 14);
+});
+test('fetchRankings: no class or talents still detects a healer from WCL and re-ranks by hps', async () => {
+    const s = stubQuery();
+    const orig = s.query;
+    s.query = async (q, vars) => { const d = await orig(q, vars); if (q === P.RANK_QUERY) d.characterData.character.zoneRankings.rankings.forEach(r => { r.bestSpec = 'Restoration'; r.spec = 'Restoration'; }); return d; };
+    const rk = await P.fetchRankings(s.query, Object.assign({}, PARAMS, { classToken: 'SHAMAN', talentSplit: null }));
+    assert.strictEqual(rk.det.role, 'healer');
+    assert.strictEqual(rk.metric, 'hps');
+    assert.deepStrictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).map(c => c.vars.metric), ['dps', 'dps', 'hps', 'hps']);
+});
+test('profileFromCombatant: gear, stats and spec from the row; parses pending, not missing', () => {
+    const p = P.profileFromCombatant({ name: 'Nottomwro', server: 'spineshatter', region: 'eu', zone: 1060, classToken: 'SHAMAN', combatant: FX.report.combatant,
+                                       report: { code: 'X6mnbPQpGhjJC2TN', startTime: 1788700000000, fightName: 'Archimonde' }, dbIndex: db });
+    assert.strictEqual(p.parses, null);
+    assert.strictEqual(p.parsesPending, true);
+    assert.strictEqual(p.identity.spec, 'Enhancement');
+    assert.strictEqual(p.gearSummary.missingEnchants, 0);
+    assert.deepStrictEqual(p.lastSeen, { reportCode: 'X6mnbPQpGhjJC2TN', fightName: 'Archimonde', timestamp: 1788700000000 });
+    assert.ok(!p.missing.some(m => /no parses/.test(m)), 'pending parses are not reported as missing: ' + p.missing.join(' | '));
+    const full = P.buildProfile({ name: 'X', server: 's', region: 'eu', zone: 1060, classToken: 'SHAMAN', combatant: null, report: null,
+                                  rankings: null, rankingsZone: 1060, fallback: false, metric: 'dps', dbIndex: db });
+    assert.strictEqual('parsesPending' in full, false, 'the key only appears on pending profiles');
+    assert.ok(full.missing.some(m => /no parses/.test(m)));
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

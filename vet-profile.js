@@ -85,13 +85,15 @@ function buildProfile(a) {
         missing.push('no combatant data in last ' + RECENT_REPORTS + ' reports');
     }
     const parses = buildParses(a.rankings, a.rankingsZone, a.fallback, a.metric, a.otherRankings || null, a.otherZone || null);
-    if (!parses) missing.push('no parses in ' + (ZONE_NAMES[a.zone] || a.zone) + (PREVIOUS_ZONE[a.zone] ? ' or ' + ZONE_NAMES[PREVIOUS_ZONE[a.zone]] : ''));
+    // logs-first B2: a profile built from a report's CombatantInfo has its parses on the way, not
+    // missing — the page streams them in and adds the "no parses" line itself if they come back empty.
+    if (!parses && !a.parsesPending) missing.push('no parses in ' + (ZONE_NAMES[a.zone] || a.zone) + (PREVIOUS_ZONE[a.zone] ? ' or ' + ZONE_NAMES[PREVIOUS_ZONE[a.zone]] : ''));
     if (!det.spec) missing.push('spec could not be determined');
-    return {
+    return Object.assign({
         name: a.name, server: a.server, region: a.region, zone: a.zone,
         identity: { class: a.classToken || null, spec: det.spec, role: det.role, talentSplit, detectedFrom: det.detectedFrom },
         lastSeen, gear, gearSummary, gearOnly, reported, computed, computedFromGear, parses, missing,
-    };
+    }, a.parsesPending ? { parsesPending: true } : {});
 }
 
 async function fetchProfile(query, params, dbIndex) {
@@ -115,6 +117,17 @@ async function fetchProfile(query, params, dbIndex) {
     }
 
     const talentSplit = combatant && Array.isArray(combatant.talents) ? combatant.talents.map(t => t.id) : null;
+    const rk = await fetchRankings(query, { name, server, region, zone, classToken, talentSplit });
+    return buildProfile(Object.assign({ name, server, region, zone, classToken, combatant, report, dbIndex }, rk));
+}
+
+// The rankings half of a profile: tier gating, spec re-detection from WCL's label and the healer
+// re-rank. Split out (logs-first B2) so /api/vet/parses — which already knows class and talents
+// from a report's CombatantInfo — runs exactly this and nothing else. Behaviour is fetchProfile's,
+// unchanged; vet-profile.test.js's gating tests are the guard.
+async function fetchRankings(query, o) {
+    const { name, server, region, zone, classToken } = o;
+    const talentSplit = Array.isArray(o.talentSplit) ? o.talentSplit : null;
     let det = V.detectSpec(classToken, talentSplit, null);
     let metric = det.role === 'healer' ? 'hps' : 'dps';
 
@@ -140,19 +153,25 @@ async function fetchProfile(query, params, dbIndex) {
         return { rankings: cur, rankingsZone: z, fallback: false, otherRankings: prevZone ? prev : null, otherZone: prevZone || null, specRankings };
     }
     let g = await selectGating(zone, metric);
-    let { rankings, rankingsZone, fallback, otherRankings, otherZone, specRankings } = g;
-    if (!det.spec && hasKills(specRankings)) {
-        const first = specRankings.rankings.find(r => r.totalKills > 0);
+    if (!det.spec && hasKills(g.specRankings)) {
+        const first = g.specRankings.rankings.find(r => r.totalKills > 0);
         det = V.detectSpec(classToken, talentSplit, first.bestSpec || first.spec);
         if (det.role === 'healer' && metric === 'dps') {
             // A healer's medians differ from their dps medians, so re-rank and re-gate both
             // tiers (and re-derive specRankings) rather than reusing the dps-based selection.
             metric = 'hps';
             g = await selectGating(zone, metric);
-            ({ rankings, rankingsZone, fallback, otherRankings, otherZone, specRankings } = g);
         }
     }
-    return buildProfile({ name, server, region, zone, classToken, combatant, report, rankings, rankingsZone, fallback, metric, otherRankings, otherZone, specRankings, dbIndex });
+    return Object.assign({ det, metric }, g);
 }
 
-module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, REPORT_QUERY, RANK_QUERY, buildProfile, fetchProfile };
+// logs-first B2: a profile from one report's CombatantInfo row alone — gear, stats and spec,
+// no rankings yet. The vetting page fills parses in through /api/vet/parses.
+function profileFromCombatant(a) {
+    return buildProfile({ name: a.name, server: a.server, region: a.region, zone: a.zone, classToken: a.classToken, combatant: a.combatant, report: a.report,
+                          rankings: null, rankingsZone: a.zone, fallback: false, metric: null, otherRankings: null, otherZone: PREVIOUS_ZONE[a.zone] || null,
+                          specRankings: null, dbIndex: a.dbIndex, parsesPending: true });
+}
+
+module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, REPORT_QUERY, RANK_QUERY, buildParses, buildProfile, fetchRankings, profileFromCombatant, fetchProfile };
