@@ -145,7 +145,7 @@
         scenes: [
             {
                 id: 'overview',
-                view: { cx: 0.500, cy: 0.430, spanYards: 78 },
+                view: { fit: 'arena' },
                 phase: 0,
                 title: 'Two phases, a minute each',
                 caption: 'He alternates on a strict timer and never stops. Threat wipes completely at every swap.',
@@ -159,7 +159,7 @@
             },
             {
                 id: 'p1-stand',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 1,
                 title: 'Where you stand in Phase 1',
                 caption: 'Tanks stacked on him, melee behind him, everyone else on their own spot. That spread holds for the whole fight.',
@@ -171,7 +171,7 @@
             },
             {
                 id: 'p1-hateful',
-                view: { cx: 0.500, cy: 0.330, spanYards: 52 },
+                view: { fit: 'arena' },
                 phase: 1,
                 title: 'Hateful Strike',
                 caption: 'He swings at whoever has the most health in melee range. Tanks stack so one healer covers both; melee sit behind him on less health and never get picked.',
@@ -188,7 +188,7 @@
             },
             {
                 id: 'p1-flame',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 1,
                 title: 'Molten Flame',
                 caption: 'He punches the ground and the fire hunts one player for ten seconds. Walk it away from everyone else — it burns for another ten where you leave it.',
@@ -205,19 +205,24 @@
             },
             {
                 id: 'swap',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 0,
                 title: 'Melee move out',
                 caption: 'As the minute mark comes up, tanks and melee walk out to their own spots. Threat wipes anyway, and nobody wants to be stood on him when he turns.',
                 duration: 8000,
                 highlight: [],
                 morph: { from: 1, to: 2, start: 700, end: 5200 },
+                countdown: { phase: 2, at: 5400 },
                 actors: [],
-                effects: [{ kind: 'threat', mode: 'wipe', from: 'boss', start: 0, end: 8000 }]
+                effects: [
+                    { kind: 'threat', mode: 'wipe', from: 'boss', start: 0, end: 8000 },
+                    { kind: 'call', text: 'Spread before it flips', start: 400, end: 4600 },
+                    { kind: 'call', text: 'Threat is gone — get off him', start: 5400, end: 8000 }
+                ]
             },
             {
                 id: 'p2-fixate',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 2,
                 title: 'He hunts you',
                 caption: 'Threat is gone. He picks someone and walks them down, then picks again ten seconds later. Get out of the lane he is walking.',
@@ -235,7 +240,7 @@
             },
             {
                 id: 'p2-geyser',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 2,
                 title: 'Volcanic Geysers',
                 caption: 'Volcanoes open anywhere in the room and keep firing for eighteen seconds. If one opens under you, move — the spread means it only ever catches one of you.',
@@ -251,17 +256,23 @@
             },
             {
                 id: 'back',
-                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
+                view: { fit: 'arena' },
                 phase: 0,
                 title: 'Back to Phase 1',
                 caption: 'Before the next swap, everyone repositions and DPS slows down so the tanks can hold. Misdirects go out the moment he turns back.',
-                duration: 8000,
+                duration: 9000,
                 highlight: ['hateful'],
                 morph: { from: 2, to: 1, start: 600, end: 5000 },
+                countdown: { phase: 1, at: 5200 },
                 cast: { md: 'p13' },
                 roles: { md: 'misdirect' },
                 actors: [],
-                effects: [{ kind: 'threat', mode: 'rebuild', from: 'boss', md: 'md', start: 0, end: 8000 }]
+                effects: [
+                    { kind: 'threat', mode: 'rebuild', from: 'boss', md: 'md', start: 0, end: 9000 },
+                    { kind: 'call', text: 'Back to your spot, slow your damage', start: 400, end: 4800 },
+                    { kind: 'call', text: 'Misdirect now', start: 5200, end: 6900 },
+                    { kind: 'call', text: 'Watch your threat until the tanks are ahead', start: 6900, end: 9000 }
+                ]
             }
         ],
 

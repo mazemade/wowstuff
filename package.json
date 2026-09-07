@@ -5,11 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-<<<<<<< HEAD
-    "test": "node assignments-engine.test.js && node wcl-mult.test.js && node hyjal-positions.test.js && node data/tbc-item-db.test.js && node vet-engine.test.js && node vet-profile.test.js && node vet-feedback.test.js && node vet-gap.test.js && node vet-checklist.test.js && node server.test.js"
-=======
-    "test": "node assignments-engine.test.js && node wcl-mult.test.js && node hyjal-positions.test.js && node tactics-data.test.js && node data/tbc-item-db.test.js && node vet-engine.test.js && node wcl-logs.test.js && node vet-profile.test.js && node vet-feedback.test.js && node vet-gap.test.js && node vet-checklist.test.js && node server.test.js"
->>>>>>> eec19e4 (feat(briefing): Supremus fight briefing — animated mechanics on the real map)
+    "test": "node assignments-engine.test.js && node wcl-mult.test.js && node hyjal-positions.test.js && node tactics-data.test.js && node tactics-layout.test.js && node data/tbc-item-db.test.js && node vet-engine.test.js && node vet-profile.test.js && node vet-feedback.test.js && node vet-gap.test.js && node vet-checklist.test.js && node server.test.js"
   },
   "keywords": [
     "wow",

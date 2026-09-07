@@ -145,15 +145,26 @@
     // Point the camera at a patch of the room: centre it, ask for a width in yards, and let
     // it widen to whatever shape the stage is so nothing is ever squashed or letterboxed.
     function aim(view) {
-        const want = (view.spanYards * FIGHT.yard) * MW;
         const box = W / H;
+        const A = FIGHT.arena;
+        let want;
+        if (view.fit === 'arena') {
+            // cover the whole mat with a little air, in whichever direction is the tight one
+            const wantW = (A.x1 - A.x0) * MW * 1.06;
+            const wantH = (A.y1 - A.y0) * MH * 1.04;
+            want = Math.max(wantW, wantH * box);
+        } else {
+            want = (view.spanYards * FIGHT.yard) * MW;
+        }
         let w = want, h = want / box;
         if (w > MW) { w = MW; h = w / box; }
         if (h > MH) { h = MH; w = h * box; }
+        const cx = view.fit === 'arena' ? (A.x0 + A.x1) / 2 : view.cx;
+        const cy = view.fit === 'arena' ? (A.y0 + A.y1) / 2 : view.cy;
         src = {
             w: w, h: h,
-            x: clamp(view.cx * MW - w / 2, 0, MW - w),
-            y: clamp(view.cy * MH - h / 2, 0, MH - h)
+            x: clamp(cx * MW - w / 2, 0, MW - w),
+            y: clamp(cy * MH - h / 2, 0, MH - h)
         };
         scale = W / src.w;
     }
@@ -713,30 +724,33 @@
         }
     }
 
-    // On a close-up the room all looks alike, so say which corner you are looking at.
-    function drawLocator(sc) {
-        if (sc.view.spanYards > 60) return;
-        const w = 104, h = w * (MH / MW), m = 14;
-        const x = W - w - m, y = H - h - m, A = FIGHT.arena;
+    // What the raid leader would be saying out loud right now.
+    function drawCall(e, sc, t) {
+        if (t < e.start || t > e.end) return;
+        const fade = Math.min(1, (t - e.start) / 260, (e.end - t) / 400);
         ctx.save();
-        ctx.fillStyle = 'rgba(9,13,11,.78)';
-        ctx.strokeStyle = 'rgba(236,230,216,.16)';
+        ctx.globalAlpha = clamp(fade, 0, 1);
+        ctx.font = '600 22px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const w = ctx.measureText(e.text).width + 30;
+        const x = W / 2, y = H - 34;
+        ctx.fillStyle = 'rgba(9,13,11,.84)';
+        ctx.strokeStyle = 'rgba(255,106,31,.55)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 2);
+        ctx.roundRect(x - w / 2, y - 17, w, 34, 3);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = 'rgba(120,148,128,.22)';
-        ctx.fillRect(x + A.x0 * w, y + A.y0 * h, (A.x1 - A.x0) * w, (A.y1 - A.y0) * h);
-        ctx.strokeStyle = '#ff8a3d';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x + (src.x / MW) * w, y + (src.y / MH) * h, (src.w / MW) * w, (src.h / MH) * h);
+        ctx.fillStyle = '#ffd9a8';
+        ctx.fillText(e.text, x, y + 1);
         ctx.restore();
     }
 
     const EFFECTS = {
         ring: drawRing, sweep: drawSweep, trail: drawTrail,
-        volcano: drawVolcano, gaze: drawGaze, impact: drawImpact, threat: drawThreat
+        volcano: drawVolcano, gaze: drawGaze, impact: drawImpact, threat: drawThreat,
+        call: drawCall
     };
 
     // ---- tokens ---------------------------------------------------------------
@@ -871,6 +885,7 @@
 
         sc._sim = simulate(sc, t);
         sc._dim = (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
+        sc._t = t;
         sc._focus = sc._dim ? focusOf(sc, t) : {};
         sc._roles = {};
         Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
@@ -878,12 +893,13 @@
         ctx.clearRect(0, 0, W, H);
         drawMap();
 
-        (sc.effects || []).filter(e => e.kind !== 'gaze').forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
+        (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
+            .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
         drawBoss(sc.bossActor, sc);
         sc.raid.forEach(p => drawPlayer(p, sc, t));
         // the gaze goes last: it is the thing you must notice
         (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
-        drawLocator(sc);
+        (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
     }
 
     // ---- chrome ---------------------------------------------------------------
@@ -978,7 +994,7 @@
         if (sc.highlight && sc.highlight.length) revealCard(cardOf[sc.highlight[0]]);
         el('clockP1').classList.toggle('is-on', sc.phase === 1);
         el('clockP2').classList.toggle('is-on', sc.phase === 2);
-        if (REDUCED) paint(performance.now());
+        if (REDUCED) { paint(performance.now()); tickClock(performance.now()); }
     }
 
     // ---- taking it away -------------------------------------------------------
@@ -1042,10 +1058,43 @@
         note.textContent = 'No roster loaded. Import one on the Assignments page and these become your own names.';
     }
 
-    // the clock keeps running whatever step you are on: he never stops
+    // The clock is the fight's own timer. On a step that spans a swap it counts down to it,
+    // because "phase 1 in three seconds" is the call that makes people move.
     const clockHead = el('clockHead');
+    const half = { 1: el('clockP1'), 2: el('clockP2') };
+    const secs = { 1: half[1].querySelector('span'), 2: half[2].querySelector('span') };
+
     function tickClock(now) {
-        clockHead.style.left = ((now / 1000) % (FIGHT.phaseSeconds * 2) / (FIGHT.phaseSeconds * 2) * 100) + '%';
+        const sc = scenes[idx];
+        const cd = sc.countdown;
+        if (!cd) {
+            const cycle = (now / 1000) % (FIGHT.phaseSeconds * 2) / (FIGHT.phaseSeconds * 2);
+            clockHead.style.left = (cycle * 100) + '%';
+            [1, 2].forEach(p => {
+                secs[p].textContent = FIGHT.phaseSeconds + 's';
+                secs[p].classList.remove('is-soon');
+            });
+            return;
+        }
+        const t = sc._t || 0;
+        const to = cd.phase, from = to === 1 ? 2 : 1;
+        const before = t < cd.at;
+        const k = before ? clamp(t / cd.at, 0, 1)
+            : clamp((t - cd.at) / Math.max(1, sc.duration - cd.at), 0, 1);
+        clockHead.style.left = (((before ? from : to) === 1 ? 0 : 0.5) + k * 0.5) * 100 + '%';
+
+        const live = before ? from : to;
+        half[1].classList.toggle('is-on', live === 1);
+        half[2].classList.toggle('is-on', live === 2);
+        secs[from].textContent = FIGHT.phaseSeconds + 's';
+        secs[from].classList.remove('is-soon');
+        if (before) {
+            secs[to].textContent = 'in ' + Math.max(0, (cd.at - t) / 1000).toFixed(1) + 's';
+            secs[to].classList.add('is-soon');
+        } else {
+            secs[to].textContent = FIGHT.phaseSeconds + 's';
+            secs[to].classList.remove('is-soon');
+        }
     }
 
     function frame(now) {
@@ -1057,7 +1106,7 @@
     function start() {
         resize();
         show(0);
-        if (REDUCED) paint(performance.now());
+        if (REDUCED) { paint(performance.now()); tickClock(performance.now()); }
         else requestAnimationFrame(frame);
     }
 

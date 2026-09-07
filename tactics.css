@@ -120,6 +120,7 @@ body.tactics {
 .clock__half + .clock__half { border-left: 1px solid var(--line); }
 .clock__half.is-on { color: var(--bone); background: rgba(255, 106, 31, .10); }
 .clock__half span { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--bone-3); }
+.clock__half span.is-soon { color: var(--ember-2); }
 
 .clock__head {
     position: absolute;

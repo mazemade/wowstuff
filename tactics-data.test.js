@@ -9,7 +9,7 @@ function test(name, fn) {
 }
 
 const FIGHT = T.FIGHTS['bt-supremus'];
-const EFFECT_KINDS = ['trail', 'volcano', 'gaze', 'impact', 'threat', 'ring', 'sweep'];
+const EFFECT_KINDS = ['trail', 'volcano', 'gaze', 'impact', 'threat', 'ring', 'sweep', 'call'];
 const TIERS = [1, 2, 3];
 
 // --- registry ---
@@ -67,19 +67,18 @@ test('scenes: each has an id, phase, title and one caption', () => {
     });
 });
 
-test('scenes: each frames its own patch of the room', () => {
-    const roomWide = (FIGHT.arena.x1 - FIGHT.arena.x0) / FIGHT.yard;
+test('scenes: every step frames the whole courtyard', () => {
     FIGHT.scenes.forEach(s => {
         assert.ok(s.view, s.id + ' says where to point the camera');
-        assert.ok(s.view.cx > 0 && s.view.cx < 1 && s.view.cy > 0 && s.view.cy < 1, s.id + ' centres on the map');
-        assert.ok(s.view.spanYards >= 25 && s.view.spanYards <= roomWide * 1.6, s.id + ' span: ' + s.view.spanYards);
+        if (s.view.fit) {
+            assert.strictEqual(s.view.fit, 'arena', s.id + ' fit: ' + s.view.fit);
+        } else {
+            assert.ok(s.view.cx > 0 && s.view.cx < 1 && s.view.cy > 0 && s.view.cy < 1, s.id + ' centres on the map');
+            assert.ok(s.view.spanYards >= 25, s.id + ' span: ' + s.view.spanYards);
+        }
     });
-    const spans = FIGHT.scenes.map(s => s.view.spanYards);
-    assert.ok(Math.max(...spans) >= roomWide, 'one step shows the whole room');
-    assert.ok(Math.min(...spans) < roomWide,
-        'and the closest step crops the room rather than showing all of it');
-    assert.ok(Math.min(...spans) < Math.max(...spans) * 0.75,
-        'the mechanics come in closer than the room-wide steps, the way the first cut did');
+    assert.ok(FIGHT.scenes.every(s => s.view.fit === 'arena'),
+        'the room is the context: no step crops it away');
 });
 
 test('scenes: ids are unique', () => {
@@ -156,6 +155,31 @@ test('scenes: every step that runs a mechanic says who it is happening to', () =
         Object.keys(s.roles || {}).forEach(k => {
             assert.ok((s.cast || {})[k], s.id + ' labels ' + k + ', which is not in its cast');
             assert.ok(s.roles[k].length < 12, s.id + '/' + k + ' label is a word, not a sentence');
+        });
+    });
+});
+
+test('scenes: a step that spans a swap counts down to it and calls it', () => {
+    const swaps = FIGHT.scenes.filter(s => s.morph);
+    assert.ok(swaps.length >= 2, 'both transitions are shown');
+    swaps.forEach(s => {
+        const cd = s.countdown;
+        assert.ok(cd, s.id + ' spans a swap but never says when it lands');
+        assert.strictEqual(cd.phase, s.morph.to, s.id + ' counts down to the phase it moves into');
+        assert.ok(cd.at >= s.morph.end, s.id + ' the raid is in place before the swap lands');
+        assert.ok(cd.at < s.duration, s.id + ' the swap lands inside the step');
+        const calls = (s.effects || []).filter(e => e.kind === 'call');
+        assert.ok(calls.some(c => c.start >= cd.at), s.id + ' says nothing once the phase flips');
+        assert.ok(calls.some(c => c.start < cd.at), s.id + ' says nothing on the way in');
+    });
+});
+
+test('scenes: every call is a short line with a time on the map', () => {
+    FIGHT.scenes.forEach(s => {
+        (s.effects || []).filter(e => e.kind === 'call').forEach(c => {
+            assert.ok(c.text && c.text.length <= 46, s.id + ' call is a shout, not a paragraph: ' + c.text);
+            assert.ok(c.end > c.start, s.id + ' call runs forwards');
+            assert.ok(c.end <= s.duration, s.id + ' call ends inside the step');
         });
     });
 });
