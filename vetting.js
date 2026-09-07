@@ -145,7 +145,10 @@ function pump() {
 function mergeParses(profile, body, error) {
     const parses = body && body.parses ? body.parses : null;
     const identity = profile.identity && profile.identity.spec ? profile.identity : (body && body.identity) || profile.identity;
-    const missing = (profile.missing || []).filter(m => !/^no parses|^parses:/.test(m));
+    // 'spec could not be determined' comes from the roster profile, which had no rankings to look
+    // at; /api/vet/parses may well have determined it. Drop it and let the line below re-add it
+    // only if the merged identity still has no spec.
+    const missing = (profile.missing || []).filter(m => !/^no parses|^parses:/.test(m) && m !== 'spec could not be determined');
     if (error) missing.push('parses: ' + error);
     else if (!parses) missing.push('no parses in either tier');
     if (identity && !identity.spec && !missing.includes('spec could not be determined')) missing.push('spec could not be determined');
@@ -265,6 +268,9 @@ function takeFragment() {
 
 // --- logs-first B4: a whole raid from one report ---
 let logListFor = ''; // guild/server/region the select was last filled for
+// Bumped by Remove all so a roster response that lands after the user emptied the table can tell
+// that its whole payload is stale.
+let clearEpoch = 0;
 async function refreshLogList() {
     const sel = document.getElementById('logSelect');
     const want = wcl.guild && wcl.server ? wcl.region + '/' + wcl.server + '/' + wcl.guild.toLowerCase() : '';
@@ -289,18 +295,30 @@ async function loadReport(code, opts) {
     const btn = document.getElementById('loadLogBtn');
     btn.disabled = true;
     if (!opts.quiet) { rosterNotice = 'Reading report ' + code + ' from Warcraft Logs…'; renderSummary(); }
+    // Who was on the table when the request went out, so the response can tell which of the
+    // players it is about to add were removed by hand while it was in flight.
+    const before = new Set(state.players.map(p => p.name.toLowerCase()));
+    const epoch = clearEpoch;
     try {
         const res = await fetch('/api/wcl/log/' + encodeURIComponent(code) + '/roster?zone=' + ZONE + '&server=' + encodeURIComponent(wcl.server) + '&region=' + encodeURIComponent(wcl.region));
         const body = await res.json().catch(() => ({}));
         if (res.status === 429) { pause(); rosterNotice = 'Warcraft Logs rate limit reached — the log was not loaded.'; renderSummary(); return false; }
         if (!res.ok) { rosterNotice = body.error || ('HTTP ' + res.status); renderSummary(); return false; }
+        // Remove all ran while this was out: the user emptied the table on purpose, so a whole raid
+        // must not reappear underneath them.
+        if (clearEpoch !== epoch) { rosterNotice = 'The player list was cleared while ' + code + ' was loading — nothing was added.'; renderSummary(); return false; }
+        // × on a single player, likewise: they were on the table when the request went out and are
+        // gone now, so this response must not resurrect them (the guard fetchOne already uses).
+        const present = new Set(state.players.map(p => p.name.toLowerCase()));
+        const removedDuring = new Set(Array.from(before).filter(k => !present.has(k)));
         const rep = body.report || {};
         let added = 0;
         (body.players || []).forEach(p => {
             const r = insertPlayer(p.name);
             if (!r) return;
-            if (r.added) added++;
             const key = r.name.toLowerCase();
+            if (removedDuring.has(key)) { if (r.added) state.players = state.players.filter(pl => pl.name.toLowerCase() !== key); return; }
+            if (r.added) added++;
             const player = state.players.find(pl => pl.name.toLowerCase() === key);
             player.source = { report: code, date: rep.date || null, zone: rep.zone ? rep.zone.name : null, fightName: p.lastSeen ? p.lastSeen.fightName : null };
             player.server = p.server || null;
@@ -319,7 +337,11 @@ async function loadReport(code, opts) {
     finally { btn.disabled = false; }
 }
 function loadLog() {
-    const typed = V.parseReportCode(document.getElementById('logInput').value);
+    const raw = document.getElementById('logInput').value.trim();
+    const typed = V.parseReportCode(raw);
+    // Typed-but-unparseable must not fall through to the selected night — the user would be shown
+    // a different raid from the one they pasted, with no way to tell.
+    if (raw && !typed) { rosterNotice = 'Not a Warcraft Logs report code or URL: ' + raw; renderSummary(); return; }
     const code = typed || document.getElementById('logSelect').value;
     if (!code) { rosterNotice = 'Pick a raid night or paste a Warcraft Logs report code / URL.'; renderSummary(); return; }
     if (!wcl.server) { rosterNotice = 'No realm set — enter the Warcraft Logs realm slug first.'; renderSummary(); return; }
@@ -335,6 +357,7 @@ function removePlayer(name) {
     save(); renderTable();
 }
 function removeAll() {
+    clearEpoch++;
     state.players = [];
     state.profiles = {};
     state.errors = {};
@@ -577,7 +600,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const reports = Array.from(new Set(state.players.filter(p => p.source && p.source.report).map(p => p.source.report)));
         state.profiles = {}; state.errors = {}; save(); renderTable();
         state.players.filter(p => !(p.source && p.source.report)).forEach(p => enqueue(p.name, true));
-        reports.forEach(code => loadReport(code, { quiet: true }));
+        // If a roster re-load fails (404/429/network) its rows have no profile, no error and
+        // nothing queued — they would sit on "fetching…" forever with the raid's gear gone from
+        // the table. Fall back to fetching each of those players by name.
+        reports.forEach(code => loadReport(code, { quiet: true }).then(ok => {
+            if (ok) return;
+            state.players.filter(p => p.source && p.source.report === code && !state.profiles[p.name.toLowerCase()])
+                .forEach(p => enqueue(p.name, true));
+        }));
     });
     document.getElementById('realmInput').addEventListener('change', onRealmChange);
     document.getElementById('regionInput').addEventListener('change', onRealmChange);
@@ -587,8 +617,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('logInput').addEventListener('keydown', e => { if (e.key === 'Enter') loadLog(); });
     document.getElementById('guildInput').addEventListener('change', onRealmChange);
     refreshLogList();
-    // Resume anything not yet fetched (e.g. after a reload mid-queue).
-    state.players.forEach(p => enqueue(p.name, false));
+    // Resume anything not yet fetched (e.g. after a reload mid-queue). A profile persisted with
+    // parsesPending is half-done — enqueue would skip it because a profile exists, leaving the row
+    // on "…" forever, so force those.
+    state.players.forEach(p => enqueue(p.name, !!(state.profiles[p.name.toLowerCase()] || {}).parsesPending));
     takeFragment();
 });
 function loadRoster() {
