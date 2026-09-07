@@ -479,7 +479,7 @@ test('killFacts on Anetheron: identity, url, me, and the player-side findings', 
     const extra = k.findings.find(f => f.key === 'ability_extra');
     assert.strictEqual(extra.ability, 'Immolate');
     // Final review item 5: extras are one grouped line per boss, "<ability> (<casts>)".
-    assert.ok(/Cast on Anetheron while comparable players do not: Immolate \(5\)/.test(extra.text), extra.text);
+    assert.ok(/Cast on Anetheron while players ahead of you do not: Immolate \(5\)/.test(extra.text), extra.text);
 });
 test('killFacts: killsOnBoss and killIndex reach the kill object for the facts sheet (task-rep-kill)', () => {
     assert.strictEqual(killFor(50619).killsOnBoss, 1, 'every existing caller in this file omits it: defaults to 1, the true count for a single-rank fixture kill');
@@ -502,7 +502,7 @@ test('killFacts on Kaz\'rogal: bad pull, consumables unknown, the curse he runs 
     // Final review item 5: Rotminster keeps Curse of the Elements up on this pull, so the reference's
     // Curse of Doom is an ASSIGNMENT question, not "you never cast Curse of Doom".
     const curse = k.findings.find(f => f.key === 'curse_choice');
-    assert.ok(curse && /You ran Curse of the Elements on Kaz'rogal; comparable players run Curse of Doom/.test(curse.text), keys.join() + ' :: ' + (curse && curse.text));
+    assert.ok(curse && /You ran Curse of the Elements on Kaz'rogal; players ahead of you run Curse of Doom/.test(curse.text), keys.join() + ' :: ' + (curse && curse.text));
     assert.ok(!k.findings.some(f => f.key === 'ability_unused' && /curse of/i.test(f.text)), keys.join());
 });
 test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage share is still "ability_unused" (Minor 20)', () => {
@@ -524,7 +524,7 @@ test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage sh
     // inside `abilities` rather than as a finding of its own.
     const sb = f.find(x => x.key === 'ability_unused' && (x.abilities || []).includes('Shadowburn'));
     assert.ok(sb, 'a cooldown the reference casts at least once a fight must be flagged even outside the top 3');
-    assert.ok(/Shadowburn \((comparable players )?[\d.]+\/min\)/.test(sb.text), sb.text);
+    assert.ok(/Shadowburn \((players ahead of you )?[\d.]+\/min\)/.test(sb.text), sb.text);
     assert.strictEqual(sb.severity, 'minor', 'minor because it is not one of the reference\'s top-3 damage abilities');
 });
 
@@ -553,7 +553,7 @@ test('rotationFindings (final review item 5): everything the player never cast i
     const unusedF = F.rotationFindings(rotKill());
     const unused = unusedF.filter(x => x.key === 'ability_unused');
     assert.strictEqual(unused.length, 1, 'one grouped line: ' + unused.map(x => x.text).join(' // '));
-    assert.strictEqual(unused[0].text, 'Never cast on TestBoss: Curse of Doom (comparable players 0.5/min), Shadowburn (0.5/min); never used Destruction Potion (0.5/min)');
+    assert.strictEqual(unused[0].text, 'Never cast on TestBoss: Curse of Doom (players ahead of you 0.5/min), Shadowburn (0.5/min); never used Destruction Potion (0.5/min)');
     assert.deepStrictEqual(unused[0].abilities, ['Curse of Doom', 'Shadowburn', 'Destruction']);
     assert.strictEqual(unused[0].ability, 'Curse of Doom', 'the first ability is still carried for anchoring');
     assert.strictEqual(unused[0].severity, 'major', 'Curse of Doom is one of the reference top-3 abilities');
@@ -561,7 +561,7 @@ test('rotationFindings (final review item 5): everything the player never cast i
     const extraF = F.rotationFindings(rotKill({ me: { casts: { 'Shadow Bolt': 60, Immolate: 12, 'Curse of Recklessness': 12 } } }));
     const extra = extraF.filter(x => x.key === 'ability_extra');
     assert.strictEqual(extra.length, 1, 'one grouped line: ' + extra.map(x => x.text).join(' // '));
-    assert.strictEqual(extra[0].text, 'Cast on TestBoss while comparable players do not: Immolate (12), Curse of Recklessness (12)');
+    assert.strictEqual(extra[0].text, 'Cast on TestBoss while players ahead of you do not: Immolate (12), Curse of Recklessness (12)');
     assert.deepStrictEqual(extra[0].abilities, ['Immolate', 'Curse of Recklessness']);
     assert.ok(extraF.filter(x => x.key === 'ability_unused').length <= 1);
     const plain = F.rotationFindings(killFor(50619));
@@ -584,7 +584,7 @@ test('rotationFindings (final review item 5): curses are one family — a player
     unused.forEach(x => assert.ok(!/curse of/i.test(x.text), 'no curse may be listed as unused: ' + x.text));
     const choice = f.filter(x => x.key === 'curse_choice');
     assert.strictEqual(choice.length, 1, JSON.stringify(f.map(x => x.key)));
-    assert.strictEqual(choice[0].text, 'You ran Curse of Recklessness on TestBoss; comparable players run Curse of Doom (1.5/min) — check whether Recklessness is your assignment');
+    assert.strictEqual(choice[0].text, 'You ran Curse of Recklessness on TestBoss; players ahead of you run Curse of Doom (1.5/min) — check whether Recklessness is your assignment');
     assert.strictEqual(choice[0].owner || choice[0].scope, 'player');
     const same = rotKill({ me: { casts: { 'Shadow Bolt': 60, 'Curse of Doom': 3 } } });
     same.reference.casts = { 'Shadow Bolt': 60, 'Curse of Doom': 3, 'Curse of Agony': 1 };
@@ -729,14 +729,14 @@ function killWithBands(fx2) {
     const reference = F.referenceSummary(F.bandRanks(ranks, 124, 2).slice(0, 8), R.players, db, 'WARLOCK', 'caster', [122, 126]);
     return F.killFacts({ encounterId: 50619, name: 'Anetheron', rank: fx2.encounterRankings['50619'].ranks[0], context: K.context, tables: K.tables, sourceId: K.sourceID, player: PLAYER, reference, referenceNote: null, dbIndex: db });
 }
-test('burst timing (v2 §6): a burst used only outside Bloodlust, where comparable players use it inside, is a minor player finding', () => {
+test('burst timing (v2 §6): a burst used only outside Bloodlust, where players ahead of you use it inside, is a minor player finding', () => {
     const kill = killWithBands(withBands(false));
     const byName = (a, b) => a.name.localeCompare(b.name);   // aura order in the tables is not part of the contract
     assert.deepStrictEqual(kill.me.burst.slice().sort(byName), [{ name: 'Blessing of the Silver Crescent', uses: 1, insideBloodlust: 0 }, { name: 'Destruction', uses: 1, insideBloodlust: 1 }]);
     assert.deepStrictEqual(kill.reference.burst.slice().sort(byName), [{ name: 'Blessing of the Silver Crescent', uses: 1, insideBloodlust: 1 }, { name: 'Destruction', uses: 1, insideBloodlust: 1 }]);
     const f = kill.findings.filter(x => x.key === 'burst_outside_bloodlust');
     assert.strictEqual(f.length, 1);
-    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; comparable players line it up with Bloodlust');
+    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; players ahead of you line it up with Bloodlust');
     assert.deepStrictEqual([f[0].severity, f[0].scope, f[0].ability], ['minor', 'player', 'Blessing of the Silver Crescent']);
 });
 test('burst timing (v2 §6): inside the window, or a fight with no Bloodlust, gives no finding', () => {
@@ -756,7 +756,7 @@ test('burst timing (v2 §6 fix): a Heroism-only fight (Alliance shaman) still op
     assert.ok(kill.me.bloodlustPercent > 0, kill.me.bloodlustPercent);
     const f = kill.findings.filter(x => x.key === 'burst_outside_bloodlust');
     assert.strictEqual(f.length, 1);
-    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; comparable players line it up with Bloodlust');
+    assert.strictEqual(f[0].text, 'Used Blessing of the Silver Crescent once on Anetheron, never inside Bloodlust; players ahead of you line it up with Bloodlust');
 });
 test('rotationFindings (v2 §6, Important 1 whole-branch review): an on-use item the reference uses and the player never did reads "Never used …", a potion by its potion name; neither carries "(on-use item)" any more', () => {
     const kill = killWithBands(withBands(true));
@@ -768,7 +768,7 @@ test('rotationFindings (v2 §6, Important 1 whole-branch review): an on-use item
     // item by its own name, the potion by its potion name, and neither with "(on-use item)".
     const unused = f.filter(x => x.key === 'ability_unused');
     assert.strictEqual(unused.length, 1, JSON.stringify(unused.map(x => x.text)));
-    assert.ok(/^Never used on Anetheron: (Blessing of the Silver Crescent \(comparable players [\d.]+\/min\), Destruction Potion \([\d.]+\/min\)|Destruction Potion \(comparable players [\d.]+\/min\), Blessing of the Silver Crescent \([\d.]+\/min\))$/.test(unused[0].text), unused[0].text);
+    assert.ok(/^Never used on Anetheron: (Blessing of the Silver Crescent \(players ahead of you [\d.]+\/min\), Destruction Potion \([\d.]+\/min\)|Destruction Potion \(players ahead of you [\d.]+\/min\), Blessing of the Silver Crescent \([\d.]+\/min\))$/.test(unused[0].text), unused[0].text);
     assert.ok(unused[0].abilities.includes('Blessing of the Silver Crescent') && unused[0].abilities.includes('Destruction'), unused[0].abilities.join());
 });
 test('debuffFindings: missing shadow debuffs are a group finding; a low uptime on your own curse is yours', () => {
@@ -1332,7 +1332,7 @@ test('rotationFindings (v3): a utility cast the reference never makes is an extr
     const f = F.rotationFindings(Object.assign({}, k, { me: Object.assign({}, k.me, { casts }) }));
     // Final review item 5: extras are one grouped line per boss.
     const x = f.find(y => y.key === 'ability_extra');
-    assert.ok(x && /Cast on Anetheron while comparable players do not: .*Drain Soul \(7\)/.test(x.text), x && x.text);
+    assert.ok(x && /Cast on Anetheron while players ahead of you do not: .*Drain Soul \(7\)/.test(x.text), x && x.text);
     assert.ok(x.abilities.includes('Drain Soul'), x.abilities.join());
     assert.ok(!x.abilities.includes('Life Tap'), 'the reference casts Life Tap too');
 });

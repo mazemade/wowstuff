@@ -215,7 +215,7 @@ test('gapFindings: one finding per input at or above minShare, with owner, share
     ['raid_activity', 'own_activity', 'channel_time', 'debuffs', 'power_gear', 'power_consumables', 'power_buffs'].forEach(k => assert.ok(keys.includes(k), k + ' in ' + keys.join()));
     assert.ok(!keys.includes('cast_pacing'), 'pacing is negative on this pull (the reference casts slower while active once activity and channelling are taken out)');
     const ch = f.find(x => x.key === 'channel_time');
-    assert.strictEqual(ch.text, 'Channelling Drain Soul and other utility 6 seconds of every minute on Morogrim Tidewalker; comparable players 0. Worth ' + ch.share + '% of the gap');
+    assert.strictEqual(ch.text, 'Channelling Drain Soul and other utility 6 seconds of every minute on Morogrim Tidewalker; players ahead of you 0. Worth ' + ch.share + '% of the gap');
     const ra = f.find(x => x.key === 'raid_activity');
     assert.strictEqual(ra.owner, 'raid');
     assert.ok(/raid was active 70% of Morogrim Tidewalker against 85% for the reference raid/.test(ra.text), ra.text);
@@ -230,7 +230,7 @@ test('statPriorityFindings: hit under the cap hides the stats below it; at the c
     assert.strictEqual(under[0].text, 'Hit rating 181 against the 202 the raid asks for; get hit to the cap before any other stat');
     const capped = G.statPriorityFindings({ me: Object.assign({}, me, { spellHit: 205 }), reference: ref, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'Morogrim Tidewalker' });
     assert.deepStrictEqual(capped.map(f => f.stat), ['spellDamage', 'spellCrit', 'spellHaste'], 'every stat under its bar, in priority order');
-    assert.strictEqual(capped[0].text, 'Spell power from gear 846 against 1004 for players at your item level among the top 2000 parses');
+    assert.strictEqual(capped[0].text, 'Spell power from gear 846 against 1004 for players ahead of you at your item level');
     assert.deepStrictEqual(G.statPriorityFindings({ me, reference: null, spec: 'Destruction', role: 'caster', hitCap: 202, boss: 'X' }), []);
 });
 test('statPriorityFindings (final review item 2): a stat line carries share null, never a literal 0% of the gap', () => {

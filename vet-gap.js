@@ -308,7 +308,7 @@ function explainGap(kill, player) {
     return { ratio, factors, residualShare: factors.residual.share };
 }
 
-const REF_LABEL = 'players at your item level among the top 2000 parses';
+const REF_LABEL = 'players ahead of you at your item level';
 function pct(x) { return typeof x === 'number' ? Math.round(x * 10) / 10 : x; }
 // Final review item 9: a group ask has to name what to ask for. The accounting knows both sides,
 // so the debuff and party-buff lines say which debuffs were missing on the boss and which buffs
@@ -331,7 +331,7 @@ function gapText(i, boss, kill) {
     switch (i.key) {
         case 'raid_activity': return 'Your raid was active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for the reference raid; phases and downtime, not you.' + w;
         case 'own_activity': return 'Active ' + pct(i.me) + '% of ' + boss + ' against ' + pct(i.reference) + '% for ' + REF_LABEL + '.' + w;
-        case 'channel_time': return 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + boss + '; comparable players ' + pct(i.reference) + '.' + w;
+        case 'channel_time': return 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + boss + '; players ahead of you ' + pct(i.reference) + '.' + w;
         case 'cast_pacing': return pct(i.me) + ' damaging casts a minute on ' + boss + ' while active, against ' + pct(i.reference) + '; the time between casts.' + w;
         case 'hit_under_cap': return 'Hit rating ' + i.me + ' against ' + i.reference + ' for ' + REF_LABEL + '; misses are wasted casts.' + w;
         case 'debuffs': return 'Raid debuffs on ' + boss + ' multiplied damage by ' + i.me + ' against ' + i.reference + ' for the reference raid' + debTail + '.' + w;

@@ -596,12 +596,12 @@ function rotationFindings(kill) {
                 unused.push({ name, rate: fmt(r), isBurst, top3: top3.includes(name) });
             }
         } else if (top3.includes(name) && refShare(name) >= T.abilityMinShare && p < T.ratioLow * r) {
-            f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
+            f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for players ahead of you', { ability: name }));
         }
     });
     if (unused.length) {
         const spells = unused.filter(u => !u.isBurst), bursts = unused.filter(u => u.isBurst);
-        const list = (rows, label, lead) => rows.map((u, i) => label(u.name) + ' (' + (i === 0 && lead ? 'comparable players ' : '') + u.rate + '/min)').join(', ');
+        const list = (rows, label, lead) => rows.map((u, i) => label(u.name) + ' (' + (i === 0 && lead ? 'players ahead of you ' : '') + u.rate + '/min)').join(', ');
         const parts = [];
         if (spells.length) parts.push('Never cast on ' + kill.name + ': ' + list(spells, n => n, true));
         if (bursts.length) parts.push(spells.length
@@ -619,7 +619,7 @@ function rotationFindings(kill) {
         const mine = most(myCurses.map(n => [n, myCasts[n]]));
         if (theirs && mine && theirs[0] !== mine[0] && !myCasts[theirs[0]]) {
             f.push(finding('curse_choice', 'minor', 'player',
-                'You ran ' + mine[0] + ' on ' + kill.name + '; comparable players run ' + theirs[0] + ' (' + fmt(theirs[1] / refMin) + '/min) — check whether ' +
+                'You ran ' + mine[0] + ' on ' + kill.name + '; players ahead of you run ' + theirs[0] + ' (' + fmt(theirs[1] / refMin) + '/min) — check whether ' +
                 mine[0].replace(/^curse of /i, '') + ' is your assignment', { ability: theirs[0] }));
         }
     }
@@ -630,7 +630,7 @@ function rotationFindings(kill) {
     });
     if (extra.length) {
         f.push(finding('ability_extra', 'minor', 'player',
-            'Cast on ' + kill.name + ' while comparable players do not: ' + extra.map(x => x.name + ' (' + x.count + ')').join(', '),
+            'Cast on ' + kill.name + ' while players ahead of you do not: ' + extra.map(x => x.name + ' (' + x.count + ')').join(', '),
             { abilities: extra.map(x => x.name), ability: extra[0].name }));
     }
     return f;
@@ -642,24 +642,24 @@ function consumableFindings(kill) {
         if (!me.flask && !(me.battleElixir && me.guardianElixir))
             f.push(finding('no_flask_or_elixirs', 'major', 'player', 'No flask and no battle plus guardian elixir at ' + theName(kill.name) + ' pull' + (me.consumablesAtPull.length ? ' (had ' + me.consumablesAtPull.join(', ') + ')' : '')));
         else if (!me.flask && me.guardianElixir && isUtilityGuardian(me.guardianElixir) && ref && ref.flaskShare >= 0.5 && ref.flask)
-            f.push(finding('wrong_elixir', 'minor', 'player', me.guardianElixir + ' at ' + theName(kill.name) + ' pull, while comparable players ran ' + ref.flask + '; a flask does more for your damage'));
+            f.push(finding('wrong_elixir', 'minor', 'player', me.guardianElixir + ' at ' + theName(kill.name) + ' pull, while players ahead of you ran ' + ref.flask + '; a flask does more for your damage'));
         if (!me.food) f.push(finding('no_food', 'minor', 'player', 'No food buff at ' + theName(kill.name) + ' pull'));
         if (ref && ref.buffsAtPull.length) {
             const missing = ref.buffsAtPull.filter(b => !me.partyBuffs.includes(b));
-            if (missing.length) f.push(finding('buffs_missing', 'minor', 'group', 'Group buffs comparable players had at the pull that you did not on ' + kill.name + ': ' + missing.join(', ') + '. Worth asking to be grouped with them', { buffs: missing }));
+            if (missing.length) f.push(finding('buffs_missing', 'minor', 'group', 'Group buffs players ahead of you had at the pull that you did not on ' + kill.name + ': ' + missing.join(', ') + '. Worth asking to be grouped with them', { buffs: missing }));
         }
     }
     if (me.potionUse === 0 && kill.fight.durationSec > T.potionMinSec)
         f.push(finding('no_potion', 'minor', 'player', 'No potion used on ' + kill.name + ' (' + Math.round(kill.fight.durationSec) + 's)'));
     if (ref && ref.bloodlustPercent > 0 && me.bloodlustPercent === 0)
-        f.push(finding('bloodlust_uptime', 'minor', 'group', 'No Bloodlust on ' + kill.name + ' while comparable players had it'));
+        f.push(finding('bloodlust_uptime', 'minor', 'group', 'No Bloodlust on ' + kill.name + ' while players ahead of you had it'));
     // v2 §6: a burst the player fires only outside Bloodlust, on a fight that had it, where
     // comparable players fire it inside.
     if (ref && Array.isArray(ref.burst) && me.bloodlustPercent > 0) {
         (me.burst || []).forEach(b => {
             const r = ref.burst.find(x => x.name === b.name);
             if (r && r.insideBloodlust >= 1 && b.uses >= 1 && b.insideBloodlust === 0)
-                f.push(finding('burst_outside_bloodlust', 'minor', 'player', 'Used ' + burstLabel(b.name) + ' ' + (b.uses === 1 ? 'once' : b.uses + ' times') + ' on ' + kill.name + ', never inside Bloodlust; comparable players line it up with Bloodlust', { ability: b.name }));
+                f.push(finding('burst_outside_bloodlust', 'minor', 'player', 'Used ' + burstLabel(b.name) + ' ' + (b.uses === 1 ? 'once' : b.uses + ' times') + ' on ' + kill.name + ', never inside Bloodlust; players ahead of you line it up with Bloodlust', { ability: b.name }));
         });
     }
     return f;

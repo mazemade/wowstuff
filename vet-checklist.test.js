@@ -59,10 +59,10 @@ test('castingRows: cast_rate from cast_pacing with the spec\'s filler, activity 
     assert.strictEqual(cr.text, 'Casting: 20 damaging casts a minute while active against 24 on Void Reaver');
     assert.strictEqual(cr.fix, 'Queue the next Shadow Bolt before the current one lands; move only when you must, and use Shadowburn or Life Tap while moving.');
     const act = rows.find(r => r.id === 'activity');
-    assert.strictEqual(act.verdict, 'warn'); assert.strictEqual(act.text, 'Active 90% against 95% for comparable players (your raid: 96%) on Void Reaver');
+    assert.strictEqual(act.verdict, 'warn'); assert.strictEqual(act.text, 'Active 90% against 95% for players ahead of you (your raid: 96%) on Void Reaver');
     assert.strictEqual(rows.find(r => r.id === 'channel').verdict, 'pass');
     const lt = rows.find(r => r.id === 'life_taps');
-    assert.strictEqual(lt.verdict, 'info'); assert.strictEqual(lt.value, null); assert.strictEqual(lt.text, 'Life Tap 1.9 a minute; comparable players 2.6');
+    assert.strictEqual(lt.verdict, 'info'); assert.strictEqual(lt.value, null); assert.strictEqual(lt.text, 'Life Tap 1.9 a minute; players ahead of you 2.6');
 });
 test('castingRows: without an accounting the v2 active_low rule gives a habit row, never a share', () => {
     const k = gapKill('Al\'ar', {}, { gap: null }); k.me.activePercent = 70; k.fight.raidActivePercent = 90;
@@ -90,12 +90,12 @@ test('groupRows: debuffs names what is missing on how many pulls and who brings 
     assert.strictEqual(b.text, 'No Moonkin Aura in your group on 2 of 2 pulls (a moonkin)');
     const c = rows.find(r => r.id === 'curse');
     assert.strictEqual(c.verdict, 'warn'); assert.strictEqual(c.owner, 'group'); assert.strictEqual(c.value, null);
-    assert.strictEqual(c.text, 'You run Curse of the Elements (assignment); comparable players run Curse of Doom, 7% of their damage');
+    assert.strictEqual(c.text, 'You run Curse of the Elements (assignment); players ahead of you run Curse of Doom, 7% of their damage');
     assert.strictEqual(c.fix, 'Rotate the assignment or give it to the warlock with the lowest DPS.');
 });
 test('groupRows: bloodlust ask only when the reference had it and the player did not', () => {
     const k = gapKill('Void Reaver', {}); k.me.bloodlustPercent = 0;
-    assert.strictEqual(C.groupRows(sheet([k])).find(r => r.id === 'bloodlust').text, 'No Bloodlust on 1 of 1 pulls while comparable players had it');
+    assert.strictEqual(C.groupRows(sheet([k])).find(r => r.id === 'bloodlust').text, 'No Bloodlust on 1 of 1 pulls while players ahead of you had it');
     assert.ok(!C.groupRows(sheet([gapKill('Void Reaver', {})])).find(r => r.id === 'bloodlust'));
 });
 test('raidRows: raid_activity is a row only at 3% or more', () => {
@@ -103,13 +103,13 @@ test('raidRows: raid_activity is a row only at 3% or more', () => {
     assert.deepStrictEqual(C.raidRows(sheet([gapKill('Al\'ar', { raid_activity: 2 })])), []);
 });
 
-test('consumableRows: flask fails on elixirs when comparable players flask; the value is the larger of the accounting share and the nominal', () => {
+test('consumableRows: flask fails on elixirs when players ahead of you flask; the value is the larger of the accounting share and the nominal', () => {
     const k1 = gapKill('Lady Vashj', { power_consumables: 1 }), k2 = gapKill('Al\'ar', { power_consumables: 3 });
     k1.me.consumablesAtPull = ['Elixir of Draenic Wisdom', 'Major Shadow Power', 'Well Fed']; k1.me.guardianElixir = 'Elixir of Draenic Wisdom';
     const rows = C.consumableRows(sheet([k1, k2]), C.DEFAULT_T);
     const fl = rows.find(r => r.id === 'flask');
     assert.strictEqual(fl.verdict, 'fail'); assert.deepStrictEqual(fl.pulls, { hit: 2, of: 2 }); assert.strictEqual(fl.value, 2);
-    assert.strictEqual(fl.text, 'Flask: Elixir of Draenic Wisdom + Major Shadow Power at the Lady Vashj pull; comparable players run Flask of Pure Death');
+    assert.strictEqual(fl.text, 'Flask: Elixir of Draenic Wisdom + Major Shadow Power at the Lady Vashj pull; players ahead of you run Flask of Pure Death');
     assert.strictEqual(fl.fix, 'Run Flask of Pure Death at every pull.');
     assert.strictEqual(rows.find(r => r.id === 'food').verdict, 'pass');
     assert.ok(!rows.find(r => r.id === 'oil'), 'no oil row when the reference shows none');
@@ -126,7 +126,7 @@ test('consumableRows: potion fails on zero potions or on never using the referen
     k2.reference.casts = { 'Shadow Bolt': 80, Destruction: 2 }; k3.me.potionUse = 1; k3.me.casts.Destruction = 1;
     const p = C.consumableRows(sheet([k1, k2, k3]), C.DEFAULT_T).find(r => r.id === 'potion');
     assert.strictEqual(p.verdict, 'fail'); assert.deepStrictEqual(p.pulls, { hit: 2, of: 3 }); assert.strictEqual(p.value, 3);
-    assert.strictEqual(p.text, 'Destruction Potion: 0 on 2 of 3 pulls; comparable players use 1–2 a pull (up to 2 in a fight this long)');
+    assert.strictEqual(p.text, 'Destruction Potion: 0 on 2 of 3 pulls; players ahead of you use 1–2 a pull (up to 2 in a fight this long)');
     assert.strictEqual(p.fix, 'Pop one on the pull and again every two minutes.');
     const short = gapKill('Short', {}); short.fight.durationSec = 40;
     assert.ok(!C.consumableRows(sheet([short]), C.DEFAULT_T).find(r => r.id === 'potion'), 'a fight under potionMinSec is not measurable');
@@ -140,7 +140,7 @@ test('cooldownRows: burst_timing names the item fired outside Bloodlust', () => 
     const k = gapKill('Void Reaver', {}); k.me.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 0 }]; k.reference.burst = [{ name: 'Blessing of the Silver Crescent', uses: 2, insideBloodlust: 1 }];
     const b = C.cooldownRows(sheet([k])).find(r => r.id === 'burst_timing');
     assert.strictEqual(b.verdict, 'fail'); assert.strictEqual(b.value, 2);
-    assert.strictEqual(b.text, 'Blessing of the Silver Crescent used outside Bloodlust on 1 of 1 pulls; comparable players line it up with Bloodlust');
+    assert.strictEqual(b.text, 'Blessing of the Silver Crescent used outside Bloodlust on 1 of 1 pulls; players ahead of you line it up with Bloodlust');
     assert.strictEqual(b.fix, 'Hold Blessing of the Silver Crescent for Bloodlust.');
     assert.ok(!C.cooldownRows(sheet([gapKill('A', {})])).find(r => r.id === 'burst_timing'));
 });
@@ -151,7 +151,7 @@ test('spellRows: one unused row over all pulls, curses/racials/utility/potions e
     const rows = C.spellRows(sheet([k1, k2]), C.DEFAULT_T);
     const u = rows.find(r => r.id === 'unused');
     assert.strictEqual(u.verdict, 'fail'); assert.strictEqual(u.value, 2); assert.deepStrictEqual(u.pulls, { hit: 2, of: 2 });
-    assert.strictEqual(u.text, 'Never cast: Shadowburn (comparable players 0.4–1.3 a minute)');
+    assert.strictEqual(u.text, 'Never cast: Shadowburn (players ahead of you 0.4–1.3 a minute)');
     assert.strictEqual(u.fix, 'Use it while moving and under 25% boss health when you have shards.');
     assert.strictEqual(rows.filter(r => r.id === 'unused').length, 1);
 });
@@ -161,9 +161,9 @@ test('spellRows: under_used is a warn on the reference\'s top-3 abilities cast u
     k.reference.abilities = [{ name: 'Shadow Bolt', share: 86 }, { name: 'Shadowburn', share: 5 }];
     const rows = C.spellRows(sheet([k]), C.DEFAULT_T);
     const uu = rows.find(r => r.id === 'under_used');
-    assert.strictEqual(uu.verdict, 'warn'); assert.strictEqual(uu.text, 'Shadowburn 0.6 a minute against 1.3 for comparable players on Lady Vashj');
+    assert.strictEqual(uu.verdict, 'warn'); assert.strictEqual(uu.text, 'Shadowburn 0.6 a minute against 1.3 for players ahead of you on Lady Vashj');
     const ex = rows.find(r => r.id === 'extra');
-    assert.strictEqual(ex.verdict, 'info'); assert.strictEqual(ex.text, 'Cast while comparable players do not: Seed of Corruption (8 on Lady Vashj)');
+    assert.strictEqual(ex.verdict, 'info'); assert.strictEqual(ex.text, 'Cast while players ahead of you do not: Seed of Corruption (8 on Lady Vashj)');
     assert.ok(!rows.find(r => r.id === 'unused'));
 });
 
@@ -199,13 +199,13 @@ test('gearRows: hit from the current profile (value/bar) beats the pull; stat ro
         { key: 'gear_hit', severity: 'major', scope: 'player', text: 'Hit rating 185 against the 202 the raid asks for', value: 185, bar: 202 },
         { key: 'gear_enchants', severity: 'minor', scope: 'player', text: 'Missing enchants: 2 (Bracers, Boots)', value: 2, bar: null },
     ] } });
-    f.kills[0].findings = [{ key: 'gear_stat', owner: 'player', severity: 'minor', scope: 'player', share: null, stat: 'spellCrit', text: 'Spell crit rating 297 against 354 for players at your item level among the top 2000 parses', me: 297, reference: 354 }];
+    f.kills[0].findings = [{ key: 'gear_stat', owner: 'player', severity: 'minor', scope: 'player', share: null, stat: 'spellCrit', text: 'Spell crit rating 297 against 354 for players ahead of you at your item level', me: 297, reference: 354 }];
     const rows = C.gearRows(f);
     const hit = rows.find(r => r.id === 'hit');
     assert.strictEqual(hit.verdict, 'fail'); assert.strictEqual(hit.me, 185); assert.strictEqual(hit.reference, 202); assert.strictEqual(hit.value, 1);
     assert.strictEqual(hit.text, 'Hit: 185 on your current gear against the 202 your raid asks for'); assert.strictEqual(hit.fix, 'Reach 202 hit before any other stat.');
     const crit = rows.find(r => r.id === 'stat_spellCrit');
-    assert.strictEqual(crit.verdict, 'warn'); assert.strictEqual(crit.text, 'Spell crit rating 297 against 354 for comparable players'); assert.strictEqual(crit.fix, 'Prefer spell crit when upgrading.');
+    assert.strictEqual(crit.verdict, 'warn'); assert.strictEqual(crit.text, 'Spell crit rating 297 against 354 for players ahead of you'); assert.strictEqual(crit.fix, 'Prefer spell crit when upgrading.');
     const en = rows.find(r => r.id === 'enchants');
     assert.strictEqual(en.verdict, 'warn'); assert.strictEqual(en.fix, 'Enchant Bracers, Boots.');
 });

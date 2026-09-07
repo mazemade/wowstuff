@@ -97,7 +97,7 @@ function castingRows(facts, T) {
         // Fine (spec §4.3) is one sentence listing the passes, never a number — a passing share
         // still measured a real percentage, but that number belongs in Fix first/Also, not Fine.
         text: (i, k, label, share) => verdictForShare(share) === 'pass' ? 'active throughout' :
-            'Active ' + pct(i.me) + '% against ' + pct(i.reference) + '% for comparable players' + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : '') + ' on ' + label,
+            'Active ' + pct(i.me) + '% against ' + pct(i.reference) + '% for players ahead of you' + (num(k.fight.raidActivePercent) !== null ? ' (your raid: ' + pct(k.fight.raidActivePercent) + '%)' : '') + ' on ' + label,
         fix: 'Keep casting through transitions; if an assignment took you off the boss, tell the raid leader so it is counted as not on you.' });
     if (act) out.push(act);
     else {
@@ -113,7 +113,7 @@ function castingRows(facts, T) {
         }
     }
     const ch = shareRow(facts, { id: 'channel', key: 'channel_time', category: 'casting',
-        text: (i, k, label) => 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + label + '; comparable players ' + pct(i.reference),
+        text: (i, k, label) => 'Channelling Drain Soul and other utility ' + pct(i.me) + ' seconds of every minute on ' + label + '; players ahead of you ' + pct(i.reference),
         fix: 'Drain Soul only in the last seconds; never channel while the boss is targetable.' });
     if (ch) out.push(ch);
     // Life taps: shown, never graded (tbc-audit's rule).
@@ -121,7 +121,7 @@ function castingRows(facts, T) {
     if (withRef.length) {
         const k = withRef[0];
         const mine = perMin((k.me.casts || {})['Life Tap'] || 0, k.fight.durationSec), theirs = perMin((k.reference.casts || {})['Life Tap'] || 0, k.reference.castsDurationSec);
-        out.push(row({ id: 'life_taps', category: 'casting', verdict: 'info', me: mine, reference: theirs, unit: 'a minute', measuredOn: pullLabel(k, kills), text: 'Life Tap ' + mine + ' a minute; comparable players ' + (theirs === null ? '—' : theirs) }));
+        out.push(row({ id: 'life_taps', category: 'casting', verdict: 'info', me: mine, reference: theirs, unit: 'a minute', measuredOn: pullLabel(k, kills), text: 'Life Tap ' + mine + ' a minute; players ahead of you ' + (theirs === null ? '—' : theirs) }));
     }
     return out;
 }
@@ -158,7 +158,7 @@ function groupRows(facts) {
     const lustKills = kills.filter(k => k.reference && num(k.reference.bloodlustPercent) !== null && num(k.me.bloodlustPercent) !== null);
     const noLust = lustKills.filter(k => k.reference.bloodlustPercent > 0 && k.me.bloodlustPercent === 0);
     if (noLust.length) out.push(row({ id: 'bloodlust', category: 'group', owner: 'group', verdict: verdictForHabit(noLust.length, lustKills.length), pulls: { hit: noLust.length, of: lustKills.length }, measuredOn: pullLabel(noLust[0], kills),
-        text: 'No Bloodlust on ' + pullsText(noLust.length, lustKills.length) + ' while comparable players had it' }));
+        text: 'No Bloodlust on ' + pullsText(noLust.length, lustKills.length) + ' while players ahead of you had it' }));
     // Curse: an assignment question, one row, only when the two sides' most-cast curse differ.
     const most = casts => Object.keys(casts || {}).filter(isCurse).filter(n => casts[n] > 0).sort((a, b) => casts[b] - casts[a])[0] || null;
     const differ = kills.filter(k => k.reference && most(k.me.casts) && most(k.reference.casts) && most(k.me.casts) !== most(k.reference.casts) && !(k.me.casts || {})[most(k.reference.casts)]);
@@ -170,7 +170,7 @@ function groupRows(facts) {
         const k = differ.find(x => most(x.reference.casts) === theirs), mine = most(k.me.casts);
         const ab = (k.reference.abilities || []).find(a => a.name === theirs);
         out.push(row({ id: 'curse', category: 'group', owner: 'group', verdict: 'warn', pulls: { hit: differ.length, of: kills.filter(x => x.reference).length }, measuredOn: pullLabel(k, kills),
-            text: 'You run ' + mine + ' (assignment); comparable players run ' + theirs + (ab && num(ab.share) !== null ? ', ' + Math.round(ab.share) + '% of their damage' : ''),
+            text: 'You run ' + mine + ' (assignment); players ahead of you run ' + theirs + (ab && num(ab.share) !== null ? ', ' + Math.round(ab.share) + '% of their damage' : ''),
             fix: 'Rotate the assignment or give it to the warlock with the lowest DPS.' }));
     }
     return out;
@@ -201,7 +201,7 @@ function consumableRows(facts, T) {
         const had = (k.me.consumablesAtPull || []).filter(n => !/^well fed$/i.test(n) && !OIL.test(n));
         const share = averageShare(kills, 'power_consumables');
         return { id: 'flask', category: 'consumables', value: v === 'pass' ? null : Math.max(share || 0, NOMINAL_VALUE.flask),
-                 text: v === 'pass' ? 'Flask at every pull' : 'Flask: ' + (had.length ? had.join(' + ') : 'nothing') + ' at the ' + pullLabel(k, kills) + ' pull' + (refFlask(k) ? '; comparable players run ' + refFlask(k) : ''),
+                 text: v === 'pass' ? 'Flask at every pull' : 'Flask: ' + (had.length ? had.join(' + ') : 'nothing') + ' at the ' + pullLabel(k, kills) + ' pull' + (refFlask(k) ? '; players ahead of you run ' + refFlask(k) : ''),
                  fix: 'Run ' + (refFlask(k) || 'a flask') + ' at every pull.' };
     } });
     if (flask) out.push(flask);
@@ -226,7 +226,7 @@ function consumableRows(facts, T) {
         const label = p ? GAP.POTION_LABEL[p.name] : 'Potion';
         const range = counts.length ? (counts[0] === counts[counts.length - 1] ? String(counts[0]) : counts[0] + '–' + counts[counts.length - 1]) : null;
         return { id: 'potion', category: 'consumables', value: v === 'pass' ? null : Math.min(6, NOMINAL_VALUE.potion * Math.max(1, median)),
-                 text: v === 'pass' ? 'A potion on every pull' : label + ': 0 on ' + pullsText(failing.length, potionable.length) + (range ? '; comparable players use ' + range + ' a pull' : '') + ' (up to ' + possible + ' in a fight this long)',
+                 text: v === 'pass' ? 'A potion on every pull' : label + ': 0 on ' + pullsText(failing.length, potionable.length) + (range ? '; players ahead of you use ' + range + ' a pull' : '') + ' (up to ' + possible + ' in a fight this long)',
                  fix: 'Pop one on the pull and again every two minutes.' };
     } });
     if (potion) out.push(potion);
@@ -242,7 +242,7 @@ function cooldownRows(facts) {
     if (!failing.length) return [];
     const names = Array.from(new Set(failing.flatMap(outside)));
     return [row({ id: 'burst_timing', category: 'cooldowns', verdict: verdictForHabit(failing.length, lustKills.length), pulls: { hit: failing.length, of: lustKills.length }, value: NOMINAL_VALUE.burst_timing, measuredOn: pullLabel(failing[0], kills),
-                  text: names.join(' and ') + ' used outside Bloodlust on ' + pullsText(failing.length, lustKills.length) + '; comparable players line it up with Bloodlust', fix: 'Hold ' + names.join(' and ') + ' for Bloodlust.' })];
+                  text: names.join(' and ') + ' used outside Bloodlust on ' + pullsText(failing.length, lustKills.length) + '; players ahead of you line it up with Bloodlust', fix: 'Hold ' + names.join(' and ') + ' for Bloodlust.' })];
 }
 
 // --- spell choice (spec §4.3 "Spell choice"; the v3 rotationFindings rules, aggregated)
@@ -269,8 +269,8 @@ function spellRows(facts, T) {
         const failing = kills.filter(k => names.some(n => (k.reference.casts || {})[n] && !(k.me.casts || {})[n]));
         const range = n => { const r = rates[n].slice().sort((a, b) => a - b); return r[0] === r[r.length - 1] ? String(r[0]) : r[0] + '–' + r[r.length - 1]; };
         out.push(row({ id: 'unused', category: 'spells', verdict: verdictForHabit(failing.length, kills.length), pulls: { hit: failing.length, of: kills.length }, value: NOMINAL_VALUE.unused, measuredOn: pullLabel(failing[0], kills),
-                       text: 'Never cast: ' + names.map((n, i) => n + ' (' + (i === 0 ? 'comparable players ' : '') + range(n) + ' a minute)').join(', '),
-                       fix: ABILITY_FIX[names[0]] || 'Use it as comparable players do.' }));
+                       text: 'Never cast: ' + names.map((n, i) => n + ' (' + (i === 0 ? 'players ahead of you ' : '') + range(n) + ' a minute)').join(', '),
+                       fix: ABILITY_FIX[names[0]] || 'Use it as players ahead of you do.' }));
     }
     // under_used: a top-3 reference ability the player casts under ratioLow of the reference rate.
     const under = [];
@@ -281,12 +281,12 @@ function spellRows(facts, T) {
     if (under.length) {
         const u = under[0];
         out.push(row({ id: 'under_used', category: 'spells', verdict: 'warn', pulls: { hit: new Set(under.map(x => x.k)).size, of: kills.length }, me: u.p, reference: u.r, unit: 'a minute', measuredOn: pullLabel(u.k, kills),
-                       text: u.n + ' ' + u.p + ' a minute against ' + u.r + ' for comparable players on ' + pullLabel(u.k, kills), fix: ABILITY_FIX[u.n] || 'Use it as often as comparable players do.' }));
+                       text: u.n + ' ' + u.p + ' a minute against ' + u.r + ' for players ahead of you on ' + pullLabel(u.k, kills), fix: ABILITY_FIX[u.n] || 'Use it as often as players ahead of you do.' }));
     }
     // extra: cast at least extraPerMin a minute while the reference never casts it — info only.
     const extra = [];
     kills.forEach(k => { const min = k.fight.durationSec / 60; Object.keys(k.me.casts || {}).forEach(n => { if ((k.reference.casts || {})[n] || offLimits(n)) return; if (k.me.casts[n] / min >= T.extraPerMin) extra.push(n + ' (' + k.me.casts[n] + ' on ' + pullLabel(k, kills) + ')'); }); });
-    if (extra.length) out.push(row({ id: 'extra', category: 'spells', verdict: 'info', text: 'Cast while comparable players do not: ' + extra.join(', ') }));
+    if (extra.length) out.push(row({ id: 'extra', category: 'spells', verdict: 'info', text: 'Cast while players ahead of you do not: ' + extra.join(', ') }));
     return out;
 }
 
@@ -359,7 +359,7 @@ function gearRows(facts) {
     Object.keys(byStat).forEach(stat => {
         const first = byStat[stat][0];
         out.push(row({ id: 'stat_' + stat, category: 'gear', verdict: 'warn', me: first.f.me, reference: first.f.reference, pulls: { hit: byStat[stat].length, of: kills.length }, measuredOn: pullLabel(first.k, kills),
-                       text: first.f.text.replace(' for ' + GAP.REF_LABEL, ' for comparable players'), fix: 'Prefer ' + (STAT_WORD[stat] || stat) + ' when upgrading.' }));
+                       text: first.f.text.replace(' for ' + GAP.REF_LABEL, ' for players ahead of you'), fix: 'Prefer ' + (STAT_WORD[stat] || stat) + ' when upgrading.' }));
     });
     gear.filter(g => g.key === 'gear_enchants' || g.key === 'gear_sockets').forEach(g => {
         const slots = /\(([^)]+)\)/.exec(g.text);
@@ -375,7 +375,7 @@ function passRows(facts) {
     if (kills.length && kills.every(k => !k.me.died)) out.push(row({ id: 'deaths', category: 'casting', verdict: 'pass', text: 'no deaths' }));
     const acc = kills.filter(k => inputOf(k, 'power_gear'));
     if (acc.length && acc.every(k => { const i = inputOf(k, 'power_gear'); return num(i.me) !== null && num(i.reference) !== null && i.me >= i.reference; }))
-        out.push(row({ id: 'power_gear', category: 'gear', verdict: 'pass', text: (facts.player && (facts.player.role === 'melee' || facts.player.role === 'ranged' || facts.player.role === 'tank') ? 'attack power' : 'spell power') + ' on par with comparable players' }));
+        out.push(row({ id: 'power_gear', category: 'gear', verdict: 'pass', text: (facts.player && (facts.player.role === 'melee' || facts.player.role === 'ranged' || facts.player.role === 'tank') ? 'attack power' : 'spell power') + ' on par with players ahead of you' }));
     return out;
 }
 
@@ -448,7 +448,7 @@ function renderReport(cl, facts) {
         if (fractionWord(v.onYou)) parts.push(fractionWord(v.onYou) + ' of that gap is on you');
         if (fractionWord(v.onSetup)) parts.push(fractionWord(v.onSetup) + ' is the raid\'s setup');
         if (fractionWord(v.onRest)) parts.push('the rest is the raid\'s pulls and luck');
-        out.push('You do ' + v.ratioPercent + '% of what comparable players do (' + GAP.REF_LABEL + ').' + (parts.length ? ' ' + parts.join(', ').replace(/^./, c => c.toUpperCase()) + '.' : ''));
+        out.push('You do ' + v.ratioPercent + '% of what ' + GAP.REF_LABEL + ' do.' + (parts.length ? ' ' + parts.join(', ').replace(/^./, c => c.toUpperCase()) + '.' : ''));
     }
     const section = (title, ids, numbered) => { if (!ids.length) return; out.push('', title); ids.forEach((id, i) => out.push((numbered ? (i + 1) + '. ' : '- ') + line(byId(id)))); };
     section(facts.limited ? 'What\'s holding your healing back' : 'Fix first', cl.fixFirst, true);
@@ -458,7 +458,7 @@ function renderReport(cl, facts) {
     if (cl.stand.length) {
         const cls = String(p.class || 'player').toLowerCase();
         out.push('', 'Where you stand');
-        cl.stand.forEach(s => out.push(s.name + ': you ' + s.me + (s.sameClass.length ? '; ' + cls + 's in your raid ' + s.sameClass.join(' / ') : '') + '; comparable players ' + s.dps + '; the best at your item level ' + s.topDps));
+        cl.stand.forEach(s => out.push(s.name + ': you ' + s.me + (s.sameClass.length ? '; ' + cls + 's in your raid ' + s.sameClass.join(' / ') : '') + '; players ahead of you ' + s.dps + '; the best at your item level ' + s.topDps));
     }
     const bp = cl.notOnYou.badPulls;
     if (bp.groups.length || cl.notOnYou.rows.length) {
