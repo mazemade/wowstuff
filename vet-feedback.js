@@ -687,6 +687,17 @@ function gearFindings(profile, thresholds, now) {
     return f;
 }
 
+// logs-first A2: every tier the player has kills in, with its own WCL median — the page shows
+// these side by side rather than a blended average WCL never computed. Requested zone first.
+function tierList(profile) {
+    const p = profile && profile.parses;
+    if (!p) return [];
+    const row = t => ({ zone: t.zone, zoneName: t.zoneName, medianPercent: round1(t.medianPercent) });
+    const out = [row(p)];
+    if (p.other) out.push(row(p.other));
+    return out.sort((a, b) => (b.zone === profile.zone) - (a.zone === profile.zone));
+}
+
 function buildFacts(o) {
     const { profile, player, kills, thresholds, now, limited, droppedKills, nights, night } = o;
     const th = V.parseThresholds(thresholds || {});
@@ -710,6 +721,7 @@ function buildFacts(o) {
                   itemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null, gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null,
                   talentSplit: profile.identity ? profile.identity.talentSplit : null },
         tier: { zone: profile.parses.zone, zoneName: profile.parses.zoneName, medianPercent: round1(profile.parses.medianPercent), threshold: th.parse },
+        tiers: tierList(profile),
         gear: { gearScore: typeof gs.gearScore === 'number' ? gs.gearScore : null, avgItemLevel: typeof gs.avgItemLevel === 'number' ? gs.avgItemLevel : null,
                 missingEnchants: Array.isArray(profile.gear) ? profile.gear.filter(s => s.enchantable && !s.enchant && !s.empty).map(s => s.label) : [],
                 emptySockets: typeof gs.emptySockets === 'number' ? gs.emptySockets : null, findings: gear },
@@ -1014,6 +1026,20 @@ function buildNights(rankBlobs, bosses) {
     }));
 }
 
+// logs-first A3: the night picker alone — the profile plus ONE encounterRankings request
+// (~5 requests, ~3 s live) instead of the full 140-request analysis the picker used to hide
+// behind. Returns { nights, tiers }; nights is empty when the character has no ranked kills.
+async function fetchNights(query, o) {
+    const { profile } = o;
+    if (!profile || !profile.parses) return { nights: [], tiers: [] };
+    const killed = killedBosses(profile.parses);
+    const tiers = tierList(profile);
+    if (!killed.length) return { nights: [], tiers };
+    const er = await query(encounterRankQuery(killed.map(t => t.encounterId), profile.parses.metric), { name: profile.name, server: profile.server, region: profile.region });
+    const ch = er && er.characterData && er.characterData.character;
+    return { nights: ch ? buildNights(ch, killed) : [], tiers };
+}
+
 // The whole pipeline for one player (spec §3.1 steps 2–5). Returns null when there is nothing
 // to analyse; WCL errors (including rate limits) propagate to the route.
 async function fetchFeedback(query, o) {
@@ -1092,4 +1118,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, tierList, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback, fetchNights };

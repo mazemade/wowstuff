@@ -1403,6 +1403,32 @@ test('killFacts (logs-first A1): a kill carries the tier it was fought in', () =
     assert.strictEqual(k.zoneName, 'BT / Hyjal');
     assert.strictEqual(killFor(50619).zoneName, null, 'the old call shape gets null, not undefined');
 });
+test('tierList / facts.tiers (logs-first A2): both tiers with real medians, the requested zone first', () => {
+    const tiers = F.tierList(twoTierProfile());
+    assert.deepStrictEqual(tiers, [{ zone: 1060, zoneName: 'BT / Hyjal', medianPercent: 55.8 }, { zone: 1056, zoneName: 'SSC / TK', medianPercent: 59.7 }]);
+    const one = F.tierList(rotProfile());
+    assert.deepStrictEqual(one, [{ zone: 1060, zoneName: 'BT / Hyjal', medianPercent: 14 }]);
+    const facts = F.buildFacts({ profile: twoTierProfile(), player: Object.assign({}, PLAYER, { name: 'Utopik' }), kills: [], thresholds: {}, now: Date.now(), nights: [], night: null });
+    assert.deepStrictEqual(facts.tiers.map(t => t.zone), [1060, 1056]);
+});
+test('fetchNights (logs-first A3): one encounterRankings request, nights from both tiers, no analysis', async () => {
+    const calls = [];
+    const query = async q => {
+        calls.push(q);
+        return { characterData: { character: {
+            e50619: { ranks: [{ rankPercent: 81.5, startTime: 1788700000000, report: { code: 'X6mnbPQpGhjJC2TN', fightID: 3 } }] },
+            e50620: { ranks: [] }, e100731: { ranks: [] },
+            e100730: { ranks: [{ rankPercent: 90, startTime: 1788600000000, report: { code: 'fDBNk8Wm7Avjq6RJ', fightID: 1 } }] } } } };
+    };
+    const out = await F.fetchNights(query, { profile: twoTierProfile() });
+    assert.strictEqual(calls.length, 1);
+    assert.deepStrictEqual(out.nights.map(n => [n.code, n.zoneName]), [['X6mnbPQpGhjJC2TN', 'BT / Hyjal'], ['fDBNk8Wm7Avjq6RJ', 'SSC / TK']]);
+    assert.deepStrictEqual(out.tiers.map(t => t.zone), [1060, 1056]);
+    assert.deepStrictEqual(await F.fetchNights(query, { profile: { parses: null } }), { nights: [], tiers: [] });
+    const gone = await F.fetchNights(async () => ({ characterData: { character: null } }), { profile: twoTierProfile() });
+    assert.deepStrictEqual(gone.nights, []);
+    assert.strictEqual(gone.tiers.length, 2);
+});
 
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
