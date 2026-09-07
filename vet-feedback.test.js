@@ -513,7 +513,9 @@ test('rotationFindings: a once-per-fight cooldown outside the top 3 by damage sh
             castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Shadowburn': 1 },
             // Shadowburn is NOT in the top 3 by damage share, so the old "top3 or r>=1.5/min"
             // condition never fired for it: r = 1 cast / 2 min = 0.5/min, well under 1.5.
-            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Immolate', share: 5 }, { name: 'Curse of Recklessness', share: 3 }],
+            // ref-above B1: Shadowburn is an execute nuke, so it carries a real (if modest) share of
+            // damage — 2 keeps it above T.abilityMinShare while staying outside the top 3.
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Immolate', share: 5 }, { name: 'Curse of Recklessness', share: 3 }, { name: 'Shadowburn', share: 2 }],
         },
     };
     const f = F.rotationFindings(kill);
@@ -534,7 +536,9 @@ function rotKill(over) {
         me: { casts: { 'Shadow Bolt': 60 } },
         reference: {
             castsDurationSec: 120, casts: { 'Shadow Bolt': 60, 'Curse of Doom': 1, 'Shadowburn': 1, 'Destruction': 1 },
-            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Curse of Doom', share: 6 }, { name: 'Immolate', share: 3 }], burst: [],
+            // ref-above B1: Shadowburn is an execute nuke, so it carries a real (if modest) share of
+            // damage — 2 keeps it above T.abilityMinShare while staying outside the top 3.
+            abilities: [{ name: 'Shadow Bolt', share: 90 }, { name: 'Curse of Doom', share: 6 }, { name: 'Immolate', share: 3 }, { name: 'Shadowburn', share: 2 }], burst: [],
         },
     };
     const k = Object.assign({}, base, over || {});
@@ -1580,6 +1584,47 @@ test('getReference (ref-above A2): a player above the wide-band ceiling still ge
                                             playerAmount: 5200, playerRankPercent: 99 });
     assert.strictEqual(r.summary, null);
     assert.strictEqual(r.note, 'nothing at your item level beat you on this pull');
+});
+
+// --- ref-above B1: an ability nobody gains damage from is not a finding
+test('rotationFindings (ref-above B1): an ability with no damage share is not reported, however often the reference casts it', () => {
+    // Aspect of the Viper is a damage REDUCTION; Misdirection is threat. Funkell was told to cast
+    // both because the reference players did, at rates well over T.unusedPerMin.
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, 'Aspect of the Viper': 4, Misdirection: 4 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }, { name: 'Aspect of the Viper', share: 0 }, { name: 'Misdirection', share: 0 }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.deepStrictEqual(f, [], 'nothing to report: ' + JSON.stringify(f.map(x => x.text)));
+});
+test('rotationFindings (ref-above B1): an ability that does carry damage is still reported', () => {
+    const k = rotKill({ me: { casts: { 'Shadow Bolt': 60 } }, reference: {
+        casts: { 'Shadow Bolt': 60, Immolate: 6 },
+        abilities: [{ name: 'Shadow Bolt', share: 80 }, { name: 'Immolate', share: 20 }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.strictEqual(f.length, 1);
+    assert.ok(/Immolate/.test(f[0].text), f[0].text);
+});
+test('rotationFindings (ref-above B1): a burst cooldown is kept even with no damage share of its own', () => {
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, Recklessness: 1 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }],
+        burst: [{ name: 'Recklessness' }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.strictEqual(f.length, 1, 'burst survives the share gate');
+    assert.ok(/Recklessness/.test(f[0].text), f[0].text);
+});
+test('rotationFindings (ref-above B1): drinking an elixir is not an ability to cast', () => {
+    // Tipsi was told to "cast" Elixir of Demonslaying. Consuming an elixir deals no damage, so it
+    // carries no share and the same gate removes it — no consumable list needed.
+    const k = rotKill({ reference: {
+        casts: { 'Shadow Bolt': 60, 'Elixir of Demonslaying': 2 },
+        abilities: [{ name: 'Shadow Bolt', share: 100 }],
+    } });
+    const f = F.rotationFindings(k).filter(x => x.key === 'ability_unused');
+    assert.deepStrictEqual(f, [], 'consumables are not rotation advice: ' + JSON.stringify(f.map(x => x.text)));
 });
 
 Promise.all(pending).then(() => {

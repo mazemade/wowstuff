@@ -40,6 +40,10 @@ const T = {
     // slip past both. This fills that gap: a large share of the whole raid dying is bad-pull
     // evidence on its own, independent of role or duration.
     raidDeathsShare: 0.3,
+    // ref-above B1: an ability is only worth naming if the reference actually got damage out of
+    // it. Below this share of their damage it is a utility press (Misdirection), a deliberate
+    // damage loss (Aspect of the Viper) or a snare (Hamstring) — never a fix.
+    abilityMinShare: 2,
 };
 
 const WCL_CLASS_NAME = { DRUID: 'Druid', HUNTER: 'Hunter', MAGE: 'Mage', PALADIN: 'Paladin', PRIEST: 'Priest', ROGUE: 'Rogue', SHAMAN: 'Shaman', WARLOCK: 'Warlock', WARRIOR: 'Warrior' };
@@ -557,6 +561,7 @@ function rotationFindings(kill) {
     if (!ref || !kill.fight.durationSec || !ref.castsDurationSec) return f;
     const min = kill.fight.durationSec / 60, refMin = ref.castsDurationSec / 60;
     const top3 = ref.abilities.slice(0, 3).map(a => a.name);
+    const refShare = name => { const a = (ref.abilities || []).find(x => x && x.name === name); return a && typeof a.share === 'number' ? a.share : 0; };
     const fmt = x => Math.round(x * 10) / 10;
     // Final review item 5: names nobody should be asked about at all.
     const offLimits = name => RACIAL.test(name) || ENCOUNTER_ITEM.test(name);
@@ -577,15 +582,18 @@ function rotationFindings(kill) {
             // Minor 20 (spec 4.3): unused when the reference casts it >= 1.5/min OR at least once
             // per fight — the second clause is what catches a once-per-fight cooldown like Curse of
             // Doom even when it is not one of the reference's top-3 abilities by damage share.
+            // v2 §6, revised by Important 1 (whole-branch review): on-use items and potions stay
+            // in the comparison (they are a large, cheap DPS gain) but are named for what they
+            // are via burstLabel. A potion is a burst even when the captured Buffs table carries
+            // no bands to prove it (POTION_LABEL), so the line reads "Destruction Potion".
+            const isBurst = (Array.isArray(ref.burst) && ref.burst.some(b => b.name === name)) || !!POTION_LABEL[name];
+            // ref-above B1: rate alone is not a reason — the reference has to have got damage
+            // out of it, unless it is a burst cooldown, whose value is what it multiplies.
+            if (!isBurst && refShare(name) < T.abilityMinShare) return;
             if (r >= T.unusedPerMin || ref.casts[name] >= T.unusedPerFightCooldown) {
-                // v2 §6, revised by Important 1 (whole-branch review): on-use items and potions stay
-                // in the comparison (they are a large, cheap DPS gain) but are named for what they
-                // are via burstLabel. A potion is a burst even when the captured Buffs table carries
-                // no bands to prove it (POTION_LABEL), so the line reads "Destruction Potion".
-                const isBurst = (Array.isArray(ref.burst) && ref.burst.some(b => b.name === name)) || !!POTION_LABEL[name];
                 unused.push({ name, rate: fmt(r), isBurst, top3: top3.includes(name) });
             }
-        } else if (top3.includes(name) && p < T.ratioLow * r) {
+        } else if (top3.includes(name) && refShare(name) >= T.abilityMinShare && p < T.ratioLow * r) {
             f.push(finding('ability_ratio', 'minor', 'player', name + ' ' + fmt(p) + ' times a minute on ' + kill.name + ' against ' + fmt(r) + ' for comparable players', { ability: name }));
         }
     });
