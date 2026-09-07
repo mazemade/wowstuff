@@ -68,15 +68,18 @@ test('scenes: each has an id, phase, title and one caption', () => {
 });
 
 test('scenes: each frames its own patch of the room', () => {
+    const roomWide = (FIGHT.arena.x1 - FIGHT.arena.x0) / FIGHT.yard;
     FIGHT.scenes.forEach(s => {
         assert.ok(s.view, s.id + ' says where to point the camera');
         assert.ok(s.view.cx > 0 && s.view.cx < 1 && s.view.cy > 0 && s.view.cy < 1, s.id + ' centres on the map');
-        assert.ok(s.view.spanYards >= 30 && s.view.spanYards <= 160, s.id + ' span: ' + s.view.spanYards);
+        assert.ok(s.view.spanYards >= 25 && s.view.spanYards <= roomWide * 1.6, s.id + ' span: ' + s.view.spanYards);
     });
     const spans = FIGHT.scenes.map(s => s.view.spanYards);
-    assert.ok(Math.max(...spans) > 120, 'the raid-wide steps show the whole room');
-    assert.ok(Math.min(...spans) < Math.max(...spans) * 0.8,
-        'and at least one step comes in closer than the room-wide ones');
+    assert.ok(Math.max(...spans) >= roomWide, 'one step shows the whole room');
+    assert.ok(Math.min(...spans) < roomWide,
+        'and the closest step crops the room rather than showing all of it');
+    assert.ok(Math.min(...spans) < Math.max(...spans) * 0.75,
+        'the mechanics come in closer than the room-wide steps, the way the first cut did');
 });
 
 test('scenes: ids are unique', () => {
@@ -139,6 +142,24 @@ test('scenes: the mechanics play on the whole raid, not a handful of demo dots',
         'and moving back in for Phase 1');
 });
 
+test('scenes: every step that runs a mechanic says who it is happening to', () => {
+    const HAZARD = { trail: 1, volcano: 1, gaze: 1, impact: 1 };
+    // A step that dims the raid has to be able to light somebody back up: either it names
+    // them, or it carries a hazard with a keep-out radius, which walks people off their spot
+    // and the renderer picks those out on its own.
+    FIGHT.scenes.filter(s => (s.effects || []).some(e => HAZARD[e.kind])).forEach(s => {
+        const named = Object.keys(s.cast || {}).length || (s.focus || []).length
+            || (s.effects || []).some(e => e.kind === 'impact' || e.avoid > 0);
+        assert.ok(named, s.id + ' dims the raid but nothing can pick anyone out of it');
+    });
+    FIGHT.scenes.forEach(s => {
+        Object.keys(s.roles || {}).forEach(k => {
+            assert.ok((s.cast || {})[k], s.id + ' labels ' + k + ', which is not in its cast');
+            assert.ok(s.roles[k].length < 12, s.id + '/' + k + ' label is a word, not a sentence');
+        });
+    });
+});
+
 test('scenes: cast members name real raid slots', () => {
     const total = FIGHT.roster.tanks + FIGHT.roster.healers + FIGHT.roster.melee + FIGHT.roster.ranged;
     FIGHT.scenes.forEach(s => {
@@ -150,13 +171,18 @@ test('scenes: cast members name real raid slots', () => {
     });
 });
 
-test('the room is laid out for exactly one raid', () => {
+test('the room is laid out for exactly one raid, all of it inside spell range', () => {
     const r = FIGHT.roster;
-    assert.strictEqual(r.tanks + r.healers + r.melee + r.ranged, 25);
-    ['x0', 'x1', 'y0', 'y1'].forEach(k => assert.ok(typeof FIGHT.grid[k] === 'number', 'grid.' + k));
-    assert.ok(FIGHT.grid.x1 > FIGHT.grid.x0 && FIGHT.grid.y1 > FIGHT.grid.y0);
-    assert.ok(FIGHT.bossAt.y < FIGHT.grid.y0, 'he is parked in front of the spread, not inside it');
-    assert.ok(FIGHT.stack.arcRadius > 8, 'melee stand behind him, outside the tank stack');
+    const raid = r.tanks + r.healers + r.melee + r.ranged;
+    assert.strictEqual(raid, 25);
+    assert.strictEqual(FIGHT.arcs.reduce((n, a) => n + a.count, 0), raid, 'one standing spot each');
+    FIGHT.arcs.forEach((a, i) => {
+        assert.ok(a.radius <= 30, 'arc ' + i + ' is inside spell range: ' + a.radius);
+        assert.ok(a.to > a.from, 'arc ' + i + ' runs round behind him');
+        if (i) assert.ok(a.radius > FIGHT.arcs[i - 1].radius, 'arcs step outwards');
+    });
+    assert.ok(FIGHT.arcs[0].radius > FIGHT.stack.arcRadius, 'the back stands clear of the melee arc');
+    assert.ok(FIGHT.stack.arcRadius > FIGHT.stack.tankBack, 'melee stand behind the tank stack');
 });
 
 test('tips: the raid sheet lines are carried verbatim with their source', () => {

@@ -20,23 +20,30 @@
         map: 'maps/tactics/supremus-map.jpg',
         aspect: 1600 / 889,
 
-        // The courtyard mat, measured off the map capture. Roughly 90 yards across, which
-        // sets the yard: 0.435 of the map width spans that, so one yard is ~0.0048.
+        // The courtyard mat, measured off the map capture. The yard is calibrated so the raid
+        // in the user's own raidplan fits: 25 people spread behind him and still inside spell
+        // range. It puts the courtyard at about 62 by 71 yards. This is the one figure on the
+        // page not taken from game data — it scales every danger circle, so check it in game
+        // before trusting the radii to the yard.
         arena: { x0: 0.285, x1: 0.720, y0: 0.060, y1: 0.950 },
-        yard: 0.0048,
+        yard: 0.0070,
 
         // Both phases run 60 seconds, forever, and threat wipes at every swap.
         phaseSeconds: 60,
 
         roster: { tanks: 2, healers: 6, melee: 7, ranged: 10 },
 
-        // Where he is parked for Phase 1, and the grid of standing spots behind him. The
-        // raid's own sheet spreads for the whole fight ("spread out to mitigate those hit by
-        // Molten Flame"), so there is one set of spots, not one per phase — see
-        // tactics-layout.js.
-        bossAt: { x: 0.500, y: 0.205 },
-        grid: { x0: 0.320, x1: 0.690, y0: 0.390, y1: 0.900, jitterX: 0.024, jitterY: 0.038 },
-        stack: { tankApart: 1.7, tankBack: 4.4, arcRadius: 13.5, arcFrom: 18, arcTo: 162 },
+        // Where he is parked, and the standing spots behind him. Three arcs rather than a grid:
+        // everyone has to be inside 30 yards to cast at him, and a boss parked against a wall
+        // leaves only a half-circle to stand in, so the spots are packed as far apart as that
+        // allows — about 7 yards, not the 8 a geyser wants. That is what the fight gives you.
+        bossAt: { x: 0.500, y: 0.235 },
+        arcs: [
+            { count: 5, radius: 15, from: 28, to: 152 },
+            { count: 9, radius: 22, from: 15, to: 165 },
+            { count: 11, radius: 29.5, from: 12, to: 168 }
+        ],
+        stack: { tankApart: 1.7, tankBack: 4.4, arcRadius: 11, arcFrom: 28, arcTo: 152 },
 
         source: 'Dungeon journal via raidplan.io · Black Temple cheat sheet',
 
@@ -138,7 +145,7 @@
         scenes: [
             {
                 id: 'overview',
-                view: { cx: 0.500, cy: 0.505, spanYards: 112 },
+                view: { cx: 0.500, cy: 0.430, spanYards: 78 },
                 phase: 0,
                 title: 'Two phases, a minute each',
                 caption: 'He alternates on a strict timer and never stops. Threat wipes completely at every swap.',
@@ -152,7 +159,7 @@
             },
             {
                 id: 'p1-stand',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 1,
                 title: 'Where you stand in Phase 1',
                 caption: 'Tanks stacked on him, melee behind him, everyone else on their own spot. That spread holds for the whole fight.',
@@ -164,13 +171,14 @@
             },
             {
                 id: 'p1-hateful',
-                view: { cx: 0.500, cy: 0.330, spanYards: 100 },
+                view: { cx: 0.500, cy: 0.330, spanYards: 52 },
                 phase: 1,
                 title: 'Hateful Strike',
                 caption: 'He swings at whoever has the most health in melee range. Tanks stack so one healer covers both; melee sit behind him on less health and never get picked.',
                 duration: 7000,
                 highlight: ['hateful'],
                 formation: 1,
+                focus: ['tank', 'melee'],
                 actors: [],
                 effects: [
                     { kind: 'ring', from: 'boss', radiusYards: 14, label: 'his reach', start: 0, end: 7000 },
@@ -180,14 +188,15 @@
             },
             {
                 id: 'p1-flame',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 1,
                 title: 'Molten Flame',
                 caption: 'He punches the ground and the fire hunts one player for ten seconds. Walk it away from everyone else — it burns for another ten where you leave it.',
                 duration: 10000,
                 highlight: ['flame', 'punch'],
                 formation: 1,
-                cast: { burned: 'p9' },
+                cast: { burned: 'p11' },
+                roles: { burned: 'you' },
                 actors: [],
                 effects: [
                     { kind: 'sweep', from: 'boss', radiusYards: 14, start: 0, end: 1100 },
@@ -196,7 +205,7 @@
             },
             {
                 id: 'swap',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 0,
                 title: 'Melee move out',
                 caption: 'As the minute mark comes up, tanks and melee walk out to their own spots. Threat wipes anyway, and nobody wants to be stood on him when he turns.',
@@ -208,7 +217,7 @@
             },
             {
                 id: 'p2-fixate',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 2,
                 title: 'He hunts you',
                 caption: 'Threat is gone. He picks someone and walks them down, then picks again ten seconds later. Get out of the lane he is walking.',
@@ -226,7 +235,7 @@
             },
             {
                 id: 'p2-geyser',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 2,
                 title: 'Volcanic Geysers',
                 caption: 'Volcanoes open anywhere in the room and keep firing for eighteen seconds. If one opens under you, move — the spread means it only ever catches one of you.',
@@ -235,14 +244,14 @@
                 formation: 2,
                 actors: [],
                 effects: [
-                    { kind: 'volcano', at: { x: 0.402, y: 0.470 }, radiusYards: 8, avoid: 10, start: 400, end: 9000 },
-                    { kind: 'volcano', at: { x: 0.596, y: 0.660 }, radiusYards: 8, avoid: 10, start: 2400, end: 9000 },
-                    { kind: 'volcano', at: { x: 0.470, y: 0.836 }, radiusYards: 8, avoid: 10, start: 4800, end: 9000 }
+                    { kind: 'volcano', at: { x: 0.392, y: 0.452 }, radiusYards: 8, avoid: 10, start: 400, end: 9000 },
+                    { kind: 'volcano', at: { x: 0.604, y: 0.512 }, radiusYards: 8, avoid: 10, start: 2400, end: 9000 },
+                    { kind: 'volcano', at: { x: 0.492, y: 0.582 }, radiusYards: 8, avoid: 10, start: 4800, end: 9000 }
                 ]
             },
             {
                 id: 'back',
-                view: { cx: 0.500, cy: 0.545, spanYards: 152 },
+                view: { cx: 0.500, cy: 0.420, spanYards: 72 },
                 phase: 0,
                 title: 'Back to Phase 1',
                 caption: 'Before the next swap, everyone repositions and DPS slows down so the tanks can hold. Misdirects go out the moment he turns back.',
@@ -250,6 +259,7 @@
                 highlight: ['hateful'],
                 morph: { from: 2, to: 1, start: 600, end: 5000 },
                 cast: { md: 'p13' },
+                roles: { md: 'misdirect' },
                 actors: [],
                 effects: [{ kind: 'threat', mode: 'rebuild', from: 'boss', md: 'md', start: 0, end: 8000 }]
             }

@@ -32,13 +32,23 @@ test('slots: one per raider, all inside the arena', () => {
     });
 });
 
-test('slots: nobody shares a geyser — every pair is further apart than its radius', () => {
+test('slots: everyone can reach him — the whole point of standing somewhere', () => {
+    const s = L.slots(FIGHT);
+    const far = s.map(p => yards(FIGHT, p, FIGHT.bossAt)).filter(d => d > 30);
+    assert.strictEqual(far.length, 0,
+        far.length + ' slots are outside 30 yard spell range, furthest ' + Math.max(0, ...far).toFixed(0));
+});
+
+test('slots: spread as far as the room allows without going out of range', () => {
     const s = L.slots(FIGHT);
     let worst = Infinity;
     for (let i = 0; i < s.length; i++) {
         for (let j = i + 1; j < s.length; j++) worst = Math.min(worst, yards(FIGHT, s[i], s[j]));
     }
-    assert.ok(worst > 8, 'closest pair is ' + worst.toFixed(1) + ' yards apart, geysers reach 8');
+    // 25 people, all inside 30 yards of a boss parked against a wall, cannot all sit 8 yards
+    // apart — the half-annulus is not big enough. 7 is what the fight actually allows.
+    assert.ok(worst > 6.8, 'closest pair is ' + worst.toFixed(1) + ' yards apart');
+    assert.ok(worst < 12, 'and not so sparse that the room is wasted: ' + worst.toFixed(1));
 });
 
 test('slots: ordered by how close they are to him, so tanks take the near ones', () => {
@@ -80,21 +90,27 @@ test('assign: without a roster everyone still gets a slot, just no names', () =>
 test('formation: in phase 1 tanks and melee are on him, everyone else is on their slot', () => {
     const a = L.assign(FIGHT, ROSTER);
     const p1 = L.formation(FIGHT, 1, a);
-    const tanks = p1.filter(p => p.kind === 'tank');
-    tanks.forEach(t => assert.ok(yards(FIGHT, t.at, FIGHT.bossAt) < 8, 'a tank is in melee range'));
+    p1.filter(p => p.kind === 'tank').forEach(t => {
+        assert.ok(yards(FIGHT, t.at, FIGHT.bossAt) < 8, 'a tank is in melee range');
+    });
     p1.filter(p => p.kind === 'melee').forEach(m => {
         const d = yards(FIGHT, m.at, FIGHT.bossAt);
         assert.ok(d > 6 && d < 16, 'melee are behind him, not on top of him: ' + d.toFixed(1));
     });
     p1.filter(p => p.kind === 'healer' || p.kind === 'ranged').forEach(p => {
-        assert.ok(yards(FIGHT, p.at, FIGHT.bossAt) > 14, 'the back stays well out');
+        const d = yards(FIGHT, p.at, FIGHT.bossAt);
+        assert.ok(d > 14, 'the back is clear of the melee pile: ' + d.toFixed(1));
+        assert.ok(d <= 30, 'and still able to cast at him: ' + d.toFixed(1));
     });
 });
 
-test('formation: phase 2 puts melee and tanks out on their own slots', () => {
+test('formation: phase 2 puts melee and tanks out on their own slots, still in range', () => {
     const a = L.assign(FIGHT, ROSTER);
     const p2 = L.formation(FIGHT, 2, a);
-    p2.forEach(p => assert.deepStrictEqual(p.at, p.slot, p.kind + ' stands on its slot in phase 2'));
+    p2.forEach(p => {
+        assert.deepStrictEqual(p.at, p.slot, p.kind + ' stands on its slot in phase 2');
+        assert.ok(yards(FIGHT, p.at, FIGHT.bossAt) <= 30, p.kind + ' can still reach him');
+    });
 });
 
 test('formation: the back does not move between phases — only tanks and melee do', () => {

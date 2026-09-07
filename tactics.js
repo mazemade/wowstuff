@@ -111,6 +111,8 @@
         return frames[frames.length - 1].v;
     }
 
+    const apart = (a, b) => Math.hypot(a.x - b.x, (a.y - b.y) / FIGHT.aspect) / FIGHT.yard;
+
     // Walk a point some number of yards towards another, in map fractions.
     function stepToward(from, to, yards) {
         const dx = to.x - from.x, dy = (to.y - from.y) / FIGHT.aspect;
@@ -244,14 +246,25 @@
                 }
             });
             if (trail && trail.length && now >= trailEff.start) {
-                const head = trail[trail.length - 1];
-                hz.push({ x: head.x, y: head.y, yards: trailEff.avoid || 4 });
+                const reach = trailEff.avoid || 4;
+                let last = null;
+                for (let i = trail.length - 1; i >= 0; i--) {
+                    const q = trail[i];
+                    if (last && apart(q, last) < reach * 0.9) continue;
+                    hz.push({ x: q.x, y: q.y, yards: reach });
+                    last = q;
+                }
             }
 
             // the raid: stand on your spot unless something is on it
+            const solid = { x: boss.x, y: boss.y, yards: 6 };
             sc.raid.forEach(p => {
                 const home = homeAt(sc, p, now);
-                const want = hz.length ? L.safePos(FIGHT, home, hz) : home;
+                let want = home;
+                if (hz.length) {
+                    const mine = apart(home, boss) > 7 ? hz.concat([solid]) : hz;
+                    want = L.safePos(FIGHT, home, mine);
+                }
                 pos[p.id] = stepToward(pos[p.id], want, WALK * STEP);
             });
 
@@ -264,6 +277,27 @@
             if (s >= t) break;
         }
         return { pos: pos, boss: boss, trail: trail };
+    }
+
+    const HAZARDS = { trail: 1, volcano: 1, gaze: 1, impact: 1 };
+
+    // Who this step is about. Named cast, anyone an effect is landing on, any role the step
+    // calls out, and — the useful one — anybody the mechanic has actually pushed off their
+    // spot. Everyone else stays on the floor but fades back into it.
+    function focusOf(sc, t) {
+        const set = {};
+        Object.keys(sc.cast || {}).forEach(k => { set[sc.cast[k]] = 1; });
+        (sc.effects || []).forEach(e => {
+            if (e.kind === 'impact' && e.target) set[castId(sc, e.target)] = 1;
+        });
+        (sc.focus || []).forEach(f => {
+            if (/^p\d+$/.test(f)) set[f] = 1;
+            else sc.raid.forEach(p => { if (p.kind === f) set[p.id] = 1; });
+        });
+        sc.raid.forEach(p => {
+            if (apart(homeAt(sc, p, t), sc._sim.pos[p.id]) > 1.5) set[p.id] = 1;
+        });
+        return set;
     }
 
     // Read a position out of the current frame: a raid slot, a cast name, or him.
@@ -681,7 +715,7 @@
 
     // On a close-up the room all looks alike, so say which corner you are looking at.
     function drawLocator(sc) {
-        if (sc.view.spanYards > 110) return;
+        if (sc.view.spanYards > 60) return;
         const w = 104, h = w * (MH / MW), m = 14;
         const x = W - w - m, y = H - h - m, A = FIGHT.arena;
         ctx.save();
@@ -757,8 +791,10 @@
         const c = px(sc._sim.pos[p.id]);
         const r = clamp(yd(1.7), 9, 21);
         const img = image(ROLE_ICON[p.kind] || ROLE_ICON.ranged);
+        const lit = !sc._dim || sc._focus[p.id];
 
         ctx.save();
+        if (!lit) ctx.globalAlpha = 0.3;
         ctx.shadowColor = 'rgba(0,0,0,.8)';
         ctx.shadowBlur = 7;
         ctx.beginPath();
@@ -774,6 +810,8 @@
         ctx.strokeStyle = 'rgba(236,230,216,.8)';
         ctx.stroke();
         ctx.restore();
+
+        if (!lit) return;
 
         const hp = valueAt(sc.hp && sc.hp[p.id], t);
         if (hp !== null) {
@@ -792,9 +830,11 @@
             // stacked tanks and a tight melee arc would otherwise print their names on top of
             // each other: lift every other one above its token instead of below.
             const above = p.kind === 'tank' ? p.slotIndex % 2 === 1 : p.slotIndex % 2 === 0;
-            const dy = above ? -(r + 6) : r + 12;
-            label(c.x, c.y + dy, p.label, p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 12);
+            label(c.x, c.y + (above ? -(r + 6) : r + 12), p.label,
+                p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 12);
         }
+        // the word for what this person is doing about it, which is the thing to read first
+        if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#ffb066', 14);
     }
 
     // ---- steps ----------------------------------------------------------------
@@ -830,6 +870,10 @@
         const t = REDUCED ? sc.duration * 0.62 : (now - sceneStart) % sc.duration;
 
         sc._sim = simulate(sc, t);
+        sc._dim = (sc.effects || []).some(e => HAZARDS[e.kind]) || !!sc.focus;
+        sc._focus = sc._dim ? focusOf(sc, t) : {};
+        sc._roles = {};
+        Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
         aim(sc.view);
         ctx.clearRect(0, 0, W, H);
         drawMap();

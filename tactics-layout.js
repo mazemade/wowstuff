@@ -15,16 +15,9 @@
     // Everything here is pure: fractions of the map in, fractions of the map out.
 
     const RAID = 25;
-    const COLS = 5, ROWS = 5;
 
     const lerp = (a, b, t) => a + (b - a) * t;
     const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-
-    // Deterministic jitter: the same room every time it is drawn.
-    function rnd(seed) {
-        const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-        return x - Math.floor(x);
-    }
 
     // Distance in yards between two points on the map.
     function dist(fight, a, b) {
@@ -34,23 +27,29 @@
     // A yard measured down the map, as a fraction of its height.
     const ydY = (fight, n) => n * fight.yard * fight.aspect;
 
+    // Turn a bearing and a distance from the boss into a point. Zero degrees is his right,
+    // ninety is straight behind him, so every spot is authored the way a raid leader says it.
+    function bearing(fight, deg, yards) {
+        const a = deg * Math.PI / 180;
+        return {
+            x: fight.bossAt.x + Math.cos(a) * yards * fight.yard,
+            y: fight.bossAt.y + ydY(fight, Math.sin(a) * yards)
+        };
+    }
+
     // ---- the slots ------------------------------------------------------------
 
-    // A jittered grid over the part of the room behind him, ordered by how close each spot
-    // is to the boss. Order is what makes the assignment work: the tanks want the nearest
-    // slots for the Phase 1 run-in, the back wants the far ones.
+    // Arcs behind him, near ones first. Distance from the boss is the only thing that orders
+    // them, because that is what decides who gets which: the tanks and melee take the near
+    // spots so their Phase 1 run-in to him is short.
     function slots(fight) {
-        const g = fight.grid;
         const out = [];
-        for (let r = 0; r < ROWS; r++) {
-            for (let c = 0; c < COLS; c++) {
-                const seed = r * 31 + c * 7 + 1;
-                out.push({
-                    x: lerp(g.x0, g.x1, COLS === 1 ? .5 : c / (COLS - 1)) + (rnd(seed) - .5) * g.jitterX,
-                    y: lerp(g.y0, g.y1, ROWS === 1 ? .5 : r / (ROWS - 1)) + (rnd(seed * 2.7) - .5) * g.jitterY
-                });
+        fight.arcs.forEach(arc => {
+            for (let i = 0; i < arc.count; i++) {
+                const t = arc.count === 1 ? 0.5 : i / (arc.count - 1);
+                out.push(bearing(fight, lerp(arc.from, arc.to, t), arc.radius));
             }
-        }
+        });
         return out.sort((a, b) => dist(fight, a, fight.bossAt) - dist(fight, b, fight.bossAt));
     }
 
@@ -134,7 +133,9 @@
         if (!hazards || !hazards.length) return home;
         let p = home, moved = false;
 
-        for (let pass = 0; pass < 3; pass++) {
+        // A few more passes than looks necessary: overlapping hazards can hand a point back
+        // and forth, and three was not always enough to settle it outside all of them.
+        for (let pass = 0; pass < 8; pass++) {
             let clear = true;
             for (let i = 0; i < hazards.length; i++) {
                 const h = hazards[i];
@@ -162,15 +163,24 @@
 
     // ---- the paste ------------------------------------------------------------
 
-    // Name the part of the room a slot sits in, so a pasted list still means something to
-    // somebody reading it in Discord with no picture in front of them.
+    // Name a spot the way a raid leader says it out loud: a bearing from the boss and how
+    // far out. Naming quarters of the room stopped working once the raid was pulled in close
+    // to him — almost everybody came out as "middle".
     function spotName(fight, p) {
-        const a = fight.arena;
-        const fx = (p.x - a.x0) / (a.x1 - a.x0);
-        const fy = (p.y - a.y0) / (a.y1 - a.y0);
-        const across = fx < 0.34 ? 'left' : fx > 0.66 ? 'right' : 'centre';
-        const down = fy < 0.36 ? 'front' : fy > 0.68 ? 'back' : 'middle';
-        return across === 'centre' ? down : down + ' ' + across;
+        const dx = (p.x - fight.bossAt.x) / fight.yard;
+        const dy = (p.y - fight.bossAt.y) / (fight.yard * fight.aspect);
+        const d = Math.hypot(dx, dy);
+        if (d < 8) return 'on him';
+        let deg = Math.atan2(dy, dx) * 180 / Math.PI;   // 0 is his right, 90 is behind him
+        if (deg < 0) deg += 360;
+        const side = deg < 30 || deg > 330 ? 'his right'
+            : deg < 65 ? 'back right'
+                : deg < 115 ? 'behind him'
+                    : deg < 150 ? 'back left'
+                        : deg <= 210 ? 'his left'
+                            : 'in front';
+        const out = d < 18 ? 'close' : d > 26 ? 'far out' : null;
+        return out ? side + ', ' + out : side;
     }
 
     function copyText(fight, phase, assigned) {
