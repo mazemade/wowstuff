@@ -67,7 +67,15 @@ function shareRow(facts, o) {
     return row({ id: o.id, category: o.category, owner: o.owner || 'player', verdict: verdictForShare(share), me: best.input.me, reference: best.input.reference, unit: best.input.unit,
                  value: share > 0 ? share : null, measuredOn: label, text: o.text(best.input, best.kill, label, share), fix: typeof o.fix === 'function' ? o.fix(best.input, best.kill) : (o.fix || '') });
 }
-function mainAbility(kill) { const a = kill && kill.reference && Array.isArray(kill.reference.abilities) && kill.reference.abilities[0]; return a ? a.name : 'spell'; }
+// ref-above B2: WCL's damage table lists the auto-attack as an ability, and for every physical
+// class it is the biggest one. Building advice on it produced "queue the next Melee" and "check
+// the rank of Melee" — the ability the player should hear about is the biggest real one.
+const AUTO_ATTACK = new Set(['Melee', 'Auto Shot', 'Shoot', 'Melee (Off-Hand)', 'Off-Hand']);
+function mainAbility(kill) {
+    const list = (kill && kill.reference && Array.isArray(kill.reference.abilities)) ? kill.reference.abilities : [];
+    const a = list.find(x => x && x.name && !AUTO_ATTACK.has(x.name));
+    return a ? a.name : 'spell';
+}
 function perMin(count, sec) { return sec ? Math.round(10 * 60 * count / sec) / 10 : null; }
 
 // --- casting (spec §4.3 "Casting")
@@ -293,6 +301,7 @@ function nukeRows(facts) {
     const per = [];
     kills.forEach(k => {
         const main = mainAbility(k);
+        if (main === 'spell' || AUTO_ATTACK.has(main)) return; // ref-above B2: no white-hit comparisons
         const mine = (k.me.abilities || []).find(a => a.name === main), theirs = (k.reference.abilities || []).find(a => a.name === main);
         if (!mine || !theirs || !num(mine.avgHit) || !num(theirs.avgHit)) return;
         const sum = side => ['power_gear', 'power_consumables', 'power_buffs'].reduce((s, key) => { const i = inputOf(k, key); return s + (i && num(i[side]) !== null ? i[side] : 0); }, 0);
@@ -444,6 +453,6 @@ function renderReport(cl, facts) {
     return out.join('\n');
 }
 
-module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD,
+module.exports = { NOMINAL_VALUE, ROW_CAPS, FINE_IDS, CATEGORY_ORDER, DEFAULT_T, MOVEMENT_FILLER, ABILITY_FIX, NUKE_FIX, BUFF_SOURCE, STAT_WORD, AUTO_ATTACK,
                    liveKills, inputOf, averageShare, largestPull, verdictForShare, verdictForHabit, pullLabel, row, shareRow, mainAbility, perMin, halfRule, castingRows, groupRows, raidRows,
                    consumableRows, cooldownRows, spellRows, nukeRows, gearRows, passRows, buildChecklist, renderReport, fractionWord, verdictOf };

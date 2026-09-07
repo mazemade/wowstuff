@@ -328,5 +328,18 @@ test('golden (Lovestoned, v3 sheet captured 2026-09-05): verdict 59, nuke/cast/a
     assert.ok(text.endsWith('Pick one thing to change next raid.'), text.slice(-80));
 });
 
+// --- ref-above B2: an auto-attack is never the ability the advice is built on
+test('mainAbility (ref-above B2): auto-attacks are skipped so a melee gets a real ability', () => {
+    // Tipsi's real Anetheron reference: Melee 40.3%, Heroic Strike 32.6%, Mortal Strike 10.8%.
+    const warrior = { reference: { abilities: [{ name: 'Melee', share: 40.3 }, { name: 'Heroic Strike', share: 32.6 }, { name: 'Mortal Strike', share: 10.8 }] } };
+    assert.strictEqual(C.mainAbility(warrior), 'Heroic Strike');
+    const hunter = { reference: { abilities: [{ name: 'Auto Shot', share: 45 }, { name: 'Steady Shot', share: 30 }] } };
+    assert.strictEqual(C.mainAbility(hunter), 'Steady Shot');
+    const caster = { reference: { abilities: [{ name: 'Shadow Bolt', share: 90 }] } };
+    assert.strictEqual(C.mainAbility(caster), 'Shadow Bolt', 'a caster is unaffected');
+    assert.strictEqual(C.mainAbility({ reference: { abilities: [{ name: 'Melee', share: 100 }] } }), 'spell', 'nothing but auto-attacks falls back');
+    assert.strictEqual(C.mainAbility({}), 'spell');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
