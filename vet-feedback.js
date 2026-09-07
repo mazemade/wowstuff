@@ -860,14 +860,18 @@ async function fightAndTables(query, code, fightID, playerName) {
 // hasMorePages; the middle rank is then 50·L.
 function globalRank(page, index) { return (page - 1) * 100 + index + 1; }
 // Pages to read for the benchmark, nearest the middle first: mid, mid+1, mid-1, mid+2, mid-2, …
-function middlePageOrder(L, maxPages) {
-    const mid = Math.max(1, Math.round(L / 2));
+// ref-above A1: pages of the leaderboard ordered by distance from a starting page, better
+// (lower) page first on a tie. The reference used to always start at the middle; it now starts
+// wherever the target parse is estimated to be.
+function pageOrderFrom(start, L, maxPages) {
+    const s = Math.min(Math.max(1, Math.round(start) || 1), Math.max(1, L));
     const out = [];
     for (let d = 0; d <= L && out.length < maxPages; d++) {
-        (d === 0 ? [mid] : [mid + d, mid - d]).forEach(p => { if (p >= 1 && p <= L && !out.includes(p) && out.length < maxPages) out.push(p); });
+        (d === 0 ? [s] : [s - d, s + d]).forEach(p => { if (p >= 1 && p <= L && !out.includes(p) && out.length < maxPages) out.push(p); });
     }
     return out;
 }
+function middlePageOrder(L, maxPages) { return pageOrderFrom(Math.max(1, Math.round(L / 2)), L, maxPages); }
 // One WCL fetch per page per reference build: the length walk, the benchmark pages and the
 // ceiling pages overlap on short leaderboards, and every page costs 2 points. A page past the
 // end (WCL answers with no `rankings` key) reads as empty and last.
@@ -1118,4 +1122,4 @@ async function fetchFeedback(query, o) {
     return buildFacts({ profile, player, kills, thresholds, now, limited, droppedKills, nights, night });
 }
 
-module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, tierList, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback, fetchNights };
+module.exports = { KILL_LIMIT, REF, T, WCL_CLASS_NAME, SPEC_SCHOOLS, wclSpecName, schoolsOf, killedBosses, pickKills, pickRank, KILLS_PER_BOSS, pickRanks, median, round1, lower, fightContext, abilityStats, castCounts, castsPerMinute, buffUptime, lustPercent, BURST_MAX_SEC, POTION_LABEL, auraBands, burstStats, burstLabel, CONSUMABLE, isUtilityGuardian, classifyAuras, BUFF_ALIAS, PARTY_BUFFS, canonBuffs, STAT_KEYS, playerStats, bandRanks, countNames, mostCommon, referenceSummary, finding, RAID_DEBUFFS, OWN_DEBUFF, debuffFacts, UTILITY_CAST, RACIAL, ENCOUNTER_ITEM, uptimeFindings, rotationFindings, killFindings, killFacts, consumableFindings, debuffFindings, gearFindings, buildFacts, tierList, Checklist, GEAR_LABEL, encounterRankQuery, FIGHT_QUERY, PLAYER_QUERY, refPageQuery, globalRank, pageOrderFrom, middlePageOrder, pageFetcher, findLastPage, leaderboardLength, mapLimit, getReference, NIGHT_LIMIT, buildNights, fetchFeedback, fetchNights };

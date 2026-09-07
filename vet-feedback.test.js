@@ -1430,6 +1430,20 @@ test('fetchNights (logs-first A3): one encounterRankings request, nights from bo
     assert.strictEqual(gone.tiers.length, 2);
 });
 
+// --- ref-above A1: the reference walk can start from any page, not only the middle
+test('pageOrderFrom (ref-above A1): pages ordered outward from the start, better page first on a tie', () => {
+    assert.deepStrictEqual(F.pageOrderFrom(8, 20, 5), [8, 7, 9, 6, 10]);
+    assert.deepStrictEqual(F.pageOrderFrom(1, 20, 4), [1, 2, 3, 4], 'a start at the top only walks down');
+    assert.deepStrictEqual(F.pageOrderFrom(20, 20, 3), [20, 19, 18], 'a start at the bottom only walks up');
+    assert.deepStrictEqual(F.pageOrderFrom(0, 5, 3), [1, 2, 3], 'a start below 1 clamps to 1');
+    assert.deepStrictEqual(F.pageOrderFrom(99, 5, 2), [5, 4], 'a start past the end clamps to L');
+    assert.deepStrictEqual(F.pageOrderFrom(3, 3, 9), [3, 2, 1], 'never more pages than exist');
+});
+test('middlePageOrder (ref-above A1): unchanged behaviour, now a wrapper', () => {
+    assert.deepStrictEqual(F.middlePageOrder(20, 5), F.pageOrderFrom(10, 20, 5));
+    assert.deepStrictEqual(F.middlePageOrder(1, 3), [1]);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;
