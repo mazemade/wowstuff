@@ -26,10 +26,12 @@ groups, and checks live whether assignments were actually done.
   the WCL credentials below.
   - **Feedback report** (`Report` link in a player's row, opens `feedback.html`): a checklist of
     what is holding their parses back — one row per habit, aggregated over their live pulls,
-    each with the measured number, what same-spec players within two item levels do on the same
-    boss, and a fixed fix. A verdict line says what share of the gap is theirs, the raid's setup,
-    or nobody's; "Fix first" holds the three biggest items, "Ask your raid leader" the group
-    asks, "Where you stand" shows their DPS next to the other same-class players in their raid.
+    each with the measured number, what same-spec players ahead of them at their item level do on
+    the same boss (the reference sits halfway between them and the best parse within two item
+    levels, so it is always a reachable target above them), and a fixed fix. A verdict line says
+    what share of the gap is theirs, the raid's setup, or nobody's; "Fix first" holds the three
+    biggest items, "Ask your raid leader" the group asks, "Where you stand" shows their DPS next
+    to the other same-class players in their raid.
     Raid-wide bad pulls are counted under "Not on you". Everything is measured from Warcraft Logs
     (`/api/vet/feedback`, `vet-feedback.js`, `vet-gap.js`, `vet-checklist.js`) and rendered
     deterministically — no model is involved. "Copy text" copies the plain-text version. Needs
