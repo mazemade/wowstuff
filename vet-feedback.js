@@ -8,10 +8,16 @@ const GAP = require('./vet-gap.js');
 const Checklist = require('./vet-checklist.js');
 
 const KILL_LIMIT = 8;
-// Reference selection (spec v2 §3): same spec, same boss, same region, item level within `band`
-// of the player (widened once to `wideBand` when fewer than `min` ranks are found), taken from
-// the MIDDLE of the leaderboard, whose length is found by a binary search over at most
-// `maxSearchPages` pages and cached for `lengthCacheMs`. `topPages` bounds the ceiling read.
+// Reference selection (spec v2 §3, as amended by ref-above A2 and the whole-branch review): same
+// spec, same boss, same region, item level within `band` of the player. Parses are taken from
+// ABOVE the player — the candidates nearest a target halfway between his own amount and the best
+// parse at his item level, and never one at or below him — falling back to the MIDDLE of the
+// leaderboard only for a caller who supplies no player amount. The band widens once to `wideBand`
+// when fewer than `min` ranks are found, when the ceiling is at or below the player, or when
+// nothing in the narrow band is above him; a player above the ceiling of the final band is told
+// so instead of being handed a reference. The leaderboard's length is found by a binary search
+// over at most `maxSearchPages` pages and cached for `lengthCacheMs`. `topPages` bounds the
+// ceiling read.
 // Minor 5 (whole-branch review): findLastPage's binary search needs ceil(log2(n+1)) probes for a
 // range of n pages — 7 for 64, 6 for 63 — but spec §3 and §9 both promise "6 queries". 63 is the
 // largest bound that actually holds that promise.
@@ -1044,8 +1050,21 @@ async function getReference(query, o) {
             }
             return found.sort(near);
         };
+        // Re-review fix: THE INVARIANT this whole branch exists for — the reference must be ABOVE
+        // the player — enforced once, here, where the candidates are chosen. Everything upstream is
+        // an estimate: `target` is halfway to the ceiling and the sort is by |amount - target|, so
+        // the eight nearest STRADDLE the target and their median can land under the player even
+        // when the ceiling above him is real. Measured: a 0.5%-per-rank decay off a 5000 ceiling
+        // gave a player at 4999 a reference of 4913 ("You do 102%"); a board with a cliff under the
+        // ceiling (5000, then 4000) gave him 3975 ("You do 126%"). Dropping the candidates at or
+        // below the player is the one rule that fixes it, and it subsumes the early return: if
+        // nothing in the band is above him, there is nothing to compare against and he is told so.
+        // A player with no amount has no target, picks from the middle, and has no invariant to
+        // enforce — `aboveMe` is then the identity.
+        const aboveMe = list => (myAmount === null ? list : list.filter(r => r.amount > myAmount));
         let ranks = await collect(band);
-        if (ranks.length < REF.min && band !== REF.wideBand) {
+        let usable = aboveMe(ranks);
+        if ((ranks.length < REF.min || !usable.length) && band !== REF.wideBand) {
             band = REF.wideBand;
             // Important 3 (whole-branch review): the ceiling belongs to the band the summary
             // advertises. The old readCeiling short-circuited on any non-null narrow reading, so a
@@ -1056,9 +1075,23 @@ async function getReference(query, o) {
             ceiling = await ceilingOf(band);
             topDps = ceiling.top; topDuration = ceiling.duration;
             target = myAmount !== null && topDps !== null ? myAmount + (topDps - myAmount) / 2 : null;
+            // Re-review regression fix: the early return has to be re-applied after this recompute.
+            // A narrow ceiling of `null` (the band never appears on the top pages) skipped the
+            // Critical 1 widening AND the early return, and then this pass quietly rebuilt topDps
+            // and target on the wide band without ever asking again whether anyone was above him —
+            // handing a player at 4800 a reference of 3997 and a report reading "You do 120% of
+            // what players ahead of you do", where the previous commit had given the honest note.
+            if (myAmount !== null && topDps !== null && myAmount >= topDps) {
+                return { summary: null, note: 'nothing at your item level beat you on this pull', band };
+            }
             ranks = await collect(band);
+            usable = aboveMe(ranks);
         }
         if (ranks.length < REF.min) return { summary: null, note: 'too few same-item-level parses to compare against', band };
+        if (!usable.length) return { summary: null, note: 'nothing at your item level beat you on this pull', band };
+        // Sorted by distance from the target and then filtered, so this is still the nearest
+        // candidate first — the nearest one strictly above him.
+        ranks = usable;
         // The caller wanted a target and we could not build one: the report must not claim the
         // comparison is against players ahead when it is against the middle (spec, Error handling).
         // Decided on the FINAL target, so a widening that recovers a ceiling clears the note too.

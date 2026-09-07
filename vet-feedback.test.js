@@ -1791,6 +1791,92 @@ test('burstStats (Important 4): the five remaining short self-buff defensives ar
     names.forEach(n => assert.ok(F.BURST_EXCLUDE.test(n), n + ' must be excluded by name'));
 });
 
+// --- Re-review: the invariant — the reference is never BELOW the player
+// A page-1-only helper: `amountOf(rank)` shapes the board, every rank is the player's own item
+// level unless `levelOf` says otherwise, so these boards isolate candidate SELECTION from banding.
+function invariantBoard(pages, amountOf, levelOf) {
+    const calls = [];
+    const query = async q => {
+        const page = +/page:(\d+)/.exec(q)[1];
+        calls.push(page);
+        if (page > pages) return { worldData: { encounter: { characterRankings: { page, hasMorePages: false, count: 0 } } } };
+        const rankings = Array.from({ length: 100 }, (_, i) => {
+            const rank = (page - 1) * 100 + i + 1;
+            return { name: 'P' + rank, class: 'Warlock', spec: 'Destruction', amount: amountOf(rank), duration: 100000,
+                     bracketData: levelOf ? levelOf(rank) : 124, startTime: 1, report: { code: 'R' + rank, fightID: 1 } };
+        });
+        return { worldData: { encounter: { characterRankings: { page, hasMorePages: page < pages, count: 100, rankings } } } };
+    };
+    return { calls, query };
+}
+function runRef(board, over) {
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : board.query(q, vars));
+    return F.getReference(query, Object.assign({ encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster',
+        region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(), playerRankPercent: 50 }, over));
+}
+// A realistic leaderboard: parses decay about half a percent a rank off the ceiling.
+const DECAY = rank => Math.round(5000 * Math.pow(0.995, rank - 1));
+// A leaderboard with a cliff under the ceiling: one 5000, then a plateau around 4000.
+const CLIFF = rank => (rank === 1 ? 5000 : 4000 - (rank - 2) * 5);
+
+test('getReference (re-review, regression from 41326a6): a NULL narrow ceiling must still give the honest note, never a reference below the player', async () => {
+    // Pages 1-3 (the ceiling read) hold only item level 128 parses capped at 4000; the only two
+    // item-level-124 parses are on page 4. So the narrow ceiling reads null, which skipped BOTH
+    // Critical 1's widening (there is no `ceiling.top` to compare against) and the early return —
+    // and the count-widening pass then rebuilt topDps and target on the wide band without ever
+    // asking again whether anyone was above him. 41326a6 handed a player at 4800 a reference of
+    // 3997 and a report reading "You do 120% of what players ahead of you do"; f46594a, before the
+    // wave, gave the honest note.
+    const board = invariantBoard(5, rank => 4001 - rank, rank => (rank === 301 || rank === 302 ? 124 : 128));
+    const myAmount = 4800;
+    const r = await runRef(board, { playerAmount: myAmount });
+    assert.strictEqual(r.summary, null, 'no reference: everything on the board is below him');
+    assert.strictEqual(r.note, 'nothing at your item level beat you on this pull');
+});
+test('getReference (re-review): the straddle — a player at the ceiling of a gradually decaying board is not measured against the sample\'s middle', async () => {
+    // The eight candidates nearest a target of 4999.5 are ranks 1-8 (5000, 4975, 4950, 4925, 4901,
+    // 4876, 4852, 4828); their median is 4913, 1.7% BELOW the player, which read as "You do 102%".
+    const board = invariantBoard(3, DECAY);
+    const myAmount = 4999;
+    const r = await runRef(board, { playerAmount: myAmount });
+    assert.ok(r.summary, 'rank 1 at 5000 really is above him, so he gets a reference: ' + r.note);
+    assert.ok(r.summary.dps >= myAmount, 'the reference is never below the player, got ' + r.summary.dps + ' against ' + myAmount);
+    assert.strictEqual(r.summary.dps, 5000, 'the nearest candidate strictly above him is the ceiling itself');
+});
+test('getReference (re-review): the straddle with a cliff under the ceiling — a 20% understatement', async () => {
+    // 5000, then a plateau at 4000. The eight nearest the target are the ceiling and seven of the
+    // plateau, and their median is the plateau — a reference a fifth below the player ("You do 126%").
+    const board = invariantBoard(3, CLIFF);
+    const myAmount = 4999;
+    const r = await runRef(board, { playerAmount: myAmount });
+    assert.ok(r.summary, 'note: ' + r.note);
+    assert.ok(r.summary.dps >= myAmount, 'the reference is never below the player, got ' + r.summary.dps + ' against ' + myAmount);
+    assert.strictEqual(r.summary.dps, 5000);
+});
+test('getReference (re-review): the invariant holds across a swept range of player amounts, on both board shapes', async () => {
+    for (const [shape, amountOf] of [['decay', DECAY], ['cliff', CLIFF]]) {
+        for (const myAmount of [3000, 3500, 4000, 4400, 4700, 4900, 4950, 4990, 4999, 5000, 5200]) {
+            const r = await runRef(invariantBoard(3, amountOf), { playerAmount: myAmount });
+            const where = shape + ' board, player ' + myAmount + ': ';
+            if (r.summary === null) {
+                assert.strictEqual(r.note, 'nothing at your item level beat you on this pull', where + 'the only honest empty answer is the note, got ' + r.note);
+                assert.ok(myAmount >= 5000, where + 'the note is only honest for a player at or above the ceiling');
+            } else {
+                assert.ok(r.summary.dps >= myAmount, where + 'reference ' + r.summary.dps + ' is BELOW the player');
+                assert.strictEqual(r.note, null, where + 'a reference above him carries no note, got ' + r.note);
+            }
+        }
+    }
+});
+test('getReference (re-review): a caller with no player amount is untouched — middle selection, no invariant to enforce', async () => {
+    const r = await runRef(invariantBoard(3, DECAY), {});
+    assert.ok(r.summary, 'still a reference');
+    assert.strictEqual(r.note, null);
+    // The middle of a 3-page board is rank 150; DECAY(150) is 2364, far under any ceiling-hugging
+    // pick, so this pins that the amount-less path did not quietly acquire the above-me filter.
+    assert.ok(r.summary.dps < 3000, 'the middle of the board, not the top of it: ' + r.summary.dps);
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;
