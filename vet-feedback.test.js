@@ -1505,6 +1505,83 @@ test('getReference (ref-above A2): two players far apart do not share one cached
     assert.ok(strong.summary.dps > weak.summary.dps, 'the stronger player is measured against a stronger reference');
 });
 
+// --- ref-above A2, fix A: the target-above path must actually resolve reference PLAYERS, not just
+// a rank list. midFixture's captured players sit at the old middle (ranks 98-100), so no captured
+// fixture covers this any more; this is built on the synthetic leaderboard() helper instead.
+function refPlayerTables(vars) {
+    // Two abilities and two casts, identical for every reference player, so the majority filter in
+    // referenceSummary keeps both whatever three players are chosen.
+    return { reportData: { report: {
+        dmg: { data: { entries: [
+            { name: 'Shadow Bolt', total: 120000, hitCount: 20, critHitCount: 5,
+              hitdetails: [{ type: 'Hit', count: 15, total: 75000 }, { type: 'Critical Hit', count: 5, total: 45000 }] },
+            { name: 'Immolate', total: 40000, hitCount: 10, critHitCount: 0,
+              hitdetails: [{ type: 'Hit', count: 10, total: 40000 }] },
+        ] } },
+        casts: { data: { entries: [{ name: 'Shadow Bolt', total: 20 }, { name: 'Immolate', total: 5 }] } },
+        buffs: null, ci: null,
+    } } };
+}
+test('getReference (ref-above A2): on the target-above path the chosen reference players\' fight tables are fetched and reach the summary', async () => {
+    // Player at 3500 with rankPercent 25 on a 20-page board of item level 124: the target is
+    // 3500 + (4999 - 3500) / 2 = 4249.5, which lands on page 8 (ranks 701-800) — nowhere near the
+    // middle. The three nearest ranks are 750 (4250), 751 (4249) and 749 (4251).
+    const lb = leaderboard(20, [124]);
+    const fights = [], tables = [];
+    const query = async (q, vars) => {
+        if (q === F.FIGHT_QUERY) {
+            fights.push(vars.c);
+            return { reportData: { report: { masterData: { actors: [{ id: 7, name: 'P' + vars.c.slice(1), subType: 'Warlock' }] },
+                                             fights: [{ id: 1, startTime: 0, endTime: 100000, kill: true }] } } };
+        }
+        if (q === F.PLAYER_QUERY) { tables.push(vars.c); return refPlayerTables(vars); }
+        return lb.query(q, vars);
+    };
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster',
+                                            region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+                                            playerAmount: 3500, playerRankPercent: 25 });
+    assert.strictEqual(r.note, null);
+    assert.deepStrictEqual(fights, ['R750', 'R751', 'R749'], 'the fights fetched are the ranks nearest the target, not the middle');
+    assert.deepStrictEqual(tables, fights, 'every fetched fight went on to fetch that player\'s tables');
+    assert.strictEqual(r.summary.playersCompared, F.REF.players, 'all REF.players reference players resolved');
+    assert.strictEqual(r.summary.sampleSize, F.REF.target, 'the rank sample is the full REF.target the players were drawn from');
+    assert.ok(r.summary.sampleSize >= F.REF.players, 'the sample cannot be smaller than the players drawn from it');
+    // The point of the test: per-player data derived from THOSE players, not an empty shell.
+    assert.deepStrictEqual(r.summary.abilities.map(a => a.name), ['Shadow Bolt', 'Immolate'], 'abilities come from the fetched players\' damage tables');
+    assert.deepStrictEqual(r.summary.casts, { 'Shadow Bolt': 20, 'Immolate': 5 }, 'casts come from the fetched players\' cast tables');
+    assert.strictEqual(r.summary.castsPerMinute, 15, '25 casts over the fixture\'s 100s fight');
+});
+// --- ref-above A2, fix B: "nothing at your item level beat you" is decided on the WIDE band.
+test('getReference (ref-above A2): a player at the narrow-band ceiling still gets a reference when a better parse sits in the wider band', async () => {
+    // levels cycle by rank % 2, so odd ranks are item level 128 (outside REF.band 122-126, inside
+    // REF.wideBand 120-128) and even ranks are 124. The narrow ceiling is rank 2 at 4998; rank 1 at
+    // 4999 beats the player but only shows up in the wide band.
+    const lb = leaderboard(20, [124, 128]);
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster',
+                                            region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+                                            playerAmount: 4998, playerRankPercent: 99 });
+    assert.notStrictEqual(r.note, 'nothing at your item level beat you on this pull', 'rank 1 (4999, item level 128) beat him: the sentence would be false');
+    assert.ok(r.summary, 'he gets a reference instead of a dead end');
+    assert.strictEqual(r.summary.topDps, 4998, 'the ceiling shown is still the narrow band\'s — only the "is anyone above me" decision widened');
+    assert.deepStrictEqual(r.summary.itemLevelBand, [122, 126], 'candidates are still chosen from the narrow band');
+    // Fix B costs no WCL requests: the wide-band ceiling re-filters pages fetchPage already
+    // memoised. Pages read: the length walk (32, 16, 24, 20), then the ceiling page 1, then the
+    // benchmark page 1 off the memo — six calls, page 1 fetched exactly once.
+    assert.deepStrictEqual(lb.calls, [32, 16, 24, 20, 1], 'no page is fetched twice and the wide-band read adds none');
+});
+// A player above the WIDE ceiling still gets the honest note — the widening is not a licence to
+// invent a reference for someone genuinely at the top.
+test('getReference (ref-above A2): a player above the wide-band ceiling still gets the honest note', async () => {
+    const lb = leaderboard(20, [124, 128]);
+    const query = async (q, vars) => (q === F.FIGHT_QUERY ? { reportData: { report: null } } : lb.query(q, vars));
+    const r = await F.getReference(query, { encounterId: 1, classToken: 'WARLOCK', spec: 'Destruction', role: 'caster',
+                                            region: 'eu', itemLevel: 124, dbIndex: db, refCache: new Map(), now: Date.now(),
+                                            playerAmount: 5200, playerRankPercent: 99 });
+    assert.strictEqual(r.summary, null);
+    assert.strictEqual(r.note, 'nothing at your item level beat you on this pull');
+});
+
 Promise.all(pending).then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

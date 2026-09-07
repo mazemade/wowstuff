@@ -961,24 +961,41 @@ async function getReference(query, o) {
         // here is the same fetch the ceiling always needed; pageFetcher memoises it, so moving it
         // above the collection costs nothing.
         let topDps = null, topDuration = null;
-        const readCeiling = async b => {
-            for (let p = 1; p <= Math.min(REF.topPages, L) && topDps === null; p++) {
+        // The best parse of band `b` on the top pages, plus the median in-band duration there.
+        // Pure, so it can be asked about a band without committing the reference to it.
+        const ceilingOf = async b => {
+            for (let p = 1; p <= Math.min(REF.topPages, L); p++) {
                 const ib = bandRanks((await fetchPage(p)).rankings, o.itemLevel, b);
                 if (ib.length) {
-                    topDps = Math.round(Math.max.apply(null, ib.map(r => r.amount)));
                     // v3 fix, unchanged: a rank missing `duration` must not poison this into NaN,
                     // and the bad-pull baseline is the MEDIAN in-band duration, not the minimum.
                     const durs = ib.map(r => r.duration).filter(d => typeof d === 'number' && isFinite(d));
-                    topDuration = durs.length ? Math.round(median(durs) / 1000) : null;
+                    return { top: Math.round(Math.max.apply(null, ib.map(r => r.amount))),
+                             duration: durs.length ? Math.round(median(durs) / 1000) : null };
                 }
             }
+            return { top: null, duration: null };
+        };
+        const readCeiling = async b => {
+            if (topDps !== null) return;
+            const c = await ceilingOf(b);
+            topDps = c.top; topDuration = c.duration;
         };
         await readCeiling(REF.band);
 
         const myAmount = typeof o.playerAmount === 'number' && isFinite(o.playerAmount) ? o.playerAmount : null;
         // A player who is already the best at their item level has nobody above them. Say so
         // rather than inventing a reference below them (spec B).
-        if (myAmount !== null && topDps !== null && myAmount >= topDps) {
+        // Fix B: that sentence is a claim about every parse this reference could ever reach, so it
+        // is decided on the WIDE band. Deciding it on the narrow band alone told a player sitting
+        // at the top of `REF.band` that nothing at his item level beat him while a better parse sat
+        // one or two levels further out, inside `REF.wideBand` — which the widening pass below can
+        // and does fall back to. The narrow band still chooses the candidates and still sets the
+        // target value; only "is anyone above me at all" widens. This costs ZERO extra WCL
+        // requests: pages 1..REF.topPages are already memoised by the narrow read above, and the
+        // wide band can only match on an earlier or equal page than the narrow one did.
+        const wideTop = myAmount === null ? null : (await ceilingOf(REF.wideBand)).top;
+        if (myAmount !== null && wideTop !== null && myAmount >= wideTop) {
             return { summary: null, note: 'nothing at your item level beat you on this pull', band: REF.band };
         }
         // Halfway between the player and the ceiling: far enough to be worth learning from, close
