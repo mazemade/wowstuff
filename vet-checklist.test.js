@@ -172,7 +172,7 @@ test('nuke_hit: observed / expected from the accounting\'s power and debuff inpu
     const k = gapKill('Void Reaver', { rotation: 42 });
     const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
     assert.strictEqual(n.verdict, 'fail'); assert.strictEqual(n.value, 42); assert.strictEqual(n.owner, 'player');
-    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs explain about 9%, the remaining 11% is talents, spell rank or gear that logs cannot show');
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs explain about 9%, the remaining 11% is talents, ability rank or gear that logs cannot show');
     assert.strictEqual(n.fix, C.NUKE_FIX.Destruction);
     const fine = gapKill('A', {}); fine.me.abilities[0].avgHit = 3500;
     assert.strictEqual(C.nukeRows(sheet([fine])).find(r => r.id === 'nuke_hit').verdict, 'pass');
@@ -183,7 +183,7 @@ test('nuke_hit (final review 1): an unknown debuff comparison is not blamed for 
     k.gap.factors.dmg.inputs.find(i => i.key === 'debuffs').reference = null;
     const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
     assert.ok(!/raid debuffs explain about/.test(n.text), n.text);
-    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs could not be compared on this pull, so the remaining 19% is raid debuffs, talents, spell rank or gear that logs cannot show');
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; raid debuffs could not be compared on this pull, so the remaining 19% is raid debuffs, talents, ability rank or gear that logs cannot show');
 });
 test('nuke_hit (final review 2): debuffs that favour the player are not credited, and never render a negative percent', () => {
     const k = gapKill('Void Reaver', { rotation: 42 });
@@ -192,7 +192,7 @@ test('nuke_hit (final review 2): debuffs that favour the player are not credited
     const n = C.nukeRows(sheet([k])).find(r => r.id === 'nuke_hit');
     assert.ok(!/-\d/.test(n.text), n.text);
     assert.ok(!/raid debuffs explain/.test(n.text), n.text);
-    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; the remaining 31% is talents, spell rank or gear that logs cannot show');
+    assert.strictEqual(n.text, 'Shadow Bolt hits for 3065 non-crit against 3869 at the same spell power on Void Reaver; the remaining 31% is talents, ability rank or gear that logs cannot show');
 });
 test('gearRows: hit from the current profile (value/bar) beats the pull; stat rows are warns; enchants/sockets from gear findings', () => {
     const f = sheet([gapKill('A', { hit_under_cap: -5 })], { gear: { findings: [
@@ -339,6 +339,58 @@ test('mainAbility (ref-above B2): auto-attacks are skipped so a melee gets a rea
     assert.strictEqual(C.mainAbility(caster), 'Shadow Bolt', 'a caster is unaffected');
     assert.strictEqual(C.mainAbility({ reference: { abilities: [{ name: 'Melee', share: 100 }] } }), 'spell', 'nothing but auto-attacks falls back');
     assert.strictEqual(C.mainAbility({}), 'spell');
+});
+
+// --- ref-above C1: a melee report never says "spell power", and the title names the right tier
+
+// nukeRows reads player.role, one accounting pull's power_* / debuffs inputs, and the main
+// ability's avgHit on both sides. Park the whole power total on power_gear and zero the other
+// two so the number the report prints is exactly the one the test asked for, and give a
+// physical role an auto-attack ahead of its real ability so ref-above B2's skip is exercised
+// rather than dodged.
+function nukeFacts(o) {
+    const k = gapKill('Anetheron', {});
+    const gear = C.inputOf(k, 'power_gear');
+    gear.me = o.myPower; gear.reference = o.refPower;
+    ['power_consumables', 'power_buffs'].forEach(key => { const i = C.inputOf(k, key); i.me = 0; i.reference = 0; });
+    const physical = o.role === 'melee' || o.role === 'ranged' || o.role === 'tank';
+    const main = physical ? 'Mortal Strike' : 'Shadow Bolt';
+    k.me.abilities = [{ name: main, share: 99, hits: 60, avgHit: 2400, avgCrit: 4800, critPercent: 30, resistPercent: 0 }];
+    k.reference.abilities = (physical ? [{ name: 'Melee', share: 40, avgHit: 900, hits: 200 }] : [])
+        .concat([{ name: main, share: 55, hits: 60, avgHit: 3600, avgCrit: 7200, critPercent: 40, resistPercent: 0 }]);
+    return sheet([k], { player: physical ? { name: 'Saiden', class: 'PALADIN', spec: 'Retribution', role: o.role, metric: 'dps', itemLevel: 141 }
+                                        : { name: 'Lovestoned', class: 'WARLOCK', spec: 'Destruction', role: o.role, metric: 'dps', itemLevel: 126 } });
+}
+// renderReport's first line needs only player, tier and (when the report is one night) night —
+// the rest of the sheet is here so buildChecklist has a pull to work from.
+function reportFacts(o) {
+    return sheet([gapKill('Anetheron', {})], {
+        player: { name: 'Utopik', class: 'ROGUE', spec: 'Assassination', role: 'melee', metric: 'dps', itemLevel: 141 },
+        tier: { zoneName: o.tierZone, medianPercent: 28.1 },
+        night: o.nightZone ? { code: 'aBc123', date: o.nightDate, medianPercent: 31.4, zoneName: o.nightZone } : null });
+}
+
+test('nukeRows (ref-above C1): the power word follows the role', () => {
+    // Sáiden, a Retribution paladin, read "you had 673 spell power, they had 835".
+    const melee = nukeFacts({ role: 'melee', myPower: 673, refPower: 835 });
+    const text = C.nukeRows(melee).map(r => r.text).join(' ');
+    assert.ok(/attack power/.test(text), 'melee reads attack power: ' + text);
+    assert.ok(!/spell power/.test(text), 'and never spell power: ' + text);
+    const caster = nukeFacts({ role: 'caster', myPower: 1099, refPower: 1016 });
+    assert.ok(/spell power/.test(C.nukeRows(caster).map(r => r.text).join(' ')), 'a caster is unchanged');
+});
+test('nukeRemainder (ref-above C1): the remainder clause says ability rank, not spell rank', () => {
+    const text = C.nukeRows(nukeFacts({ role: 'melee', myPower: 673, refPower: 835 })).map(r => r.text).join(' ');
+    assert.ok(!/spell rank/.test(text), 'no spell rank for a melee: ' + text);
+});
+test('renderReport (ref-above C1): the title names the night\'s tier, not the gating tier', () => {
+    // Utopik's night was BT / Hyjal; his profile gates on SSC / TK, and the title said SSC / TK.
+    const facts = reportFacts({ tierZone: 'SSC / TK', nightZone: 'BT / Hyjal', nightDate: '2026-09-06' });
+    const out = C.renderReport(C.buildChecklist(facts), facts);
+    assert.ok(/BT \/ Hyjal/.test(out.split('\n')[0]), 'title: ' + out.split('\n')[0]);
+    assert.ok(!/SSC \/ TK/.test(out.split('\n')[0]), 'title: ' + out.split('\n')[0]);
+    const noNight = reportFacts({ tierZone: 'SSC / TK', nightZone: null, nightDate: null });
+    assert.ok(/SSC \/ TK/.test(C.renderReport(C.buildChecklist(noNight), noNight).split('\n')[0]), 'an all-kills report still names the gating tier');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

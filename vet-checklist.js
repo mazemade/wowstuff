@@ -85,7 +85,13 @@ function castingRows(facts, T) {
     const out = [];
     const cr = shareRow(facts, { id: 'cast_rate', key: 'cast_pacing', category: 'casting',
         text: (i, k, label) => 'Casting: ' + pct(i.me) + ' damaging casts a minute while active against ' + pct(i.reference) + ' on ' + label,
-        fix: (i, k) => 'Queue the next ' + mainAbility(k) + ' before the current one lands; move only when you must, and use ' + (MOVEMENT_FILLER[spec] || MOVEMENT_FILLER.default) + ' while moving.' });
+        fix: (i, k) => {
+            const role = (facts.player && facts.player.role) || 'caster';
+            // ref-above C1: a melee or hunter does not queue casts — they press the button more
+            // often. Only a caster gets the cast-queue and movement-filler advice.
+            if (role === 'melee' || role === 'ranged' || role === 'tank') return 'Press ' + mainAbility(k) + ' more often; the gap is presses, not gear.';
+            return 'Queue the next ' + mainAbility(k) + ' before the current one lands; move only when you must, and use ' + (MOVEMENT_FILLER[spec] || MOVEMENT_FILLER.default) + ' while moving.';
+        } });
     if (cr) out.push(cr);
     const act = shareRow(facts, { id: 'activity', key: 'own_activity', category: 'casting',
         // Fine (spec §4.3) is one sentence listing the passes, never a number — a passing share
@@ -289,15 +295,17 @@ function spellRows(facts, T) {
 // in the player's favour cannot be credited with explaining it either; either way the remainder
 // stays a remainder, not pinned on the player.
 function nukeRemainder(p, restPct) {
-    if (!p.debMeasured) return '; raid debuffs could not be compared on this pull, so the remaining ' + restPct + '% is raid debuffs, talents, spell rank or gear that logs cannot show';
-    if (p.debPct <= 0) return '; the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show';
-    return '; raid debuffs explain about ' + p.debPct + '%, the remaining ' + restPct + '% is talents, spell rank or gear that logs cannot show';
+    if (!p.debMeasured) return '; raid debuffs could not be compared on this pull, so the remaining ' + restPct + '% is raid debuffs, talents, ability rank or gear that logs cannot show';
+    if (p.debPct <= 0) return '; the remaining ' + restPct + '% is talents, ability rank or gear that logs cannot show';
+    return '; raid debuffs explain about ' + p.debPct + '%, the remaining ' + restPct + '% is talents, ability rank or gear that logs cannot show';
 }
 
 // --- nuke damage (spec §4.3 "Nuke damage"): the rotation remainder, explained as far as logs allow.
 function nukeRows(facts) {
     const kills = liveKills(facts).filter(k => k.gap && k.reference);
     const role = (facts.player && facts.player.role) || 'caster', K = GAP.C.POWER_BASE[role] || GAP.C.POWER_BASE.caster;
+    // ref-above C1: the same role test passRows uses for its power word.
+    const powerWord = (role === 'melee' || role === 'ranged' || role === 'tank') ? 'attack power' : 'spell power';
     const per = [];
     kills.forEach(k => {
         const main = mainAbility(k);
@@ -318,7 +326,7 @@ function nukeRows(facts) {
     const restPct = Math.max(0, Math.round(100 * (1 - worst.residual)));
     const label = pullLabel(worst.k, liveKills(facts));
     return [row({ id: 'nuke_hit', category: 'nuke', verdict, me: worst.mine.avgHit, reference: worst.theirs.avgHit, unit: 'non-crit hit', value: verdict === 'pass' ? null : (share > 0 ? share : null), measuredOn: label,
-                  text: worst.main + ' hits for ' + worst.mine.avgHit + ' non-crit against ' + worst.theirs.avgHit + (worst.samePower ? ' at the same spell power' : ' (you had ' + worst.myPower + ' spell power, they had ' + worst.refPower + ')') + ' on ' + label +
+                  text: worst.main + ' hits for ' + worst.mine.avgHit + ' non-crit against ' + worst.theirs.avgHit + (worst.samePower ? ' at the same ' + powerWord : ' (you had ' + worst.myPower + ' ' + powerWord + ', they had ' + worst.refPower + ')') + ' on ' + label +
                         (verdict === 'pass' ? '' : nukeRemainder(worst, restPct)),
                   fix: verdict === 'pass' ? '' : (NUKE_FIX[facts.player && facts.player.spec] || 'Check your talents and the rank of ' + worst.main + '.') })];
 }
@@ -425,7 +433,11 @@ function renderReport(cl, facts) {
     const val = r => (r.value !== null && r.value !== undefined ? ' (~' + r.value + '%)' : '');
     const line = r => r.text + '.' + (r.fix ? ' ' + r.fix : '') + val(r);
     const head = facts.night ? 'raid night of ' + facts.night.date + ', median parse that night ' + Math.round(facts.night.medianPercent) : 'median parse ' + Math.round(tier.medianPercent);
-    const out = [p.name + ' — ' + (p.spec || '?') + ', ' + (tier.zoneName || '') + ', ' + head];
+    // ref-above C1: a single night's report names that night's tier. The gating tier is only
+    // right for an across-all-kills report, and since nights now span both tiers it was wrong
+    // whenever the chosen night came from the non-gating one.
+    const zoneName = (facts.night && facts.night.zoneName) || tier.zoneName || '';
+    const out = [p.name + ' — ' + (p.spec || '?') + ', ' + zoneName + ', ' + head];
     if (cl.verdict) {
         const v = cl.verdict, parts = [];
         if (fractionWord(v.onYou)) parts.push(fractionWord(v.onYou) + ' of that gap is on you');
