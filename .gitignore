@@ -39,3 +39,4 @@ yarn.lock
 calibration/vendor/
 calibration/out/
 calibration/dump-profiles/out/
+scratchpad/

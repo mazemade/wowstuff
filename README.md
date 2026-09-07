@@ -43,6 +43,25 @@ groups, and checks live whether assignments were actually done.
     both tiers. `report=<WCL report code>` in the URL (which a Report link from a log-loaded
     vetting row carries) opens straight onto that night. The facts sheet carries
     `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
+- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama)): Supremus has nine guided scenes for explaining positions,
+  Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
+  a main raid call, relevant spell tooltip cards, role instructions and a common mistake. Play/pause, replay, speed
+  and scrubbing let the raid leader control the demonstration; animations hold at the end.
+  Space plays/pauses, arrows change scenes, R replays and F toggles fullscreen.
+  The page uses the imported roster and its main-tank flag, including an optional third
+  tank. Player names appear during positioning; mechanics use icons and short role labels.
+  Tanks keep tanking during the early melee spread, moving once fixate begins.
+  Without a roster it shows a labelled example raid. Positions, routes and danger
+  circles are illustrative. "Copy briefing" includes the current guidance and roster;
+  "Copy image" includes the current map and main call. Detailed mechanics and source
+  links are under "Mechanics & sources". Naj’entus has seven state-driven chapters: the loop,
+  positions, Needle splash, freeing an Impaling Spine, healing through Tidal Shield, one called
+  Hurl Spine, and the complete cycle. Its state display and exports follow the current illustrative frame.
+  Shade of Akama has eight chapters based on the guild spreadsheet and its strategy image,
+  with channeler and sorcerer bindings, hallway tank control and Frost Traps, Rain of Fire,
+  add cleanup during the Shade’s walk, and the final Lust burn while Akama tanks the Shade.
+  Its map, current calls and roster exports follow the same frame; timing and health are illustrative.
+  Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.
 
@@ -79,6 +98,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 
 ```bash
 npm test                          # engine, WCL multiplier, positions, item table, vetting, feedback, gap, checklist and server suites (node, no deps)
+npm run test:tactics-browser       # Node 22+ and Chrome; isolated profile, optional CHROME_BIN override
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking

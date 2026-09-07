@@ -1,0 +1,262 @@
+(function (root, factory) {
+    if (typeof module === 'object' && module.exports) { module.exports = factory(); }
+    else { root.TacticsLayout = factory(); }
+}(typeof self !== 'undefined' ? self : this, function () {
+    'use strict';
+
+    // Where the raid stands, and where it goes when the floor catches fire.
+    //
+    // Slots are illustrative starting positions. During Phase 2 everyone reacts to the
+    // boss and hazards; a slot is never a requirement to stay still.
+
+    const RAID = 25;
+
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+    // Distance in yards between two points on the map.
+    function dist(fight, a, b) {
+        return Math.hypot(a.x - b.x, (a.y - b.y) / fight.aspect) / fight.yard;
+    }
+
+    // A yard measured down the map, as a fraction of its height.
+    const ydY = (fight, n) => n * fight.yard * fight.aspect;
+
+    // Turn a bearing and a distance from the boss into a point. Zero degrees is his right,
+    // ninety is straight behind him, so every spot is authored the way a raid leader says it.
+    function bearing(fight, deg, yards) {
+        const a = deg * Math.PI / 180;
+        return {
+            x: fight.bossAt.x + Math.cos(a) * yards * fight.yard,
+            y: fight.bossAt.y + ydY(fight, Math.sin(a) * yards)
+        };
+    }
+
+    // ---- the slots ------------------------------------------------------------
+
+    // Arcs behind him, near ones first. Distance from the boss is the only thing that orders
+    // them, because that is what decides who gets which: the tanks and melee take the near
+    // spots so their Phase 1 run-in to him is short.
+    function slots(fight) {
+        const out = [];
+        fight.arcs.forEach(arc => {
+            for (let i = 0; i < arc.count; i++) {
+                const t = arc.count === 1 ? 0.5 : i / (arc.count - 1);
+                out.push(bearing(fight, lerp(arc.from, arc.to, t), arc.radius));
+            }
+        });
+        return out.sort((a, b) => dist(fight, a, fight.bossAt) - dist(fight, b, fight.bossAt));
+    }
+
+    // ---- who takes which ------------------------------------------------------
+
+    // Spread the healers evenly through the ranged rather than letting them clump: sort both
+    // by their position within their own group, so a run of ranged always has a healer near.
+    function ditherBack(healers, ranged) {
+        const deck = [];
+        healers.forEach((n, i) => deck.push({ kind: 'healer', name: n, key: (i + 0.5) / healers.length }));
+        ranged.forEach((n, i) => deck.push({ kind: 'ranged', name: n, key: (i + 0.5) / ranged.length + 1e-6 }));
+        return deck.sort((a, b) => a.key - b.key);
+    }
+
+    function assign(fight, roster) {
+        const r = fight.roster;
+        const has = roster && ['tanks', 'healers', 'melee', 'ranged'].some(k => (roster[k] || []).length);
+        const group = k => has ? (roster[k] || []).slice() : Array(r[k]).fill(null);
+        const tanks = group('tanks'), melee = group('melee');
+        const back = ditherBack(group('healers'), group('ranged'));
+        const s = slots(fight);
+        // Preserve imported names even for an oversized planning roster. Extra positions
+        // are examples too; the UI reports the actual roster size.
+        const count = tanks.length + melee.length + back.length;
+        const extra = Math.max(0, count - s.length);
+        for (let n = 0; n < extra; n++) s.push(bearing(fight, extra === 1 ? 90 : 18 + n / (extra - 1) * 144, 25.5));
+
+        const out = [];
+        let i = 0;
+        const take = (kind, name) => {
+            out.push({
+                id: 'p' + i, kind: kind, name: name || null,
+                slot: s[i], slotIndex: i
+            });
+            i++;
+        };
+        tanks.forEach(n => take('tank', n));      // the two nearest slots
+        melee.forEach(n => take('melee', n));     // then the next seven
+        back.forEach(p => take(p.kind, p.name));  // the rest of the room
+        return out;
+    }
+
+    // ---- where they stand in each phase ---------------------------------------
+
+    function formation(fight, phase, assigned) {
+        const boss = fight.bossAt;
+        const tanks = assigned.filter(p => p.kind === 'tank');
+        const melee = assigned.filter(p => p.kind === 'melee');
+
+        if (fight.id === 'bt-najentus') {
+            // Naj'entus has one tanking job. Imported extra tanks remain tanks, but take a
+            // rear position alongside melee instead of receiving a made-up soak assignment.
+            const rear = assigned.filter(p => p.kind === 'melee' || (p.kind === 'tank' && p !== tanks[0]));
+            return assigned.map(p => {
+                let at = p.slot;
+                if (p === tanks[0]) {
+                    at = { x: boss.x, y: boss.y - ydY(fight, fight.stack.tankBack) };
+                } else if (rear.includes(p)) {
+                    const k = rear.indexOf(p);
+                    const a = lerp(fight.stack.arcFrom, fight.stack.arcTo,
+                        rear.length === 1 ? .5 : k / (rear.length - 1)) * Math.PI / 180;
+                    at = {
+                        x: boss.x + Math.cos(a) * fight.stack.arcRadius * fight.yard,
+                        y: boss.y + ydY(fight, Math.sin(a) * fight.stack.arcRadius)
+                    };
+                }
+                return { id: p.id, kind: p.kind, name: p.name, at, slot: p.slot, slotIndex: p.slotIndex };
+            });
+        }
+
+        return assigned.map(p => {
+            let at = p.slot;
+            if (phase === 1 && p.kind === 'tank') {
+                const k = tanks.indexOf(p);
+                at = {
+                    x: boss.x + (k - (tanks.length - 1) / 2) * 2 * fight.stack.tankApart * fight.yard,
+                    y: boss.y - ydY(fight, fight.stack.tankBack) + (k === 0 ? 0 : ydY(fight, 0.3))
+                };
+            } else if (phase === 1 && p.kind === 'melee') {
+                // Melee work behind him, then create distance before Phase 2.
+                const k = melee.indexOf(p);
+                const a = lerp(fight.stack.arcFrom, fight.stack.arcTo,
+                    melee.length === 1 ? .5 : k / (melee.length - 1)) * Math.PI / 180;
+                at = {
+                    x: boss.x + Math.cos(a) * fight.stack.arcRadius * fight.yard,
+                    y: boss.y + ydY(fight, Math.sin(a) * fight.stack.arcRadius)
+                };
+            }
+            return { id: p.id, kind: p.kind, name: p.name, at: at, slot: p.slot, slotIndex: p.slotIndex };
+        });
+    }
+
+    // ---- getting out of the way ------------------------------------------------
+
+    // Push a point out of every hazard it is standing in, then keep it on the mat. Hazards
+    // are {x, y, yards}; overlapping ones are resolved by pushing out of each in turn.
+    function safePos(fight, home, hazards) {
+        if (!hazards || !hazards.length) return home;
+        let p = home, moved = false;
+
+        // A few more passes than looks necessary: overlapping hazards can hand a point back
+        // and forth, and three was not always enough to settle it outside all of them.
+        for (let pass = 0; pass < 8; pass++) {
+            let clear = true;
+            for (let i = 0; i < hazards.length; i++) {
+                const h = hazards[i];
+                const d = dist(fight, p, h);
+                if (d >= h.yards) continue;
+                clear = false;
+                moved = true;
+                // straight out from the middle of it; if you are dead centre, go down the map
+                let dx = p.x - h.x, dy = (p.y - h.y) / fight.aspect;
+                const len = Math.hypot(dx, dy);
+                if (len < 1e-6) { dx = 0; dy = 1; }
+                else { dx /= len; dy /= len; }
+                p = {
+                    x: h.x + dx * h.yards * fight.yard,
+                    y: h.y + dy * h.yards * fight.yard * fight.aspect
+                };
+            }
+            if (clear) break;
+        }
+        if (!moved) return home;
+
+        const a = fight.arena;
+        return { x: clamp(p.x, a.x0, a.x1), y: clamp(p.y, a.y0, a.y1) };
+    }
+
+    // ---- the paste ------------------------------------------------------------
+
+    // Name a spot the way a raid leader says it out loud: a bearing from the boss and how
+    // far out. Naming quarters of the room stopped working once the raid was pulled in close
+    // to him — almost everybody came out as "middle".
+    function spotName(fight, p) {
+        const dx = (p.x - fight.bossAt.x) / fight.yard;
+        const dy = (p.y - fight.bossAt.y) / (fight.yard * fight.aspect);
+        const d = Math.hypot(dx, dy);
+        if (d < 8) return 'on him';
+        let deg = Math.atan2(dy, dx) * 180 / Math.PI;   // 0 is his right, 90 is behind him
+        if (deg < 0) deg += 360;
+        const side = deg < 30 || deg > 330 ? 'his right'
+            : deg < 65 ? 'back right'
+                : deg < 115 ? 'behind him'
+                    : deg < 150 ? 'back left'
+                        : deg <= 210 ? 'his left'
+                            : 'in front';
+        const out = d < 18 ? 'close' : d > 26 ? 'far out' : null;
+        return out ? side + ', ' + out : side;
+    }
+
+    function copyText(fight, phase, assigned) {
+        const placed = formation(fight, phase, assigned);
+        const named = placed.filter(p => p.name);
+        const lines = [fight.id === 'bt-najentus'
+            ? 'High Warlord Naj’entus — example positions'
+            : fight.name + ' — where you stand, Phase ' + phase];
+
+        if (!named.length) {
+            lines.push('');
+            lines.push('No roster loaded. Import one on the Assignments page and open this again.');
+            return lines.join('\n');
+        }
+
+        if (fight.id === 'bt-najentus') {
+            const tanks = placed.filter(p => p.kind === 'tank' && p.name);
+            const groups = [
+                ['Tanks', tanks],
+                ['Melee', placed.filter(p => p.kind === 'melee' && p.name)],
+                ['Healers', placed.filter(p => p.kind === 'healer' && p.name)],
+                ['Ranged', placed.filter(p => p.kind === 'ranged' && p.name)]
+            ];
+            groups.forEach(([title, rows]) => {
+                if (!rows.length) return;
+                lines.push('', title);
+                rows.forEach(p => {
+                    const where = p.kind === 'tank'
+                        ? (p.id === tanks[0].id ? 'hold boss in front' : 'no second tank mechanic assigned; use the rear area')
+                        : p.kind === 'melee' ? 'behind boss; use available spacing'
+                            : spotName(fight, p.at);
+                    lines.push('  ' + p.name + ' — ' + where);
+                });
+            });
+            lines.push('', 'Spread for Needle splash. Free impaled allies. Keep collected spines and use one on the call after the raid is healed.');
+            return lines.join('\n');
+        }
+
+        const GROUPS = [
+            ['Tanks', 'tank'], ['Melee', 'melee'], ['Healers', 'healer'], ['Ranged', 'ranged']
+        ];
+        GROUPS.forEach(g => {
+            const rows = placed.filter(p => p.kind === g[1] && p.name);
+            if (!rows.length) return;
+            lines.push('');
+            lines.push(g[0]);
+            rows.forEach(p => {
+                const where = phase === 2 ? 'spread in open ground; move for fixate and volcanoes'
+                    : p.kind === 'tank' ? 'in melee; main tank or assigned Hateful soak'
+                    : (phase === 1 && p.kind === 'melee') ? 'behind him'
+                        : spotName(fight, p.at);
+                lines.push('  ' + p.name + ' — ' + where);
+            });
+        });
+
+        if (phase === 1) {
+            lines.push('');
+            lines.push('Melee creates distance before Phase 2; tanks keep tanking until fixate begins. All positions are starting examples; move for fire and fixate.');
+        } else {
+            lines.push('');
+            lines.push('Survival first. At the reset, tanks pick up, hunters Misdirect, then DPS resumes after tank control.');
+        }
+        return lines.join('\n');
+    }
+
+    return { slots, assign, formation, safePos, copyText, spotName, dist, RAID };
+}));

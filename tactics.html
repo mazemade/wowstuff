@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Supremus — fight briefing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="tactics.css" />
+  </head>
+  <body class="tactics">
+    <main class="brief">
+      <section class="stage" aria-labelledby="bossName">
+        <header class="stage__head">
+          <nav class="page-tabs" aria-label="Raid tools">
+            <a href="./" class="page-tab">Assignments</a>
+            <a href="positions.html" class="page-tab">Positioning</a>
+            <a href="vetting.html" class="page-tab">Vetting</a>
+            <a href="tactics.html" class="page-tab active" aria-current="page"
+              >Tactics</a
+            >
+          </nav>
+          <nav class="boss-tabs" id="bossNav" aria-label="Boss briefings"></nav>
+          <div class="ident">
+            <img class="ident__portrait" id="portrait" alt="" />
+            <div class="ident__copy">
+              <p class="eyebrow">Raid briefing</p>
+              <h1 class="ident__name" id="bossName">High Warlord Naj’entus</h1>
+              <p class="ident__where" id="bossWhere">Black Temple</p>
+            </div>
+            <div class="clock" id="clock" aria-label="Fight phase clock">
+              <div class="clock__half" id="clockP1">
+                Phase 1 <span>60s</span>
+              </div>
+              <div class="clock__half" id="clockP2">
+                Phase 2 <span>60s</span>
+              </div>
+              <div class="clock__head" id="clockHead" aria-hidden="true"></div>
+            </div>
+            <output class="encounter-state" id="encounterState" hidden aria-live="off"></output>
+          </div>
+        </header>
+        <nav class="chapters" id="dots" aria-label="Briefing chapters"></nav>
+        <p class="mobile-call" id="mapCall" aria-live="polite"></p>
+        <div class="stage__map">
+          <div class="map" id="map">
+            <canvas
+              id="fx"
+              aria-label="Animated tactical positioning map"
+            ></canvas>
+            <div class="map__meta" aria-label="Map legend">
+              <div class="legend" id="legend">
+                <span class="legend__item"
+                  ><i class="legend__mark legend__mark--fire"></i>Blue
+                  fire</span
+                >
+                <span class="legend__item"
+                  ><i class="legend__mark legend__mark--volcano"></i
+                  >Volcano</span
+                >
+                <span class="legend__item"
+                  ><i class="legend__mark legend__mark--target"></i>Target</span
+                >
+                <span class="legend__item"
+                  ><i class="legend__mark legend__mark--move"></i>Example route</span
+                >
+              </div>
+              <p class="map__scale">
+                Illustrative positions · approximate scale
+              </p>
+            </div>
+          </div>
+        </div>
+        <footer class="stage__foot">
+          <div class="step" aria-live="polite">
+            <h2 class="step__title" id="stepTitle"></h2>
+            <p class="step__caption" id="stepCaption"></p>
+            <p class="step__note" id="rosterNote" hidden></p>
+          </div>
+          <div class="transport" aria-label="Briefing playback controls">
+            <div class="transport__row">
+              <button
+                class="control control--primary"
+                id="playPause"
+                type="button"
+              >
+                Play
+              </button>
+              <button class="control" id="replay" type="button">Replay</button>
+              <button
+                class="nav__btn"
+                id="prev"
+                type="button"
+                aria-label="Previous scene"
+              >
+                &lsaquo;
+              </button>
+              <button
+                class="nav__btn"
+                id="next"
+                type="button"
+                aria-label="Next scene"
+              >
+                &rsaquo;
+              </button>
+              <output
+                class="elapsed"
+                id="elapsed"
+                aria-live="off"
+                aria-label="Elapsed briefing time"
+                >0:00</output
+              >
+              <label class="speed"
+                ><span class="sr-only">Playback speed</span
+                ><select id="speed" aria-label="Playback speed">
+                  <option value="0.5">0.5×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="2">2×</option>
+                </select></label
+              >
+              <button
+                class="control control--quiet fullscreen"
+                id="fullscreen"
+                type="button"
+              >
+                Fullscreen
+              </button>
+            </div>
+            <label class="scrubber"
+              ><span class="sr-only">Briefing progress</span
+              ><input
+                id="scrub"
+                type="range"
+                min="0"
+                max="100"
+                step="0.1"
+                value="0"
+                aria-label="Briefing progress"
+            /></label>
+            <p class="key-hint">Space play / pause · ← → scenes · R replay</p>
+          </div>
+          <div class="takeaways" aria-label="Copy briefing">
+            <button class="take" id="copyText" type="button">
+              Copy briefing
+            </button>
+            <button class="take" id="copyImage" type="button">
+              Copy image
+            </button>
+          </div>
+        </footer>
+      </section>
+      <aside class="rail" id="rail" aria-label="Current scene guidance">
+        <section class="guide">
+          <p class="eyebrow" id="sceneLabel">Scene</p>
+          <h2 class="guide__call" id="sceneCall">Loading briefing…</h2>
+          <p class="guide__why" id="sceneWhy"></p>
+          <div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>
+          <dl class="role-notes" id="roleNotes"></dl>
+          <div class="mistake">
+            <span>Watch out</span>
+            <p id="sceneMistake"></p>
+          </div>
+        </section>
+        <details class="reference">
+          <summary>Mechanics &amp; sources</summary>
+          <div id="referenceContent"></div>
+        </details>
+      </aside>
+    </main>
+    <script src="assignments-engine.js"></script>
+    <script src="tactics-najentus-data.js"></script>
+    <script src="tactics-akama-data.js"></script>
+    <script src="tactics-data.js"></script>
+    <script src="tactics-layout.js"></script>
+    <script src="tactics-playback.js"></script>
+    <script src="tactics-najentus.js"></script>
+    <script src="tactics-najentus-render.js"></script>
+    <script src="tactics-akama.js"></script>
+    <script src="tactics-akama-render.js"></script>
+    <script src="tactics.js"></script>
+  </body>
+</html>
