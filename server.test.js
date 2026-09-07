@@ -351,6 +351,29 @@ test('GET /api/vet/feedback (v2 §5.2): an unknown report code is 404', async ()
     assert.deepStrictEqual(await r.json(), { error: 'No kills in that report' });
 });
 
+// --- logs-first A3: the night picker endpoint
+test('GET /api/vet/nights: profile + one encounterRankings call, nights and tiers, cached', async () => {
+    const s = setupPipeline();
+    let res = await fetch(base + '/api/vet/nights?' + QS, SAME_ORIGIN);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'miss');
+    const body = await res.json();
+    assert.ok(Array.isArray(body.nights) && body.nights.length >= 1, 'nights listed');
+    assert.deepStrictEqual(body.tiers, [{ zone: 1060, zoneName: 'BT / Hyjal', medianPercent: 14 }]);
+    assert.strictEqual(s.calls.filter(c => c.q.includes('encounterRankings(')).length, 1, 'exactly one WCL request beyond the (seeded) profile');
+    assert.strictEqual(s.calls.some(c => c.q === F.FIGHT_QUERY), false, 'no analysis ran');
+    res = await fetch(base + '/api/vet/nights?' + QS, SAME_ORIGIN);
+    assert.strictEqual(res.headers.get('x-vet-cache'), 'hit');
+    assert.ok(app.__test.caches.nightsCache.has(IDENTITY_KEY + '/nights'));
+});
+test('GET /api/vet/nights: validation, cross-origin block, unknown character', async () => {
+    setupPipeline();
+    assert.strictEqual((await fetch(base + '/api/vet/nights?name=x&server=spineshatter&region=eu', SAME_ORIGIN)).status, 400);
+    assert.strictEqual((await fetch(base + '/api/vet/nights?' + QS, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+    app.__test.setWclQuery(async q => { if (q === P.CHAR_QUERY) return { characterData: { character: null } }; throw new Error('unexpected ' + q.slice(0, 40)); });
+    assert.strictEqual((await fetch(base + '/api/vet/nights?name=Nobody&server=spineshatter&region=eu&zone=1060', SAME_ORIGIN)).status, 404);
+});
+
 chain.then(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exitCode = failed ? 1 : 0;

@@ -201,6 +201,23 @@ async function loadProfile(name, server, region, zone) {
   return { profile, cached: false };
 }
 
+// Shared by the routes added for logs-first (nights, parses, logs, roster): the same name /
+// server / region / zone validation /api/vet/player and /api/vet/feedback do inline, and the
+// same Sec-Fetch-Site rule /api/vet/feedback explains — page script cannot fake that header, so
+// a cross-origin page cannot spend the user's WCL points through these endpoints.
+function vetIdentity(req) {
+  const site = req.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return { status: 403, error: 'Cross-origin requests are not allowed' };
+  const name = String(req.query.name || '');
+  const server = String(req.query.server || '').toLowerCase();
+  const region = String(req.query.region || '').toLowerCase();
+  const zone = parseInt(req.query.zone, 10) || 1060;
+  if (!/^[^\s\/\\"]{2,24}$/.test(name)) return { status: 400, error: 'Invalid character name' };
+  if (!/^[a-z0-9-]{2,40}$/.test(server)) return { status: 400, error: 'Invalid server slug' };
+  if (!/^(eu|us|kr|tw|cn)$/.test(region)) return { status: 400, error: 'Invalid region' };
+  return { name, server, region, zone, key: region + '/' + server + '/' + name.toLowerCase() + '/' + zone };
+}
+
 app.get('/api/vet/player', async (req, res) => {
   const name = String(req.query.name || '');
   const server = String(req.query.server || '').toLowerCase();
@@ -331,6 +348,28 @@ app.get('/api/vet/feedback', async (req, res) => {
   }
 });
 
+// logs-first A3: the night picker on its own. Profile (cached) + one encounterRankings request.
+const nightsCache = new Map(); // identity key + '/nights' -> { at, body }
+app.get('/api/vet/nights', async (req, res) => {
+  const id = vetIdentity(req);
+  if (id.error) return res.status(id.status).json({ error: id.error });
+  const key = id.key + '/nights';
+  try {
+    const hit = nightsCache.get(key);
+    if (hit && Date.now() - hit.at < FEEDBACK_CACHE_MS) { res.set('X-Vet-Cache', 'hit'); return res.json(hit.body); }
+    const { profile } = await loadProfile(id.name, id.server, id.region, id.zone);
+    if (!profile) return res.status(404).json({ error: 'Character not found on Warcraft Logs' });
+    const body = await VetFeedback.fetchNights(wclQuery, { profile });
+    for (const [k, v] of nightsCache) if (Date.now() - v.at >= FEEDBACK_CACHE_MS) nightsCache.delete(k);
+    nightsCache.set(key, { at: Date.now(), body });
+    res.set('X-Vet-Cache', 'miss');
+    res.json(body);
+  } catch (err) {
+    if (err.code === 'NO_DB') return res.status(500).json({ error: err.message });
+    wclErrorResponse(res, err, 'WCL nights lookup');
+  }
+});
+
 // Advisory AI second opinion on the whole assignment sheet. The client sends its live
 // state; we wrap it in a system prompt that states the Anniversary rules so the model
 // cannot repeat the rule-ignorant critiques a bare ChatGPT produces. Display-only:
@@ -423,8 +462,8 @@ app.__test = {
   setWclQuery(fn) { wclQuery = fn; },
   setOpenaiChat(fn) { openaiChat = fn; },
   setDbPath(p) { vetDbPath = p || DEFAULT_DB_PATH; vetDbIndex = null; },
-  resetCaches() { vetCache.clear(); feedbackCache.clear(); feedbackInFlight.clear(); feedbackRefCache.clear(); },
-  caches: { vetCache, feedbackCache, feedbackInFlight, feedbackRefCache },
+  resetCaches() { vetCache.clear(); feedbackCache.clear(); feedbackInFlight.clear(); feedbackRefCache.clear(); nightsCache.clear(); },
+  caches: { vetCache, feedbackCache, feedbackInFlight, feedbackRefCache, nightsCache },
 };
 
 module.exports = app;
