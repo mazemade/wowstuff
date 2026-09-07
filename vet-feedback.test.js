@@ -1431,8 +1431,8 @@ test('fetchNights (logs-first A3): one encounterRankings request, nights from bo
 });
 
 // --- ref-above A1: the reference walk can start from any page, not only the middle
-test('pageOrderFrom (ref-above A1): pages ordered outward from the start, better page first on a tie', () => {
-    assert.deepStrictEqual(F.pageOrderFrom(8, 20, 5), [8, 7, 9, 6, 10]);
+test('pageOrderFrom (ref-above A1): pages ordered outward from the start', () => {
+    assert.deepStrictEqual(F.pageOrderFrom(8, 20, 5), [8, 9, 7, 10, 6]);
     assert.deepStrictEqual(F.pageOrderFrom(1, 20, 4), [1, 2, 3, 4], 'a start at the top only walks down');
     assert.deepStrictEqual(F.pageOrderFrom(20, 20, 3), [20, 19, 18], 'a start at the bottom only walks up');
     assert.deepStrictEqual(F.pageOrderFrom(0, 5, 3), [1, 2, 3], 'a start below 1 clamps to 1');

@@ -860,14 +860,14 @@ async function fightAndTables(query, code, fightID, playerName) {
 // hasMorePages; the middle rank is then 50·L.
 function globalRank(page, index) { return (page - 1) * 100 + index + 1; }
 // Pages to read for the benchmark, nearest the middle first: mid, mid+1, mid-1, mid+2, mid-2, …
-// ref-above A1: pages of the leaderboard ordered by distance from a starting page, better
-// (lower) page first on a tie. The reference used to always start at the middle; it now starts
-// wherever the target parse is estimated to be.
+// ref-above A1: pages of the leaderboard ordered by distance from a starting page.
+// The reference used to always start at the middle; it now starts wherever the target parse
+// is estimated to be.
 function pageOrderFrom(start, L, maxPages) {
     const s = Math.min(Math.max(1, Math.round(start) || 1), Math.max(1, L));
     const out = [];
     for (let d = 0; d <= L && out.length < maxPages; d++) {
-        (d === 0 ? [s] : [s - d, s + d]).forEach(p => { if (p >= 1 && p <= L && !out.includes(p) && out.length < maxPages) out.push(p); });
+        (d === 0 ? [s] : [s + d, s - d]).forEach(p => { if (p >= 1 && p <= L && !out.includes(p) && out.length < maxPages) out.push(p); });
     }
     return out;
 }
