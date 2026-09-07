@@ -1073,7 +1073,7 @@ test('fetchFeedback (v2 §5): the default sheet lists the nights; report=<code> 
     assert.deepStrictEqual(all.nights.map(n => n.code), [kazCode, anetCode]);
     const night = await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: kazCode });
     assert.deepStrictEqual(night.kills.map(k => [k.name, k.reportCode, k.killIndex, k.killsOnBoss]), [["Kaz'rogal", kazCode, 1, 1], ['Anetheron', kazCode, 2, 2]], 'only that report\'s ranks, worst first');
-    assert.deepStrictEqual(night.night, { code: kazCode, date: all.nights[0].date, medianPercent: all.nights[0].medianPercent });
+    assert.deepStrictEqual(night.night, { code: kazCode, date: all.nights[0].date, medianPercent: all.nights[0].medianPercent, zoneName: 'BT / Hyjal' });
     assert.deepStrictEqual(night.nights.map(n => n.code), all.nights.map(n => n.code), 'the list rides along in night mode too');
     assert.deepStrictEqual(await F.fetchFeedback(s.query, { profile: rotProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now(), report: 'ZZZZZZZZZZZZZZZZ' }), { noKills: true });
 });
@@ -1353,6 +1353,55 @@ test('buildFacts (v4): overall.checklist replaces findings/positives; the report
     assert.strictEqual(facts.overall.findings, undefined); assert.strictEqual(facts.overall.positives, undefined);
     assert.strictEqual(typeof F.Checklist.renderReport(facts.overall.checklist, facts), 'string');
     assert.strictEqual(F.buildPrompt, undefined); assert.strictEqual(F.checkNumbers, undefined); assert.strictEqual(F.completeReply, undefined); assert.strictEqual(F.mergeFindings, undefined); assert.strictEqual(F.positives, undefined);
+});
+
+// --- logs-first (2026-09-07 spec A1): bosses and nights come from both tiers
+// Utopik's live shape on 2026-09-07: SSC / TK (59.7) gates, BT / Hyjal (55.8) is `other`.
+function twoTierProfile() {
+    const ssc = { medianPerformanceAverage: 59.7, bestPerformanceAverage: 80, rankings: [
+        { encounter: { id: 100730, name: "Al'ar" }, medianPercent: 86.9, rankPercent: 90, totalKills: 11, spec: 'Assassination', bestSpec: 'Assassination' },
+        { encounter: { id: 100731, name: 'Void Reaver' }, medianPercent: 85.4, rankPercent: 88, totalKills: 11, spec: 'Assassination', bestSpec: 'Assassination' },
+    ] };
+    const hyjal = { medianPerformanceAverage: 55.8, bestPerformanceAverage: 63.7, rankings: [
+        { encounter: { id: 50619, name: 'Anetheron' }, medianPercent: 81.5, rankPercent: 81.5, totalKills: 2, spec: 'Assassination', bestSpec: 'Assassination' },
+        { encounter: { id: 50620, name: "Kaz'rogal" }, medianPercent: 44.0, rankPercent: 44.0, totalKills: 2, spec: 'Assassination', bestSpec: 'Assassination' },
+        { encounter: { id: 50604, name: 'Teron Gorefiend' }, medianPercent: null, rankPercent: null, totalKills: 0, spec: null, bestSpec: null },
+    ] };
+    return P.buildProfile({ name: 'Utopik', server: 'spineshatter', region: 'eu', zone: 1060, classToken: 'ROGUE', combatant: null, report: null,
+                            rankings: ssc, rankingsZone: 1056, fallback: true, metric: 'dps', otherRankings: hyjal, otherZone: 1060, specRankings: hyjal, dbIndex: db });
+}
+test('killedBosses (logs-first A1): every killed boss of both tiers, each tagged with its tier', () => {
+    const k = F.killedBosses(twoTierProfile().parses);
+    assert.deepStrictEqual(k.map(b => [b.encounterId, b.zone, b.zoneName]), [
+        [100730, 1056, 'SSC / TK'], [100731, 1056, 'SSC / TK'], [50619, 1060, 'BT / Hyjal'], [50620, 1060, 'BT / Hyjal']]);
+    assert.deepStrictEqual(F.killedBosses(null), []);
+    assert.deepStrictEqual(F.killedBosses({ bosses: [] }), []);
+});
+test('pickKills (logs-first A1): the other tier\'s bosses are candidates even when SSC / TK gates', () => {
+    const ids = F.pickKills(twoTierProfile()).map(b => b.encounterId);
+    assert.ok(ids.includes(50620) && ids.includes(50619), 'Hyjal bosses picked: ' + ids.join(','));
+    assert.strictEqual(ids[0], 50620, "Kaz'rogal (44.0) is the lowest median across both tiers");
+});
+test('buildNights (logs-first A1): a night carries the tier of its bosses', () => {
+    const ch = { e50619: { ranks: [{ rankPercent: 81.5, startTime: 1788700000000, report: { code: 'X6mnbPQpGhjJC2TN', fightID: 3 } }] },
+                 e100730: { ranks: [{ rankPercent: 90, startTime: 1788600000000, report: { code: 'fDBNk8Wm7Avjq6RJ', fightID: 1 } }] } };
+    const nights = F.buildNights(ch, F.killedBosses(twoTierProfile().parses));
+    assert.deepStrictEqual(nights.map(n => [n.code, n.zone, n.zoneName]), [['X6mnbPQpGhjJC2TN', 1060, 'BT / Hyjal'], ['fDBNk8Wm7Avjq6RJ', 1056, 'SSC / TK']]);
+});
+test('fetchFeedback (logs-first A1): asks WCL for encounter rankings of BOTH tiers\' bosses', async () => {
+    const calls = [];
+    const query = async q => { calls.push(q); return { characterData: { character: null } }; };
+    const out = await F.fetchFeedback(query, { profile: twoTierProfile(), dbIndex: db, refCache: new Map(), thresholds: {}, now: Date.now() });
+    assert.strictEqual(out, null);
+    assert.strictEqual(calls.length, 1);
+    ['e100730', 'e100731', 'e50619', 'e50620'].forEach(a => assert.ok(calls[0].includes(a + ':encounterRankings(encounterID:' + a.slice(1)), 'missing ' + a));
+});
+test('killFacts (logs-first A1): a kill carries the tier it was fought in', () => {
+    const K = FX.kills['50619'];
+    const k = F.killFacts({ encounterId: 50619, name: 'Anetheron', rank: FX.encounterRankings['50619'].ranks[0], context: K.context, tables: K.tables,
+                            sourceId: K.sourceID, player: PLAYER, reference: null, referenceNote: null, dbIndex: db, zoneName: 'BT / Hyjal' });
+    assert.strictEqual(k.zoneName, 'BT / Hyjal');
+    assert.strictEqual(killFor(50619).zoneName, null, 'the old call shape gets null, not undefined');
 });
 
 Promise.all(pending).then(() => {
