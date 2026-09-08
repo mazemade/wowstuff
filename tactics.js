@@ -8,9 +8,10 @@
     const fights = window.TacticsData.FIGHTS;
     const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
-    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : null;
-    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : null;
-    const RELIQUARY_STEPS = FIGHT.id === 'bt-reliquary' ? window.TacticsReliquarySteps : null;
+    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : null;
+    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : null;
+    const LESSON_RENDER = FIGHT.id === 'bt-reliquary' ? null : window.TacticsLessonRender;
+    const STEPS = window.TacticsSteps?.forFight(FIGHT.id) || null;
     const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -46,6 +47,12 @@
     const roster = loadRoster();
     const assigned = L.assign(FIGHT, roster);
     assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; });
+    const BLOODBOIL_SOAK_KEY = 'tacticsBloodboilMeleeSoakers';
+    const bloodboilOptions = { meleeSoakers: [] };
+    if (FIGHT.id === 'bt-bloodboil') {
+        try { bloodboilOptions.meleeSoakers = ADAPTER.soakAssignment(assigned, JSON.parse(localStorage.getItem(BLOODBOIL_SOAK_KEY))).selectedKeys; }
+        catch (e) { /* Start with the available ranged and healers. */ }
+    }
     const PLACED = {};
     [1, 2].forEach(phase => {
         PLACED[phase] = {};
@@ -142,7 +149,7 @@
     let W = 0, H = 0;
 
     const MW = FIGHT.mapSize.width, MH = FIGHT.mapSize.height;
-    let src = { x: 0, y: 0, w: MW, h: MH }, scale = 1;
+    let src = { x: 0, y: 0, w: MW, h: MH }, scale = 1, viewRect = { x: 0, y: 0, w: 0, h: 0 };
 
     function resize() {
         const r = cv.getBoundingClientRect();
@@ -196,16 +203,17 @@
         };
     }
 
-    function aim(view, sc) {
-        const box = W / H;
+    function aim(view, sc, action) {
+        viewRect = action || { x: 0, y: 0, w: W, h: H };
+        const box = viewRect.w / Math.max(1, viewRect.h);
         const f = frameOf(view, sc);
         if (FIGHT.id === 'bt-reliquary' && (view.fit === 'action' || sc.id === 'positioning')) {
             // Reserve readable space for the visual lesson above and below the actors.
             const top = W < 520 ? 150 : ['fixate', 'suffering', 'cycle'].includes(sc.id) ? 160 : 120, bottom = 118;
-            scale = Math.min((W - 46) / ((f.x1 - f.x0) * MW), (H - top - bottom) / ((f.y1 - f.y0) * MH));
-            src = { w: W / scale, h: H / scale,
-                x: (f.x0 + f.x1) / 2 * MW - W / scale / 2,
-                y: (f.y0 + f.y1) / 2 * MH - (top + (H - top - bottom) / 2) / scale };
+            scale = Math.min((viewRect.w - 46) / ((f.x1 - f.x0) * MW), (viewRect.h - top - bottom) / ((f.y1 - f.y0) * MH));
+            src = { w: viewRect.w / scale, h: viewRect.h / scale,
+                x: (f.x0 + f.x1) / 2 * MW - viewRect.w / scale / 2,
+                y: (f.y0 + f.y1) / 2 * MH - (top + (viewRect.h - top - bottom) / 2) / scale };
             return;
         }
         const padX = f.pad * FIGHT.yard, padY = f.pad * FIGHT.yard * FIGHT.aspect;
@@ -217,20 +225,19 @@
             // Both hallways are part of the lesson. On a portrait viewport, retain the
             // whole authored arena with vertical padding instead of cropping its sides.
             src = { w, h, x: (f.x0 + f.x1) / 2 * MW - w / 2, y: (f.y0 + f.y1) / 2 * MH - h / 2 };
-            scale = W / src.w;
+            scale = viewRect.w / src.w;
             return;
         }
-        if (w > MW) { w = MW; h = w / box; }
-        if (h > MH) { h = MH; w = h * box; }
-        src = {
-            w: w, h: h,
-            x: clamp((f.x0 + f.x1) / 2 * MW - w / 2, 0, MW - w),
-            y: clamp((f.y0 + f.y1) / 2 * MH - h / 2, 0, MH - h)
-        };
-        scale = W / src.w;
+        if (!LESSON_RENDER) {
+            if (w > MW) { w = MW; h = w / box; }
+            if (h > MH) { h = MH; w = h * box; }
+        }
+        const centreX = (f.x0 + f.x1) / 2 * MW - w / 2, centreY = (f.y0 + f.y1) / 2 * MH - h / 2;
+        src = { w: w, h: h, x: LESSON_RENDER ? centreX : clamp(centreX, 0, MW - w), y: LESSON_RENDER ? centreY : clamp(centreY, 0, MH - h) };
+        scale = viewRect.w / src.w;
     }
 
-    const px = p => ({ x: (p.x * MW - src.x) * scale, y: (p.y * MH - src.y) * scale });
+    const px = p => ({ x: viewRect.x + (p.x * MW - src.x) * scale, y: viewRect.y + (p.y * MH - src.y) * scale });
     const yd = n => n * FIGHT.yard * MW * scale;
 
     // The capture is murky and green, and lifting it costs a full-frame filter. Do it once
@@ -251,7 +258,7 @@
 
     function drawMap() {
         const m = litMap();
-        if (m) ctx.drawImage(m, src.x, src.y, src.w, src.h, 0, 0, W, H);
+        if (m) ctx.drawImage(m, src.x, src.y, src.w, src.h, viewRect.x, viewRect.y, viewRect.w, viewRect.h);
     }
 
     // ---- the simulation -------------------------------------------------------
@@ -816,7 +823,7 @@
         const span = e.end - e.start;
         const wipe = e.mode !== 'rebuild';
         const bw = 172, bh = 11, gap = 8;
-        const bx = 62, by = W < 500 ? H - 132 : 22;
+        const bx = viewRect.x + 62, by = viewRect.y + 22;
         const mark = sc.countdown ? sc.countdown.at - e.start : span * 0.5;
         const after = t - e.start - mark;
 
@@ -890,6 +897,7 @@
 
     // What the raid leader would be saying out loud right now.
     function drawCall(e, sc, t) {
+        if (LESSON_RENDER) return;
         if (t < e.start || t > e.end) return;
         const fade = Math.min(1, (t - e.start) / 260, (e.end - t) / 400);
         ctx.save();
@@ -1075,7 +1083,7 @@
         return sc;
     };
     const scenes = ADAPTER
-        ? FIGHT.scenes.map(s => ADAPTER.prepareScene(FIGHT, s, assigned))
+        ? FIGHT.scenes.map(s => ADAPTER.prepareScene(FIGHT, s, assigned, bloodboilOptions))
         : FIGHT.scenes.map(prepareSupremusScene);
     if (!ADAPTER) scenes.forEach(sc => {
         if (!sc.continueFrom) return;
@@ -1092,25 +1100,64 @@
     const playback = window.TacticsPlayback.create(scenes[0].duration);
     let lastInstructionRows = null;
     let explanationIndex = 0;
+    const lessonBounds = new Map();
 
-    function isGuidedScene(sc = scenes[idx]) { return !!(RELIQUARY_STEPS && sc && sc.id !== 'cycle' && RELIQUARY_STEPS.forScene(sc.id).length); }
-    function currentExplanation() { return RELIQUARY_STEPS?.all()[explanationIndex] || null; }
+    function isGuidedScene(sc = scenes[idx]) { return !!(STEPS && sc && STEPS.forScene(sc.id).length); }
+    function currentExplanation() { return STEPS?.all()[explanationIndex] || null; }
     function chapterExplanationIndex(sceneId, localIndex = 0) {
-        const found = RELIQUARY_STEPS?.all().findIndex(item => item.sceneId === sceneId && item.localIndex === localIndex);
+        const found = STEPS?.all().findIndex(item => item.sceneId === sceneId && item.localIndex === localIndex);
         return found == null || found < 0 ? 0 : found;
     }
     function resetExplanationDemo(now) {
         const explanation = isGuidedScene() ? currentExplanation() : null;
         const duration = explanation ? (explanation.loop === 'effect' ? Number.MAX_SAFE_INTEGER : Math.max(1, explanation.holdAtMs - explanation.startMs)) : scenes[idx].duration;
         playback.reset(duration, now);
-        if (!REDUCED && (scenes[idx].animated || scenes[idx].effects.length)) playback.play(now);
+        if (!REDUCED && duration > 1 && (scenes[idx].animated || scenes[idx].effects.length)) playback.play(now);
     }
     function resolvedExplanation(explanation, sc) {
         if (!explanation) return null;
+        if (FIGHT.id === 'bt-bloodboil' && ADAPTER.resolveExplanation) return ADAPTER.resolveExplanation(explanation, sc);
         const hasClass = value => sc.raid.some(player => String(player.class || '').toUpperCase() === value);
         const absent = (title, detail) => ({ ...explanation, title, detail });
+        if (FIGHT.id === 'bt-supremus') {
+            if (sc.id === 'p1-hateful' && !sc.cast.mt) return absent('Main-tank coverage is missing.', 'No main tank is loaded, so the normal-swing example is not shown.');
+            if (sc.id === 'p1-hateful' && ['prepare-soak', 'hateful-hit', 'recover-soak', 'next-hateful'].includes(explanation.id) && !sc.cast.soak)
+                return absent('Hateful-soak coverage is missing.', 'No second eligible tank is loaded, so the Hateful soak is not fabricated.');
+            if (sc.id === 'p1-flame' && !sc.cast.burned) return absent('A blue-fire target is missing.', 'No eligible ranged player is loaded for the movement example.');
+            if (sc.id === 'p2-fixate' && ((!sc.cast.hunted && explanation.id === 'first-target') || (!sc.cast.second && explanation.id === 'next-target')))
+                return absent('A Fixate target is missing.', 'This roster does not have the selected runner for that route.');
+            if (sc.id === 'p2-together' && ((!sc.cast.hunted && ['read-both', 'first-volcano', 'second-volcano'].includes(explanation.id)) || (!sc.cast.second && explanation.id === 'next-fixate')))
+                return absent('A Fixate target is missing.', 'This roster does not have the selected runner for that route.');
+            if (sc.id === 'back' && !sc.raid.some(player => player.kind === 'tank'))
+                return absent('Tank pickup coverage is missing.', 'No tank is loaded for the reset and pickup example.');
+            return explanation;
+        }
+        if (FIGHT.id === 'bt-najentus') {
+            const rescueMissing = (sc.missingRoles || []).some(note => /rescue role/i.test(note));
+            const recoveredPairs = sc.resolved?.impales?.length || 0;
+            const needleBeat = sc.id === 'needle' || ['needle-one', 'needle-reset', 'needle-two'].includes(explanation.id);
+            if (needleBeat && !(sc.resolved?.needleTargets || []).length)
+                return absent('Needle targets are unavailable.', 'No eligible raid targets are loaded for the Needle splash example.');
+            const holderIds = recoveredPairs === 0 ? ['impale-one', 'spine-one', 'impale-two', 'spine-two', 'spare-ready', 'shield', 'ready', 'throw', 'burst', 'recovery'] : ['impale-two', 'spine-two', 'spare-ready'];
+            const holderBeat = sc.id === 'impale' || (['shield', 'burst'].includes(sc.id) && !sc.resolved?.throwHolder && explanation.id !== 'shield-up') || (sc.id === 'cycle' && holderIds.includes(explanation.id));
+            if (rescueMissing && holderBeat)
+                return absent('Spine-holder coverage is missing.', 'No rescue pair can create the spine holder required for this part of the example.');
+            if (sc.id === 'cycle' && recoveredPairs < 2 && explanation.id === 'throw')
+                return { ...explanation, detail: 'The available holder throws on the call; no spare spine is demonstrated.' };
+            return explanation;
+        }
+        if (FIGHT.id === 'bt-akama') {
+            const damageBeat = ['channelers', 'sorcerers', 'walk', 'burn'].includes(sc.id) || (sc.id === 'cycle' && !['start', 'waves', 'fire'].includes(explanation.id)) || (sc.id === 'aoe' && !['optional-plan', 'pull'].includes(explanation.id));
+            if (!sc.hasDamage && damageBeat)
+                return absent('Damage coverage is missing.', 'No damage role is loaded, so channel kills, release and the final burn are not demonstrated.');
+            const tankBeat = (sc.id === 'doorways' && ['waves', 'hold', 'interrupt', 'control'].includes(explanation.id)) || (['walk', 'aoe'].includes(sc.id) && !['optional-plan'].includes(explanation.id)) || (sc.id === 'cycle' && ['walk', 'rendezvous', 'cleanup'].includes(explanation.id));
+            if (sc.tanks.length < 2 && tankBeat)
+                return absent('Hallway tank coverage is missing.', 'Both hallway tank jobs need coverage; the absent-side pack is not fabricated.');
+            return explanation;
+        }
+        if (FIGHT.id !== 'bt-reliquary') return explanation;
         const tankCount = sc.tanks.length;
-        if (['hold-fixates', 'low-health', 'incoming-tank', 'first-handoff', 'enrage-prep', 'enrage-survival'].includes(explanation.id) && !tankCount)
+        if (['hold-fixates', 'suffering-hold', 'low-health', 'incoming-tank', 'first-handoff', 'enrage-prep', 'enrage-survival'].includes(explanation.id) && !tankCount)
             return absent('No tank is loaded.', 'No Suffering tank example can be shown for this roster.');
         if (explanation.id === 'low-health' && tankCount === 1)
             return absent('Tank health is getting low.', 'No fresh tank is loaded. Prepare survival cooldowns; a handoff cannot be shown.');
@@ -1124,25 +1171,46 @@
             return absent('Hold damage until Anger has a tank.', 'No tank pickup is assigned, so damage and Bloodlust are not demonstrated.');
         if (explanation.id === 'anger-burn' && !sc.hasDamage)
             return absent('Damage coverage is missing.', 'No damage role is loaded, so the burn is not fabricated.');
-        if (['gather-souls', 'kill-soul', 'soul-recovery'].includes(explanation.id) && !sc.hasDamage && explanation.id !== 'gather-souls')
+        if (['kill-soul', 'soul-recovery', 'souls-one', 'souls-two'].includes(explanation.id) && !sc.hasDamage)
             return absent('Soul recovery needs damage coverage.', 'No damage role is loaded, so nearby soul deaths and recovery are not demonstrated.');
+        if (['desire', 'desire-damage', 'desire-recoil'].includes(explanation.id) && !sc.hasDamage)
+            return absent('Desire recoil needs damage coverage.', 'No damage role is loaded, so a recoil target is not fabricated.');
         if (explanation.id === 'dispel-drain' && !sc.dispeller)
             return absent('Soul Drain dispel coverage is missing.', 'No known eligible magic dispeller is loaded, so the drain remains active.');
         if (explanation.id === 'priest-shield' && !sc.absorber)
             return absent('Absorb coverage is missing.', 'No known Priest is loaded, so a shield is not fabricated.');
         if (explanation.id === 'healer-dps' && !sc.raid.some(player => player.kind === 'healer'))
             return absent('Healer coverage is missing.', 'No healer is loaded; the demonstration does not invent healer damage coverage.');
+        if (explanation.id === 'desire-heal' && !sc.raid.some(player => player.kind === 'healer'))
+            return absent('Recoil recovery coverage is missing.', 'No healer is loaded, so the recoil recovery is not fabricated.');
         if (explanation.id === 'rogue-evasion' && !hasClass('ROGUE'))
             return absent('Optional Rogue Evasion is unavailable.', 'No known Rogue is loaded for this optional Enrage reminder.');
         if (explanation.id === 'hunter-deterrence' && !hasClass('HUNTER'))
             return absent('Optional Hunter Deterrence is unavailable.', 'No known Hunter is loaded for this optional Enrage reminder.');
         const missing = sc.missingRoles || [];
-        if (['tongues', 'first-spirit-shock', 'next-spirit-shock', 'deaden-cast', 'deaden-kick'].includes(explanation.id) && missing.some(note => /interrupt coverage/i.test(note)))
+        if (['tongues', 'first-spirit-shock', 'first-shock', 'next-spirit-shock', 'next-shock', 'next-kick', 'deaden-cast', 'deaden-kick', 'deaden'].includes(explanation.id) && missing.some(note => /interrupt coverage/i.test(note)))
             return { ...explanation, title: 'Interrupt coverage is missing.', detail: 'No known eligible interrupter is loaded. The demonstration keeps that coverage gap explicit.' };
-        if (['rune-shield', 'spellsteal'].includes(explanation.id) && missing.some(note => /Rune Shield removal/i.test(note)))
+        if (['spellsteal', 'remove-shield', 'next-spirit-shock', 'next-shock', 'next-kick'].includes(explanation.id) && missing.some(note => /Rune Shield removal/i.test(note)))
             return { ...explanation, title: 'Rune Shield removal is missing.', detail: 'No known eligible removal is loaded. Do not pretend an interrupt can pass through Rune Shield.' };
+        if (['next-spirit-shock', 'next-shock'].includes(explanation.id) && missing.some(note => /Rune Shield removal/i.test(note)))
+            return { ...explanation, title: 'Rune Shield removal is missing.', detail: 'The next Spirit Shock cannot be shown as interrupted while Rune Shield remains.' };
         if (explanation.id === 'tongues' && !sc.tongues)
             return { ...explanation, title: 'Curse of Tongues coverage is missing.', detail: 'No known Warlock is loaded, so Spirit Shock stays at its normal cast speed.' };
+        if (['spite-recovery', 'recovery'].includes(explanation.id) && !sc.raid.some(player => player.kind === 'healer'))
+            return absent('Spite recovery coverage is missing.', 'No healer is loaded, so the recovery is not fabricated.');
+        if (['soul-scream', 'scream'].includes(explanation.id) && !sc.tanks.length)
+            return absent('Soul Scream tank coverage is missing.', 'No tank is loaded for the resource and facing example.');
+        if (['spite-countdown', 'spite-marks', 'spite-impact', 'spite-recovery', 'recovery', 'spite-healthstone'].includes(explanation.id) && !sc.raid.some(player => player.kind !== 'tank'))
+            return absent('Spite targets are unavailable.', 'No eligible marked raid members are loaded for this example.');
+        if (explanation.sceneId === 'cycle' && explanation.id === 'complete' && !sc.hasDamage)
+            return absent('Reliquary is not defeated.', 'No damage role is loaded, so the final kill is not demonstrated.');
+        return explanation;
+    }
+    function visibleExplanation(explanation, sc, frame) {
+        if (!explanation) return null;
+        const liveCall = frame.call || explanation.title;
+        if (frame.stage === 'complete')
+            return { ...explanation, title: liveCall, detail: explanation.detail || liveCall };
         return explanation;
     }
     const explanationTipKinds = { 'anger-preparation': 'shadow-protection', 'rogue-evasion': 'evasion', 'hunter-deterrence': 'deterrence', 'spell-reflection': 'spell-reflection', 'deadly-throw': 'glove-backup', 'spite-healthstone': 'healthstone' };
@@ -1158,6 +1226,57 @@
             dt.textContent = role; dd.textContent = job;
             notes.append(dt, dd);
         });
+    }
+
+    function akamaLessonRows(sc, frame) {
+        if (frame.stage === 'complete') return [];
+        if (frame.phase === 2) return [['Damage', 'Use Bloodlust / Heroism and offensive cooldowns on the Shade.'], ['Tanks', 'Hold surviving adds near the fight; Akama tanks the Shade.'], ['Healers', 'Keep add tanks alive and stay out of any remaining fire.']];
+        if (frame.strategy === 'channeler-aoe' && frame.damageTarget === 'shade') return [['Damage', 'Switch to the Shade when it releases.'], ['Tanks', 'Hold surviving adds; do not tank the Shade.'], ['Healers & interrupters', 'Keep the tank packs covered and stop nearby heals.']];
+        if (frame.stage === 'aoe') return [['Damage', 'Cleave the Channelers and stacked adds together.'], ['Tanks', 'Hold packs at the Channelers.'], ['Healers & interrupters', 'Cover the stack and stop Spiritbinder heals.']];
+        if (frame.stage === 'approach') return [['Damage', 'Clean up adds during the Shade’s walk; save Lust.'], ['Tanks', 'Bring controlled packs beside the moving Shade.'], ['Healers', 'Walk with the tanks and keep the packs covered.']];
+        return sc.jobs || [];
+    }
+    function recapRows() {
+        if (FIGHT.id === 'bt-bloodboil') return FIGHT.recapRows || FIGHT.scenes[0].jobs;
+        if (FIGHT.id === 'bt-najentus') return [['Tank & spread', 'Tank holds Naj’entus; everyone spreads to limit Needle splash.'], ['Free the spine', 'Nearest player rescues the impaled ally and keeps the spine.'], ['Heal before shield', 'Top the raid while Tidal Shield is active; prepare the holder.'], ['One called throw', 'One holder moves within 25 yards and throws only on the call.'], ['Burst & spare', 'Survive the 8,500 Frost hit, heal up, and retain a spare spine.']];
+        if (FIGHT.id === 'bt-supremus') return [['Phase 1 tanks', 'Main tank holds him; a healthy high-threat Hateful soak stays in melee.'], ['Blue fire', 'Spread loosely, step sideways into clear ground, and leave the trail clear.'], ['Before Phase 2', 'Melee leaves early while tanks keep control until Fixate begins.'], ['Phase 2 movement', 'Fixate runners use clear routes; everyone avoids volcanoes and stays in healer reach.'], ['Reset pickup', 'At the return, tanks pick up and available Misdirect helps rebuild control before damage.']];
+        if (FIGHT.id === 'bt-akama') return [['Ready the hallways', 'Set both tank teams, available Frost Traps, and tank-healing assignments.'], ['Break the binding', 'Kill Channelers and Sorcerers; interrupt Spiritbinder heals.'], ['Control the doors', 'Tanks collect waves while damage stays on the binding objective.'], ['Walk & cleanup', 'Bring controlled packs to the moving Shade and clean them up during the walk.'], ['Akama engages', 'Use Lust and damage cooldowns on the Shade; Akama tanks it while players retain adds.']];
+        return [];
+    }
+    function lessonFor(sc, frame) {
+        if (!LESSON_RENDER) return null;
+        const teaching = frame.teaching || frame.explanation || {};
+        const complete = frame.stage === 'complete';
+        const title = teaching.title || frame.call || sc.call || sc.title;
+        const baseDetail = complete ? (teaching.detail || frame.call || '') : [teaching.detail || sc.caption, sc.why].filter(Boolean).join(' ');
+        const detail = baseDetail;
+        const rows = sc.id === 'overview' ? recapRows() : complete ? [] : Array.isArray(frame.instructionRows) ? frame.instructionRows : FIGHT.id === 'bt-akama' ? akamaLessonRows(sc, frame) : (sc.jobs || []);
+        return { title, detail, rows, tip: teaching.tip || '', warning: complete ? '' : (sc.mistake || ''), recap: sc.id === 'overview' };
+    }
+    function stableLessonLayout(sc, explanation, lesson) {
+        const key = W + 'x' + H + ':' + idx + ':' + (explanation?.id || 'scene');
+        const current = LESSON_RENDER.layout(ctx, W, H, lesson);
+        const saved = lessonBounds.get(key);
+        if (!saved) {
+            const candidates = [current];
+            if (FIGHT.id === 'bt-akama' && explanation && !lesson.recap) {
+                [explanation.startMs, explanation.holdAtMs].forEach(time => {
+                    const frame = simulate(sc, time);
+                    const rows = frame.stage === 'complete' ? [] : akamaLessonRows(sc, frame);
+                    candidates.push(LESSON_RENDER.layout(ctx, W, H, { ...lesson, rows }));
+                });
+            }
+            const reserved = candidates.reduce((largest, item) => item.action.h < largest.action.h ? item : largest, current);
+            lessonBounds.set(key, { action: { ...reserved.action }, header: { x: reserved.header.x, y: reserved.header.y, w: reserved.header.w, h: reserved.header.h }, footer: { x: reserved.footer.x, y: reserved.footer.y, w: reserved.footer.w, h: reserved.footer.h } });
+            current.action = { ...reserved.action };
+            current.header = { ...current.header, x: reserved.header.x, y: reserved.header.y, w: reserved.header.w, h: reserved.header.h };
+            current.footer = { ...current.footer, x: reserved.footer.x, y: reserved.footer.y, w: reserved.footer.w, h: reserved.footer.h };
+            return current;
+        }
+        current.action = { ...saved.action };
+        current.header = { ...current.header, ...saved.header };
+        current.footer = { ...current.footer, ...saved.footer };
+        return current;
     }
 
     function drawRoutes(sc, t) {
@@ -1191,26 +1310,30 @@
         const sc = scenes[idx];
         const elapsed = playback.time(now);
         const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
-        const t = explanation ? RELIQUARY_STEPS.frameAt(explanation, elapsed) : elapsed;
+        const t = explanation ? STEPS.frameAt(explanation, elapsed) : elapsed;
 
         sc._sim = simulate(sc, t);
         if (explanation) {
-            const teaching = resolvedExplanation(explanation, sc);
-            const guidance = sc._guidance || sc._sim;
-            sc._sim.call = teaching.title + ' ' + teaching.detail;
-            sc._sim.instructionRows = guidance.instructionRows || [];
-            sc._sim.teaching = { ...guidance.teaching, title: teaching.title, detail: teaching.detail, tip: teaching.tip };
+            const teaching = visibleExplanation(resolvedExplanation(explanation, sc), sc, sc._sim);
+            sc._sim.simulationCall = sc._sim.call;
+            sc._sim.call = teaching.title;
+            sc._sim.teaching = { ...(sc._sim.teaching || {}), title: teaching.title, detail: teaching.detail, tip: teaching.tip };
             if (sc._sim.tipVisual && sc._sim.tipVisual.kind !== explanationTipKinds[explanation.id]) sc._sim.tipVisual = null;
             sc._sim.explanation = teaching;
             sc._sim.explanationElapsedMs = elapsed;
             sc._sim.effectLoopProgress = explanation.loop === 'effect' && elapsed >= explanation.holdAtMs - explanation.startMs
                 ? ((elapsed - (explanation.holdAtMs - explanation.startMs)) % 1200) / 1200 : null;
-            sc._sim.explanationCountdown = teaching.countdownSeconds ? RELIQUARY_STEPS.countdownAt(teaching, elapsed) : null;
+            sc._sim.explanationCountdown = teaching.countdownSeconds ? STEPS.countdownAt(teaching, elapsed) : null;
         }
+        const lesson = lessonFor(sc, sc._sim);
+        sc._lesson = lesson;
         if (FIGHT.id === 'bt-reliquary') {
             const lesson = sc._sim.teaching || {};
             const description = [sc._sim.essence, lesson.title || sc._sim.call, lesson.detail, lesson.tip,
                 ...(sc._sim.instructionRows || []).map(row => row.join(': '))].filter(Boolean).join('. ');
+            if (cv.getAttribute('aria-label') !== description) cv.setAttribute('aria-label', description);
+        } else if (lesson) {
+            const description = [lesson.title, lesson.detail, lesson.tip, lesson.warning, ...lesson.rows.map(row => row.join(': '))].filter(Boolean).join('. ');
             if (cv.getAttribute('aria-label') !== description) cv.setAttribute('aria-label', description);
         }
         sc._dim = ADAPTER
@@ -1220,21 +1343,27 @@
         sc._focus = ADAPTER ? sc._sim.focus : (sc._dim ? focusOf(sc, t) : {});
         sc._roles = ADAPTER ? sc._sim.roles : {};
         if (!ADAPTER) Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
-        if (ADAPTER && Array.isArray(sc._sim.instructionRows)) showInstructionRows(sc._sim.instructionRows);
-        aim(sc.view, sc);
+        if (ADAPTER && (Array.isArray(sc._sim.instructionRows) || sc._sim.stage === 'complete')) showInstructionRows(sc._sim.instructionRows || []);
+        const lessonLayout = lesson ? stableLessonLayout(sc, explanation, lesson) : null;
+        sc._lessonLayout = lessonLayout;
+        aim(sc.view, sc, lessonLayout?.action);
         ctx.clearRect(0, 0, W, H);
         drawMap();
-
-        if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
-        (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call')
-            .forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
-        drawRoutes(sc, t);
-        if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
-        sc.raid.forEach(p => drawPlayer(p, sc, t));
-        // the gaze goes last: it is the thing you must notice
-        (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
-        (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
-        if (OVERLAY) OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H }, sc, sc._sim);
+        const overview = !!lesson?.recap;
+        if (!overview) {
+            const action = lessonLayout?.action || { x: 0, y: 0, w: W, h: H };
+            ctx.save(); ctx.beginPath(); ctx.rect(action.x, action.y, action.w, action.h); ctx.clip();
+            if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H, action: lessonLayout?.action }, sc, sc._sim);
+            (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call').forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
+            drawRoutes(sc, t);
+            if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
+            sc.raid.forEach(p => drawPlayer(p, sc, t));
+            (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
+            (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
+            if (OVERLAY) OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: lessonLayout?.action }, sc, sc._sim);
+            ctx.restore();
+        }
+        if (lesson) LESSON_RENDER.draw({ ctx, width: W, height: H }, lesson, lessonLayout);
     }
 
     // ---- chrome ---------------------------------------------------------------
@@ -1263,11 +1392,10 @@
     });
 
     const rail = el('rail');
-    const reliquaryReferenceOnly = FIGHT.id === 'bt-reliquary';
-    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></p>' +
-        '<h2 class="guide__call" id="sceneCall"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></h2><p class="guide__why" id="sceneWhy"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></p>' +
+    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel" hidden></p>' +
+        '<h2 class="guide__call" id="sceneCall" hidden></h2><p class="guide__why" id="sceneWhy" hidden></p>' +
         '<div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>' +
-        '<dl class="role-notes" id="roleNotes"' + (reliquaryReferenceOnly ? ' hidden' : '') + '></dl><div class="mistake"' + (reliquaryReferenceOnly ? ' hidden' : '') + '><span>Watch out</span>' +
+        '<dl class="role-notes" id="roleNotes" hidden></dl><div class="mistake" hidden><span>Watch out</span>' +
         '<p id="sceneMistake"></p></div></section>' +
         '<details class="reference"><summary>' + FIGHT.referenceTitle + '</summary><div id="referenceContent"></div></details>';
     const reference = el('referenceContent');
@@ -1276,11 +1404,10 @@
         card.className = 'card card--t' + a.tier;
         card.innerHTML = '<img class="card__icon" src="' + a.icon + '" alt="">' +
             '<div><h3 class="card__name">' + a.name + '</h3><p class="card__meta">' + (a.stageLabel || ('Phase ' + a.phase)) + '</p>' +
-                '<p class="card__desc">' + a.tooltip.description + '</p>' +
-                (reliquaryReferenceOnly ? '' : '<p class="card__do">' + a.doThis + '</p>') + '</div>';
+                '<p class="card__desc">' + a.tooltip.description + '</p></div>';
         reference.appendChild(card);
     });
-    if (!reliquaryReferenceOnly) {
+    if (FIGHT.id !== 'bt-reliquary') {
         const sheet = document.createElement('section');
         sheet.className = 'sheet';
         sheet.innerHTML = '<h3 class="sheet__title">' + (FIGHT.remindersTitle || FIGHT.referenceTitle) + '</h3><ol class="sheet__steps">' +
@@ -1297,9 +1424,65 @@
     });
     reference.appendChild(credit);
 
+    if (FIGHT.id === 'bt-bloodboil') {
+        const setup = document.createElement('details');
+        setup.id = 'bloodboilSoakSetup'; setup.className = 'soak-setup';
+        setup.open = ADAPTER.soakAssignment(assigned, bloodboilOptions.meleeSoakers).vacancies > 0;
+        setup.innerHTML = '<summary>Bloodboil soak groups</summary><p id="bloodboilSoakStatus" role="status"></p>' +
+            '<p class="soak-setup__help">Ranged and healers fill the groups first. Select melee to fill empty places; they return to melee between turns.</p>' +
+            '<fieldset id="bloodboilMeleeChoices"><legend>Melee soakers</legend></fieldset>' +
+            '<div id="bloodboilGroupList" class="soak-setup__groups"></div>';
+        rail.prepend(setup);
+        function refreshSoakSetup() {
+            const plan = ADAPTER.soakAssignment(assigned, bloodboilOptions.meleeSoakers);
+            const status = el('bloodboilSoakStatus');
+            status.textContent = plan.players.length + '/15 assigned' + (plan.vacancies ? ' · Choose ' + plan.vacancies + ' more soaker' + (plan.vacancies === 1 ? '' : 's') : ' · All three groups are full');
+            const choices = el('bloodboilMeleeChoices');
+            choices.querySelectorAll('label, p').forEach(node => node.remove());
+            assigned.filter(p => p.kind === 'melee').forEach((player, index) => {
+                const label = document.createElement('label'), checkbox = document.createElement('input'), name = document.createElement('span');
+                checkbox.type = 'checkbox'; checkbox.value = ADAPTER.soakKey(player);
+                checkbox.checked = plan.selectedKeys.includes(checkbox.value);
+                checkbox.disabled = !checkbox.checked && !plan.vacancies;
+                name.textContent = player.name || 'Melee ' + (index + 1);
+                label.append(checkbox, name); choices.appendChild(label);
+                checkbox.addEventListener('change', () => {
+                    const selected = new Set(bloodboilOptions.meleeSoakers);
+                    if (checkbox.checked) selected.add(checkbox.value); else selected.delete(checkbox.value);
+                    bloodboilOptions.meleeSoakers = ADAPTER.soakAssignment(assigned, [...selected]).selectedKeys;
+                    let saved = true;
+                    try { localStorage.setItem(BLOODBOIL_SOAK_KEY, JSON.stringify(bloodboilOptions.meleeSoakers)); }
+                    catch (e) { saved = false; }
+                    const chapter = idx, localIndex = currentExplanation()?.localIndex || 0;
+                    scenes.splice(0, scenes.length, ...FIGHT.scenes.map(s => ADAPTER.prepareScene(FIGHT, s, assigned, bloodboilOptions)));
+                    lessonBounds.clear(); show(chapter, localIndex);
+                    refreshSoakSetup();
+                    const replacement = [...choices.querySelectorAll('input')].find(input => input.value === checkbox.value);
+                    replacement?.focus();
+                    if (!saved) status.textContent += ' · Selection applies now but could not be saved for reload.';
+                });
+            });
+            if (!assigned.some(p => p.kind === 'melee')) {
+                const empty = document.createElement('p'); empty.textContent = 'No melee players in this roster.'; choices.appendChild(empty);
+            }
+            const groups = el('bloodboilGroupList'); groups.replaceChildren();
+            for (const [group, ids] of Object.entries(scenes[0].groupMembers)) {
+                const row = document.createElement('p'), title = document.createElement('strong');
+                title.textContent = group + ' · ' + ids.length + '/5';
+                const names = ids.map(id => {
+                    const player = assigned.find(p => p.id === id);
+                    return (player.name || (player.kind === 'melee' ? 'Melee ' + (assigned.filter(p => p.kind === 'melee').indexOf(player) + 1) : player.kind)) + (player.kind === 'melee' ? ' (melee)' : '');
+                });
+                row.append(title, document.createTextNode(names.length ? names.join(', ') : 'Unfilled')); groups.appendChild(row);
+            }
+        }
+        refreshSoakSetup();
+    }
+
     function showSpellDetails(sc) {
         const container = el('sceneSpells');
         container.replaceChildren();
+        if (sc.id === 'overview') { container.hidden = true; return; }
         const abilities = (sc.highlight || []).map(id => FIGHT.abilities.find(a => a.id === id)).filter(Boolean);
         container.hidden = !abilities.length;
         abilities.forEach(a => {
@@ -1363,12 +1546,12 @@
         if (isGuidedScene(sc)) explanationIndex = chapterExplanationIndex(sc.id, localExplanation);
         resetExplanationDemo(now);
         const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
-        sc._guidance = explanation ? simulate(sc, currentExplanation().startMs) : null;
         document.body.classList.toggle('has-guided-explanation', !!explanation);
         el('stepTitle').textContent = sc.title;
         el('stepCaption').textContent = sc.caption;
         el('manualExplanation').hidden = !explanation;
         el('manualProgress').hidden = !explanation;
+        el('manualDetail').classList.toggle('sr-only', FIGHT.id === 'bt-reliquary');
         if (explanation) {
             el('manualProgress').textContent = 'Explanation ' + (explanation.localIndex + 1) + ' of ' + explanation.count + (explanation.optional ? ' · Optional' : '');
             el('manualTitle').textContent = explanation.title;
@@ -1385,14 +1568,22 @@
         el('sceneCall').textContent = explanation ? explanation.title : sc.call;
         if (el('mapCall')) el('mapCall').textContent = explanation ? explanation.title : sc.call;
         el('sceneWhy').textContent = sc.why;
+        ['sceneLabel', 'sceneCall', 'sceneWhy', 'roleNotes'].forEach(id => { el(id).hidden = true; });
+        el('sceneMistake').parentElement.hidden = true;
         showSpellDetails(sc);
         el('sceneMistake').textContent = sc.mistake;
         if (roster) {
             el('rosterNote').hidden = false;
             const missing = Object.keys(sc.castRoles || {}).filter(ref => !sc.cast[ref]);
-            el('rosterNote').textContent = assigned.length + ' players loaded · positions are examples.' +
+            const rosterStatus = assigned.length + ' players loaded · positions are examples.' +
                 ((sc.missingRoles || []).length ? ' ' + sc.missingRoles.join(' ') : missing.includes('md') ? ' No hunter loaded: Misdirect is not assigned.' :
                  missing.length ? ' This roster lacks a role used in the example.' : '');
+            el('rosterNote').textContent = rosterStatus;
+            el('rosterStatus').hidden = false;
+            el('rosterStatus').textContent = rosterStatus;
+        } else {
+            el('rosterStatus').hidden = true;
+            el('rosterStatus').textContent = '';
         }
         showInstructionRows(sc.jobs);
         [...dots.children].forEach((d, k) => {
@@ -1400,7 +1591,7 @@
             if (k === idx) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
         });
         revealChapter();
-        const chapterSteps = explanation ? RELIQUARY_STEPS.forScene(sc.id) : [];
+        const chapterSteps = explanation ? STEPS.forScene(sc.id) : [];
         el('prev').disabled = explanation ? idx === 0 && explanation.localIndex === 0 : idx === 0;
         el('next').disabled = explanation ? idx === scenes.length - 1 && explanation.localIndex === chapterSteps.length - 1 : idx === scenes.length - 1;
         el('prev').setAttribute('aria-label', explanation ? 'Previous explanation' : 'Previous scene');
@@ -1409,23 +1600,20 @@
     }
 
     function showExplanation(index) {
-        const explanation = RELIQUARY_STEPS?.all()[index];
+        const explanation = STEPS?.all()[index];
         if (!explanation) return;
         const sceneIndex = scenes.findIndex(sc => sc.id === explanation.sceneId);
         if (sceneIndex >= 0) show(sceneIndex, explanation.localIndex);
     }
     function moveExplanation(delta) {
         if (!isGuidedScene()) {
-            if (RELIQUARY_STEPS && scenes[idx].id === 'cycle' && delta < 0) {
-                const lastScene = RELIQUARY_STEPS.order[RELIQUARY_STEPS.order.indexOf('cycle') - 1];
-                show(scenes.findIndex(sc => sc.id === lastScene), RELIQUARY_STEPS.forScene(lastScene).length - 1);
-            } else show(idx + delta);
+            show(idx + delta);
             return;
         }
         const explanation = currentExplanation(), local = explanation.localIndex + delta;
-        const steps = RELIQUARY_STEPS.forScene(explanation.sceneId);
+        const steps = STEPS.forScene(explanation.sceneId);
         if (local >= 0 && local < steps.length) { show(idx, local); return; }
-        const boundary = RELIQUARY_STEPS.chapterBoundary(explanation.sceneId, local);
+        const boundary = STEPS.chapterBoundary(explanation.sceneId, local);
         if (boundary) show(scenes.findIndex(sc => sc.id === boundary.sceneId), boundary.localIndex);
     }
 
@@ -1445,11 +1633,12 @@
         const phase = sc.countdown
             ? ((sc._t || 0) >= sc.countdown.at ? sc.countdown.phase : 3 - sc.countdown.phase)
             : sc.phase || 1;
-        const current = sc.currentCall || sc.call;
+        const lesson = sc._lesson || lessonFor(sc, sc._sim || {});
+        const current = lesson?.title || sc.currentCall || sc.call;
         const stage = FIGHT.clockMode === 'state' ? '\nState: ' + (sc._sim?.stage || 'normal') : '';
         const complete = sc._sim?.stage === 'complete';
-        const guidance = complete ? [] : [...sc.jobs.map(([role, job]) => role + ': ' + job), '', 'Watch out: ' + sc.mistake];
-        const text = [FIGHT.name + ' — ' + (complete ? 'encounter complete' : sc.title), current + stage, '', ...guidance, '', (ADAPTER?.copyText ? ADAPTER.copyText(FIGHT, sc, sc._sim) : L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned))].join('\n');
+        const guidance = complete ? [] : [...(lesson?.rows || sc.jobs).map(([role, job]) => role + ': ' + job), lesson?.detail || '', lesson?.tip ? 'Tip: ' + lesson.tip : '', lesson?.warning ? 'Watch out: ' + lesson.warning : ''].filter(Boolean);
+        const text = [FIGHT.name + ' — ' + (complete ? 'encounter complete' : sc.chapter + ' — ' + sc.title), current + stage, '', ...guidance, '', (ADAPTER?.copyText ? ADAPTER.copyText(FIGHT, sc, sc._sim) : L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned))].join('\n');
         try {
             await navigator.clipboard.writeText(text);
             flash(btn, 'Copied');
@@ -1469,8 +1658,9 @@
         const btn = el('copyImage'), sc = scenes[idx];
         const exportRows = FIGHT.id === 'bt-reliquary' ? sc._sim?.instructionRows || [] : null;
         const rowsHeight = Math.min(exportRows?.length || 0, 5) * 25;
+        const akamaKey = FIGHT.id === 'bt-akama' ? 'NPC key: 1–6 Channelers · S Sorcerer · + Spiritbinder · E Elementalist · R Rogue · D Defender' : '';
         const out = document.createElement('canvas');
-        out.width = cv.width; out.height = cv.height + 180 + rowsHeight;
+        out.width = cv.width; out.height = cv.height + 180 + rowsHeight + (akamaKey ? 28 : 0);
         const g = out.getContext('2d');
         g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, out.width, out.height);
         g.fillStyle = '#ece6d8'; g.font = '600 30px "Barlow Condensed", sans-serif';
@@ -1479,8 +1669,9 @@
         g.fillText(sc.currentCall || sc.call, 24, 82, out.width - 48);
         if (exportRows) { g.fillStyle = '#d9dfd9'; g.font = '16px "IBM Plex Sans", sans-serif'; exportRows.slice(0, 5).forEach(([role, job], index) => g.fillText(role + ': ' + job, 24, 108 + index * 25, out.width - 48)); }
         g.drawImage(cv, 0, 106 + rowsHeight);
-        g.fillStyle = '#9ba89f'; g.font = '18px "IBM Plex Sans", sans-serif';
-        g.fillText('Example positions and routes · Approximate scale · ' + FIGHT.legend.map(x => x.exportLabel).join(' / '), 24, out.height - 27, out.width - 48);
+        g.fillStyle = '#9ba89f'; g.font = (akamaKey ? '15px' : '18px') + ' "IBM Plex Sans", sans-serif';
+        if (akamaKey) g.fillText(akamaKey, 24, out.height - 48, out.width - 48);
+        g.fillText('Example positions and routes · Approximate scale · ' + FIGHT.legend.map(x => x.exportLabel).join(' / '), 24, out.height - 21, out.width - 48);
         out.toBlob(async blob => {
             if (!blob) { flash(btn, 'Export failed'); return; }
             try {
@@ -1499,11 +1690,13 @@
     el('next').addEventListener('click', () => moveExplanation(1));
     el('prev').addEventListener('click', () => moveExplanation(-1));
     function togglePlay() {
+        if (scenes[idx]._sim?.explanation?.holdAtMs === scenes[idx]._sim?.explanation?.startMs) return;
         const now = performance.now();
         if (playback.playing) playback.pause(now); else playback.play(now);
         render(now);
     }
     function replay() {
+        if (scenes[idx]._sim?.explanation?.holdAtMs === scenes[idx]._sim?.explanation?.startMs) return;
         const now = performance.now();
         playback.seek(0, now);
         if (!REDUCED) playback.play(now);
@@ -1517,14 +1710,8 @@
     }
     el('playPause').addEventListener('click', togglePlay);
     el('replay').addEventListener('click', replay);
+    el('quickRecap').addEventListener('click', () => show(0));
     el('fullscreen').addEventListener('click', fullscreen);
-    el('scrub').addEventListener('input', ev => {
-        const now = performance.now(); playback.pause(now);
-        playback.seek(Number(ev.target.value) / 100 * scenes[idx].duration, now); render(now);
-    });
-    el('speed').addEventListener('change', ev => {
-        const now = performance.now(); playback.setSpeed(Number(ev.target.value), now); render(now);
-    });
     document.addEventListener('keydown', ev => {
         if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
         if (ev.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable)) return;
@@ -1551,10 +1738,6 @@
 
     function tickClock() {
         const sc = scenes[idx], t = sc._t || 0;
-        if (isGuidedScene(sc)) {
-            el('clock').hidden = true; el('encounterState').hidden = true;
-            return;
-        }
         if (FIGHT.clockMode === 'state') {
             const stateLabels = FIGHT.stateLabels || { normal: 'Normal combat', shield: 'Shield: heal up', ready: 'Ready: await call', throw: 'Spine in flight', burst: 'Raidwide burst', recover: 'Recover: heal everyone' };
             el('clock').hidden = true; el('encounterState').hidden = false;
@@ -1581,29 +1764,26 @@
         const selected = scenes[idx]._sim?.explanation;
         const t = selected ? scenes[idx]._sim.explanationElapsedMs : scenes[idx]._t || 0;
         const duration = selected ? selected.holdAtMs - selected.startMs : scenes[idx].duration;
-        el('playPause').textContent = playback.playing ? 'Pause' : t >= duration ? 'Play again' : 'Play';
-        el('playPause').setAttribute('aria-label', playback.playing ? 'Pause animation' : 'Play animation');
-        el('scrub').value = t / duration * 100;
-        el('scrub').setAttribute('aria-valuetext', (t / 1000).toFixed(1) + ' of ' + (duration / 1000) + ' seconds');
-        el('elapsed').textContent = (t / 1000).toFixed(1) + ' / ' + (duration / 1000) + 's';
+        const isStaticPlan = !!selected && duration === 0;
+        el('playPause').disabled = isStaticPlan;
+        el('replay').disabled = isStaticPlan;
+        el('playPause').textContent = isStaticPlan ? 'Static plan' : playback.playing ? 'Pause' : t >= duration ? 'Play again' : 'Play';
+        el('playPause').setAttribute('aria-label', isStaticPlan ? 'Static plan' : playback.playing ? 'Pause animation' : 'Play animation');
         const explanation = selected;
         if (explanation?.countdownSeconds) {
-            const seconds = RELIQUARY_STEPS.countdownAt(explanation, scenes[idx]._sim.explanationElapsedMs || 0);
+            const seconds = STEPS.countdownAt(explanation, scenes[idx]._sim.explanationElapsedMs || 0);
             el('manualCountdown').textContent = seconds ? 'Impact in ' + seconds + 's' : 'Impact resolved';
         }
     }
     function syncCurrentGuidance(sc) {
-        if (sc._sim?.explanation) {
-            const stableCall = sc._sim.explanation.title;
-            sc.currentCall = stableCall;
-            el('sceneCall').textContent = stableCall;
-            if (el('mapCall')) el('mapCall').textContent = stableCall;
-            return;
-        }
-        const current = (sc._sim && sc._sim.call) || sc.call;
         if (FIGHT.stateLabels && sc._sim) {
             const stageLabel = 'STEP ' + String(idx + 1).padStart(2, '0') + ' / ' + String(scenes.length).padStart(2, '0') + ' · ' + FIGHT.stateLabels[sc._sim.stage].toUpperCase();
             if (el('sceneLabel').textContent !== stageLabel) el('sceneLabel').textContent = stageLabel;
+        }
+        const current = sc._sim?.explanation?.title || (sc._sim && sc._sim.call) || sc.call;
+        if (sc._sim?.explanation) {
+            el('manualTitle').textContent = sc._sim.explanation.title;
+            el('manualDetail').textContent = sc._sim.explanation.detail;
         }
         if (sc.currentCall === current) return;
         sc.currentCall = current;
@@ -1625,11 +1805,12 @@
     const mapImg = image(FIGHT.map);
     if (mapImg.complete && mapImg.naturalWidth) start();
     else mapImg.addEventListener('load', start);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (resize()) render(performance.now()); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { lessonBounds.clear(); if (resize()) render(performance.now()); });
     new ResizeObserver(() => { if (resize()) { render(performance.now()); revealChapter(); } }).observe(cv);
     Object.values(IMG).forEach(img => img.addEventListener('load', () => render(performance.now())));
 
     // lets the screenshot harness step scenes without synthesising key events
     window.__tactics = { show, showExplanation, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
-        guided: RELIQUARY_STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: RELIQUARY_STEPS.all(), chapterSteps: RELIQUARY_STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: RELIQUARY_STEPS.timelineFor, isGuided: isGuidedScene } : null };
+        lesson: LESSON_RENDER ? { get model() { return scenes[idx]._lesson || null; }, get layout() { return scenes[idx]._lessonLayout || null; } } : null,
+        guided: STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: STEPS.all(), chapterSteps: STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: STEPS.timelineFor, isGuided: isGuidedScene } : null };
 }());

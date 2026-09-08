@@ -43,6 +43,7 @@
             </div>
             <output class="encounter-state" id="encounterState" hidden aria-live="off"></output>
           </div>
+          <p class="roster-status" id="rosterStatus" hidden aria-live="polite"></p>
         </header>
         <nav class="chapters" id="dots" aria-label="Briefing chapters"></nav>
         <p class="mobile-call" id="mapCall" aria-live="polite"></p>
@@ -96,6 +97,7 @@
                 Play
               </button>
               <button class="control" id="replay" type="button">Replay</button>
+              <button class="control" id="quickRecap" type="button">Quick recap</button>
               <output class="manual-progress-control" id="manualProgress" aria-live="polite" hidden></output>
               <button
                 class="nav__btn"
@@ -113,21 +115,6 @@
               >
                 &rsaquo;
               </button>
-              <output
-                class="elapsed"
-                id="elapsed"
-                aria-live="off"
-                aria-label="Elapsed briefing time"
-                >0:00</output
-              >
-              <label class="speed"
-                ><span class="sr-only">Playback speed</span
-                ><select id="speed" aria-label="Playback speed">
-                  <option value="0.5">0.5×</option>
-                  <option value="1" selected>1×</option>
-                  <option value="2">2×</option>
-                </select></label
-              >
               <button
                 class="control control--quiet fullscreen"
                 id="fullscreen"
@@ -136,18 +123,6 @@
                 Fullscreen
               </button>
             </div>
-            <label class="scrubber"
-              ><span class="sr-only">Briefing progress</span
-              ><input
-                id="scrub"
-                type="range"
-                min="0"
-                max="100"
-                step="0.1"
-                value="0"
-                aria-label="Briefing progress"
-            /></label>
-            <p class="key-hint">Space play / pause · ← → scenes · R replay</p>
           </div>
           <div class="takeaways" aria-label="Copy briefing">
             <button class="take" id="copyText" type="button">
@@ -181,9 +156,12 @@
     <script src="tactics-najentus-data.js"></script>
     <script src="tactics-akama-data.js"></script>
     <script src="tactics-reliquary-data.js"></script>
+    <script src="tactics-bloodboil-data.js"></script>
     <script src="tactics-data.js"></script>
     <script src="tactics-layout.js"></script>
     <script src="tactics-playback.js"></script>
+    <script src="tactics-bloodboil-steps.js"></script>
+    <script src="tactics-steps.js"></script>
     <script src="tactics-najentus.js"></script>
     <script src="tactics-najentus-render.js"></script>
     <script src="tactics-akama.js"></script>
@@ -191,6 +169,9 @@
     <script src="tactics-reliquary.js"></script>
     <script src="tactics-reliquary-render.js"></script>
     <script src="tactics-reliquary-steps.js"></script>
+    <script src="tactics-bloodboil.js"></script>
+    <script src="tactics-bloodboil-render.js"></script>
+    <script src="tactics-lesson-render.js"></script>
     <script src="tactics.js"></script>
   </body>
 </html>

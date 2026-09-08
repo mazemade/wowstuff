@@ -28,7 +28,8 @@ assert.equal(Steps.all()[interruptIndex].id, 'rune-shield', 'legacy time seeking
 assert.equal(Steps.all()[Steps.indexFor('desire', 14000)].id, 'mana-depletion', 'a long mana demonstration remains selectable at its final state');
 assert.equal(Steps.chapterBoundary('suffering', -1).sceneId, 'fixate');
 assert.equal(Steps.chapterBoundary('suffering', suffering.length).sceneId, 'souls');
-assert.equal(Steps.forScene('cycle').length, 0, 'Put it together retains continuous playback');
+assert.ok(Steps.forScene('cycle').length >= 20, 'Put it together has bounded explanations across the full cycle');
+assert.equal(Steps.get('cycle', 'complete').holdAtMs, 100000, 'the final explanation holds the completed encounter state');
 assert.equal(Steps.get('interrupts', 'tongues').loop, 'effect', 'Tongues can loop a cosmetic effect after its state is held');
 
 const shield = Steps.get('interrupts', 'rune-shield');

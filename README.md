@@ -43,11 +43,16 @@ groups, and checks live whether assignments were actually done.
     both tiers. `report=<WCL report code>` in the URL (which a Report link from a log-loaded
     vetting row carries) opens straight onto that night. The facts sheet carries
     `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
-- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary)): Supremus has nine guided scenes for explaining positions,
+- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary), [Gurtogg Bloodboil](tactics.html?fight=bt-bloodboil)): Supremus has nine guided scenes for explaining positions,
   Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
-  a main raid call, relevant spell tooltip cards, role instructions and a common mistake. Play/pause, replay, speed
-  and scrubbing let the raid leader control the demonstration; animations hold at the end.
-  Space plays/pauses, arrows change scenes, R replays and F toggles fullscreen.
+  a main raid call, relevant spell tooltip cards, role instructions and a common mistake.
+  All five briefings open on a static "The plan" recap, with a "Quick recap" button to return to it.
+  Previous/Next and the arrow keys advance one explanation at a time, including the full-fight
+  sequences. Each demonstration holds at its result until the presenter advances; chapter tabs
+  jump to the first explanation. Space plays/pauses the current demonstration, R replays it,
+  and F toggles fullscreen. There is no video timeline to scrub through.
+  Explanations, role jobs and recap cards appear inside the main fight display;
+  the right panel contains spell references and sources. The layout targets laptop use.
   The page uses the imported roster and its main-tank flag, including an optional third
   tank. Player names appear during positioning; mechanics use icons and short role labels.
   Tanks keep tanking during the early melee spread, moving once fixate begins.
@@ -63,8 +68,16 @@ groups, and checks live whether assignments were actually done.
   and the final Lust burn while Akama tanks the Shade. The alternative chapter demonstrates
   pulling doorway packs up to the Channelers, AoEing them together, then focusing the Shade
   while tanks keep the few surviving adds controlled.
-  Reliquary of Souls has eleven chapters based on the guild sheet: health-based Suffering handoffs, separate Enrage preparation and Soul Drain, gathered soul recovery, Desire recoil and shrinking maximum mana, Rune Shield removal before interrupt rotations, Deaden, Anger threat control and facing, Spite, and the complete essence cycle. Teaching chapters use manual explanations: Left/Right or Previous/Next advances one explanation, with unlimited reading time. Replay repeats the current demonstration; chapter tabs jump to its first explanation. "Put it together" retains continuous playback. Positions, health and resources are illustrative, and exports follow the selected explanation.
+  Reliquary of Souls has eleven chapters based on the guild sheet: health-based Suffering handoffs, separate Enrage preparation and Soul Drain, gathered soul recovery, Desire recoil and shrinking maximum mana, Rune Shield removal before interrupt rotations, Deaden, Anger threat control and facing, Spite, and the complete essence cycle. Positions, health and resources are illustrative, and exports follow the selected explanation.
   Its map, current calls and roster exports follow the same frame; timing and health are illustrative.
+  Gurtogg Bloodboil has nine chapters: positioning, a five-wave soak rotation,
+  tank threat handoffs, frontal avoidance, ranged and melee Fel Rage examples, recovery, and the
+  complete repeating cycle. Three illustrative groups of five rotate after each application;
+  imported roster shortages are shown explicitly. Both guild positioning images are linked in
+  the references. Fel Rage healing, wounded-tank coverage and safe pickup remain separate jobs.
+  The Bloodboil soak groups panel lets you select named melee players to fill gaps in the
+  three groups. Selections are saved in this browser; selected melee return behind the boss
+  between their turns, and all chapters and exports use the updated groups.
   Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.

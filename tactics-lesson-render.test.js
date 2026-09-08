@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const Lesson = require('./tactics-lesson-render.js');
+const ctx = { font: '', measureText: value => ({ width: String(value).length * 8 }) };
+const lesson = { title: 'A deliberately long lesson title that must remain inside the instruction panel', detail: 'This detail is intentionally long enough to wrap onto several measured lines without obscuring the playable map.', tip: 'Keep the danger warning visible while each role has a concrete job.', rows: [['Tanks with a very long assignment', 'Keep the boss stable and make room for the incoming player.'], ['Healers', 'Keep both assigned targets covered during movement.'], ['Damage', 'Use the safe lane and stop on the call.']], warning: 'Do not run through the group while the hazard is active.', recap: false };
+const layout = Lesson.layout(ctx, 420, 720, lesson);
+assert.ok(layout.action.h >= 0, 'reserved lesson panels leave a non-negative action rectangle');
+assert.ok(layout.header.titleLines.length > 1, 'long title wraps inside the measured header');
+assert.ok(layout.footer.rows.every(row => row.jobLines.length > 0), 'role jobs are measured into visible footer lines');
+assert.ok(layout.footer.rows.every(row => row.jobLines.every(line => ctx.measureText(line).width <= 372)), 'wrapped role lines fit their rendered footer width');
+assert.ok(layout.footer.y >= layout.action.y + layout.action.h, 'footer starts after the action rectangle');
+console.log('lesson layout checks passed');

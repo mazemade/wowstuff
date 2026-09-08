@@ -53,8 +53,7 @@
             const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
             ctx.save(); ctx.strokeStyle = '#f6d36e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#f2bd45'; ctx.beginPath(); ctx.arc(x, y, yd(.75), 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
-        if (frame.burst && frame.burst.progress < 1) text(ctx, width / 2, 48, '8,500 Frost · raidwide', '#d6f1ff');
-        text(ctx, width / 2, 34, frame.call, '#ffd9a8');
+        // The shared lesson panel carries the current call and raidwide explanation.
     }
     return { draw };
 }));

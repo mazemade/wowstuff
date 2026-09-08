@@ -1,7 +1,7 @@
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js'), require('./tactics-reliquary-data.js')); }
-    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData, root.TacticsReliquaryData); }
-}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA, RELIQUARY) {
+    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js'), require('./tactics-reliquary-data.js'), require('./tactics-bloodboil-data.js')); }
+    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData, root.TacticsReliquaryData, root.TacticsBloodboilData); }
+}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA, RELIQUARY, BLOODBOIL) {
     'use strict';
 
     // Map fractions are illustrative. The sheet and Classic strategy guide supply the
@@ -147,7 +147,7 @@
         // Cast roles are resolved against the imported roster by the presenter.
         scenes: [
             {
-                id: 'overview', chapter: 'The loop', view: { fit: 'arena' }, phase: 0,
+                id: 'overview', chapter: 'The plan', view: { fit: 'arena' }, phase: 0,
                 title: 'Two phases. Two different jobs.',
                 caption: 'One minute of controlled damage, one minute of movement. Every phase change resets threat.',
                 call: 'Damage in Phase 1. Survival in Phase 2.',
@@ -302,5 +302,5 @@
         ]
     };
 
-    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA, 'bt-reliquary': RELIQUARY } };
+    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA, 'bt-reliquary': RELIQUARY, 'bt-bloodboil': BLOODBOIL } };
 }));

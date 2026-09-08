@@ -86,10 +86,7 @@
             const stateX = width < 620 ? width * .77 : boss.x + yd(12);
             label(ctx, stateX, width < 620 ? 26 : boss.y, frame.channels.length + ' binding' + (frame.channels.length === 1 ? '' : 's') + ' · Shade immune', '#ddbcf6', width < 620 ? 11 : 13, width < 620 ? width * .42 : undefined);
         } else label(ctx, boss.x, boss.y + yd(4) + 17, 'Shade · released', '#c9eadc', 13);
-        // The key stays on a quiet strip below the playable floor, away from actors.
-        const compact = width < 620;
-        label(ctx, width / 2, height - 30, frame.phase === 2 ? 'Akama holds the Shade · player tanks hold adds' : compact ? '1–6 Channelers · S Sorcerer · + Healer · E Caster · R Rogue · D Defender' : '1–6 Channelers    S Sorcerer    + Spiritbinder    E Elementalist    R Rogue    D Defender', '#d4cddd', compact ? 11 : 13, width - 22);
-        label(ctx, width / 2, height - 12, 'Illustrative sequence · not a live timer or damage simulation', '#aea9b6', 11, width - 24);
+        // The NPC key and illustrative-timing note live in the external legend strip.
     }
     return { draw };
 }));
