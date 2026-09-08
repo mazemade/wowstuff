@@ -43,15 +43,21 @@ groups, and checks live whether assignments were actually done.
     both tiers. `report=<WCL report code>` in the URL (which a Report link from a log-loaded
     vetting row carries) opens straight onto that night. The facts sheet carries
     `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
-- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary), [Gurtogg Bloodboil](tactics.html?fight=bt-bloodboil)): Supremus has nine guided scenes for explaining positions,
+- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary), [Gurtogg Bloodboil](tactics.html?fight=bt-bloodboil), [Mother Shahraz](tactics.html?fight=bt-mother)): Supremus has nine guided scenes for explaining positions,
   Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
   a main raid call, relevant spell tooltip cards, role instructions and a common mistake.
-  All five briefings open on a static "The plan" recap, with a "Quick recap" button to return to it.
-  Previous/Next and the arrow keys advance one explanation at a time, including the full-fight
-  sequences. Each demonstration holds at its result until the presenter advances; chapter tabs
+  All six briefings open on a static "The plan" recap, with a "Quick recap" button to return to it.
+  The default short briefing groups setup, action and recovery into one animated decision.
+  Previous/Next and the arrow keys follow the main briefing, with total step progress.
+  "Watch the whole fight" plays the full-cycle example continuously with changing calls;
+  alternate strategies are optional, and "Return to briefing" restores the prior step.
+  "Detailed walkthrough" retains the original individual explanations (`?view=detail`).
+  Each demonstration holds at its result until the presenter advances; chapter tabs
   jump to the first explanation. Space plays/pauses the current demonstration, R replays it,
   and F toggles fullscreen. There is no video timeline to scrub through.
-  Explanations, role jobs and recap cards appear inside the main fight display.
+  The main fight display shows a concise instruction, positioning jobs and recap cards.
+  Supporting reasoning, role jobs, common mistakes and spell cards are available under
+  "Why & role details"; the detailed walkthrough also keeps its fuller canvas guidance.
   The shared lesson display reserves space for the encounter’s longest guidance, keeping
   the full arena steady across explanations. The right panel contains spell references and
   sources and scrolls independently on desktop. Small screens can scroll the page to retain
@@ -81,6 +87,7 @@ groups, and checks live whether assignments were actually done.
   The Bloodboil soak groups panel lets you select named melee players to fill gaps in the
   three groups. Selections are saved in this browser; selected melee return behind the boss
   between their turns, and all chapters and exports use the updated groups.
+  Mother Shahraz has a concise default route for Shadow Resistance preparation, the double-statue formation, Saber Lash tank stacking, Fatal Attraction’s actual 25-yard separation and safe return, beam recovery outside the 18-yard silence, and the 10% enrage. The full cycle and door landmark are optional.
   Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.

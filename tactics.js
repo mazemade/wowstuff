@@ -8,10 +8,12 @@
     const fights = window.TacticsData.FIGHTS;
     const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
-    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : null;
-    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : null;
+    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : FIGHT.id === 'bt-mother' ? window.TacticsMother : null;
+    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : FIGHT.id === 'bt-mother' ? window.TacticsMotherRender : null;
     const LESSON_RENDER = FIGHT.id === 'bt-reliquary' ? null : window.TacticsLessonRender;
-    const STEPS = window.TacticsSteps?.forFight(FIGHT.id) || null;
+    const BRIEFING = new URL(location.href).searchParams.get('view') !== 'detail';
+    const STEPS = (BRIEFING ? window.TacticsBriefing : window.TacticsSteps)?.forFight(FIGHT.id) || null;
+    const primaryOrder = BRIEFING ? STEPS.primaryOrder : STEPS.order;
     const E = window.AssignmentsEngine;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -1096,7 +1098,19 @@
     const playback = window.TacticsPlayback.create(scenes[0].duration);
     let lastInstructionRows = null;
     let explanationIndex = 0;
+    let returnScene = 0;
+    let returnExplanation = 0;
     const lessonBounds = new Map();
+
+    function lessonSampleTimes(scene, item) {
+        const times = [item.startMs, Math.floor((item.startMs + item.holdAtMs) / 2), item.holdAtMs];
+        if (BRIEFING) window.TacticsSteps.forFight(FIGHT.id).forScene(scene.id).forEach(source => {
+            [source.startMs, source.holdAtMs].forEach(time => {
+                if (time >= item.startMs && time <= item.holdAtMs) times.push(time);
+            });
+        });
+        return [...new Set(times)];
+    }
 
     function stableReliquaryLayout(sc, explanation, frame) {
         const key = 'reliquary:' + W + 'x' + H;
@@ -1115,10 +1129,10 @@
             const steps = STEPS?.forScene(scene.id) || [];
             if (!steps.length) return [OVERLAY.layout({ ctx, width: W, height: H }, scene, simulate(scene, 0))];
             return steps.flatMap(item => {
-                const times = [item.startMs, Math.floor((item.startMs + item.holdAtMs) / 2), item.holdAtMs];
+                const times = lessonSampleTimes(scene, item);
                 const variants = [item, resolvedExplanation(item, scene)];
                 return variants.flatMap(explanation => times.map(time =>
-                    OVERLAY.layout({ ctx, width: W, height: H }, scene, teachingFrame(scene, explanation, time, false))));
+                    OVERLAY.layout({ ctx, width: W, height: H }, scene, teachingFrame(scene, explanation, time, BRIEFING))));
             });
         });
         candidates.push(current);
@@ -1142,7 +1156,7 @@
     }
     function resolvedExplanation(explanation, sc) {
         if (!explanation) return null;
-        if (FIGHT.id === 'bt-bloodboil' && ADAPTER.resolveExplanation) return ADAPTER.resolveExplanation(explanation, sc);
+        if ((FIGHT.id === 'bt-bloodboil' || FIGHT.id === 'bt-mother') && ADAPTER.resolveExplanation) return ADAPTER.resolveExplanation(explanation, sc);
         const hasClass = value => sc.raid.some(player => String(player.class || '').toUpperCase() === value);
         const absent = (title, detail) => ({ ...explanation, title, detail });
         if (FIGHT.id === 'bt-supremus') {
@@ -1234,6 +1248,9 @@
     }
     function visibleExplanation(explanation, sc, frame) {
         if (!explanation) return null;
+        if (FIGHT.id === 'bt-mother' && frame.fatal?.separated && !/missing|unavailable/i.test(explanation.title)) {
+            return { ...explanation, title: sc.id === 'attraction' ? 'All effects cleared. Prepare to return.' : 'All effects cleared. Return safely.', detail: 'Regroup away from Mother’s front. Healers recover the runners; use available personal recovery if needed.' };
+        }
         const liveCall = frame.call || explanation.title;
         if (frame.stage === 'complete')
             return { ...explanation, title: liveCall, detail: explanation.detail || liveCall };
@@ -1274,15 +1291,24 @@
         const teaching = frame.teaching || frame.explanation || {};
         const complete = frame.stage === 'complete';
         const title = teaching.title || frame.call || sc.call || sc.title;
-        const baseDetail = complete ? (teaching.detail || frame.call || '') : [teaching.detail || sc.caption, sc.why].filter(Boolean).join(' ');
+        const baseDetail = complete ? (teaching.detail || frame.call || '') : [teaching.detail || sc.caption, BRIEFING ? '' : sc.why].filter(Boolean).join(' ');
         const detail = baseDetail;
-        const rows = sc.id === 'overview' ? recapRows() : complete ? [] : Array.isArray(frame.instructionRows) ? frame.instructionRows : FIGHT.id === 'bt-akama' ? akamaLessonRows(sc, frame) : (sc.jobs || []);
-        return { title, detail, rows, tip: teaching.tip || '', warning: complete ? '' : (sc.mistake || ''), recap: sc.id === 'overview' };
+        const rows = sc.id === 'overview' ? recapRows() : complete || (BRIEFING && sc.id !== 'positioning' && sc.id !== 'p1-stand') ? [] : Array.isArray(frame.instructionRows) ? frame.instructionRows : FIGHT.id === 'bt-akama' ? akamaLessonRows(sc, frame) : (sc.jobs || []);
+        return { title, detail, rows, tip: teaching.tip || '', warning: complete || BRIEFING ? '' : (sc.mistake || ''), recap: sc.id === 'overview', compact: BRIEFING };
     }
     function teachingFrame(sc, explanation, time, resolve = true) {
         const frame = simulate(sc, time);
         if (!explanation) return frame;
-        const teaching = visibleExplanation(resolve ? resolvedExplanation(explanation, sc) : explanation, sc, frame);
+        let selected = explanation;
+        if (BRIEFING) {
+            const source = STEPS.sourceStep(sc.id, time);
+            const resolved = source && resolve ? resolvedExplanation(source, sc) : source;
+            // Resolve coverage at the live source beat, including beats inside a
+            // merged animation. Keep the selected step's playback boundaries.
+            if (source && (sc.id === 'cycle' || (resolve && !source.optional && (resolved.title !== source.title || resolved.detail !== source.detail))))
+                selected = { ...explanation, title: resolved.title, detail: resolved.detail };
+        }
+        const teaching = visibleExplanation(BRIEFING ? selected : resolve ? resolvedExplanation(explanation, sc) : explanation, sc, frame);
         frame.simulationCall = frame.call;
         frame.call = teaching.title;
         frame.teaching = { ...(frame.teaching || {}), title: teaching.title, detail: teaching.detail, tip: teaching.tip };
@@ -1290,11 +1316,12 @@
         return frame;
     }
     function stableLessonLayout(sc, explanation, lesson) {
-        const key = W + 'x' + H;
+        const isSetup = scene => ['overview', 'positioning', 'p1-stand'].includes(scene.id);
+        const key = W + 'x' + H + (BRIEFING ? isSetup(sc) ? ':setup' : ':action' : '');
         const current = LESSON_RENDER.layout(ctx, W, H, lesson);
         const saved = lessonBounds.get(key);
         if (!saved) {
-            const candidates = scenes.flatMap(scene => {
+            const candidates = scenes.filter(scene => !BRIEFING || isSetup(scene) === isSetup(sc)).flatMap(scene => {
                 const authored = FIGHT.scenes.find(source => source.id === scene.id) || scene;
                 const selectedMelee = FIGHT.id === 'bt-bloodboil'
                     ? { ...authored, jobs: (authored.jobs || []).map(([role, job]) => [role, scene.id === 'positioning' && role === 'Melee' ? 'Selected soakers move out for their group’s turn, then return behind the boss.' : job]) }
@@ -1305,8 +1332,8 @@
                         { explanation: item, source: selectedMelee },
                         { explanation: resolvedExplanation(item, scene), source: scene }
                     ];
-                    return variants.flatMap(variant => [item.startMs, item.holdAtMs].map(time => {
-                        const frame = teachingFrame(scene, variant.explanation, time, false);
+                    return variants.flatMap(variant => lessonSampleTimes(scene, item).map(time => {
+                        const frame = teachingFrame(scene, variant.explanation, time, BRIEFING && variant.source === scene);
                         return LESSON_RENDER.layout(ctx, W, H, lessonFor(variant.source, frame));
                     }));
                 });
@@ -1363,7 +1390,7 @@
         if (!W) return;
         const sc = scenes[idx];
         const elapsed = playback.time(now);
-        const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
+        const explanation = isGuidedScene(sc) ? (BRIEFING ? currentExplanation() : resolvedExplanation(currentExplanation(), sc)) : null;
         const t = explanation ? STEPS.frameAt(explanation, elapsed) : elapsed;
 
         sc._sim = teachingFrame(sc, explanation, t);
@@ -1424,6 +1451,9 @@
 
     const el = id => document.getElementById(id);
     document.body.dataset.fight = FIGHT.id;
+    document.body.classList.toggle('is-briefing', BRIEFING);
+    el('briefingMode').textContent = BRIEFING ? 'Fight briefing' : 'Detailed walkthrough';
+    el('walkthroughLink').textContent = BRIEFING ? 'Detailed walkthrough' : 'Short briefing';
     el('portrait').src = FIGHT.portrait;
     el('bossName').textContent = FIGHT.name;
     el('bossWhere').textContent = FIGHT.where;
@@ -1446,11 +1476,11 @@
     });
 
     const rail = el('rail');
-    rail.innerHTML = '<section class="guide"><p class="eyebrow" id="sceneLabel" hidden></p>' +
+    rail.innerHTML = '<details class="guide" id="sceneDetails"' + (BRIEFING ? '' : ' open') + '><summary>' + (BRIEFING ? 'Why & role details' : 'Spell details') + '</summary><p class="eyebrow" id="sceneLabel" hidden></p>' +
         '<h2 class="guide__call" id="sceneCall" hidden></h2><p class="guide__why" id="sceneWhy" hidden></p>' +
         '<div class="scene-spells" id="sceneSpells" aria-label="Active spell details"></div>' +
         '<dl class="role-notes" id="roleNotes" hidden></dl><div class="mistake" hidden><span>Watch out</span>' +
-        '<p id="sceneMistake"></p></div></section>' +
+        '<p id="sceneMistake"></p></div></details>' +
         '<details class="reference"><summary>' + FIGHT.referenceTitle + '</summary><div id="referenceContent"></div></details>';
     const reference = el('referenceContent');
     FIGHT.abilities.forEach(a => {
@@ -1581,7 +1611,39 @@
         b.innerHTML = '<span class="chapter__number">' + String(i + 1).padStart(2, '0') + '</span>' +
             '<span class="chapter__title">' + s.chapter + '</span>';
         b.addEventListener('click', () => show(i, 0)); dots.appendChild(b);
+        if (BRIEFING && !primaryOrder.includes(s.id)) b.hidden = true;
     });
+
+    function openExample(sceneId) {
+        if (primaryOrder.includes(scenes[idx].id)) {
+            returnScene = idx; returnExplanation = currentExplanation()?.localIndex || 0;
+        }
+        show(scenes.findIndex(scene => scene.id === sceneId));
+    }
+    if (BRIEFING && STEPS.optionalScenes.length) {
+        el('briefingExamples').hidden = false;
+        if (STEPS.optionalScenes.includes('cycle')) {
+            el('watchFight').hidden = false;
+            el('watchFight').addEventListener('click', () => openExample('cycle'));
+        }
+        STEPS.optionalScenes.filter(id => id !== 'cycle').forEach(id => {
+            el('alternateExamples').hidden = false;
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'control control--quiet';
+            button.textContent = scenes.find(scene => scene.id === id).chapter;
+            button.addEventListener('click', () => openExample(id));
+            el('alternateChoices').appendChild(button);
+        });
+    }
+    el('returnBriefing').addEventListener('click', () => show(returnScene, returnExplanation));
+
+    function adjacentExplanation(delta) {
+        const current = currentExplanation();
+        const route = BRIEFING ? STEPS.all().filter(item => primaryOrder.includes(scenes[idx].id)
+            ? primaryOrder.includes(item.sceneId) : item.sceneId === scenes[idx].id) : STEPS.all();
+        const at = route.findIndex(item => item.index === current?.index);
+        return at < 0 ? null : route[at + delta] || null;
+    }
 
     function revealChapter() {
         const active = dots.children[idx];
@@ -1594,6 +1656,14 @@
     function show(i, localExplanation = 0) {
         idx = clamp(i, 0, scenes.length - 1);
         const sc = scenes[idx];
+        const optional = BRIEFING && !primaryOrder.includes(sc.id);
+        el('returnBriefing').hidden = !optional;
+        el('watchFight').setAttribute('aria-pressed', String(sc.id === 'cycle'));
+        const modeUrl = new URL(location.href);
+        if (BRIEFING) modeUrl.searchParams.set('view', 'detail'); else modeUrl.searchParams.delete('view');
+        modeUrl.searchParams.set('fight', FIGHT.id);
+        modeUrl.searchParams.set('chapter', sc.id);
+        el('walkthroughLink').href = modeUrl.href;
         sc.currentCall = null;
         lastInstructionRows = null;
         const now = performance.now();
@@ -1607,7 +1677,8 @@
         el('manualProgress').hidden = !explanation;
         el('manualDetail').classList.toggle('sr-only', FIGHT.id === 'bt-reliquary');
         if (explanation) {
-            el('manualProgress').textContent = 'Explanation ' + (explanation.localIndex + 1) + ' of ' + explanation.count + (explanation.optional ? ' · Optional' : '');
+            const route = STEPS.all().filter(item => primaryOrder.includes(item.sceneId));
+            el('manualProgress').textContent = BRIEFING ? optional ? 'Optional example' : 'Step ' + (route.findIndex(item => item.index === explanation.index) + 1) + ' of ' + route.length : 'Explanation ' + (explanation.localIndex + 1) + ' of ' + explanation.count + (explanation.optional ? ' · Optional' : '');
             el('manualTitle').textContent = explanation.title;
             el('manualDetail').textContent = explanation.detail;
             el('manualCountdown').hidden = !explanation.countdownSeconds;
@@ -1622,8 +1693,9 @@
         el('sceneCall').textContent = explanation ? explanation.title : sc.call;
         if (el('mapCall')) el('mapCall').textContent = explanation ? explanation.title : sc.call;
         el('sceneWhy').textContent = sc.why;
-        ['sceneLabel', 'sceneCall', 'sceneWhy', 'roleNotes'].forEach(id => { el(id).hidden = true; });
-        el('sceneMistake').parentElement.hidden = true;
+        ['sceneLabel', 'sceneCall'].forEach(id => { el(id).hidden = true; });
+        ['sceneWhy', 'roleNotes'].forEach(id => { el(id).hidden = !BRIEFING; });
+        el('sceneMistake').parentElement.hidden = !BRIEFING || !sc.mistake;
         showSpellDetails(sc);
         el('sceneMistake').textContent = sc.mistake;
         if (roster) {
@@ -1645,9 +1717,8 @@
             if (k === idx) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
         });
         revealChapter();
-        const chapterSteps = explanation ? STEPS.forScene(sc.id) : [];
-        el('prev').disabled = explanation ? idx === 0 && explanation.localIndex === 0 : idx === 0;
-        el('next').disabled = explanation ? idx === scenes.length - 1 && explanation.localIndex === chapterSteps.length - 1 : idx === scenes.length - 1;
+        el('prev').disabled = explanation ? !adjacentExplanation(-1) : idx === 0;
+        el('next').disabled = explanation ? !adjacentExplanation(1) : idx === scenes.length - 1;
         el('prev').setAttribute('aria-label', explanation ? 'Previous explanation' : 'Previous scene');
         el('next').setAttribute('aria-label', explanation ? 'Next explanation' : 'Next scene');
         render(now);
@@ -1664,11 +1735,8 @@
             show(idx + delta);
             return;
         }
-        const explanation = currentExplanation(), local = explanation.localIndex + delta;
-        const steps = STEPS.forScene(explanation.sceneId);
-        if (local >= 0 && local < steps.length) { show(idx, local); return; }
-        const boundary = STEPS.chapterBoundary(explanation.sceneId, local);
-        if (boundary) show(scenes.findIndex(sc => sc.id === boundary.sceneId), boundary.localIndex);
+        const next = adjacentExplanation(delta);
+        if (next) showExplanation(next.index);
     }
 
     // ---- taking it away -------------------------------------------------------
@@ -1691,7 +1759,8 @@
         const current = lesson?.title || sc.currentCall || sc.call;
         const stage = FIGHT.clockMode === 'state' ? '\nState: ' + (sc._sim?.stage || 'normal') : '';
         const complete = sc._sim?.stage === 'complete';
-        const guidance = complete ? [] : [...(lesson?.rows || sc.jobs).map(([role, job]) => role + ': ' + job), lesson?.detail || '', lesson?.tip ? 'Tip: ' + lesson.tip : '', lesson?.warning ? 'Watch out: ' + lesson.warning : ''].filter(Boolean);
+        const exportJobs = BRIEFING ? sc._sim?.instructionRows || (FIGHT.id === 'bt-akama' ? akamaLessonRows(sc, sc._sim) : sc.jobs) : lesson?.rows || sc.jobs;
+        const guidance = complete ? [] : [...exportJobs.map(([role, job]) => role + ': ' + job), lesson?.detail || '', lesson?.tip ? 'Tip: ' + lesson.tip : '', lesson?.warning ? 'Watch out: ' + lesson.warning : ''].filter(Boolean);
         const text = [FIGHT.name + ' — ' + (complete ? 'encounter complete' : sc.chapter + ' — ' + sc.title), current + stage, '', ...guidance, '', (ADAPTER?.copyText ? ADAPTER.copyText(FIGHT, sc, sc._sim) : L.copyText(FIGHT, FIGHT.clockMode === 'state' ? 1 : phase, assigned))].join('\n');
         try {
             await navigator.clipboard.writeText(text);
@@ -1775,7 +1844,11 @@
         else if (ev.key === ' ') { ev.preventDefault(); togglePlay(); }
         else if (ev.key.toLowerCase() === 'r') replay();
         else if (ev.key.toLowerCase() === 'f') fullscreen();
-        else if (/^[1-9]$/.test(ev.key)) show(parseInt(ev.key, 10) - 1);
+        else if (/^[1-9]$/.test(ev.key)) {
+            const chapter = parseInt(ev.key, 10) - 1;
+            if (!BRIEFING) show(chapter);
+            else if (primaryOrder[chapter]) show(scenes.findIndex(scene => scene.id === primaryOrder[chapter]));
+        }
     });
 
     if (!roster) {
@@ -1851,7 +1924,8 @@
 
     function start() {
         resize();
-        show(0);
+        const chapter = new URL(location.href).searchParams.get('chapter');
+        show(Math.max(0, scenes.findIndex(scene => scene.id === chapter)));
         requestAnimationFrame(frame);
     }
 
@@ -1864,7 +1938,7 @@
     Object.values(IMG).forEach(img => img.addEventListener('load', () => render(performance.now())));
 
     // lets the screenshot harness step scenes without synthesising key events
-    window.__tactics = { show, showExplanation, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
+    window.__tactics = { show, showExplanation, briefing: BRIEFING, primaryOrder, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
         get viewport() { return { ...viewRect }; },
         lesson: LESSON_RENDER ? { get model() { return scenes[idx]._lesson || null; }, get layout() { return scenes[idx]._lessonLayout || null; } } : null,
         guided: STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: STEPS.all(), chapterSteps: STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: STEPS.timelineFor, isGuided: isGuidedScene } : null };

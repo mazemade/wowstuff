@@ -45,7 +45,16 @@
           </div>
           <p class="roster-status" id="rosterStatus" hidden aria-live="polite"></p>
         </header>
+        <div class="briefing-options">
+          <span id="briefingMode">Fight briefing</span>
+          <a id="walkthroughLink" href="?view=detail">Detailed walkthrough</a>
+        </div>
         <nav class="chapters" id="dots" aria-label="Briefing chapters"></nav>
+        <div class="briefing-examples" id="briefingExamples" hidden>
+          <button class="control control--quiet" id="watchFight" type="button" hidden>Watch the whole fight</button>
+          <details id="alternateExamples" hidden><summary>Alternate strategy</summary><div id="alternateChoices"></div></details>
+          <button class="control" id="returnBriefing" type="button" hidden>Return to briefing</button>
+        </div>
         <p class="mobile-call" id="mapCall" aria-live="polite"></p>
         <div class="stage__map">
           <div class="map" id="map">
@@ -157,11 +166,14 @@
     <script src="tactics-akama-data.js"></script>
     <script src="tactics-reliquary-data.js"></script>
     <script src="tactics-bloodboil-data.js"></script>
+    <script src="tactics-mother-data.js"></script>
     <script src="tactics-data.js"></script>
     <script src="tactics-layout.js"></script>
     <script src="tactics-playback.js"></script>
     <script src="tactics-bloodboil-steps.js"></script>
+    <script src="tactics-mother-steps.js"></script>
     <script src="tactics-steps.js"></script>
+    <script src="tactics-briefing.js"></script>
     <script src="tactics-najentus.js"></script>
     <script src="tactics-najentus-render.js"></script>
     <script src="tactics-akama.js"></script>
@@ -171,6 +183,8 @@
     <script src="tactics-reliquary-steps.js"></script>
     <script src="tactics-bloodboil.js"></script>
     <script src="tactics-bloodboil-render.js"></script>
+    <script src="tactics-mother.js"></script>
+    <script src="tactics-mother-render.js"></script>
     <script src="tactics-lesson-render.js"></script>
     <script src="tactics.js"></script>
   </body>

@@ -11,6 +11,8 @@ assert.ok(layout.footer.y >= layout.action.y + layout.action.h, 'footer starts a
 const longHeader = Lesson.layout(ctx, 420, 720, { ...lesson, rows: [['Tanks', 'Hold.']], warning: '', title: lesson.title + ' with another measured line', detail: lesson.detail + ' and a second detailed sentence.' });
 const longFooter = Lesson.layout(ctx, 420, 720, { ...lesson, title: 'Short call', detail: 'Short detail.', tip: '', rows: lesson.rows.concat([['Raid', 'Stay spread and recover together before moving back into the assigned lane.']]), warning: lesson.warning + ' Keep every player clear until the caller confirms recovery.' });
 const reserved = Lesson.reserve([longHeader, longFooter], 420, 720);
+const compact = Lesson.layout(ctx, 420, 720, { title: 'Move clear.', detail: 'Leave the marked ground.', rows: [], warning: '', compact: true });
+assert.equal(compact.footer.h, 0, 'short instruction uses the space of the omitted role footer');
 assert.equal(reserved.header.h, longHeader.header.h, 'reservation keeps the tallest header even when another explanation has the tallest footer');
 assert.equal(reserved.footer.h, longFooter.footer.h, 'reservation keeps the tallest footer independently');
 assert.equal(reserved.action.y, reserved.header.y + reserved.header.h + 8, 'reserved action begins below the shared header');

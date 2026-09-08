@@ -157,7 +157,7 @@ async function drawnReliquaryText() {
 
 async function checkReliquary(port) {
   await evaluate('localStorage.clear()');
-  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-reliquary`});
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-reliquary`});
   await waitForPresenter();
   assert.equal(await evaluate('__tactics.fight.id'), 'bt-reliquary');
   assert.deepEqual(await evaluate('__tactics.scenes.map(s=>s.id)'), ['overview','positioning','fixate','suffering','souls','desire','interrupts','deaden','anger','spite','cycle']);
@@ -549,7 +549,7 @@ async function checkReliquary(port) {
 async function checkSharedGuidedFlow(port) {
   await evaluate('localStorage.clear()');
   for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil']) {
-    await send('Page.navigate', { url: `http://127.0.0.1:${port}/tactics.html?fight=${fight}` });
+    await send('Page.navigate', { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=${fight}` });
     await waitForPresenter();
     const recap = await evaluate(`(()=>{const a=__tactics;return {scene:a.guided.active.sceneId,time:a.scenes[0]._t,playing:a.playback.playing,title:dots.children[0].textContent,jobs:roleNotes.textContent}})()`);
     assert.equal(recap.scene, 'overview');
@@ -641,7 +641,7 @@ async function checkSharedGuidedFlow(port) {
 async function checkOnScreenGuidance(port) {
   await evaluate('localStorage.clear()');
   for(const fight of ['bt-najentus','bt-supremus','bt-akama','bt-reliquary','bt-bloodboil']) {
-    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
+    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=${fight}`});
     await waitForPresenter();
     for(const [width,height] of [[1280,720],[1440,900]]) {
       await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
@@ -718,7 +718,7 @@ async function checkStableFightFraming(port) {
   await evaluate('localStorage.clear()');
   const geometry = () => evaluate(`(()=>{const a=__tactics,r=a.fight.arena;return JSON.stringify([a.viewport,a.px({x:r.x0,y:r.y0}),a.px({x:r.x1,y:r.y1})])})()`);
   for (const fight of await evaluate('Object.keys(TacticsData.FIGHTS)')) {
-    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
+    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=${fight}`});
     await waitForPresenter();
     let desktopGeometry;
     for (const [width,height] of [[1600,1000],[1280,720],[390,844]]) {
@@ -803,7 +803,7 @@ async function checkStableFightFraming(port) {
 
 async function checkBloodboil(port) {
   await evaluate('localStorage.clear()');
-  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-bloodboil`});
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-bloodboil`});
   await waitForPresenter();
   assert.equal(await evaluate('__tactics.fight.id'), 'bt-bloodboil');
   assert.equal(await evaluate('__tactics.scenes.length'), 9);
@@ -930,10 +930,182 @@ async function checkBloodboil(port) {
   assert.match(await evaluate('sceneCall.textContent'),/coverage missing/i);
   await reload();
   assert.equal(await evaluate('bloodboilMeleeChoices.querySelectorAll("input:checked").length'),2);
-  await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=bt-najentus`}); await waitForPresenter();
+  await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-najentus`}); await waitForPresenter();
   assert.equal(await evaluate('document.getElementById("bloodboilSoakSetup")'),null);
   await evaluate('localStorage.clear()');
   pass('Bloodboil melee selection fills groups, updates all chapters and exports, persists, and can be undone');
+}
+
+async function checkMother(port) {
+  await evaluate('localStorage.clear()');
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-mother`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.fight.name'), 'Mother Shahraz');
+  assert.equal(await evaluate('__tactics.assigned.length'), 25);
+  assert.equal(await evaluate('__tactics.primaryOrder.includes("cycle")'), false);
+  assert.equal(await evaluate('__tactics.primaryOrder.includes("door")'), false);
+  const assets = await evaluate(`(async()=>{
+    const f=__tactics.fight,paths=[f.map,f.portrait,...f.abilities.map(a=>a.icon),...(f.referenceImages||[]).map(i=>i.path)];
+    return Promise.all(paths.map(path=>new Promise(resolve=>{const img=new Image();img.onload=()=>resolve([path,img.naturalWidth>0]);img.onerror=()=>resolve([path,false]);img.src=path})));
+  })()`);
+  assert(assets.every(([,loaded])=>loaded), JSON.stringify(assets));
+  pass('Mother deep link loads the shortened briefing, room artwork and spell references');
+  const geometry = await evaluate(`(()=>{
+    const a=__tactics,bad=[],tankIds=a.assigned.filter(p=>p.kind==='tank').map(p=>p.id);
+    for(const scene of a.scenes){
+      for(const t of [0,scene.duration*.25,scene.duration*.5,scene.duration*.75,scene.duration]){
+        const frame=a.simulate(scene,t),again=a.simulate(scene,t);
+        if(JSON.stringify(frame)!==JSON.stringify(again))bad.push([scene.id,t,'nondeterministic']);
+        if(Object.keys(frame.pos).length!==a.assigned.length)bad.push([scene.id,t,'roster changed']);
+        if(tankIds.some(id=>TacticsLayout.dist(a.fight,frame.pos[tankIds[0]],frame.pos[id])>.01))bad.push([scene.id,t,'tank stack broken']);
+        if(Object.values(frame.pos).some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))bad.push([scene.id,t,'invalid position']);
+      }
+    }
+    return bad;
+  })()`);
+  assert.deepEqual(geometry, []);
+  for(const [width,height] of [[1600,1000],[390,844]]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
+    for(const chapter of ['positioning','attraction','return','door']) {
+      await evaluate(`(()=>{const a=__tactics,i=a.scenes.findIndex(s=>s.id===${JSON.stringify(chapter)});a.show(i);__seekSource(${chapter==='positioning'?0:4000});})()`);
+      await screenshot('mother-'+chapter+'-'+width);
+    }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  await evaluate(`(()=>{const a=__tactics;a.show(a.scenes.findIndex(s=>s.id==='attraction'));__seekSource(4800)})()`);
+  assert.match(await evaluate('sceneCall.textContent'), /effects cleared/i, 'the live call follows actual clearance before the authored endpoint');
+  const solo=JSON.stringify({manual:[{name:'MotherTank',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'}]});
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(solo)})`);
+  await reload();
+  assert.equal(await evaluate('__tactics.assigned.length'),1);
+  assert.match(await evaluate('rosterNote.textContent'),/tank|Lash/i);
+  for(const chapter of ['attraction','finish']) {
+    await evaluate(`(()=>{const a=__tactics,scene=a.scenes.find(s=>s.id===${JSON.stringify(chapter)});a.show(a.scenes.indexOf(scene));__seekSource(scene.duration)})()`);
+    assert.match(await evaluate('sceneCall.textContent'),/missing|unavailable|no |not defeated|cannot/i);
+  }
+  const damageOnly=JSON.stringify({manual:[{name:'MotherMage',class:'MAGE',spec:'Fire',flags:[],source:'manual'}]});
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(damageOnly)})`);
+  await reload();
+  const noTankFailures = await evaluate(`(()=>{const a=__tactics,bad=[];for(const step of a.guided.steps){try{a.showExplanation(step.index);const now=performance.now();a.playback.pause(now);a.playback.seek(step.holdAtMs-step.startMs,now);a.render(now);}catch(e){bad.push([step.sceneId,e.message]);}}return bad})()`);
+  assert.deepEqual(noTankFailures, [], 'missing tanks never crash a scene');
+  await evaluate('localStorage.clear()');
+  pass('Mother keeps tanks stacked, deterministic frames and explicit missing-roster warnings');
+}
+
+async function checkShortBriefings(port) {
+  await evaluate('localStorage.clear()');
+  for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother']) {
+    await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
+    await waitForPresenter();
+    assert.equal(await evaluate('__tactics.briefing'), true);
+    assert.equal(await evaluate('sceneDetails.open'), false, 'supporting details start collapsed');
+    const failures = await evaluate(`(()=>{
+      const a=__tactics,bad=[],route=a.guided.steps.filter(step=>a.primaryOrder.includes(step.sceneId));
+      if(route.length>window.TacticsSteps.forFight(a.fight.id).all().length/2)bad.push('briefing is not substantially shorter');
+      for(const [index,step] of route.entries()) {
+        a.showExplanation(step.index);
+        if(manualProgress.textContent!=='Step '+(index+1)+' of '+route.length)bad.push(['progress',step.id]);
+        if(index===0&&!prev.disabled)bad.push('can go before start');
+        if(index===route.length-1&&!next.disabled)bad.push('optional example in default next route');
+        if(index<route.length-1){next.click();if(a.guided.selectedIndex!==route[index+1].index)bad.push(['next',step.id]);prev.click();if(a.guided.selectedIndex!==step.index)bad.push(['previous',step.id]);}
+        const now=performance.now();a.playback.play(now);a.render(now+200000);
+        const sc=a.scenes.find(scene=>scene.id===step.sceneId);
+        if(a.playback.playing||sc._t!==step.holdAtMs||a.guided.selectedIndex!==step.index)bad.push(['hold',step.id,sc._t]);
+        if(a.lesson&&step.sceneId!=='overview'&&!['positioning','p1-stand'].includes(step.sceneId)&&(a.lesson.model.rows.length||a.lesson.model.warning))bad.push(['supporting copy on map',step.id]);
+      }
+      if([...dots.children].filter(button=>!button.hidden).length!==a.primaryOrder.length)bad.push('optional chapter tab visible');
+      return bad;
+    })()`);
+    assert.deepEqual(failures, [], fight + ' condensed flow');
+    await evaluate('__tactics.show(0);document.activeElement.blur()');
+    await key('ArrowRight');
+    assert.equal(await evaluate('__tactics.guided.active.sceneId'), await evaluate('__tactics.primaryOrder[1]'));
+    await key('ArrowLeft');
+    assert.equal(await evaluate('__tactics.guided.active.sceneId'), 'overview');
+    for (let digit=1; digit<=9; digit++) {
+      await key(String(digit));
+      assert.equal(await evaluate('__tactics.primaryOrder.includes(__tactics.guided.active.sceneId)'), true, 'numeric shortcut stays on the primary route');
+    }
+    await evaluate('__tactics.show(2);__tactics.playback.pause(performance.now())');
+    const before = await evaluate('__tactics.guided.selectedIndex');
+    if (await evaluate('!watchFight.hidden')) {
+      await evaluate('watchFight.click();__tactics.playback.pause(performance.now())');
+      assert.equal(await evaluate('__tactics.guided.active.sceneId'), 'cycle');
+      assert.equal(await evaluate('__tactics.guided.chapterSteps("cycle").length'), 1);
+      const narration = await evaluate(`(()=>{const a=__tactics,sc=a.scenes.find(s=>s.id==='cycle'),chosen=a.guided.selectedIndex,calls=[];for(const time of [0,sc.duration/2,sc.duration]){__seekSource(time);calls.push(sceneCall.textContent);if(a.guided.selectedIndex!==chosen)throw Error('Cycle requires another stop');}return calls;})()`);
+      assert(new Set(narration).size > 1, 'whole-fight narration follows the animation');
+      assert.equal(await evaluate('prev.disabled && next.disabled && !returnBriefing.hidden'), true);
+      await evaluate('returnBriefing.click()');
+      assert.equal(await evaluate('__tactics.guided.selectedIndex'), before, 'returns to the originating step');
+    }
+    if (fight === 'bt-akama') {
+      await evaluate('alternateExamples.open=true;alternateChoices.querySelector("button").click()');
+      assert.equal(await evaluate('__tactics.guided.active.sceneId'), 'aoe');
+      await evaluate('returnBriefing.click()');
+      assert.equal(await evaluate('__tactics.guided.selectedIndex'), before);
+    }
+    for (const [width,height] of [[1280,900],[390,844]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
+      await sleep(80);
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'), true, fight+' short briefing fits width');
+      await evaluate('sceneDetails.open=true');
+      assert.equal(await evaluate('roleNotes.getClientRects().length>0 && sceneWhy.getClientRects().length>0'), true);
+      await evaluate('sceneDetails.open=false');
+      await screenshot(fight+'-short-'+width);
+      const geometry = await evaluate(`(()=>{
+        const a=__tactics,bad=[];
+        for(const step of a.guided.steps){
+          a.showExplanation(step.index);
+          const scene=a.scenes.find(s=>s.id===step.sceneId);
+          for(const time of [0,(step.holdAtMs-step.startMs)/2,step.holdAtMs-step.startMs]){
+            const now=performance.now();a.playback.pause(now);a.playback.seek(time,now);a.render(now);
+            const box=fx.getBoundingClientRect();
+            for(const point of [scene._sim.boss,...Object.values(scene._sim.pos)]){
+              const p=a.px(point);if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<0||p.y<0||p.x>box.width||p.y>box.height)bad.push([step.sceneId,step.id,time,'actor outside map']);
+            }
+            if(a.lesson){const model=a.lesson.model,bounds=a.lesson.layout,current=TacticsLessonRender.layout(fx.getContext('2d'),box.width,box.height,model);if(current.header.h>bounds.header.h||current.footer.h>bounds.footer.h)bad.push([step.sceneId,step.id,time,'copy exceeds reserved space']);}
+          }
+        }
+        a.show(2);a.playback.pause(performance.now());
+        return bad;
+      })()`);
+      assert.deepEqual(geometry, [], fight+' short frames keep actors and guidance within the map at '+width);
+    }
+    await send('Emulation.clearDeviceMetricsOverride');
+    const detailUrl = await evaluate('walkthroughLink.href');
+    const chapter = await evaluate('__tactics.guided.active.sceneId');
+    await send('Page.navigate', {url:detailUrl}); await waitForPresenter();
+    assert.equal(await evaluate('__tactics.briefing'), false);
+    assert.equal(await evaluate('__tactics.guided.active.sceneId'), chapter, 'mode link retains chapter');
+    const shortUrl = await evaluate('walkthroughLink.href');
+    await send('Page.navigate', {url:shortUrl}); await waitForPresenter();
+    assert.equal(await evaluate('__tactics.briefing'), true);
+    assert.equal(await evaluate('__tactics.guided.active.sceneId'), chapter);
+    await evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__shortText=text},write:async items=>{window.__shortPNG=await items[0].getType('image/png')}}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}};__tactics.playback.pause(performance.now());copyText.click();copyImage.click()`);
+    await sleep(300);
+    assert((await evaluate('__shortText')).includes(await evaluate('sceneCall.textContent')), 'export contains current condensed call');
+    assert((await evaluate('__shortPNG.size'))>1000, 'condensed image exports');
+    await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await reload();
+    assert.equal(await evaluate('__tactics.playback.playing'), false);
+    await send('Emulation.setEmulatedMedia',{features:[]});
+    pass(fight+' short briefing skips optional examples, holds merged animations, preserves details, exports and reduced motion');
+  }
+  const tank={name:'OnlyTank',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'};
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(JSON.stringify({manual:[tank]}))})`);
+  for (const [fight,chapter,time,pattern] of [
+    ['bt-najentus','shield',4500,'holder'],
+    ['bt-supremus','p1-hateful',3200,'soak'],
+    ['bt-reliquary','interrupts',8000,'removal is missing'],
+    ['bt-reliquary','fixate',15000,'fresh tank']
+  ]) {
+    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}&chapter=${chapter}`});await waitForPresenter();
+    await evaluate(`__seekSource(${time})`);
+    const call = await evaluate('sceneCall.textContent');
+    assert.match(call,new RegExp(pattern,'i'), fight+':'+chapter+' live missing role overrides merged instruction: '+call);
+  }
+  await evaluate('localStorage.clear()');
+  pass('condensed animations preserve missing-role warnings at internal source beats');
 }
 
 async function run() {
@@ -941,9 +1113,19 @@ async function run() {
   await startChrome();
   await send("Page.enable"); await send("Runtime.enable");
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installSourceSeeker.toString()})()` });
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=bt-supremus` });
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-supremus` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
+  if (process.env.TACTICS_MOTHER_ONLY) {
+    await checkMother(port);
+    assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+    return;
+  }
+  if (process.env.TACTICS_SHORT_ONLY) {
+    await checkShortBriefings(port);
+    assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+    return;
+  }
   assert.match(await evaluate("referenceContent.textContent"), /Hateful Strike[\s\S]*Phase 1/);
   assert.match(await evaluate("referenceContent.textContent"), /From the guild’s strategy image/); pass("Supremus reference retains ability names, phase, and source heading");
 
@@ -1005,7 +1187,7 @@ async function run() {
   assert.equal(await evaluate("__tactics.playback.playing"), false); pass("reduced motion starts paused");
 
   await send("Emulation.setEmulatedMedia", { features: [] });
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=bt-najentus` }); await waitForPresenter();
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-najentus` }); await waitForPresenter();
   await evaluate("__tactics.render(performance.now())");
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
   assert.equal(await evaluate("document.querySelectorAll('#dots button').length"), 7);
@@ -1089,14 +1271,14 @@ async function run() {
   assert.equal(await evaluate("__tactics.assigned.length"), 29); assert.equal(await evaluate("Object.values(__tactics.scenes[6]._sim.pos).every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))"), true); pass("Najentus MT-only and oversized browser rosters avoid phantom effects and remain drawable");
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); await reload(); await evaluate("__tactics.show(6)");
   assert.equal(await evaluate("__tactics.playback.playing"), false); await send("Emulation.setEmulatedMedia", { features: [] }); pass("Najentus reduced motion opens paused");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=constructor` }); await waitForPresenter();
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=constructor` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=__proto__` }); await waitForPresenter();
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=__proto__` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus"); pass("unknown and prototype fight ids fall back safely");
   await evaluate("localStorage.clear()");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html` }); await waitForPresenter();
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil']);
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
   assert.equal(await evaluate("__tactics.count"), 10);
@@ -1248,9 +1430,11 @@ async function run() {
   pass('alternate strategy with a partial roster preserves real tank ownership and cannot fabricate a kill');
   await checkReliquary(port);
   await checkBloodboil(port);
+  await checkMother(port);
   await checkSharedGuidedFlow(port);
   await checkOnScreenGuidance(port);
   await checkStableFightFraming(port);
+  await checkShortBriefings(port);
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
