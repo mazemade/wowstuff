@@ -5,7 +5,7 @@
     'use strict';
     const colours = { channeler: '#c58bec', sorcerer: '#edb55f', spiritbinder: '#8bcba7', elementalist: '#f19565', rogue: '#d7bfa0', defender: '#8fbbdf' };
     const letters = { channeler: 'C', sorcerer: 'S', spiritbinder: '+', elementalist: 'E', rogue: 'R', defender: 'D' };
-    function label(ctx, x, y, text, colour, size = 13, maxWidth) {
+    function label(ctx, x, y, text, colour, size = 16, maxWidth) {
         ctx.save(); ctx.font = '600 ' + size + 'px "Barlow Condensed", sans-serif'; ctx.textAlign = 'center';
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(6,8,12,.95)'; ctx.fillStyle = colour;
         ctx.strokeText(text, x, y, maxWidth); ctx.fillText(text, x, y, maxWidth); ctx.restore();
@@ -63,29 +63,29 @@
             return;
         }
         frame.npcs.forEach(n => {
-            const p = px(n.at), r = Math.max(8, Math.min(15, yd(1.9))), colour = colours[n.kind];
+            const p = px(n.at), r = Math.max(10, Math.min(18, yd(1.9))), colour = colours[n.kind];
             if (n.priority) ring(ctx, p, r + 5, 'rgba(243,195,99,.10)', '#f0c46b');
             ring(ctx, p, r, '#171521', colour);
-            label(ctx, p.x, p.y + 4, n.kind === 'channeler' ? n.label : letters[n.kind], colour, 12);
+            label(ctx, p.x, p.y + 5, n.kind === 'channeler' ? n.label : letters[n.kind], colour, 14);
             if (n.hp < 1) bar(ctx, { x: p.x, y: p.y - r - 8 }, r * 2, n.hp, colour);
             if (n.kind === 'sorcerer') label(ctx, p.x, p.y + r + 16, 'Sorcerer', '#ffd08c');
             if (n.status) label(ctx, p.x, p.y - r - 8, n.status, n.status === 'Interrupted' ? '#ffdb9a' : '#a5edbd');
         });
-        const akama = px(frame.akama), ar = Math.max(11, Math.min(20, yd(2.5)));
+        const akama = px(frame.akama), ar = Math.max(13, Math.min(24, yd(2.5)));
         ring(ctx, akama, ar, '#11362f', '#9dd5b9');
-        label(ctx, akama.x, akama.y + 5, 'A', '#d3ffe3', 16);
-        label(ctx, akama.x, akama.y + ar + 18, 'Akama · ally', '#b7edce', 14);
+        label(ctx, akama.x, akama.y + 6, 'A', '#d3ffe3', 19);
+        label(ctx, akama.x, akama.y + ar + 20, 'Akama · ally', '#b7edce', 17);
         if (frame.phase === 2) {
             bar(ctx, { x: akama.x, y: akama.y - ar - 10 }, ar * 3, frame.akamaHp, '#8ed4af');
             const boss = px(frame.boss);
             bar(ctx, { x: boss.x, y: boss.y - yd(4) - 9 }, Math.max(45, yd(8)), frame.bossHp, '#cb94ed');
         }
         const boss = px(frame.boss);
-        if (frame.phase === 2) label(ctx, boss.x, boss.y + yd(4) + 17, 'Shade · Akama engaged', '#f2d3a4', 13);
+        if (frame.phase === 2) label(ctx, boss.x, boss.y + yd(4) + 20, 'Shade · Akama engaged', '#f2d3a4', 16);
         else if (frame.channels.length) {
             const stateX = width < 620 ? width * .77 : boss.x + yd(12);
-            label(ctx, stateX, width < 620 ? 26 : boss.y, frame.channels.length + ' binding' + (frame.channels.length === 1 ? '' : 's') + ' · Shade immune', '#ddbcf6', width < 620 ? 11 : 13, width < 620 ? width * .42 : undefined);
-        } else label(ctx, boss.x, boss.y + yd(4) + 17, 'Shade · released', '#c9eadc', 13);
+            label(ctx, stateX, width < 620 ? 26 : boss.y, frame.channels.length + ' binding' + (frame.channels.length === 1 ? '' : 's') + ' · Shade immune', '#ddbcf6', width < 620 ? 11 : 16, width < 620 ? width * .42 : undefined);
+        } else label(ctx, boss.x, boss.y + yd(4) + 20, 'Shade · released', '#c9eadc', 16);
         // The NPC key and illustrative-timing note live in the external legend strip.
     }
     return { draw };

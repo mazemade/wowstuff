@@ -514,8 +514,8 @@
 
     function chip(x, y, text) {
         ctx.save();
-        ctx.font = '500 12px "IBM Plex Sans", system-ui, sans-serif';
-        const w = ctx.measureText(text).width + 12, h = 19;
+        ctx.font = '500 14px "IBM Plex Sans", system-ui, sans-serif';
+        const w = ctx.measureText(text).width + 14, h = 22;
         ctx.fillStyle = 'rgba(11,15,13,.82)';
         ctx.strokeStyle = 'rgba(236,230,216,.18)';
         ctx.lineWidth = 1;
@@ -927,7 +927,7 @@
 
     function label(x, y, text, colour, size) {
         ctx.save();
-        ctx.font = '600 ' + (size || 12.5) + 'px "Barlow Condensed", sans-serif';
+        ctx.font = '600 ' + (size || 15) + 'px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineWidth = 3.2;
@@ -941,7 +941,8 @@
 
     function drawBoss(a, sc) {
         const c = px(sc._sim.boss);
-        const r = clamp(yd(3.6), 15, 34) * (a.scale || 1);
+        // Token size is screen presentation only; the arena camera and authored yards stay fixed.
+        const r = clamp(yd(3.6), 18, 40) * (a.scale || 1);
         const img = image(FIGHT.portrait);
         withGlow(() => {
             const g = ctx.createRadialGradient(c.x, c.y, r * .6, c.x, c.y, r * 2.9);
@@ -981,7 +982,7 @@
 
     function drawPlayer(p, sc, t) {
         const c = px(sc._sim.pos[p.id]);
-        const r = clamp(yd(1.7), 9, 21);
+        const r = clamp(yd(1.7), 11, 25);
         const img = image(ROLE_ICON[p.kind] || ROLE_ICON.ranged);
         const faint = sc._dim && !sc._focus[p.id];
         ctx.save();
@@ -1024,10 +1025,10 @@
             // each other: lift every other one above its token instead of below.
             const above = p.kind === 'tank' ? p.slotIndex % 2 === 1 : p.slotIndex % 2 === 0;
             label(c.x, c.y + (above ? -(r + 6) : r + 12), p.label,
-                p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 12);
+                p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 14);
         }
         // the word for what this person is doing about it, which is the thing to read first
-        if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#c5f4e9', 14);
+        if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#c5f4e9', 17);
         ctx.restore();
     }
 
@@ -1117,7 +1118,7 @@
         const current = OVERLAY.layout({ ctx, width: W, height: H }, sc, frame);
         const saved = lessonBounds.get(key);
         const applyMinimumSize = reserved => {
-            const minimumCanvasHeight = Math.ceil(reserved.action.y + 300 + 38 + reserved.footer.h + 20);
+            const minimumCanvasHeight = Math.ceil(reserved.action.y + (W > 720 ? 380 : 300) + 38 + reserved.footer.h + 20);
             const map = cv.parentElement, stageMap = map.closest('.stage__map');
             if (map.style.getPropertyValue('--lesson-canvas-min-height') !== minimumCanvasHeight + 'px')
                 map.style.setProperty('--lesson-canvas-min-height', minimumCanvasHeight + 'px');
@@ -1150,7 +1151,7 @@
     }
     function resetExplanationDemo(now) {
         const explanation = isGuidedScene() ? currentExplanation() : null;
-        const duration = explanation ? (explanation.loop === 'effect' ? Number.MAX_SAFE_INTEGER : Math.max(1, explanation.holdAtMs - explanation.startMs)) : scenes[idx].duration;
+        const duration = explanation ? (['effect', 'repeat'].includes(explanation.loop) ? Number.MAX_SAFE_INTEGER : Math.max(1, explanation.holdAtMs - explanation.startMs)) : scenes[idx].duration;
         playback.reset(duration, now);
         if (!REDUCED && duration > 1 && (scenes[idx].animated || scenes[idx].effects.length)) playback.play(now);
     }
@@ -1305,7 +1306,7 @@
             const resolved = source && resolve ? resolvedExplanation(source, sc) : source;
             // Resolve coverage at the live source beat, including beats inside a
             // merged animation. Keep the selected step's playback boundaries.
-            if (source && (sc.id === 'cycle' || (resolve && !source.optional && (resolved.title !== source.title || resolved.detail !== source.detail))))
+            if (source && (sc.id === 'cycle' || explanation.loop === 'repeat' || (resolve && !source.optional && (resolved.title !== source.title || resolved.detail !== source.detail))))
                 selected = { ...explanation, title: resolved.title, detail: resolved.detail };
         }
         const teaching = visibleExplanation(BRIEFING ? selected : resolve ? resolvedExplanation(explanation, sc) : explanation, sc, frame);
@@ -1341,7 +1342,7 @@
             candidates.push(current);
             const reserved = LESSON_RENDER.reserve(candidates, W, H);
             lessonBounds.set(key, reserved);
-            const minimumCanvasHeight = Math.ceil(reserved.action.y + 220 + reserved.footer.h + 8);
+            const minimumCanvasHeight = Math.ceil(reserved.action.y + (W > 720 ? 380 : 220) + reserved.footer.h + 8);
             const map = cv.parentElement, meta = map.querySelector('.map__meta');
             const minimumStageHeight = minimumCanvasHeight + (getComputedStyle(meta).position === 'absolute' ? 0 : meta.offsetHeight + 2);
             const stageMap = map.closest('.stage__map');

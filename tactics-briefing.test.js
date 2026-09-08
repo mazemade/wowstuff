@@ -4,7 +4,7 @@ const Briefing = require('./tactics-briefing.js');
 const Steps = require('./tactics-steps.js');
 const Data = require('./tactics-data.js');
 
-const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 16, 'bt-reliquary': 20, 'bt-mother': 7 };
+const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 14, 'bt-reliquary': 20, 'bt-mother': 7 };
 for (const [fightId, expectedCount] of Object.entries(expectedPrimaryCounts)) {
     const briefing = Briefing.forFight(fightId);
     assert.deepEqual(briefing.order, Steps.forFight(fightId).order, fightId + ' keeps every scene addressable');
@@ -22,7 +22,7 @@ for (const [fightId, expectedCount] of Object.entries(expectedPrimaryCounts)) {
             assert.ok(source.some(raw => raw.id === item.id), fightId + ':' + sceneId + ' keeps a source id');
             assert.deepEqual(item.range, [item.startMs, item.holdAtMs]);
             assert.ok(item.holdAtMs >= item.startMs, fightId + ':' + sceneId + ' has valid bounds');
-            assert.equal(item.loop, 'hold', fightId + ':' + sceneId + ' does not inherit an effect loop');
+            assert.equal(item.loop, fightId === 'bt-bloodboil' && sceneId === 'rotation' ? 'repeat' : 'hold', fightId + ':' + sceneId + ' repeats only the requested rotation');
             assert.equal(item.countdownSeconds, sceneId === 'spite' && item.id === 'spite-countdown' ? 6 : 0, fightId + ':' + sceneId + ' keeps only the Spite countdown');
             if (index) assert.equal(merged[index - 1].holdAtMs + 1, item.startMs, fightId + ':' + sceneId + ' has contiguous coverage');
             assert.equal(briefing.all()[briefing.indexFor(sceneId, item.startMs)], item);
@@ -55,5 +55,23 @@ assert.equal(Briefing.forFight('bt-reliquary').sourceStep('deaden', 5000).id, 's
 assert.equal(Briefing.forFight('bt-najentus').sourceStep('burst', 5700), Steps.forFight('bt-najentus').get('burst', 'burst-hit'), 'sourceStep returns the detailed registry item');
 assert.notEqual(Briefing.forFight('bt-najentus').get('shield', 'shield-up'), Steps.forFight('bt-najentus').get('shield', 'shield-up'), 'briefing steps are derived copies');
 assert.equal(Briefing.forFight('toString').order.length, 0, 'prototype-named fights resolve safely as unknown');
+
+
+const bloodboil = Briefing.forFight('bt-bloodboil');
+const [rotation] = bloodboil.forScene('rotation');
+assert.equal(bloodboil.forScene('rotation').length, 1, 'rotation plays without intermediate stops');
+const duration = rotation.playbackTimeline.at(-1)[0];
+assert.equal(duration, 15500, 'full demonstration has short waits and normal walks');
+for (const time of [0, 10000, 11000, 11500, 12000, 12500, 13000, 20000, 30000, 40000, 50000, 54999]) {
+    const elapsed = bloodboil.timelineFor('rotation', time).elapsedMs;
+    for (const pass of [0, 1, 2, 10]) assert.ok(Math.abs(bloodboil.frameAt(rotation, duration * pass + elapsed) - time) < .001, 'source seeking and repeated frames preserve positions');
+}
+for (const hit of [10000, 20000, 30000, 40000, 50000]) {
+    const start = bloodboil.timelineFor('rotation', hit + 1000).elapsedMs;
+    for (const offset of [0, 500, 1000, 1500, 2000]) assert.equal(bloodboil.frameAt(rotation, start + offset), hit + 1000 + offset, 'walking advances one source second per real second');
+}
+assert.equal(bloodboil.frameAt(rotation, duration), 0, 'rotation restarts after the fifth application and return');
+assert.equal(bloodboil.frameAt(rotation, -1), 0, 'negative elapsed time stays at the beginning');
+assert.equal(bloodboil.frameAt(bloodboil.forScene('tanks')[0], 200000), bloodboil.forScene('tanks')[0].holdAtMs, 'other chapters still hold');
 
 console.log('Condensed briefing registry checks passed');

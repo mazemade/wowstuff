@@ -18,13 +18,30 @@
         ctx.save(); ctx.strokeStyle = tone; ctx.lineWidth = 2; ctx.fillStyle = fill || 'transparent';
         ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
     }
-    function label(api, p, value, tone) {
+    function label(api, p, value, tone, occupied) {
         const { ctx, action, width, height } = api;
-        ctx.save(); ctx.font = '600 13px "Barlow Condensed", sans-serif'; ctx.textAlign = 'center';
-        const half = ctx.measureText(value).width / 2 + 5, bounds = action || { x: 0, y: 0, w: width, h: height };
-        const x = Math.max(bounds.x + half, Math.min(bounds.x + bounds.w - half, p.x));
-        const y = Math.max(bounds.y + 17, Math.min(bounds.y + bounds.h - 5, p.y));
-        ctx.fillStyle = 'rgba(7,13,10,.9)'; ctx.fillRect(x - half, y - 14, half * 2, 19);
+        ctx.save(); ctx.font = '600 16px "Barlow Condensed", sans-serif'; ctx.textAlign = 'center';
+        const half = ctx.measureText(value).width / 2 + 7, bounds = action || { x: 0, y: 0, w: width, h: height };
+        let x = Math.max(bounds.x + half, Math.min(bounds.x + bounds.w - half, p.x));
+        let y = Math.max(bounds.y + 20, Math.min(bounds.y + bounds.h - 7, p.y));
+        if (occupied) {
+            // Move only the annotation, keeping its pair midpoint and the actors fixed.
+            const fits = (cx, cy) => !occupied.some(b => cx + half + 4 > b.x && cx - half - 4 < b.x + b.w && cy + 11 > b.y && cy - 21 < b.y + b.h);
+            search: for (let radius = 0; radius <= 280; radius += 28) {
+                for (let direction = 0; direction < 8; direction++) {
+                    const angle = direction * Math.PI / 4;
+                    const cx = Math.max(bounds.x + half, Math.min(bounds.x + bounds.w - half, p.x + Math.cos(angle) * radius));
+                    const cy = Math.max(bounds.y + 20, Math.min(bounds.y + bounds.h - 7, p.y + Math.sin(angle) * radius));
+                    if (fits(cx, cy)) { x = cx; y = cy; break search; }
+                }
+            }
+            occupied.push({ x: x - half, y: y - 17, w: half * 2, h: 24 });
+            if (Math.hypot(x - p.x, y - p.y) > 16) {
+                ctx.strokeStyle = tone; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(p.x, p.y + 7);
+                ctx.lineTo(x, y - 5); ctx.stroke();
+            }
+        }
+        ctx.fillStyle = 'rgba(7,13,10,.9)'; ctx.fillRect(x - half, y - 17, half * 2, 24);
         ctx.fillStyle = tone; ctx.fillText(value, x, y); ctx.restore();
     }
     function draw(layer, api, scene, frame) {
@@ -60,10 +77,16 @@
                 const p = { x: bounds.x + bounds.w - 53, y: bounds.y + 24 };
                 label(api, p, 'Closest pair', violet);
                 label(api, { x: p.x, y: p.y + 22 }, Math.floor(closest) + ' / 25 yd', violet);
-            } else if (frame.fatal.active) frame.fatal.distances.forEach(pair => {
-                const a = px(frame.pos[pair.ids[0]]), b = px(frame.pos[pair.ids[1]]);
-                label(api, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 7 }, Math.floor(pair.yards) + ' / 25 yd', pair.yards >= 25 ? teal : violet);
-            });
+            } else if (frame.fatal.active) {
+                const occupied = [frame.boss, ...Object.values(frame.pos)].map(point => {
+                    const p = px(point), radius = Math.max(18, yd(2.8));
+                    return { x: p.x - radius - 20, y: p.y - radius - 30, w: radius * 2 + 40, h: radius * 2 + 36 };
+                });
+                frame.fatal.distances.forEach(pair => {
+                    const a = px(frame.pos[pair.ids[0]]), b = px(frame.pos[pair.ids[1]]);
+                    label(api, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 7 }, Math.floor(pair.yards) + ' / 25 yd', pair.yards >= 25 ? teal : violet, occupied);
+                });
+            }
             else {
                 const p = px(frame.fatal.teleportAt);
                 label(api, { x: p.x, y: p.y + 26 }, 'All effects cleared', teal);

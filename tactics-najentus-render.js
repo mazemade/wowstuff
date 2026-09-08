@@ -4,7 +4,7 @@
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
     function text(ctx, x, y, value, colour) {
-        ctx.save(); ctx.font = '600 15px "Barlow Condensed", sans-serif'; ctx.textAlign = 'center';
+        ctx.save(); ctx.font = '600 18px "Barlow Condensed", sans-serif'; ctx.textAlign = 'center';
         ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5,9,10,.92)'; ctx.strokeText(value, x, y);
         ctx.fillStyle = colour; ctx.fillText(value, x, y); ctx.restore();
     }

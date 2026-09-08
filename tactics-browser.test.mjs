@@ -964,10 +964,30 @@ async function checkMother(port) {
     return bad;
   })()`);
   assert.deepEqual(geometry, []);
-  for(const [width,height] of [[1600,1000],[390,844]]) {
+  for(const [width,height] of [[1600,1000],[1280,720],[1440,900],[390,844]]) {
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
     for(const chapter of ['positioning','attraction','return','door']) {
       await evaluate(`(()=>{const a=__tactics,i=a.scenes.findIndex(s=>s.id===${JSON.stringify(chapter)});a.show(i);__seekSource(${chapter==='positioning'?0:4000});})()`);
+      if(chapter==='attraction' && width>=1280) {
+        const overlaps=await evaluate(`(()=>{
+          const ctx=fx.getContext('2d'),original=ctx.fillText,bad=[];let labels=[];
+          ctx.fillText=function(value,x,y,...args){
+            if(/^(?:[0-9]+ \\/ 25 yd|Clear|Split now)$/.test(String(value))){
+              const m=this.measureText(String(value));labels.push({value:String(value),left:x-m.actualBoundingBoxLeft,right:x+m.actualBoundingBoxRight,top:y-m.actualBoundingBoxAscent,bottom:y+m.actualBoundingBoxDescent});
+            }
+            return original.call(this,value,x,y,...args);
+          };
+          try{for(const time of [2000,3000,4000,4700]){
+            __seekSource(time);labels=[];__tactics.render(performance.now());
+            if(labels.filter(label=>label.value.includes('/ 25')).length!==3)bad.push([time,'missing pair distance']);
+            for(let i=0;i<labels.length;i++)for(let j=i+1;j<labels.length;j++){
+              const a=labels[i],b=labels[j];
+              if((a.value.includes('/ 25')||b.value.includes('/ 25')) && a.left<b.right && a.right>b.left && a.top<b.bottom && a.bottom>b.top)bad.push([time,a.value,b.value]);
+            }
+          }}finally{ctx.fillText=original;__seekSource(4000)}return bad;
+        })()`);
+        assert.deepEqual(overlaps, [], 'Mother distance annotations stay clear of each other and runner instructions at '+width);
+      }
       await screenshot('mother-'+chapter+'-'+width);
     }
   }
@@ -1008,15 +1028,47 @@ async function checkShortBriefings(port) {
         if(index===0&&!prev.disabled)bad.push('can go before start');
         if(index===route.length-1&&!next.disabled)bad.push('optional example in default next route');
         if(index<route.length-1){next.click();if(a.guided.selectedIndex!==route[index+1].index)bad.push(['next',step.id]);prev.click();if(a.guided.selectedIndex!==step.index)bad.push(['previous',step.id]);}
-        const now=performance.now();a.playback.play(now);a.render(now+200000);
+        const now=performance.now();a.playback.seek(0,now);a.playback.play(now);a.render(now+200000);
         const sc=a.scenes.find(scene=>scene.id===step.sceneId);
-        if(a.playback.playing||sc._t!==step.holdAtMs||a.guided.selectedIndex!==step.index)bad.push(['hold',step.id,sc._t]);
+        if(step.loop==='repeat') {
+          if(!a.playback.playing||sc._t!==TacticsBriefing.forFight(a.fight.id).frameAt(step,200000)||a.guided.selectedIndex!==step.index)bad.push(['repeat',step.id,sc._t]);
+        } else if(a.playback.playing||sc._t!==step.holdAtMs||a.guided.selectedIndex!==step.index)bad.push(['hold',step.id,sc._t]);
         if(a.lesson&&step.sceneId!=='overview'&&!['positioning','p1-stand'].includes(step.sceneId)&&(a.lesson.model.rows.length||a.lesson.model.warning))bad.push(['supporting copy on map',step.id]);
       }
       if([...dots.children].filter(button=>!button.hidden).length!==a.primaryOrder.length)bad.push('optional chapter tab visible');
       return bad;
     })()`);
     assert.deepEqual(failures, [], fight + ' condensed flow');
+    if(fight==='bt-bloodboil') {
+      const loopChecks=await evaluate(`(()=>{
+        const a=__tactics,bad=[];a.show(a.scenes.findIndex(scene=>scene.id==='rotation'));
+        const step=a.guided.steps.find(item=>item.sceneId==='rotation'),scene=a.scenes.find(scene=>scene.id==='rotation'),duration=step.playbackTimeline.at(-1)[0];
+        if(a.guided.chapterSteps('rotation').length!==1||!a.playback.playing)bad.push('rotation does not start as one continuous animation');
+        const now=performance.now();
+        for(const lap of [0,1,2])for(const time of [0,10000,12000,20000,30000,40000,50000,54999]){
+          a.playback.seek(lap*duration+a.guided.timelineFor('rotation',time).elapsedMs,now);a.render(now);
+          const expected=a.simulate(scene,time);
+          if(Math.abs(scene._t-time)>.001||JSON.stringify(scene._sim.pos)!==JSON.stringify(expected.pos)||JSON.stringify(scene._sim.bloodboil)!==JSON.stringify(expected.bloodboil))bad.push([lap,time,'rotation changed']);
+          if(!a.playback.playing||a.guided.selectedIndex!==step.index)bad.push([lap,time,'loop stopped or left chapter']);
+          if(time===12000&&!/G1 returns; G2 goes far/.test(sceneCall.textContent))bad.push([lap,time,'handoff narration did not repeat']);
+        }
+        a.playback.seek(duration+a.guided.timelineFor('rotation',12000).elapsedMs,now);a.playback.pause(now);a.render(now+10000);
+        if(scene._t!==12000||a.playback.playing)bad.push('pause does not hold the repeated frame');
+        a.playback.play(now+10000);a.render(now+11000);
+        if(scene._t!==13000)bad.push('walking does not continue at normal speed');
+        a.playback.seek(0,now);a.render(now+15500);
+        if(scene._t!==0||!a.playback.playing)bad.push('full rotation does not repeat after 15.5 seconds');
+        replay.click();a.playback.pause(performance.now());a.render(performance.now());
+        if(a.playback.time(performance.now())>1000||a.guided.selectedIndex!==step.index)bad.push('replay does not restart the rotation');
+        next.click();if(a.guided.active.sceneId!=='tanks')bad.push('next does not leave the loop');
+        const normalNow=performance.now();a.playback.seek(0,normalNow);a.render(normalNow+1000);
+        if(a.scenes.find(scene=>scene.id==='tanks')._t!==a.guided.active.startMs+1000)bad.push('rotation speed leaked into the next chapter');
+        prev.click();if(a.guided.active.sceneId!=='rotation'||!a.playback.playing)bad.push('previous does not restart the loop');
+        return bad;
+      })()`);
+      assert.deepEqual(loopChecks, [], 'Bloodboil rotation repeats unchanged with live handoff instructions and working controls');
+      pass('Bloodboil chapter three loops the complete rotation; pause, resume, replay and chapter navigation work');
+    }
     await evaluate('__tactics.show(0);document.activeElement.blur()');
     await key('ArrowRight');
     assert.equal(await evaluate('__tactics.guided.active.sceneId'), await evaluate('__tactics.primaryOrder[1]'));

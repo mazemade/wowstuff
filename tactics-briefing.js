@@ -34,7 +34,7 @@
             aoe: [{ id: 'optional-plan', title: 'Optional stacked AoE route.', detail: 'Keep the uninterrupted optional route controlled: reliable tank healing and interrupts support AoE at the Channelers.' }]
         },
         'bt-bloodboil': {
-            rotation: [{ id: 'ready', title: 'Group 1 goes farthest for Bloodboil.', detail: 'Only the current five-player group stands farther than everyone else. Wait for the application before switching.' }, { id: 'switch', title: 'Group 1 comes in; Group 2 goes out.', detail: 'After each application, the soaked group returns and the next group moves farthest. Healers cover the lingering debuffs.' }, { id: 'g3', title: 'Finish G3 → G1 → G2, then prepare for Rage.', detail: 'Switch after each hit. After the fifth application, Group 2 returns; no new group goes out before Fel Rage.' }],
+            rotation: [{ id: 'ready', title: 'Bloodboil: G1 → G2 → G3 → G1 → G2.', detail: 'Switch after each application. This rotation example repeats; the real fight proceeds to Fel Rage after the fifth hit.', loop: 'repeat', shortenRotationWaits: true }],
             tanks: [{ id: 'outgoing', title: 'Outgoing tank slows damage; incoming tank builds threat.', detail: 'Threat makes the handoff; Gurtogg cannot be taunted. Keep all tanks high on threat.' }, { id: 'incoming', title: 'Keep the backup ready for Bewildering Strike.', detail: 'The next tank on threat catches the boss when the current tank is confused. Healers still cover the outgoing tank’s wounds.' }, { id: 'bewilder-ends', title: 'Eject drops threat: the next tank catches the boss.', detail: 'As tanks recover from confusion or knockback, keep a backup high on threat and the front clear.' }],
             breath: [{ id: 'clear-front', title: 'Keep the frontal lane clear.', detail: 'Melee starts behind on the left; leave room to move when the facing changes.' }, { id: 'breath', title: 'Breath turns toward melee: clear that frontal.', detail: 'Other players leave the selected facing; heal the target. Stay out of Arcing Smash, whose healing penalty adds pressure during Fel Rage.' }],
             'rage-ranged': [{ id: 'target', title: 'Ranged Fel Rage: heal the target on the left.', detail: 'Healers start immediately. Neighbors clear Fel Geyser; the raid clears the boss’s route and front.' }, { id: 'ramp', title: 'Keep healing through the full 30-second Rage.', detail: 'Damage ramps up: use personal defenses and focused healing until Rage ends.' }],
@@ -64,6 +64,23 @@
         }
     };
     const optionalSceneNames = new Set(['cycle', 'aoe', 'door']);
+
+    // Keep each two-second walk at normal speed; shorten only stationary waits.
+    function rotationTimeline(waves, end) {
+        const points = [[0, 0]];
+        let elapsed = 0;
+        waves.forEach(at => {
+            points.push([elapsed += 500, at], [elapsed += 500, at + 1000], [elapsed += 2000, at + 3000]);
+        });
+        points.push([elapsed + 500, end]);
+        return Object.freeze(points.map(point => Object.freeze(point)));
+    }
+    function mapTime(points, time, from, to) {
+        const next = points.findIndex(point => point[from] >= time);
+        if (next <= 0) return points[next === 0 ? 0 : points.length - 1][to];
+        const a = points[next - 1], b = points[next];
+        return a[to] + (b[to] - a[to]) * (time - a[from]) / (b[from] - a[from]);
+    }
 
     function sourceStep(source, sceneId, sourceTimeMs) {
         const rows = source.forScene(sceneId);
@@ -119,7 +136,8 @@
                     sceneId,
                     chapterId: sceneId,
                     optional: optionalScenes.includes(sceneId) || !!first.optional,
-                    loop: 'hold',
+                    loop: spec.loop === 'repeat' ? 'repeat' : 'hold',
+                    playbackTimeline: spec.shortenRotationWaits ? rotationTimeline(sceneData.get(sceneId).sequence.waves, sceneEnd) : null,
                     countdownSeconds: sceneId === 'spite' && first.id === 'spite-countdown' ? 6 : 0
                 };
             });
@@ -135,11 +153,17 @@
         return Object.freeze({
             order: Object.freeze([...order]), optionalScenes: Object.freeze(optionalScenes), primaryOrder: Object.freeze(primaryOrder),
             forScene, all: () => allSteps, get: (sceneId, id) => byId.get(sceneId + ':' + id) || null,
-            frameAt: (item, elapsedMs) => Math.min(item.holdAtMs, item.startMs + Math.max(0, elapsedMs)),
+            frameAt: (item, elapsedMs) => {
+                const elapsed = Math.max(0, elapsedMs), duration = item.playbackTimeline ? item.playbackTimeline.at(-1)[0] : item.holdAtMs - item.startMs;
+                if (item.playbackTimeline) return mapTime(item.playbackTimeline, item.loop === 'repeat' ? elapsed % duration : elapsed, 0, 1);
+                return item.loop === 'repeat' && duration > 0
+                    ? item.startMs + elapsed % duration
+                    : Math.min(item.holdAtMs, item.startMs + elapsed);
+            },
             countdownAt: (item, elapsedMs) => item.countdownSeconds ? Math.max(0, Math.ceil((item.countdownSeconds * 1000 - elapsedMs) / 1000)) : null,
             indexFor,
             sourceStep: (sceneId, sourceTimeMs) => sourceStep(source, sceneId, sourceTimeMs),
-            timelineFor(sceneId, sourceTimeMs) { const index = indexFor(sceneId, sourceTimeMs), item = allSteps[index]; if (!item) return null; const time = Math.max(item.startMs, Math.min(item.holdAtMs, sourceTimeMs)); return { index, localIndex: item.localIndex, elapsedMs: time - item.startMs, sourceTimeMs: time, sampleMs: item.startMs, range: [...item.range], step: item }; },
+            timelineFor(sceneId, sourceTimeMs) { const index = indexFor(sceneId, sourceTimeMs), item = allSteps[index]; if (!item) return null; const time = Math.max(item.startMs, Math.min(item.holdAtMs, sourceTimeMs)); return { index, localIndex: item.localIndex, elapsedMs: item.playbackTimeline ? mapTime(item.playbackTimeline, time, 1, 0) : time - item.startMs, sourceTimeMs: time, sampleMs: item.startMs, range: [...item.range], step: item }; },
             chapterBoundary(sceneId, localIndex) { const chapterIndex = order.indexOf(sceneId), nextSceneId = order[chapterIndex + (localIndex < 0 ? -1 : 1)]; if (!nextSceneId) return null; const chapter = forScene(nextSceneId); return { sceneId: nextSceneId, localIndex: localIndex < 0 ? Math.max(0, chapter.length - 1) : 0 }; }
         });
     }

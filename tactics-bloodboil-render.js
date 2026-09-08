@@ -5,11 +5,11 @@
     'use strict';
     const colours = { G1: '#ffcf65', G2: '#7bc7ff', G3: '#dc9dff' };
     function label(ctx, x, y, value, colour = '#eee7d7') {
-        ctx.save(); ctx.font = '600 13px "IBM Plex Sans", sans-serif';
+        ctx.save(); ctx.font = '600 16px "IBM Plex Sans", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         const width = ctx.measureText(value).width + 14;
         ctx.fillStyle = 'rgba(6,12,9,.94)'; ctx.strokeStyle = colour;
-        ctx.beginPath(); ctx.roundRect(x - width / 2, y - 11, width, 22, 4); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x - width / 2, y - 13, width, 26, 4); ctx.fill(); ctx.stroke();
         ctx.fillStyle = colour; ctx.fillText(value, x, y); ctx.restore();
     }
     function line(ctx, from, to, colour, arrow) {
@@ -76,7 +76,7 @@
             const p = px(frame.pos[id]);
             ctx.save(); ctx.fillStyle = '#bf4543'; ctx.strokeStyle = '#ffc9b0'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.arc(p.x + yd(1.7), p.y + yd(1.7), 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-            ctx.fillStyle = '#fff0dd'; ctx.font = '600 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(count), p.x + yd(1.7), p.y + yd(1.7)); ctx.restore();
+            ctx.fillStyle = '#fff0dd'; ctx.font = '600 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(count), p.x + yd(1.7), p.y + yd(1.7)); ctx.restore();
         }
         for (const [id, wound] of Object.entries(frame.tankDebuffs || {})) {
             if (!frame.pos[id]) continue;

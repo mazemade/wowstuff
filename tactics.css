@@ -233,7 +233,7 @@ button {
   font: 500 12px/1.1 var(--display);
   letter-spacing: 0.02em;
   text-align: left;
-  transition: 0.16s;
+  transition: color 0.16s, border-color 0.16s, background-color 0.16s;
 }
 .dot:hover,
 .chapter:hover {
@@ -1109,4 +1109,27 @@ body.has-guided-explanation .key-hint { display: none; }
   .step { grid-column: 1 / -1; }
   .step__caption { max-width: 100ch; }
   .takeaways { grid-column: 2; margin: 0; }
+}
+
+/* Give the encounter more of the laptop viewport; keep navigation compact. */
+@media (min-width: 721px) {
+  .brief { padding: 12px; gap: 12px; }
+  .stage { gap: 7px; }
+  .page-tabs { margin-bottom: 4px; }
+  .boss-tabs { margin: 0 0 6px; }
+  .ident { gap: 9px; }
+  .ident__portrait { width: 38px; height: 38px; }
+  .ident__name { font-size: 26px; }
+  .ident__where { margin-top: 3px; font-size: 11px; }
+  .eyebrow { font-size: 9px; margin-bottom: 2px; }
+  .encounter-state { padding: 6px 9px; }
+  .roster-status { margin-left: 47px; }
+  .dot, .chapter { min-height: 30px; padding-block: 3px; }
+  .briefing-options, .briefing-examples { padding-block: 4px; font-size: 12px; }
+  .briefing-examples { padding-top: 0; }
+  .guide { padding: 18px; }
+  .guide > summary { font-size: 18px; }
+}
+@media (min-width: 1181px) {
+  .brief { grid-template-columns: minmax(0, 1fr) 280px; }
 }

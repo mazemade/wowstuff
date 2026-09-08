@@ -22,14 +22,14 @@
     function bar(ctx, x, y, w, value, tone) { ctx.fillStyle='#142621'; ctx.fillRect(x,y,w,8); ctx.fillStyle=tone; ctx.fillRect(x,y,w*clamp(value),8); }
     function layout(api) { return { w:api.width, h:api.height || api.width*.5625, compact:api.width<520 }; }
     function teachingLayout(api, scene, frame) {
-        const {ctx}=api, {w,h,compact}=layout(api), size=compact?19:24, body=compact?15:18;
+        const {ctx}=api, {w,h,compact}=layout(api), size=compact?19:28, body=compact?15:20;
         const primary=(frame.actions||[]).at(-1);
         const lesson=frame.teaching?.title ? frame.teaching : {title:primary?.label || frame.call || scene.title, detail:primary?.result || scene.caption};
         const th=43+lines(ctx,lesson.title,w-44,size).length*(size+3)+lines(ctx,lesson.detail,w-44,body).length*(body+3)+12;
         const current=(frame.instructionRows||[]).find(row=>/Next kick|Next tank/.test(row[0]));
         const tipResults={evasion:'Optional avoidance turn: dodge incoming hits during Enrage.',deterrence:'Optional avoidance turn: parry incoming hits during Enrage.','spell-reflection':'If coordinated: return Deaden so the boss takes double damage.','glove-backup':'With PvP gloves equipped: Deadly Throw interrupts the cast.','shadow-protection':'Prepare before Anger; Shadow damage grows during the burn.',healthstone:'Use after the Nature hit, then heal back up.'};
         const footer=tipResults[frame.tipVisual?.kind] || lesson.tip || [current ? current[0]+': '+current[1] : '',lesson.missedConsequence || ''].filter(Boolean).join(' ') || 'Suffering → Souls → Desire → Souls → Anger';
-        const rows=lines(ctx,footer,w-48,body), fh=Math.max(52,rows.length*(body+3)+24), header={x:10,y:10,w:w-20,h:Math.max(90,th)}, footerBox={x:10,y:h-fh-12,w:w-20,h:fh}, horizontalInset=18, verticalInset=38, clip={x:0,y:header.y+header.h+8,w,h:Math.max(0,footerBox.y-(header.y+header.h+8)-8)};
+        const rows=lines(ctx,footer,w-48,body), fh=Math.max(58,rows.length*(body+4)+28), header={x:10,y:10,w:w-20,h:Math.max(104,th)}, footerBox={x:10,y:h-fh-12,w:w-20,h:fh}, horizontalInset=18, verticalInset=38, clip={x:0,y:header.y+header.h+8,w,h:Math.max(0,footerBox.y-(header.y+header.h+8)-8)};
         return {header,footer:footerBox,clip,action:{x:horizontalInset,y:clip.y+verticalInset,w:Math.max(0,w-horizontalInset*2),h:Math.max(0,clip.h-verticalInset*2)}};
     }
     // Reliquary's custom panels share the lesson renderer's fixed geometry contract.
@@ -41,22 +41,22 @@
         return {header,footer,clip,action:{x:horizontalInset,y:clip.y+verticalInset,w:Math.max(0,width-horizontalInset*2),h:Math.max(0,clip.h-verticalInset*2)}};
     }
     function teaching(api, scene, frame, box) {
-        const {ctx}=api, {w,compact}=layout(api), size=compact?19:24, body=compact?15:18;
+        const {ctx}=api, {w,compact}=layout(api), size=compact?19:28, body=compact?15:20;
         const primary=(frame.actions||[]).at(-1), lesson=frame.teaching?.title ? frame.teaching : {title:primary?.label || frame.call || scene.title, detail:primary?.result || scene.caption};
         const phase=frame.stage==='complete' ? 'Encounter complete' : frame.essence==='Souls' ? 'Soul intermission · recover together' : frame.essence==='Suffering' ? '1 · Suffering — no healing' : frame.essence==='Desire' ? '2 · Desire — interrupts first' : '3 · Anger — threat, then burn';
-        panel(ctx,box.header.x,box.header.y,box.header.w,box.header.h); text(ctx,phase,22,19,compact?15:17,gold);
-        let y=43; y+=paragraph(ctx,lesson.title,22,y,w-44,size); if(lesson.detail) paragraph(ctx,lesson.detail,22,y+3,w-44,body);
+        panel(ctx,box.header.x,box.header.y,box.header.w,box.header.h); text(ctx,phase,22,19,compact?15:20,gold);
+        let y=compact?43:47; y+=paragraph(ctx,lesson.title,22,y,w-44,size); if(lesson.detail) paragraph(ctx,lesson.detail,22,y+4,w-44,body);
         const current=(frame.instructionRows||[]).find(row=>/Next kick|Next tank/.test(row[0]));
         const tipResults={evasion:'Optional avoidance turn: dodge incoming hits during Enrage.',deterrence:'Optional avoidance turn: parry incoming hits during Enrage.','spell-reflection':'If coordinated: return Deaden so the boss takes double damage.','glove-backup':'With PvP gloves equipped: Deadly Throw interrupts the cast.','shadow-protection':'Prepare before Anger; Shadow damage grows during the burn.',healthstone:'Use after the Nature hit, then heal back up.'};
         const footer=tipResults[frame.tipVisual?.kind] || lesson.tip || [current ? current[0]+': '+current[1] : '',lesson.missedConsequence || ''].filter(Boolean).join(' ') || 'Suffering → Souls → Desire → Souls → Anger';
-        panel(ctx,box.footer.x,box.footer.y,box.footer.w,box.footer.h); paragraph(ctx,footer,22,box.footer.y+12,w-44,body,'#ceddd3');
+        panel(ctx,box.footer.x,box.footer.y,box.footer.w,box.footer.h); paragraph(ctx,footer,22,box.footer.y+(compact?12:14),w-44,body,'#ceddd3');
     }
     function actorLabels(api, scene, frame, area) {
         const {ctx}=api,{w,compact}=layout(api), entries=[], occupied=[], reserved=[];
         const reserve = (p, radius) => reserved.push({ x:p.x-radius, y:p.y-radius, w:radius*2, h:radius*2 });
-        const tokenRadius = Math.max(18, api.yd(3.2)) + 7;
+        const tokenRadius = Math.max(22, api.yd(3.2)) + 8;
         if(frame.tankLanes) Object.keys(frame.tankLanes).forEach(id=>{ if(point(frame,id)) reserve(api.px(point(frame,id)), tokenRadius); });
-        if(frame.boss) reserve(api.px(frame.boss), Math.max(31, api.yd(4.2)) + 8);
+        if(frame.boss) reserve(api.px(frame.boss), Math.max(37, api.yd(4.2)) + 9);
         for(const a of frame.actions||[]) for(const id of [a.visualFromId || a.sourceId,...(a.targetIds || [a.visualToId || a.targetId])]) { if(id && id!=='essence' && point(frame,id) && !entries.includes(id)) entries.push(id); }
         for(const mark of frame.spite || []) if(!entries.includes(mark.targetId)) entries.push(mark.targetId);
         if(frame.bossTarget && ['fixate','suffering','anger'].includes(frame.stage) && !entries.includes(frame.bossTarget)) entries.unshift(frame.bossTarget);
@@ -66,16 +66,16 @@
         for(const id of [frame.teaching?.removerId,frame.teaching?.tonguesId,frame.teaching?.currentKickerId,frame.tipVisual?.sourceId]) if(id && point(frame,id) && !entries.includes(id)) entries.push(id);
         const tankIds=frame.tankLanes ? Object.keys(frame.tankLanes) : scene.tanks || [];
         entries.slice(0,5).forEach(id=>{
-            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' && tankIds.includes(id) ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'Waiting: ' : '', label=prefix+playerName(scene,id), status=frame.lowHealth && id===frame.bossTarget?'LOW HEALTH':frame.tankDefense?.targetId===id?(frame.tankDefense.active?'COOLDOWNS ACTIVE':'COOLDOWNS READY'):'', size=compact?13:16;
+            const p=api.px(point(frame,id)), prefix=frame.essence==='Suffering' && tankIds.includes(id) ? id===frame.bossTarget?'Current: ':id===frame.nextTank?'Next: ':'Waiting: ' : '', label=prefix+playerName(scene,id), status=frame.lowHealth && id===frame.bossTarget?'LOW HEALTH':frame.tankDefense?.targetId===id?(frame.tankDefense.active?'COOLDOWNS ACTIVE':'COOLDOWNS READY'):'', size=compact?13:18;
             font(ctx,size); const labelWidth=ctx.measureText(label).width;
             font(ctx,Math.max(11,size-2));
-            const bw=Math.min(w-30,Math.max(labelWidth,status?ctx.measureText(status).width:0)+18), bh=status?42:25;
+            const bw=Math.min(w-30,Math.max(labelWidth,status?ctx.measureText(status).width:0)+20), bh=status?46:29;
             const candidates=[{x:p.x-bw/2,y:p.y+tokenRadius+9},{x:p.x-bw-tokenRadius-9,y:p.y+12},{x:p.x+tokenRadius+9,y:p.y+12},{x:p.x-bw/2,y:p.y-tokenRadius-bh-9}];
             const blocked=[...occupied,...reserved];
             const fits=b=>!blocked.some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y);
             let box;
             const minX=area.left+5, maxX=Math.max(minX,area.right-bw-5);
-            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,minX,maxX),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(fits(b)){box=b;break;} }
+            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,minX,maxX),y:clamp(c.y+Math.floor(tries/4)*33,area.top,area.bottom-bh),w:bw,h:bh}; if(fits(b)){box=b;break;} }
             // When nearby slots are occupied, keep the name visible in the nearest clear slot.
             if(!box) {
                 let distance=Infinity;
@@ -86,10 +86,10 @@
                 }
             }
             if(!box) return; occupied.push(box);
-            ring(ctx,p,Math.max(12,api.yd(2.3)),id===frame.bossTarget?gold:mint);
+            ring(ctx,p,Math.max(14,api.yd(2.3)),id===frame.bossTarget?gold:mint);
             ctx.strokeStyle='#b4cabe';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(clamp(p.x,box.x,box.x+box.w),box.y+box.h/2);ctx.stroke();
-            panel(ctx,box.x,box.y,box.w,box.h);text(ctx,label,box.x+9,box.y+4,size);
-            if(status) text(ctx,status,box.x+9,box.y+20,Math.max(11,size-2),frame.lowHealth&&id===frame.bossTarget?'#ff95bc':frame.tankDefense?.active?gold:mint);
+            panel(ctx,box.x,box.y,box.w,box.h);text(ctx,label,box.x+10,box.y+5,size);
+            if(status) text(ctx,status,box.x+10,box.y+23,Math.max(11,size-2),frame.lowHealth&&id===frame.bossTarget?'#ff95bc':frame.tankDefense?.active?gold:mint);
             if(frame.hp?.[id]!=null) bar(ctx,box.x+3,box.y+box.h-2,box.w-6,frame.hp[id],frame.lowHealth && id===frame.bossTarget?'#ff95bc':mint);
         });
     }
@@ -124,14 +124,14 @@
         if(frame.shield?.active) ring(ctx,boss,Math.max(27,api.yd(5)),purple,'rgba(160,120,250,.2)');
         if(frame.shield?.stolenBy && frame.pos[frame.shield.stolenBy]) ring(ctx,api.px(frame.pos[frame.shield.stolenBy]),Math.max(19,api.yd(3.2)),purple);
         if(frame.cast?.active || frame.cast?.interrupted && !frame.shield?.active && (frame.actions||[]).some(a=>a.kind==='kick')) {
-            const bw=compact?162:220,x=clamp(boss.x-bw/2,15,w-bw-15),y=clamp(boss.y-62,area.top,area.bottom-45);
-            panel(ctx,x,y,bw,44,frame.cast.interrupted?mint:gold);
-            text(ctx,frame.cast.kind+(frame.cast.interrupted?' · STOPPED':''),x+9,y+6,compact?15:17,frame.cast.interrupted?mint:gold);
-            bar(ctx,x+9,y+30,bw-18,frame.cast.interrupted?0:frame.cast.progress,gold);
+            const bw=compact?162:250,x=clamp(boss.x-bw/2,15,w-bw-15),y=clamp(boss.y-66,area.top,area.bottom-49);
+            panel(ctx,x,y,bw,48,frame.cast.interrupted?mint:gold);
+            text(ctx,frame.cast.kind+(frame.cast.interrupted?' · STOPPED':''),x+9,y+6,compact?15:20,frame.cast.interrupted?mint:gold);
+            bar(ctx,x+9,y+34,bw-18,frame.cast.interrupted?0:frame.cast.progress,gold);
         }
         if(frame.debuffs?.tongues?.active || (frame.actions||[]).some(a=>a.kind==='tongues')) {
-            const tw=compact?125:153,tx=clamp(boss.x+32,12,w-tw-12),ty=clamp(boss.y-21,area.top,area.bottom-28);
-            panel(ctx,tx,ty,tw,25,'#8d74aa');text(ctx,'Tongues · slower cast',tx+7,ty+5,compact?13:15,purple);
+            const tw=compact?125:180,tx=clamp(boss.x+32,12,w-tw-12),ty=clamp(boss.y-21,area.top,area.bottom-32);
+            panel(ctx,tx,ty,tw,29,'#8d74aa');text(ctx,'Tongues · slower cast',tx+7,ty+5,compact?13:18,purple);
             if(frame.effectLoopProgress != null) ring(ctx,boss,Math.max(24,api.yd(4))+frame.effectLoopProgress*12,purple,'rgba(180,130,255,'+(.18*(1-frame.effectLoopProgress))+')');
         }
         (frame.spite||[]).forEach((m,i)=>{const p=api.px(frame.pos[m.targetId]);ring(ctx,p,Math.max(17,api.yd(3)),m.impacted?'#ff95bc':purple);text(ctx,String(i+1),p.x-4,p.y-7,15);});
@@ -139,14 +139,14 @@
         const pulse=(frame.shadowPulses||[]).at(-1);if(pulse && pulse.progress<1)(pulse.targetIds||[]).forEach(id=>{if(frame.pos[id])ring(ctx,api.px(frame.pos[id]),11+pulse.progress*18,'rgba(211,167,255,'+(1-pulse.progress)+')');});
         if(frame.stage==='desire') {
             const caster=(scene.raid||[]).find(p=>p.kind==='healer') || (scene.raid||[]).find(p=>p.kind==='ranged');
-            const bw=compact?196:250,x=(w-bw)/2,y=area.bottom-46;
+            const bw=compact?196:285,x=(w-bw)/2,y=area.bottom-50;
             const elapsed=frame.manaState?.elapsedMs,clock=Number.isFinite(elapsed)?' · '+Math.floor(elapsed/60000)+':'+String(Math.floor(elapsed/1000)%60).padStart(2,'0'):'';
-            panel(ctx,x,y,bw,44,'#9180b8');text(ctx,'Max mana '+Math.round(frame.maxMana)+'%'+clock,x+10,y+6,compact?15:17,purple);bar(ctx,x+10,y+30,bw-20,frame.maxMana/100,purple);
+            panel(ctx,x,y,bw,48,'#9180b8');text(ctx,'Max mana '+Math.round(frame.maxMana)+'%'+clock,x+10,y+6,compact?15:20,purple);bar(ctx,x+10,y+34,bw-20,frame.maxMana/100,purple);
             if(caster && frame.pos[caster.id]) { const p=api.px(frame.pos[caster.id]);ctx.strokeStyle='#a995d3';ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(x+bw/2,y);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.setLineDash([]); }
         }
         if(frame.essence==='Anger' && frame.stage!=='complete' && frame.tankResource) {
-            const resource=frame.tankResource,bw=compact?230:280,x=(w-bw)/2,y=area.bottom-46;
-            panel(ctx,x,y,bw,44);text(ctx,resource.kind+' '+Math.round(resource.value)+(frame.scream?.active?' · Soul Scream':' · spend before Scream'),x+10,y+6,compact?15:17,gold);bar(ctx,x+10,y+30,bw-20,resource.value/100,gold);
+            const resource=frame.tankResource,bw=compact?230:330,x=(w-bw)/2,y=area.bottom-50;
+            panel(ctx,x,y,bw,48);text(ctx,resource.kind+' '+Math.round(resource.value)+(frame.scream?.active?' · Soul Scream':' · spend before Scream'),x+10,y+6,compact?15:20,gold);bar(ctx,x+10,y+34,bw-20,resource.value/100,gold);
         }
         if(frame.essence==='Anger' && frame.stage!=='complete') {
             bar(ctx,boss.x-30,boss.y+32,60,frame.bossHp,gold);
@@ -157,9 +157,9 @@
         }
         if(Number.isInteger(frame.explanationCountdown)) {
             const label=frame.explanationCountdown ? 'Spite impact in '+frame.explanationCountdown+'s' : 'Spite impact now';
-            const bw=compact?156:196,x=(w-bw)/2,y=area.bottom-96;
-            panel(ctx,x,y,bw,31,frame.explanationCountdown ? purple : '#ff95bc');
-            text(ctx,label,x+10,y+7,compact?15:17,frame.explanationCountdown ? purple : '#ff95bc');
+            const bw=compact?156:230,x=(w-bw)/2,y=area.bottom-100;
+            panel(ctx,x,y,bw,35,frame.explanationCountdown ? purple : '#ff95bc');
+            text(ctx,label,x+10,y+7,compact?15:20,frame.explanationCountdown ? purple : '#ff95bc');
         }
     }
     function overview(api) {
@@ -185,7 +185,7 @@
             destinations.forEach(dest=>{const end=api.px(dest);path(ctx,p,end,tone,true);ring(ctx,{x:p.x+(end.x-p.x)*progress,y:p.y+(end.y-p.y)*progress},4,tone,tone);if(progress>.7)ring(ctx,end,15,tone);});
             if(tip.kind==='glove-backup' && progress>.6) text(ctx,'Backup interrupt',clamp(q.x-45,12,w-112),q.y+35,compact?14:17,tone);
         }
-        const title=(tip.optional?'Optional · ':'')+(tip.label || tip.kind).replace(/^Optional\s*·\s*/i,''),size=compact?15:18,bw=Math.min(w-28,compact?330:510),rows=lines(ctx,title,bw-20,size),ph=rows.length*(size+3)+18,py=h-124-ph;
+        const title=(tip.optional?'Optional · ':'')+(tip.label || tip.kind).replace(/^Optional\s*·\s*/i,''),size=compact?15:21,bw=Math.min(w-28,compact?330:510),rows=lines(ctx,title,bw-20,size),ph=rows.length*(size+4)+20,py=h-124-ph;
         panel(ctx,(w-bw)/2,py,bw,ph,tone);paragraph(ctx,title,(w-bw)/2+10,py+9,bw-20,size,tone);
     }
     function positioning(api,scene,frame) {
