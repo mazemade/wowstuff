@@ -21,21 +21,35 @@
     function colour(kind) { return /heal|recover|dispel|steal|purge/.test(kind) ? mint : /tongues|spite|shield/.test(kind) ? purple : gold; }
     function bar(ctx, x, y, w, value, tone) { ctx.fillStyle='#142621'; ctx.fillRect(x,y,w,8); ctx.fillStyle=tone; ctx.fillRect(x,y,w*clamp(value),8); }
     function layout(api) { return { w:api.width, h:api.height || api.width*.5625, compact:api.width<520 }; }
-    function teaching(api, scene, frame) {
+    function teachingLayout(api, scene, frame) {
         const {ctx}=api, {w,h,compact}=layout(api), size=compact?19:24, body=compact?15:18;
         const primary=(frame.actions||[]).at(-1);
         const lesson=frame.teaching?.title ? frame.teaching : {title:primary?.label || frame.call || scene.title, detail:primary?.result || scene.caption};
-        const phase=frame.stage==='complete' ? 'Encounter complete' : frame.essence==='Souls' ? 'Soul intermission · recover together' : frame.essence==='Suffering' ? '1 · Suffering — no healing' : frame.essence==='Desire' ? '2 · Desire — interrupts first' : '3 · Anger — threat, then burn';
         const th=43+lines(ctx,lesson.title,w-44,size).length*(size+3)+lines(ctx,lesson.detail,w-44,body).length*(body+3)+12;
-        panel(ctx,10,10,w-20,Math.max(90,th));
-        text(ctx,phase,22,19,compact?15:17,gold);
-        let y=43; y+=paragraph(ctx,lesson.title,22,y,w-44,size);
-        if(lesson.detail) paragraph(ctx,lesson.detail,22,y+3,w-44,body);
         const current=(frame.instructionRows||[]).find(row=>/Next kick|Next tank/.test(row[0]));
         const tipResults={evasion:'Optional avoidance turn: dodge incoming hits during Enrage.',deterrence:'Optional avoidance turn: parry incoming hits during Enrage.','spell-reflection':'If coordinated: return Deaden so the boss takes double damage.','glove-backup':'With PvP gloves equipped: Deadly Throw interrupts the cast.','shadow-protection':'Prepare before Anger; Shadow damage grows during the burn.',healthstone:'Use after the Nature hit, then heal back up.'};
         const footer=tipResults[frame.tipVisual?.kind] || lesson.tip || [current ? current[0]+': '+current[1] : '',lesson.missedConsequence || ''].filter(Boolean).join(' ') || 'Suffering → Souls → Desire → Souls → Anger';
-        const rows=lines(ctx,footer,w-48,body), fh=Math.max(52,rows.length*(body+3)+24), fy=h-fh-12;
-        panel(ctx,10,fy,w-20,fh); paragraph(ctx,footer,22,fy+12,w-44,body,'#ceddd3');
+        const rows=lines(ctx,footer,w-48,body), fh=Math.max(52,rows.length*(body+3)+24), header={x:10,y:10,w:w-20,h:Math.max(90,th)}, footerBox={x:10,y:h-fh-12,w:w-20,h:fh}, horizontalInset=18, verticalInset=38, clip={x:0,y:header.y+header.h+8,w,h:Math.max(0,footerBox.y-(header.y+header.h+8)-8)};
+        return {header,footer:footerBox,clip,action:{x:horizontalInset,y:clip.y+verticalInset,w:Math.max(0,w-horizontalInset*2),h:Math.max(0,clip.h-verticalInset*2)}};
+    }
+    // Reliquary's custom panels share the lesson renderer's fixed geometry contract.
+    function reserve(layouts, width, height) {
+        const first=layouts[0]; if(!first)return null;
+        const header={...first.header,h:Math.max(...layouts.map(item=>item.header.h))};
+        const footerHeight=Math.max(...layouts.map(item=>item.footer.h)), footer={...first.footer,y:height-footerHeight-12,h:footerHeight};
+        const horizontalInset=18, verticalInset=38, clip={x:0,y:header.y+header.h+8,w:width,h:Math.max(0,footer.y-(header.y+header.h+8)-8)};
+        return {header,footer,clip,action:{x:horizontalInset,y:clip.y+verticalInset,w:Math.max(0,width-horizontalInset*2),h:Math.max(0,clip.h-verticalInset*2)}};
+    }
+    function teaching(api, scene, frame, box) {
+        const {ctx}=api, {w,compact}=layout(api), size=compact?19:24, body=compact?15:18;
+        const primary=(frame.actions||[]).at(-1), lesson=frame.teaching?.title ? frame.teaching : {title:primary?.label || frame.call || scene.title, detail:primary?.result || scene.caption};
+        const phase=frame.stage==='complete' ? 'Encounter complete' : frame.essence==='Souls' ? 'Soul intermission · recover together' : frame.essence==='Suffering' ? '1 · Suffering — no healing' : frame.essence==='Desire' ? '2 · Desire — interrupts first' : '3 · Anger — threat, then burn';
+        panel(ctx,box.header.x,box.header.y,box.header.w,box.header.h); text(ctx,phase,22,19,compact?15:17,gold);
+        let y=43; y+=paragraph(ctx,lesson.title,22,y,w-44,size); if(lesson.detail) paragraph(ctx,lesson.detail,22,y+3,w-44,body);
+        const current=(frame.instructionRows||[]).find(row=>/Next kick|Next tank/.test(row[0]));
+        const tipResults={evasion:'Optional avoidance turn: dodge incoming hits during Enrage.',deterrence:'Optional avoidance turn: parry incoming hits during Enrage.','spell-reflection':'If coordinated: return Deaden so the boss takes double damage.','glove-backup':'With PvP gloves equipped: Deadly Throw interrupts the cast.','shadow-protection':'Prepare before Anger; Shadow damage grows during the burn.',healthstone:'Use after the Nature hit, then heal back up.'};
+        const footer=tipResults[frame.tipVisual?.kind] || lesson.tip || [current ? current[0]+': '+current[1] : '',lesson.missedConsequence || ''].filter(Boolean).join(' ') || 'Suffering → Souls → Desire → Souls → Anger';
+        panel(ctx,box.footer.x,box.footer.y,box.footer.w,box.footer.h); paragraph(ctx,footer,22,box.footer.y+12,w-44,body,'#ceddd3');
     }
     function actorLabels(api, scene, frame, area) {
         const {ctx}=api,{w,compact}=layout(api), entries=[], occupied=[], reserved=[];
@@ -60,11 +74,12 @@
             const blocked=[...occupied,...reserved];
             const fits=b=>!blocked.some(o=>b.x<o.x+o.w+4 && b.x+b.w+4>o.x && b.y<o.y+o.h+4 && b.y+b.h+4>o.y);
             let box;
-            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,15,w-bw-15),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(fits(b)){box=b;break;} }
+            const minX=area.left+5, maxX=Math.max(minX,area.right-bw-5);
+            for(let tries=0;tries<16;tries++) { const c=candidates[tries%4]; const b={x:clamp(c.x,minX,maxX),y:clamp(c.y+Math.floor(tries/4)*29,area.top,area.bottom-bh),w:bw,h:bh}; if(fits(b)){box=b;break;} }
             // When nearby slots are occupied, keep the name visible in the nearest clear slot.
             if(!box) {
                 let distance=Infinity;
-                for(let y=area.top;y<=area.bottom-bh;y+=16) for(let x=15;x<=w-bw-15;x+=24) {
+                for(let y=area.top;y<=area.bottom-bh;y+=16) for(let x=minX;x<=maxX;x+=24) {
                     const candidate={x,y,w:bw,h:bh}; if(!fits(candidate))continue;
                     const d=(p.x-clamp(p.x,x,x+bw))**2+(p.y-clamp(p.y,y,y+bh))**2;
                     if(d<distance){distance=d;box=candidate;}
@@ -184,9 +199,9 @@
         if(layer==='floor') { ctx.fillStyle='rgba(3,10,10,.25)';ctx.fillRect(0,0,api.width,api.height||api.width*.5625);ctx.restore();return; }
         if(frame.stage==='overview'){overview(api);ctx.restore();return;}
         if(frame.stage==='positioning'){positioning(api,scene,frame);ctx.restore();return;}
-        const {h,compact}=layout(api),area={top:compact?148:118,bottom:h-122};
-        mechanics(api,scene,frame,area);actions(api,frame);tipVisual(api,scene,frame);actorLabels(api,scene,frame,area);teaching(api,scene,frame);
+        const box=api.lessonLayout || teachingLayout(api,scene,frame), area={left:box.action.x,right:box.action.x+box.action.w,top:box.action.y,bottom:box.action.y+box.action.h};
+        mechanics(api,scene,frame,area);actions(api,frame);tipVisual(api,scene,frame);actorLabels(api,scene,frame,area);teaching(api,scene,frame,box);
         ctx.restore();
     }
-    return {draw};
+    return {draw, layout:teachingLayout, reserve};
 }));

@@ -39,6 +39,19 @@
         const actionY = headerHeight + 8, actionHeight = Math.max(0, height - actionY - footerHeight - 8);
         return { inset, header: { x: inset, y: inset, w: contentWidth, h: headerHeight - inset, titleLines, detailLines, tipLines }, footer: { x: inset, y: height - footerHeight, w: contentWidth, h: footerHeight, rows, columns, warningLines, columnCount }, action: { x: 0, y: actionY, w: width, h: actionHeight }, overviewCards: lesson.recap ? lesson.rows.map(([role, job]) => ({ role, job })) : [] };
     }
+    // The camera needs one action rectangle for the entire encounter. Keep the tallest
+    // header and footer independently: they often belong to different explanations.
+    function reserve(layouts, width, height) {
+        const first = layouts[0];
+        if (!first) return null;
+        const headerHeight = Math.max(...layouts.map(item => item.header.h));
+        const footerHeight = Math.max(...layouts.map(item => item.footer.h));
+        // Keep only the shared geometry here.  The active layout owns its own text lines.
+        const header = { x: first.header.x, y: first.header.y, w: first.header.w, h: headerHeight };
+        const footer = { x: first.footer.x, y: height - footerHeight, w: first.footer.w, h: footerHeight };
+        const actionY = header.y + header.h + 8;
+        return { header, footer, action: { x: 0, y: actionY, w: width, h: Math.max(0, footer.y - actionY - 8) } };
+    }
     function panel(ctx, rect, stroke) {
         ctx.save(); ctx.fillStyle = 'rgba(7, 13, 10, .88)'; ctx.strokeStyle = stroke || 'rgba(108, 146, 122, .54)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 4); ctx.fill(); ctx.stroke(); ctx.restore();
@@ -65,5 +78,5 @@
         if (box.footer.warningLines.length) { const warningY = box.footer.y + 17 + Math.max(0, ...box.footer.columns.map(column => column.reduce((sum, row) => sum + row.height + 7, 0))) + 4; ctx.font = '600 12px "IBM Plex Sans", sans-serif'; ctx.fillStyle = '#ffad67'; ctx.fillText('WATCH OUT', box.footer.x + 12, warningY); ctx.font = '400 15px "IBM Plex Sans", sans-serif'; lines(ctx, box.footer.warningLines, box.footer.x + 12, warningY + 20, 17, '#ffd4aa'); }
         if (lesson.recap && box.overviewCards.length) drawOverview(ctx, box.action, box.overviewCards); ctx.restore();
     }
-    return { layout, draw, wrap };
+    return { layout, reserve, draw, wrap };
 }));

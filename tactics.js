@@ -206,16 +206,11 @@
     function aim(view, sc, action) {
         viewRect = action || { x: 0, y: 0, w: W, h: H };
         const box = viewRect.w / Math.max(1, viewRect.h);
-        const f = frameOf(view, sc);
-        if (FIGHT.id === 'bt-reliquary' && (view.fit === 'action' || sc.id === 'positioning')) {
-            // Reserve readable space for the visual lesson above and below the actors.
-            const top = W < 520 ? 150 : ['fixate', 'suffering', 'cycle'].includes(sc.id) ? 160 : 120, bottom = 118;
-            scale = Math.min((viewRect.w - 46) / ((f.x1 - f.x0) * MW), (viewRect.h - top - bottom) / ((f.y1 - f.y0) * MH));
-            src = { w: viewRect.w / scale, h: viewRect.h / scale,
-                x: (f.x0 + f.x1) / 2 * MW - viewRect.w / scale / 2,
-                y: (f.y0 + f.y1) / 2 * MH - (top + (viewRect.h - top - bottom) / 2) / scale };
-            return;
-        }
+        // Guided briefings teach the entire room.  Their camera deliberately ignores a
+        // scene's local view so replaying, advancing and changing guidance never zooms.
+        const f = (LESSON_RENDER || FIGHT.id === 'bt-reliquary')
+            ? { x0: FIGHT.arena.x0, y0: FIGHT.arena.y0, x1: FIGHT.arena.x1, y1: FIGHT.arena.y1, pad: 2 }
+            : frameOf(view, sc);
         const padX = f.pad * FIGHT.yard, padY = f.pad * FIGHT.yard * FIGHT.aspect;
         const wantW = (f.x1 - f.x0 + 2 * padX) * MW;
         const wantH = (f.y1 - f.y0 + 2 * padY) * MH;
@@ -228,12 +223,13 @@
             scale = viewRect.w / src.w;
             return;
         }
-        if (!LESSON_RENDER) {
+        if (!(LESSON_RENDER || FIGHT.id === 'bt-reliquary')) {
             if (w > MW) { w = MW; h = w / box; }
             if (h > MH) { h = MH; w = h * box; }
         }
         const centreX = (f.x0 + f.x1) / 2 * MW - w / 2, centreY = (f.y0 + f.y1) / 2 * MH - h / 2;
-        src = { w: w, h: h, x: LESSON_RENDER ? centreX : clamp(centreX, 0, MW - w), y: LESSON_RENDER ? centreY : clamp(centreY, 0, MH - h) };
+        const fixedLessonCamera = LESSON_RENDER || FIGHT.id === 'bt-reliquary';
+        src = { w: w, h: h, x: fixedLessonCamera ? centreX : clamp(centreX, 0, MW - w), y: fixedLessonCamera ? centreY : clamp(centreY, 0, MH - h) };
         scale = viewRect.w / src.w;
     }
 
@@ -1102,6 +1098,36 @@
     let explanationIndex = 0;
     const lessonBounds = new Map();
 
+    function stableReliquaryLayout(sc, explanation, frame) {
+        const key = 'reliquary:' + W + 'x' + H;
+        const current = OVERLAY.layout({ ctx, width: W, height: H }, sc, frame);
+        const saved = lessonBounds.get(key);
+        const applyMinimumSize = reserved => {
+            const minimumCanvasHeight = Math.ceil(reserved.action.y + 300 + 38 + reserved.footer.h + 20);
+            const map = cv.parentElement, stageMap = map.closest('.stage__map');
+            if (map.style.getPropertyValue('--lesson-canvas-min-height') !== minimumCanvasHeight + 'px')
+                map.style.setProperty('--lesson-canvas-min-height', minimumCanvasHeight + 'px');
+            if (stageMap.style.getPropertyValue('--lesson-stage-min-height') !== minimumCanvasHeight + 'px')
+                stageMap.style.setProperty('--lesson-stage-min-height', minimumCanvasHeight + 'px');
+        };
+        if (saved) { applyMinimumSize(saved); return saved; }
+        const candidates = scenes.flatMap(scene => {
+            const steps = STEPS?.forScene(scene.id) || [];
+            if (!steps.length) return [OVERLAY.layout({ ctx, width: W, height: H }, scene, simulate(scene, 0))];
+            return steps.flatMap(item => {
+                const times = [item.startMs, Math.floor((item.startMs + item.holdAtMs) / 2), item.holdAtMs];
+                const variants = [item, resolvedExplanation(item, scene)];
+                return variants.flatMap(explanation => times.map(time =>
+                    OVERLAY.layout({ ctx, width: W, height: H }, scene, teachingFrame(scene, explanation, time, false))));
+            });
+        });
+        candidates.push(current);
+        const reserved = OVERLAY.reserve(candidates, W, H);
+        lessonBounds.set(key, reserved);
+        applyMinimumSize(reserved);
+        return reserved;
+    }
+
     function isGuidedScene(sc = scenes[idx]) { return !!(STEPS && sc && STEPS.forScene(sc.id).length); }
     function currentExplanation() { return STEPS?.all()[explanationIndex] || null; }
     function chapterExplanationIndex(sceneId, localIndex = 0) {
@@ -1253,24 +1279,52 @@
         const rows = sc.id === 'overview' ? recapRows() : complete ? [] : Array.isArray(frame.instructionRows) ? frame.instructionRows : FIGHT.id === 'bt-akama' ? akamaLessonRows(sc, frame) : (sc.jobs || []);
         return { title, detail, rows, tip: teaching.tip || '', warning: complete ? '' : (sc.mistake || ''), recap: sc.id === 'overview' };
     }
+    function teachingFrame(sc, explanation, time, resolve = true) {
+        const frame = simulate(sc, time);
+        if (!explanation) return frame;
+        const teaching = visibleExplanation(resolve ? resolvedExplanation(explanation, sc) : explanation, sc, frame);
+        frame.simulationCall = frame.call;
+        frame.call = teaching.title;
+        frame.teaching = { ...(frame.teaching || {}), title: teaching.title, detail: teaching.detail, tip: teaching.tip };
+        frame.explanation = teaching;
+        return frame;
+    }
     function stableLessonLayout(sc, explanation, lesson) {
-        const key = W + 'x' + H + ':' + idx + ':' + (explanation?.id || 'scene');
+        const key = W + 'x' + H;
         const current = LESSON_RENDER.layout(ctx, W, H, lesson);
         const saved = lessonBounds.get(key);
         if (!saved) {
-            const candidates = [current];
-            if (FIGHT.id === 'bt-akama' && explanation && !lesson.recap) {
-                [explanation.startMs, explanation.holdAtMs].forEach(time => {
-                    const frame = simulate(sc, time);
-                    const rows = frame.stage === 'complete' ? [] : akamaLessonRows(sc, frame);
-                    candidates.push(LESSON_RENDER.layout(ctx, W, H, { ...lesson, rows }));
+            const candidates = scenes.flatMap(scene => {
+                const authored = FIGHT.scenes.find(source => source.id === scene.id) || scene;
+                const selectedMelee = FIGHT.id === 'bt-bloodboil'
+                    ? { ...authored, jobs: (authored.jobs || []).map(([role, job]) => [role, scene.id === 'positioning' && role === 'Melee' ? 'Selected soakers move out for their group’s turn, then return behind the boss.' : job]) }
+                    : authored;
+                return (STEPS?.forScene(scene.id) || []).flatMap(item => {
+                    const variants = [
+                        { explanation: item, source: authored },
+                        { explanation: item, source: selectedMelee },
+                        { explanation: resolvedExplanation(item, scene), source: scene }
+                    ];
+                    return variants.flatMap(variant => [item.startMs, item.holdAtMs].map(time => {
+                        const frame = teachingFrame(scene, variant.explanation, time, false);
+                        return LESSON_RENDER.layout(ctx, W, H, lessonFor(variant.source, frame));
+                    }));
                 });
-            }
-            const reserved = candidates.reduce((largest, item) => item.action.h < largest.action.h ? item : largest, current);
-            lessonBounds.set(key, { action: { ...reserved.action }, header: { x: reserved.header.x, y: reserved.header.y, w: reserved.header.w, h: reserved.header.h }, footer: { x: reserved.footer.x, y: reserved.footer.y, w: reserved.footer.w, h: reserved.footer.h } });
+            });
+            candidates.push(current);
+            const reserved = LESSON_RENDER.reserve(candidates, W, H);
+            lessonBounds.set(key, reserved);
+            const minimumCanvasHeight = Math.ceil(reserved.action.y + 220 + reserved.footer.h + 8);
+            const map = cv.parentElement, meta = map.querySelector('.map__meta');
+            const minimumStageHeight = minimumCanvasHeight + (getComputedStyle(meta).position === 'absolute' ? 0 : meta.offsetHeight + 2);
+            const stageMap = map.closest('.stage__map');
+            if (map.style.getPropertyValue('--lesson-canvas-min-height') !== minimumCanvasHeight + 'px')
+                map.style.setProperty('--lesson-canvas-min-height', minimumCanvasHeight + 'px');
+            if (stageMap.style.getPropertyValue('--lesson-stage-min-height') !== minimumStageHeight + 'px')
+                stageMap.style.setProperty('--lesson-stage-min-height', minimumStageHeight + 'px');
             current.action = { ...reserved.action };
-            current.header = { ...current.header, x: reserved.header.x, y: reserved.header.y, w: reserved.header.w, h: reserved.header.h };
-            current.footer = { ...current.footer, x: reserved.footer.x, y: reserved.footer.y, w: reserved.footer.w, h: reserved.footer.h };
+            current.header = { ...current.header, ...reserved.header };
+            current.footer = { ...current.footer, ...reserved.footer };
             return current;
         }
         current.action = { ...saved.action };
@@ -1312,12 +1366,9 @@
         const explanation = isGuidedScene(sc) ? resolvedExplanation(currentExplanation(), sc) : null;
         const t = explanation ? STEPS.frameAt(explanation, elapsed) : elapsed;
 
-        sc._sim = simulate(sc, t);
+        sc._sim = teachingFrame(sc, explanation, t);
         if (explanation) {
-            const teaching = visibleExplanation(resolvedExplanation(explanation, sc), sc, sc._sim);
-            sc._sim.simulationCall = sc._sim.call;
-            sc._sim.call = teaching.title;
-            sc._sim.teaching = { ...(sc._sim.teaching || {}), title: teaching.title, detail: teaching.detail, tip: teaching.tip };
+            const teaching = sc._sim.explanation;
             if (sc._sim.tipVisual && sc._sim.tipVisual.kind !== explanationTipKinds[explanation.id]) sc._sim.tipVisual = null;
             sc._sim.explanation = teaching;
             sc._sim.explanationElapsedMs = elapsed;
@@ -1345,23 +1396,26 @@
         if (!ADAPTER) Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
         if (ADAPTER && (Array.isArray(sc._sim.instructionRows) || sc._sim.stage === 'complete')) showInstructionRows(sc._sim.instructionRows || []);
         const lessonLayout = lesson ? stableLessonLayout(sc, explanation, lesson) : null;
+        const reliquaryLayout = FIGHT.id === 'bt-reliquary' ? stableReliquaryLayout(sc, explanation, sc._sim) : null;
+        const canvasLayout = lessonLayout || reliquaryLayout;
         sc._lessonLayout = lessonLayout;
-        aim(sc.view, sc, lessonLayout?.action);
+        aim(sc.view, sc, canvasLayout?.action);
         ctx.clearRect(0, 0, W, H);
         drawMap();
         const overview = !!lesson?.recap;
         if (!overview) {
-            const action = lessonLayout?.action || { x: 0, y: 0, w: W, h: H };
+            const action = canvasLayout?.clip || canvasLayout?.action || { x: 0, y: 0, w: W, h: H };
             ctx.save(); ctx.beginPath(); ctx.rect(action.x, action.y, action.w, action.h); ctx.clip();
-            if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H, action: lessonLayout?.action }, sc, sc._sim);
+            if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
             (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call').forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
             drawRoutes(sc, t);
             if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
             sc.raid.forEach(p => drawPlayer(p, sc, t));
             (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
             (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
-            if (OVERLAY) OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: lessonLayout?.action }, sc, sc._sim);
+            if (OVERLAY && FIGHT.id !== 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
             ctx.restore();
+            if (OVERLAY && FIGHT.id === 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
         }
         if (lesson) LESSON_RENDER.draw({ ctx, width: W, height: H }, lesson, lessonLayout);
     }
@@ -1811,6 +1865,7 @@
 
     // lets the screenshot harness step scenes without synthesising key events
     window.__tactics = { show, showExplanation, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
+        get viewport() { return { ...viewRect }; },
         lesson: LESSON_RENDER ? { get model() { return scenes[idx]._lesson || null; }, get layout() { return scenes[idx]._lessonLayout || null; } } : null,
         guided: STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: STEPS.all(), chapterSteps: STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: STEPS.timelineFor, isGuided: isGuidedScene } : null };
 }());

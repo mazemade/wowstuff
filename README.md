@@ -51,8 +51,11 @@ groups, and checks live whether assignments were actually done.
   sequences. Each demonstration holds at its result until the presenter advances; chapter tabs
   jump to the first explanation. Space plays/pauses the current demonstration, R replays it,
   and F toggles fullscreen. There is no video timeline to scrub through.
-  Explanations, role jobs and recap cards appear inside the main fight display;
-  the right panel contains spell references and sources. The layout targets laptop use.
+  Explanations, role jobs and recap cards appear inside the main fight display.
+  The shared lesson display reserves space for the encounter’s longest guidance, keeping
+  the full arena steady across explanations. The right panel contains spell references and
+  sources and scrolls independently on desktop. Small screens can scroll the page to retain
+  readable guidance and a usable map. The layout targets laptop use.
   The page uses the imported roster and its main-tank flag, including an optional third
   tank. Player names appear during positioning; mechanics use icons and short role labels.
   Tanks keep tanking during the early melee spread, moving once fixate begins.

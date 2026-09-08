@@ -714,6 +714,93 @@ async function checkOnScreenGuidance(port) {
   }
 }
 
+async function checkStableFightFraming(port) {
+  await evaluate('localStorage.clear()');
+  const geometry = () => evaluate(`(()=>{const a=__tactics,r=a.fight.arena;return JSON.stringify([a.viewport,a.px({x:r.x0,y:r.y0}),a.px({x:r.x1,y:r.y1})])})()`);
+  for (const fight of await evaluate('Object.keys(TacticsData.FIGHTS)')) {
+    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
+    await waitForPresenter();
+    let desktopGeometry;
+    for (const [width,height] of [[1600,1000],[1280,720],[390,844]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+      await sleep(200);
+      if(width===1600) desktopGeometry=await geometry();
+      const failures = await evaluate(`(()=>{
+        const a=__tactics,bad=[],arena=a.fight.arena;
+        const geometry=()=>JSON.stringify({action:a.viewport,corners:[a.px({x:arena.x0,y:arena.y0}),a.px({x:arena.x1,y:arena.y1})]});
+        const steps=a.guided.steps.map((s,i)=>({s,i})).filter(({s})=>s.sceneId!=='overview');
+        a.showExplanation(steps[0].i);const baseline=geometry();
+        for(const {s,i} of [...steps,...steps.slice().reverse()]) {
+          a.showExplanation(i);const now=performance.now();a.playback.pause(now);
+          for(const elapsed of [0,(s.holdAtMs-s.startMs)/2,s.holdAtMs-s.startMs]) {
+            a.playback.seek(elapsed,now);a.render(now);
+            if(geometry()!==baseline)bad.push([s.sceneId,s.id,'map frame changes with explanation or animation']);
+            const r=a.viewport;
+            if(a.fight.id==='bt-reliquary') {
+              const frame=a.scenes.find(scene=>scene.id===s.sceneId)._sim;
+              for(const actor of [frame.boss,...Object.values(frame.pos),...(frame.souls||[]).filter(soul=>!soul.dead).map(soul=>soul.at)]) {
+                const p=a.px(actor);
+                if(p.x<r.x+5||p.x>r.x+r.w-5||p.y<r.y+5||p.y>r.y+r.h-5)bad.push([s.sceneId,s.id,'actor outside the unobscured arena',p]);
+              }
+            }
+            if(r.h<160)bad.push([s.sceneId,s.id,'map squeezed away',r.h]);
+            for(const corner of [{x:arena.x0,y:arena.y0},{x:arena.x1,y:arena.y1}]) {
+              const p=a.px(corner);if(p.x<r.x||p.x>r.x+r.w||p.y<r.y||p.y>r.y+r.h)bad.push([s.sceneId,s.id,'arena cropped']);
+            }
+          }
+        }
+        return bad;
+      })()`);
+      assert.deepEqual(failures.slice(0,8),[],fight+' keeps one full arena frame at '+width+'x'+height);
+      if(fight==='bt-bloodboil') {
+        for(const id of ['switch','g2']) {
+          await evaluate(`__tactics.showExplanation(__tactics.guided.steps.findIndex(s=>s.sceneId==='rotation'&&s.id===${JSON.stringify(id)}))`);
+          await screenshot('bloodboil-stable-'+id+'-'+width);
+        }
+      }
+      if(width===1280) {
+        const before=await geometry();
+        for(const selector of fight==='bt-bloodboil'?['#bloodboilSoakSetup','.reference']:['.reference']) {
+          await evaluate(`document.querySelector(${JSON.stringify(selector)}).open=true`);
+          await sleep(250);
+          assert.equal(await geometry(),before,'opening '+selector+' does not resize '+fight+' after layout settles');
+          await evaluate(`document.querySelector(${JSON.stringify(selector)}).open=false`);
+          await sleep(250);
+          assert.equal(await geometry(),before,'closing '+selector+' preserves framing');
+        }
+        await evaluate('__tactics.show(3)');await sleep(250);
+        assert.equal(await geometry(),before,'changing spell cards does not resize '+fight+' after layout settles');
+      }
+      if(fight==='bt-reliquary') {
+        for(const chapter of ['positioning','fixate','souls','interrupts','spite']) {
+          await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id===${JSON.stringify(chapter)}))`);
+          await screenshot('reliquary-stable-'+chapter+'-'+width);
+        }
+      }
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,'stable layout has no horizontal overflow');
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:1600,height:1000,deviceScaleFactor:1,mobile:false});
+    await sleep(200);
+    assert.equal(await geometry(),desktopGeometry,'returning from a narrow viewport restores the same desktop geometry');
+    const replay = await evaluate(`(()=>{
+      const a=__tactics,r=a.fight.arena;a.show(2);a.playback.pause(performance.now());
+      const snapshot=()=>JSON.stringify([a.viewport,a.px({x:r.x0,y:r.y0}),a.px({x:r.x1,y:r.y1})]);
+      const before=snapshot();next.click();prev.click();replay.click();a.playback.pause(performance.now());return before===snapshot();
+    })()`);
+    assert.equal(replay,true,'returning to desktop, next/previous and replay preserve framing');
+    await send('Emulation.clearDeviceMetricsOverride');
+    {
+      await send('Runtime.evaluate',{expression:'document.documentElement.requestFullscreen()',awaitPromise:true,userGesture:true});
+      await sleep(200);
+      assert.equal(await evaluate('!!document.fullscreenElement'),true,'fullscreen entered');
+      assert.equal(await evaluate(`(()=>{const a=__tactics,r=a.fight.arena,snapshot=()=>JSON.stringify([a.viewport,a.px({x:r.x0,y:r.y0}),a.px({x:r.x1,y:r.y1})]);a.show(2,2);const before=snapshot();next.click();return before===snapshot()})()`),true,'fullscreen explanation changes keep the same map frame');
+      await evaluate('document.exitFullscreen()');
+      await sleep(200);
+    }
+    pass(fight+' keeps a fixed full-fight view across explanations, chapter jumps, playback and viewport sizes');
+  }
+}
+
 async function checkBloodboil(port) {
   await evaluate('localStorage.clear()');
   await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-bloodboil`});
@@ -809,10 +896,13 @@ async function checkBloodboil(port) {
   assert.match(await evaluate('bloodboilSoakStatus.textContent'),/12\/15 assigned/);
   assert.equal(await evaluate('bloodboilMeleeChoices.querySelectorAll("input").length'),10);
   await show('rotation',30000);
+  const soakFrame = await evaluate('JSON.stringify([__tactics.lesson.layout.action,__tactics.px({x:.3,y:.3}),__tactics.px({x:.7,y:.7})])');
   for(const name of ['SoakMelee0','SoakMelee4','SoakMelee7'])
     await evaluate(`[...bloodboilMeleeChoices.querySelectorAll('input')].find(input=>input.value===${JSON.stringify('name:'+name)}).click()`);
+  await sleep(250);
   assert.match(await evaluate('bloodboilSoakStatus.textContent'),/15\/15 assigned/);
   assert.equal(await evaluate('__tactics.guided.active.id'),'g3','editing groups preserves the selected explanation');
+  assert.equal(await evaluate('JSON.stringify([__tactics.lesson.layout.action,__tactics.px({x:.3,y:.3}),__tactics.px({x:.7,y:.7})])'),soakFrame,'filling melee vacancies does not reframe the map');
   assert.equal(await evaluate('bloodboilMeleeChoices.querySelectorAll("input:not(:checked):disabled").length'),7);
   assert.equal(await evaluate('__tactics.scenes.every(s=>Object.values(s.groupMembers).every(ids=>ids.length===5))'),true);
   assert.doesNotMatch(await evaluate('sceneCall.textContent'),/missing/i);
@@ -1160,6 +1250,7 @@ async function run() {
   await checkBloodboil(port);
   await checkSharedGuidedFlow(port);
   await checkOnScreenGuidance(port);
+  await checkStableFightFraming(port);
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 
