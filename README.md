@@ -13,6 +13,15 @@ groups, and checks live whether assignments were actually done.
   (`/specscan` export string with per-player specs and tracked talents).
 - Auto-assigns boss debuffs, crowd control and cooldowns per boss, talent-aware
   (e.g. only an Improved Scorch mage gets the Scorch assignment).
+- **Finish this raid**: after importing a partial roster, choose a raid and get a ranked
+  class/spec invite list for the remaining 25-player slots. Editable tank/healer targets
+  start with raid defaults; recommendations fill role shortages, encounter jobs and
+  missing utility, then consider support for existing damage dealers. Current and
+  projected role totals, unresolved specs and remaining gaps stay visible. Raid and
+  target choices persist locally. Copy the invite list separately for recruiting;
+  suggestions never become roster members or assignment recipients. Advice assumes
+  comparable gear/skill and standard raid talents, and uses Anniversary raid-wide
+  Bloodlust rules. Preparation notes and strategy references are expandable.
 - Greater Blessings grid for paladins.
 - Group layout optimizer: hill-climb with sim-calibrated, duration-aware buff weights
   (see `calibration/`), optional per-player performance multipliers prefetched from
@@ -125,6 +134,7 @@ Deploys to Railway as-is (`railway.json`, `npm start`).
 
 ```bash
 npm test                          # engine, WCL multiplier, positions, item table, vetting, feedback, gap, checklist and server suites (node, no deps)
+npm run test:recruitment-browser   # Node 22+ and Chrome; roster imports, invite advice, edits, persistence and copy
 npm run test:tactics-browser       # Node 22+ and Chrome; isolated profile, optional CHROME_BIN override
 npm run test:storage-browser       # same harness; vetting/feedback browser storage (IndexedDB report cache, full-localStorage saves)
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue

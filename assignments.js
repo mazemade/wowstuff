@@ -1,4 +1,4 @@
-/* global AssignmentsEngine, WclMult, HyjalPositions */
+/* global AssignmentsEngine, WclMult, HyjalPositions, RecruitmentUI */
 'use strict';
 const E = AssignmentsEngine;
 const STORAGE_KEY = 'raidAssignmentsState';
@@ -12,6 +12,7 @@ let state = {
     cc: null,                            // [{mark, ability, player}] or null = engine defaults
     pings: true,
     title: '',
+    recruitment: { raidId: 'general' }, // raid and optional role targets
     blessings: {},                       // '<paladin>|<CLASS>' -> blessing name or null
     wcl: { server: '', region: 'eu' },   // Warcraft Logs realm slug + region for parse fetching
 };
@@ -85,6 +86,7 @@ function renderAll() {
     recompute();
     saveState();
     renderRoster();
+    RecruitmentUI.render(roster, state.recruitment);
     renderLinkPanel();
     renderAssignments();
     renderGroups();
@@ -881,6 +883,11 @@ function renderOutput() {
 // --- Wiring ---
 document.addEventListener('DOMContentLoaded', () => {
     loadState();
+    RecruitmentUI.init(settings => {
+        state.recruitment = settings;
+        saveState();
+        RecruitmentUI.render(roster, settings);
+    });
     document.getElementById('rhImportBtn').addEventListener('click', importRaidHelper);
     document.getElementById('addonImportBtn').addEventListener('click', importAddon);
     document.getElementById('addPlayerBtn').addEventListener('click', () => openManualForm(null));
@@ -892,9 +899,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('clearRosterBtn').addEventListener('click', () => {
         if (!confirm('Clear the whole roster and assignments? (Name links are kept.)')) return;
-        // pings and wcl are settings, not roster data, so they survive a clear — see the
+        // pings, wcl and recruitment are settings, so they survive a clear — see the
         // field-list warning near recompute() above; this literal has already missed one.
-        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, wcl: state.wcl, title: '' };
+        state = { sources: { addon: null, rh: null }, manual: [], excluded: [], overrides: {}, blessings: {}, cc: null, pings: state.pings, wcl: state.wcl, recruitment: state.recruitment, title: '' };
         renderAll();
     });
     document.getElementById('autoAssignBtn').addEventListener('click', () => {

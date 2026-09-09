@@ -51,7 +51,35 @@
         </section>
 
         <section class="panel">
-            <h2>3 · Assignments</h2>
+            <div class="recruitment-heading">
+                <div><h2>3 · Finish this raid</h2><p class="recruitment-subtitle">The next invites, chosen around the people you already have.</p></div>
+                <button id="recruitmentCopy" class="btn" disabled>Copy invite list</button>
+            </div>
+            <div class="recruitment-controls">
+                <label>Raid<select id="recruitmentRaid"></select></label>
+                <label>Tank target<input id="recruitmentTanks" type="number" min="0" max="25" step="1"></label>
+                <label>Healer target<input id="recruitmentHealers" type="number" min="0" max="25" step="1"></label>
+                <button id="recruitmentReset" class="btn">Use raid defaults</button>
+            </div>
+            <p class="recruitment-target-note">Targets are for the whole roster. Adjust them for your gear and strategy.</p>
+            <div id="recruitmentSummary" class="recruitment-summary" role="status"></div>
+            <div id="recruitmentRoles" class="recruitment-roles"></div>
+            <div id="recruitmentWarnings" class="warn hidden"></div>
+            <ol id="recruitmentList" class="recruitment-list"></ol>
+            <details class="recruitment-details">
+                <summary>How these invites are chosen &amp; raid preparation</summary>
+                <p>Role shortages come first, followed by encounter jobs, missing buffs and support for your existing damage dealers. Each invite is considered with the others, and the completed lineup is checked for overlapping benefits. Assumes comparable gear and skill, with standard raid talents; this is composition advice, not a simulated DPS ranking.</p>
+                <p>Bloodlust / Heroism is raid-wide on Anniversary. Extra shamans are considered for healing and party totems. Party buffs still need a suitable group layout.</p>
+                <p>Invites are suggestions only. Import or add the actual players to update your roster and assignments. Class coverage does not confirm specialist gear, talents or a player's ability to do an encounter job.</p>
+                <ul id="recruitmentNotes"></ul>
+                <div id="recruitmentSources" class="recruitment-sources"></div>
+            </details>
+            <p id="recruitmentCopyStatus" class="status" role="status"></p>
+            <pre id="recruitmentCopyText" class="hidden" tabindex="0" aria-label="Invite list for manual copying"></pre>
+        </section>
+
+        <section class="panel">
+            <h2>4 · Assignments</h2>
             <button id="autoAssignBtn" class="btn btn-primary">⚡ Auto-assign all</button>
             <div id="uncoveredBox" class="warn hidden"></div>
             <div class="cards">
@@ -64,19 +92,19 @@
         </section>
 
         <section class="panel">
-            <h2>4 · Group layout <span class="hint">(advisory — move people in-game yourself; Bloodlust is raid-wide on Anniversary and ignored here)</span> <button class="btn" id="aiReviewBtn" style="float: right;">AI second opinion</button></h2>
+            <h2>5 · Group layout <span class="hint">(advisory — move people in-game yourself; Bloodlust is raid-wide on Anniversary and ignored here)</span> <button class="btn" id="aiReviewBtn" style="float: right;">AI second opinion</button></h2>
             <div id="groupsBox"></div>
             <div id="aiReviewBox" class="hidden" style="white-space: pre-wrap; margin-top: 10px; opacity: 0.9;"></div>
         </section>
 
         <section class="panel">
-            <h2>5 · Greater Blessings</h2>
+            <h2>6 · Greater Blessings</h2>
             <div id="blessingWarnings" class="warn hidden"></div>
             <div id="blessingGrid"></div>
         </section>
 
         <section class="panel">
-            <h2>6 · Output</h2>
+            <h2>7 · Output</h2>
             <div class="tabbar">
                 <button class="tab active" data-tab="discord">Discord</button>
                 <button class="tab" data-tab="share">Share link</button>
@@ -93,6 +121,8 @@
     <script src="assignments-engine.js"></script>
     <script src="wcl-mult.js"></script>
     <script src="hyjal-positions.js"></script>
+    <script src="recruitment-engine.js"></script>
+    <script src="recruitment.js"></script>
     <script src="assignments.js"></script>
 </body>
 </html>
