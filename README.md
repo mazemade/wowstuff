@@ -52,10 +52,10 @@ groups, and checks live whether assignments were actually done.
     both tiers. `report=<WCL report code>` in the URL (which a Report link from a log-loaded
     vetting row carries) opens straight onto that night. The facts sheet carries
     `overall.checklist` (rows, verdict, caps) and per-pull `gap`.
-- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary), [Gurtogg Bloodboil](tactics.html?fight=bt-bloodboil), [Mother Shahraz](tactics.html?fight=bt-mother), [Illidari Council](tactics.html?fight=bt-council)): Supremus has nine guided scenes for explaining positions,
+- **Fight briefings** ([High Warlord Naj’entus](tactics.html?fight=bt-najentus), [Supremus](tactics.html?fight=bt-supremus), [Shade of Akama](tactics.html?fight=bt-akama), [Reliquary of Souls](tactics.html?fight=bt-reliquary), [Gurtogg Bloodboil](tactics.html?fight=bt-bloodboil), [Mother Shahraz](tactics.html?fight=bt-mother), [Illidari Council](tactics.html?fight=bt-council), [Illidan Stormrage](tactics.html?fight=bt-illidan)): Supremus has nine guided scenes for explaining positions,
   Hateful Strike, blue fire, fixate, volcanoes and both phase transitions. Each scene has
   a main raid call, relevant spell tooltip cards, role instructions and a common mistake.
-  All six briefings open on a static "The plan" recap, with a "Quick recap" button to return to it.
+  All briefings open on a static "The plan" recap, with a "Quick recap" button to return to it.
   The default short briefing groups setup, action and recovery into one animated decision.
   Previous/Next and the arrow keys follow the main briefing, with total step progress.
   "Watch the whole fight" plays the full-cycle example continuously with changing calls;
@@ -98,6 +98,7 @@ groups, and checks live whether assignments were actually done.
   between their turns, and all chapters and exports use the updated groups.
   Mother Shahraz has a concise default route for Shadow Resistance preparation, the double-statue formation, Saber Lash tank stacking, Fatal Attraction’s actual 25-yard separation and safe return, beam recovery outside the 18-yard silence, and the 10% enrage. The full cycle and door landmark are optional.
   Illidari Council adds ten default stops for four tank jobs, the coordinated mage pull, the guild’s Gathios/Veras movement route, Malande’s physical/magical interrupt handoffs, ground effects, poison recovery and Spellsteal. The mage ramp kite and combined example are optional. Missing class or role coverage is reported against the imported roster.
+  Illidan adds fifteen default stops for ground mechanics, parasites, the two Flame tanks, Eye Blast route changes, air healing, landing control and Lust, Demon Form rescue, the return handoff and Maiev’s traps. All three guild positioning images are included. Demon Form remains in the main walkthrough; the accelerated phase sequence is optional. Imported rosters report missing specialist coverage, and gear preparation must be confirmed in game.
   Tabs follow boss order, and the default briefing opens Naj’entus.
 - Output: share links (`assignments-view.html`), Discord-ready text, and an addon payload
   (RSW3) that carries whispers, the group layout, and compliance-tracking lines.

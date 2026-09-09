@@ -1082,9 +1082,76 @@ async function checkCouncil(port) {
   pass('Council detail deep link retains each authored interrupt beat');
 }
 
+async function checkIllidan(port) {
+  await evaluate('localStorage.clear()');
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-illidan`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.fight.name'), 'Illidan Stormrage');
+  assert.equal(await evaluate('__tactics.lesson.model.recap'), true);
+  assert.equal(await evaluate('__tactics.lesson.model.rows.length'), 5);
+  assert.equal(await evaluate('__tactics.assigned.length'), 25);
+  assert.equal(await evaluate('__tactics.guided.steps.filter(s=>__tactics.primaryOrder.includes(s.sceneId)).length'), 15);
+  assert.deepEqual(await evaluate('TacticsBriefing.forFight("bt-illidan").optionalScenes'), ['cycle']);
+  const assets = await evaluate(`(async()=>{const f=__tactics.fight;return Promise.all([f.map,f.portrait,...f.abilities.map(a=>a.icon),...f.referenceImages.map(i=>i.path)].map(path=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve([path,i.naturalWidth>0]);i.onerror=()=>resolve([path,false]);i.src=path})))})()`);
+  assert(assets.every(([,loaded])=>loaded), JSON.stringify(assets));
+  await screenshot('illidan-recap');
+  pass('Illidan loads fifteen guided stops, five-phase recap, optional cycle and all three guild images');
+  for (const [width,height] of [[1280,720],[1440,900],[1600,1000]]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    const bad = await evaluate(`(()=>{
+      const a=__tactics,bad=[];
+      for(const scene of a.scenes){
+        a.show(a.scenes.indexOf(scene));
+        for(const t of [0,scene.duration*.25,scene.duration*.5,scene.duration]){
+          __seekSource(t);
+          const f=a.simulate(scene,t),again=a.simulate(scene,t);
+          if(JSON.stringify(f)!==JSON.stringify(again))bad.push([scene.id,t,'nondeterministic']);
+          if(Object.keys(f.pos).length!==a.assigned.length)bad.push([scene.id,t,'roster changed']);
+          const r=a.viewport;
+          const actors=[...Object.values(f.pos),...(f.bossVisible?[f.boss]:[]),...(f.flames||[]).filter(b=>!b.dead).map(b=>b.at),...(f.demons||[]).filter(b=>!b.dead).map(b=>b.at)];
+          for(const actor of actors){
+            const p=a.px(actor);
+            if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<r.x+5||p.x>r.x+r.w-5||p.y<r.y+5||p.y>r.y+r.h-5)bad.push([scene.id,t,'actor outside arena',p]);
+          }
+        }
+      }
+      if(document.documentElement.scrollWidth>innerWidth)bad.push('horizontal overflow');
+      return bad;
+    })()`);
+    assert.deepEqual(bad, [], 'Illidan scenes stay deterministic and visible at '+width);
+    for (const [chapter,time] of [['positioning',0],['ground',6500],['parasites',11000],['flames',4000],['eye',7000],['barrage',5000],['landing',7000],['demon',8000],['maiev',11000]]) {
+      await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id==='${chapter}'));__seekSource(${time})`);
+      await screenshot('illidan-'+chapter+'-'+width);
+    }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  pass('Illidan phase formations and moving actors remain inside the laptop arena');
+  await evaluate(`__tactics.show(1);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__illidanText=text},write:async items=>{window.__illidanPNG=await items[0].getType('image/png')}}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}};copyText.click();copyImage.click()`);
+  await sleep(200);
+  assert.match(await evaluate('__illidanText'), /Main tank[\s\S]*Flame tanks[\s\S]*Shadow[\s\S]*healer/i);
+  assert((await evaluate('__illidanPNG.size'))>1000);
+  const roster={manual:[{name:'OnlyTank',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'}]};
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(JSON.stringify(roster))})`);
+  await reload();
+  assert.equal(await evaluate('__tactics.assigned.length'),1);
+  for(const [chapter,time] of [['parasites',13000],['flames',11000],['barrage',8000],['demon',11000],['cycle',34000]]) {
+    await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id==='${chapter}'));__seekSource(${time})`);
+    assert.match(await evaluate('sceneCall.textContent'),/missing|no |unavailable|incomplete/i,chapter+' exposes missing coverage at the live source beat');
+  }
+  await evaluate('localStorage.clear()');
+  pass('Illidan text and PNG exports work; incomplete imported rosters cannot claim successful specialist mechanics');
+  await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=bt-illidan&view=detail&chapter=demon`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.briefing'),false);
+  assert.equal(await evaluate('__tactics.guided.chapterSteps("demon").length'),4);
+  await evaluate('__seekSource(6000)');
+  assert.match(await evaluate('sceneCall.textContent'),/paralyze/i);
+  pass('Illidan detail deep links preserve Demon Form beats and rescue guidance');
+}
+
 async function checkShortBriefings(port) {
   await evaluate('localStorage.clear()');
-  for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council']) {
+  for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan']) {
     await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
     await waitForPresenter();
     assert.equal(await evaluate('__tactics.briefing'), true);
@@ -1238,6 +1305,11 @@ async function run() {
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-supremus` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
+  if (process.env.TACTICS_ILLIDAN_ONLY) {
+    await checkIllidan(port);
+    assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+    return;
+  }
   if (process.env.TACTICS_COUNCIL_ONLY) {
     await checkCouncil(port);
     assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
@@ -1405,7 +1477,7 @@ async function run() {
   await evaluate("localStorage.clear()");
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council']);
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
   assert.equal(await evaluate("__tactics.count"), 10);
@@ -1559,6 +1631,7 @@ async function run() {
   await checkBloodboil(port);
   await checkMother(port);
   await checkCouncil(port);
+  await checkIllidan(port);
   await checkSharedGuidedFlow(port);
   await checkOnScreenGuidance(port);
   await checkStableFightFraming(port);

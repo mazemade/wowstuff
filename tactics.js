@@ -8,8 +8,8 @@
     const fights = window.TacticsData.FIGHTS;
     const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
-    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : FIGHT.id === 'bt-mother' ? window.TacticsMother : FIGHT.id === 'bt-council' ? window.TacticsCouncil : null;
-    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : FIGHT.id === 'bt-mother' ? window.TacticsMotherRender : FIGHT.id === 'bt-council' ? window.TacticsCouncilRender : null;
+    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : FIGHT.id === 'bt-mother' ? window.TacticsMother : FIGHT.id === 'bt-council' ? window.TacticsCouncil : FIGHT.id === 'bt-illidan' ? window.TacticsIllidan : null;
+    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : FIGHT.id === 'bt-mother' ? window.TacticsMotherRender : FIGHT.id === 'bt-council' ? window.TacticsCouncilRender : FIGHT.id === 'bt-illidan' ? window.TacticsIllidanRender : null;
     const LESSON_RENDER = FIGHT.id === 'bt-reliquary' ? null : window.TacticsLessonRender;
     const BRIEFING = new URL(location.href).searchParams.get('view') !== 'detail';
     const STEPS = (BRIEFING ? window.TacticsBriefing : window.TacticsSteps)?.forFight(FIGHT.id) || null;
@@ -1281,7 +1281,7 @@
         return sc.jobs || [];
     }
     function recapRows() {
-        if (FIGHT.id === 'bt-bloodboil' || FIGHT.id === 'bt-council') return FIGHT.recapRows || FIGHT.scenes[0].jobs;
+        if (FIGHT.id === 'bt-bloodboil' || FIGHT.id === 'bt-council' || FIGHT.id === 'bt-illidan') return FIGHT.recapRows || FIGHT.scenes[0].jobs;
         if (FIGHT.id === 'bt-najentus') return [['Tank & spread', 'Tank holds Naj’entus; everyone spreads to limit Needle splash.'], ['Free the spine', 'Nearest player rescues the impaled ally and keeps the spine.'], ['Heal before shield', 'Top the raid while Tidal Shield is active; prepare the holder.'], ['One called throw', 'One holder moves within 25 yards and throws only on the call.'], ['Burst & spare', 'Survive the 8,500 Frost hit, heal up, and retain a spare spine.']];
         if (FIGHT.id === 'bt-supremus') return [['Phase 1 tanks', 'Main tank holds him; a healthy high-threat Hateful soak stays in melee.'], ['Blue fire', 'Spread loosely, step sideways into clear ground, and leave the trail clear.'], ['Before Phase 2', 'Melee leaves early while tanks keep control until Fixate begins.'], ['Phase 2 movement', 'Fixate runners use clear routes; everyone avoids volcanoes and stays in healer reach.'], ['Reset pickup', 'At the return, tanks pick up and available Misdirect helps rebuild control before damage.']];
         if (FIGHT.id === 'bt-akama') return [['Ready the hallways', 'Set both tank teams, available Frost Traps, and tank-healing assignments.'], ['Break the binding', 'Kill Channelers and Sorcerers; interrupt Spiritbinder heals.'], ['Control the doors', 'Tanks collect waves while damage stays on the binding objective.'], ['Walk & cleanup', 'Bring controlled packs to the moving Shade and clean them up during the walk.'], ['Akama engages', 'Use Lust and damage cooldowns on the Shade; Akama tanks it while players retain adds.']];

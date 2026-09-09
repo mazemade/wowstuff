@@ -4,7 +4,7 @@ const Briefing = require('./tactics-briefing.js');
 const Steps = require('./tactics-steps.js');
 const Data = require('./tactics-data.js');
 
-const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 14, 'bt-reliquary': 20, 'bt-mother': 7, 'bt-council': 10 };
+const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 14, 'bt-reliquary': 20, 'bt-mother': 7, 'bt-council': 10, 'bt-illidan': 15 };
 for (const [fightId, expectedCount] of Object.entries(expectedPrimaryCounts)) {
     const briefing = Briefing.forFight(fightId);
     assert.deepEqual(briefing.order, Steps.forFight(fightId).order, fightId + ' keeps every scene addressable');

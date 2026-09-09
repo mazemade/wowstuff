@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const D = require('./tactics-data.js');
 const L = require('./tactics-layout.js');
-assert.deepEqual(Object.keys(D.FIGHTS), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council'], 'tabs follow Black Temple boss order');
+assert.deepEqual(Object.keys(D.FIGHTS), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan'], 'tabs follow Black Temple boss order');
 const A = require('./tactics-akama.js');
 const fight = D.FIGHTS['bt-akama'];
 const prepare = (id, roster) => A.prepareScene(fight, fight.scenes.find(s => s.id === id), L.assign(fight, roster));
