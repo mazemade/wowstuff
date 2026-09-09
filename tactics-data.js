@@ -1,7 +1,7 @@
 (function (root, factory) {
-    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js'), require('./tactics-reliquary-data.js'), require('./tactics-bloodboil-data.js'), require('./tactics-mother-data.js')); }
-    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData, root.TacticsReliquaryData, root.TacticsBloodboilData, root.TacticsMotherData); }
-}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA, RELIQUARY, BLOODBOIL, MOTHER) {
+    if (typeof module === 'object' && module.exports) { module.exports = factory(require('./tactics-najentus-data.js'), require('./tactics-akama-data.js'), require('./tactics-reliquary-data.js'), require('./tactics-bloodboil-data.js'), require('./tactics-mother-data.js'), require('./tactics-council-data.js')); }
+    else { root.TacticsData = factory(root.TacticsNajentusData, root.TacticsAkamaData, root.TacticsReliquaryData, root.TacticsBloodboilData, root.TacticsMotherData, root.TacticsCouncilData); }
+}(typeof self !== 'undefined' ? self : this, function (NAJENTUS, AKAMA, RELIQUARY, BLOODBOIL, MOTHER, COUNCIL) {
     'use strict';
 
     // Map fractions are illustrative. The sheet and Classic strategy guide supply the
@@ -302,5 +302,5 @@
         ]
     };
 
-    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA, 'bt-reliquary': RELIQUARY, 'bt-bloodboil': BLOODBOIL, 'bt-mother': MOTHER } };
+    return { FIGHTS: { 'bt-najentus': NAJENTUS, 'bt-supremus': SUPREMUS, 'bt-akama': AKAMA, 'bt-reliquary': RELIQUARY, 'bt-bloodboil': BLOODBOIL, 'bt-mother': MOTHER, 'bt-council': COUNCIL } };
 }));

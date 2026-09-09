@@ -1012,9 +1012,79 @@ async function checkMother(port) {
   pass('Mother keeps tanks stacked, deterministic frames and explicit missing-roster warnings');
 }
 
+async function checkCouncil(port) {
+  await evaluate('localStorage.clear()');
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-council`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.fight.name'), 'Illidari Council');
+  assert.equal(await evaluate('__tactics.lesson.model.recap'), true);
+  assert.equal(await evaluate('__tactics.lesson.model.rows.length'), 3, 'Council recap includes tank, interrupt and raid jobs');
+  await screenshot('council-recap');
+  assert.equal(await evaluate('__tactics.assigned.length'), 25);
+  assert.equal(await evaluate('__tactics.guided.steps.filter(s=>__tactics.primaryOrder.includes(s.sceneId)).length'), 10);
+  assert.deepEqual(await evaluate('TacticsBriefing.forFight("bt-council").optionalScenes'), ['kite', 'cycle']);
+  const assets = await evaluate(`(async()=>{const f=__tactics.fight;return Promise.all([f.map,f.portrait,...f.abilities.map(a=>a.icon),...f.referenceImages.map(i=>i.path)].map(path=>new Promise(resolve=>{const i=new Image();i.onload=()=>resolve([path,i.naturalWidth>0]);i.onerror=()=>resolve([path,false]);i.src=path})))})()`);
+  assert(assets.every(([,loaded])=>loaded), JSON.stringify(assets));
+  pass('Council loads ten briefing stops, optional kite and cycle, and local source art');
+  for (const [width,height] of [[1280,720],[1440,900],[1600,1000]]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    const bad = await evaluate(`(()=>{
+      const a=__tactics,bad=[];
+      for(const scene of a.scenes){
+        a.show(a.scenes.indexOf(scene));
+        for(const t of [0,scene.duration*.25,scene.duration*.5,scene.duration]){
+          __seekSource(t);
+          const f=a.simulate(scene,t),again=a.simulate(scene,t);
+          if(JSON.stringify(f)!==JSON.stringify(again))bad.push([scene.id,t,'nondeterministic']);
+          if(Object.keys(f.pos).length!==a.assigned.length)bad.push([scene.id,t,'roster changed']);
+          if(f.bosses.length!==4)bad.push([scene.id,t,'missing boss']);
+          const r=a.viewport;
+          for(const actor of [...Object.values(f.pos),...f.bosses.filter(b=>!b.hidden).map(b=>b.at)]){
+            const p=a.px(actor);
+            if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<r.x+5||p.x>r.x+r.w-5||p.y<r.y+5||p.y>r.y+r.h-5)bad.push([scene.id,t,'actor outside arena',p]);
+          }
+        }
+      }
+      if(document.documentElement.scrollWidth>innerWidth)bad.push('horizontal overflow');
+      return bad;
+    })()`);
+    assert.deepEqual(bad, [], 'Council scenes keep deterministic visible actors at '+width);
+    for (const [chapter,time] of [['positioning',0],['rotation',7000],['interrupts',6000],['poison',5500],['kite',10000]]) {
+      await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id==='${chapter}'));__seekSource(${time})`);
+      await screenshot('council-'+chapter+'-'+width);
+    }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  pass('Council keeps all four actors and roster positions inside the laptop arena');
+  await evaluate(`__tactics.show(1);Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__councilText=text},write:async items=>{window.__councilPNG=await items[0].getType('image/png')}}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}};copyText.click();copyImage.click()`);
+  await sleep(200);
+  assert.match(await evaluate('__councilText'), /Gathios tank[\s\S]*Veras tank[\s\S]*Malande tank[\s\S]*Zerevor Mage tank[\s\S]*Physical kick[\s\S]*Magical kick/);
+  assert((await evaluate('__councilPNG.size'))>1000);
+  const roster = {manual:[
+    {name:'CouncilTank',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'},
+    {name:'CouncilHealer',class:'PRIEST',spec:'Holy',flags:[],source:'manual'},
+    {name:'CouncilCaster',class:'WARLOCK',spec:'Destruction',flags:[],source:'manual'}
+  ]};
+  await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(JSON.stringify(roster))})`);
+  await reload();
+  assert.equal(await evaluate('__tactics.assigned.length'), 3);
+  assert.match(await evaluate('rosterNote.textContent'), /Mage|tank|coverage/i);
+  for (const chapter of ['pull','interrupts','mage','kite']) {
+    await evaluate(`(()=>{const a=__tactics,s=a.scenes.find(s=>s.id==='${chapter}');a.show(a.scenes.indexOf(s));__seekSource(s.duration)})()`);
+    assert.match(await evaluate('sceneCall.textContent'),/missing|no |unavailable|incomplete/i,chapter+' displays missing imported coverage');
+  }
+  await evaluate('localStorage.clear()');
+  pass('Council text and PNG exports work; imported incomplete rosters cannot fabricate key jobs');
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=bt-council&view=detail&chapter=interrupts`});
+  await waitForPresenter();
+  assert.equal(await evaluate('__tactics.briefing'),false);
+  assert.equal(await evaluate('__tactics.guided.chapterSteps("interrupts").length'),6);
+  pass('Council detail deep link retains each authored interrupt beat');
+}
+
 async function checkShortBriefings(port) {
   await evaluate('localStorage.clear()');
-  for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother']) {
+  for (const fight of ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council']) {
     await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`});
     await waitForPresenter();
     assert.equal(await evaluate('__tactics.briefing'), true);
@@ -1168,6 +1238,11 @@ async function run() {
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-supremus` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
+  if (process.env.TACTICS_COUNCIL_ONLY) {
+    await checkCouncil(port);
+    assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+    return;
+  }
   if (process.env.TACTICS_MOTHER_ONLY) {
     await checkMother(port);
     assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
@@ -1330,7 +1405,7 @@ async function run() {
   await evaluate("localStorage.clear()");
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother']);
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
   assert.equal(await evaluate("__tactics.count"), 10);
@@ -1483,6 +1558,7 @@ async function run() {
   await checkReliquary(port);
   await checkBloodboil(port);
   await checkMother(port);
+  await checkCouncil(port);
   await checkSharedGuidedFlow(port);
   await checkOnScreenGuidance(port);
   await checkStableFightFraming(port);

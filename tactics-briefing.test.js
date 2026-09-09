@@ -4,12 +4,12 @@ const Briefing = require('./tactics-briefing.js');
 const Steps = require('./tactics-steps.js');
 const Data = require('./tactics-data.js');
 
-const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 14, 'bt-reliquary': 20, 'bt-mother': 7 };
+const expectedPrimaryCounts = { 'bt-najentus': 6, 'bt-supremus': 13, 'bt-akama': 11, 'bt-bloodboil': 14, 'bt-reliquary': 20, 'bt-mother': 7, 'bt-council': 10 };
 for (const [fightId, expectedCount] of Object.entries(expectedPrimaryCounts)) {
     const briefing = Briefing.forFight(fightId);
     assert.deepEqual(briefing.order, Steps.forFight(fightId).order, fightId + ' keeps every scene addressable');
     assert.equal(briefing.primaryOrder.reduce((count, sceneId) => count + briefing.forScene(sceneId).length, 0), expectedCount, fightId + ' has a concise default briefing');
-    assert.deepEqual(briefing.optionalScenes, fightId === 'bt-akama' ? ['cycle', 'aoe'] : fightId === 'bt-mother' ? ['cycle', 'door'] : ['cycle'].filter(sceneId => briefing.order.includes(sceneId)), fightId + ' exposes available optional scenes only');
+    assert.deepEqual(briefing.optionalScenes, fightId === 'bt-akama' ? ['cycle', 'aoe'] : fightId === 'bt-council' ? ['kite', 'cycle'] : fightId === 'bt-mother' ? ['cycle', 'door'] : ['cycle'].filter(sceneId => briefing.order.includes(sceneId)), fightId + ' exposes available optional scenes only');
     assert.ok(briefing.primaryOrder.every(sceneId => !briefing.optionalScenes.includes(sceneId)), fightId + ' hides optional scenes from the default route');
     for (const sceneId of briefing.order) {
         const source = Steps.forFight(fightId).forScene(sceneId);

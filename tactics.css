@@ -287,22 +287,22 @@ button {
 }
 /* Guided lessons reserve their own canvas panels.  Give the drawing room a real
    minimum instead of letting flexbox reduce it to zero when the legend is outside. */
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) {
   overflow: auto;
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .brief {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .brief {
   height: auto;
   min-height: 100vh;
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .stage__map {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .stage__map {
   min-height: var(--lesson-stage-min-height, 520px);
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .mobile-call {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .mobile-call {
   display: none;
 }
 @media (min-width: 1181px) {
   /* The stage sets the desktop row height; opening references only scrolls the rail. */
-  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .rail {
+  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .rail {
     contain: size;
   }
 }
@@ -418,18 +418,18 @@ body[data-fight="bt-akama"] .map__meta::after {
 }
 @media (min-width: 721px) {
   body[data-fight="bt-najentus"] .map,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .map { display: flex; flex-direction: column; }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .map { display: flex; flex-direction: column; }
   body[data-fight="bt-najentus"] .map canvas,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .map canvas { flex: 1 1 0; height: 0; min-height: var(--lesson-canvas-min-height, 230px); }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .map canvas { flex: 1 1 0; height: 0; min-height: var(--lesson-canvas-min-height, 230px); }
   body[data-fight="bt-najentus"] .map__meta,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .map__meta { position: relative; inset: auto; flex: none; padding: 7px 10px; border-top: 1px solid var(--line); background: var(--stone-0); }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .map__meta { position: relative; inset: auto; flex: none; padding: 7px 10px; border-top: 1px solid var(--line); background: var(--stone-0); }
   body[data-fight="bt-najentus"] .legend,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .legend { max-width: none; border: 0; padding: 0; backdrop-filter: none; }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .legend { max-width: none; border: 0; padding: 0; backdrop-filter: none; }
   body[data-fight="bt-najentus"] .stage__foot,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .stage__foot,
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .stage__foot,
   body:is([data-fight="bt-akama"], [data-fight="bt-reliquary"]) .stage__foot { grid-template-columns: minmax(0, 1fr) auto; min-height: 34px; }
   body[data-fight="bt-najentus"] .stage__foot .step,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .stage__foot .step,
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .stage__foot .step,
   body:is([data-fight="bt-akama"], [data-fight="bt-reliquary"]) .stage__foot .step { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 }
 .map__scale {
@@ -990,7 +990,7 @@ body.has-guided-explanation .key-hint { display: none; }
   .stage__map {
     height: clamp(330px, 47vh, 430px);
   }
-  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"]) .stage__map {
+  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"]) .stage__map {
     height: var(--lesson-stage-min-height, 660px);
     min-height: var(--lesson-stage-min-height, 660px);
   }

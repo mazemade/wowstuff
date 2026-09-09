@@ -53,6 +53,16 @@
             spite: [{ id: 'spite-countdown', title: 'Spite marks: heal before immunity ends.', detail: 'Marked players are immune for six seconds. Heal them before the Nature impact.' }, { id: 'spite-impact', title: 'Spite impacts; recover the marked players.', detail: 'The immunity ends once, then about 7,500 Nature damage lands and healers recover the marks.' }],
             cycle: [{ id: 'suffering-hold', title: 'Full Reliquary cycle.', detail: 'Follow the uninterrupted sequence through Suffering, Desire, Anger, and the final recovery.' }]
         },
+        'bt-council': {
+            pull: [{ id: 'protect', title: 'Protect the mage, steal Dampen, secure the other bosses.', detail: 'Coordinate the guild pull with available Blessing of Protection and Misdirections. Confirm all four tank jobs before committing damage.' }],
+            rotation: [{ id: 'ready', title: 'Ground effect: move the pack onto the next clear spot.', detail: 'Gathios, Veras and melee follow 1 → 2 → 3 → 4 when AoE lands. Old patches remain; every destination needs to be clear.' }],
+            interrupts: [{ id: 'physical', title: 'No immunity: the assigned physical kick stops the heal.', detail: 'Stop every Circle of Healing and cover Divine Wrath. Reflective Shield does not itself prevent interrupts.' }, { id: 'protection', title: 'Protection: magical interrupt takes over.', detail: 'Physical kicks are blocked. The assigned Earth Shock or Counterspell stops the heal.' }, { id: 'warding', title: 'Spell Warding: physical interrupt takes over.', detail: 'Magic is blocked. Use Kick, Pummel or Shield Bash. These are separate immunity examples.' }],
+            hazards: [{ id: 'spread', title: 'Blizzard or Flamestrike: move immediately.', detail: 'Affected players leave the patch, then resume their jobs from safe ground. Keep tank healing covered.' }],
+            poison: [{ id: 'vanish', title: 'Heal poison through Envenom; prepare Veras’s pickup.', detail: 'The poison healer follows the targets through the finishing burst. Veras’s tank reacquires him on return.' }],
+            mage: [{ id: 'range', title: 'Keep stolen Dampen Magic and tank Zerevor at range.', detail: 'Stay more than 10 yards away and in healing reach. When the boss reapplies Dampen, cancel the old stolen buff only immediately before re-stealing.' }],
+            kite: [{ id: 'secure', title: 'Optional mage ramp kite.', detail: 'Secure threat first, follow the practiced ramp route and recover within healing reach at the bottom. Renew stolen protection when needed.' }],
+            cycle: [{ id: 'opening', title: 'Optional combined Council example.', detail: 'Follow the coordinated pull, pack movement, interrupt handoff and poison recovery. Real mechanics overlap; this sequence is illustrative.' }]
+        },
         'bt-mother': {
             saber: [{ id: 'tank-stack', title: 'Three tanks share Saber Lash.', detail: 'Keep the tank stack together and heal it continuously.' }],
             attraction: [{ id: 'split', title: 'Split until every pair is 25 yards apart.', detail: 'Choose different open paths away from the raid. Keep moving until your effects clear.' }],
@@ -63,7 +73,7 @@
             door: [{ id: 'plan', title: 'Optional door formation.', detail: 'Landmarks change; Saber Lash, Shriek and Fatal Attraction rules do not.' }]
         }
     };
-    const optionalSceneNames = new Set(['cycle', 'aoe', 'door']);
+    const optionalSceneNames = new Set(['cycle', 'aoe', 'door', 'kite']);
 
     // Keep each two-second walk at normal speed; shorten only stationary waits.
     function rotationTimeline(waves, end) {
