@@ -16,6 +16,8 @@
     const STEPS = (BRIEFING ? window.TacticsBriefing : window.TacticsSteps)?.forFight(FIGHT.id) || null;
     const primaryOrder = BRIEFING ? STEPS.primaryOrder : STEPS.order;
     const E = window.AssignmentsEngine;
+    const PRESENTATION = window.TacticsPresentation;
+    let presenting = false;
     const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const STORAGE_KEY = 'raidAssignmentsState';
@@ -1428,29 +1430,29 @@
         sc._roles = ADAPTER ? sc._sim.roles : {};
         if (!ADAPTER) Object.keys(sc.roles || {}).forEach(k => { sc._roles[castId(sc, k)] = sc.roles[k]; });
         if (ADAPTER && (Array.isArray(sc._sim.instructionRows) || sc._sim.stage === 'complete')) showInstructionRows(sc._sim.instructionRows || []);
-        const lessonLayout = lesson ? stableLessonLayout(sc, explanation, lesson) : null;
-        const reliquaryLayout = FIGHT.id === 'bt-reliquary' ? stableReliquaryLayout(sc, explanation, sc._sim) : null;
+        const lessonLayout = presenting ? { action: { x: 0, y: 0, w: W, h: H } } : lesson ? stableLessonLayout(sc, explanation, lesson) : null;
+        const reliquaryLayout = !presenting && FIGHT.id === 'bt-reliquary' ? stableReliquaryLayout(sc, explanation, sc._sim) : null;
         const canvasLayout = lessonLayout || reliquaryLayout;
         sc._lessonLayout = lessonLayout;
         aim(sc.view, sc, canvasLayout?.action);
         ctx.clearRect(0, 0, W, H);
         drawMap();
-        const overview = !!lesson?.recap;
+        const overview = !!lesson?.recap && !presenting;
         if (!overview) {
             const action = canvasLayout?.clip || canvasLayout?.action || { x: 0, y: 0, w: W, h: H };
             ctx.save(); ctx.beginPath(); ctx.rect(action.x, action.y, action.w, action.h); ctx.clip();
-            if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
+            if (OVERLAY) OVERLAY.draw('floor', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting }, sc, sc._sim);
             (sc.effects || []).filter(e => e.kind !== 'gaze' && e.kind !== 'call').forEach(e => EFFECTS[e.kind] && EFFECTS[e.kind](e, sc, t));
             drawRoutes(sc, t);
             if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
             sc.raid.forEach(p => drawPlayer(p, sc, t));
             (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
             (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
-            if (OVERLAY && FIGHT.id !== 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
+            if (OVERLAY && FIGHT.id !== 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting }, sc, sc._sim);
             ctx.restore();
-            if (OVERLAY && FIGHT.id === 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout }, sc, sc._sim);
+            if (OVERLAY && FIGHT.id === 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting }, sc, sc._sim);
         }
-        if (lesson) LESSON_RENDER.draw({ ctx, width: W, height: H }, lesson, lessonLayout);
+        if (lesson && !presenting) LESSON_RENDER.draw({ ctx, width: W, height: H }, lesson, lessonLayout);
     }
 
     // ---- chrome ---------------------------------------------------------------
@@ -1798,6 +1800,14 @@
     function copyImage() {
         render(performance.now());
         const btn = el('copyImage'), sc = scenes[idx];
+        if (PRESENTATION.supports(FIGHT.id) && (presenting || sc.id === FIGHT.positioningSceneId)) {
+            const out = document.createElement('canvas');
+            const arena = viewRect, ratioX = cv.width / W, ratioY = cv.height / H;
+            out.width = Math.round(arena.w * ratioX); out.height = Math.round(arena.h * ratioY);
+            out.getContext('2d').drawImage(cv, arena.x * ratioX, arena.y * ratioY, arena.w * ratioX, arena.h * ratioY, 0, 0, out.width, out.height);
+            copyCanvas(out, btn, sc.id);
+            return;
+        }
         const exportRows = FIGHT.id === 'bt-reliquary' ? sc._sim?.instructionRows || [] : null;
         const rowsHeight = Math.min(exportRows?.length || 0, 5) * 25;
         const akamaKey = FIGHT.id === 'bt-akama' ? 'NPC key: 1–6 Channelers · S Sorcerer · + Spiritbinder · E Elementalist · R Rogue · D Defender' : '';
@@ -1814,6 +1824,10 @@
         g.fillStyle = '#9ba89f'; g.font = (akamaKey ? '15px' : '18px') + ' "IBM Plex Sans", sans-serif';
         if (akamaKey) g.fillText(akamaKey, 24, out.height - 48, out.width - 48);
         g.fillText('Example positions and routes · Approximate scale · ' + FIGHT.legend.map(x => x.exportLabel).join(' / '), 24, out.height - 21, out.width - 48);
+        copyCanvas(out, btn, sc.id);
+    }
+
+    function copyCanvas(out, btn, sceneId) {
         out.toBlob(async blob => {
             if (!blob) { flash(btn, 'Export failed'); return; }
             try {
@@ -1821,7 +1835,7 @@
                 flash(btn, 'Copied');
             } catch (e) {
                 const a = document.createElement('a'), url = URL.createObjectURL(blob);
-                a.href = url; a.download = FIGHT.slug + '-' + sc.id + '.png'; a.click();
+                a.href = url; a.download = FIGHT.slug + '-' + sceneId + '.png'; a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000); flash(btn, 'Saved');
             }
         }, 'image/png');
@@ -1844,10 +1858,63 @@
         if (!REDUCED) playback.play(now);
         render(now);
     }
+    let presentationIdleTimer, fullscreenScroll = null;
+    function revealPresentationControls() {
+        if (!presenting) return;
+        document.body.classList.remove('presentation-idle');
+        clearTimeout(presentationIdleTimer);
+        presentationIdleTimer = setTimeout(() => {
+            if (!document.querySelector('.stage__foot :focus-visible'))
+                document.body.classList.add('presentation-idle');
+        }, 2500);
+    }
+    document.addEventListener('pointermove', revealPresentationControls);
+    document.addEventListener('keydown', revealPresentationControls);
+    document.addEventListener('fullscreenchange', () => {
+        presenting = !!document.fullscreenElement && PRESENTATION.supports(FIGHT.id);
+        document.body.classList.toggle('is-presenting', presenting);
+        document.body.classList.remove('presentation-idle');
+        el('presentationHead').hidden = !presenting;
+        el('fullscreen').textContent = presenting ? 'Exit fullscreen' : 'Fullscreen';
+        clearTimeout(presentationIdleTimer);
+        lessonBounds.clear();
+        resize(); render(performance.now());
+        if (presenting) revealPresentationControls();
+        else if (fullscreenScroll) {
+            const saved = fullscreenScroll; fullscreenScroll = null;
+            requestAnimationFrame(() => window.scrollTo(saved.x, saved.y));
+        }
+    });
+    function syncPresentation(sc) {
+        if (!presenting) return;
+        const frame = sc._sim, lesson = sc._lesson;
+        const title = lesson?.title || frame.teaching?.title || frame.explanation?.title || frame.call || sc.title;
+        const detail = frame.teaching?.detail || frame.explanation?.detail || sc.caption;
+        const context = [FIGHT.name, el('manualProgress').textContent, !el('manualCountdown').hidden && el('manualCountdown').textContent].filter(Boolean).join(' · ');
+        for (const [id, text] of [['presentationTitle', title], ['presentationDetail', detail], ['presentationContext', context]])
+            if (el(id).textContent !== text) el(id).textContent = text;
+        const ids = PRESENTATION.abilityIds(FIGHT, sc, frame), box = el('presentationSpells'), key = ids.join('|');
+        if (box.dataset.spells === key) return;
+        box.dataset.spells = key; box.replaceChildren();
+        ids.forEach(id => {
+            const ability = FIGHT.abilities.find(item => item.id === id);
+            if (!ability) return;
+            const card = document.createElement('article'), head = document.createElement('div');
+            card.className = 'presentation-spell'; head.className = 'presentation-spell__head';
+            const icon = document.createElement('img'), name = document.createElement('h3'), description = document.createElement('p');
+            icon.src = ability.icon; icon.alt = ''; name.textContent = ability.name;
+            description.textContent = PRESENTATION.spellDescription(FIGHT, ability);
+            head.append(icon, name); card.append(head, description); box.append(card);
+        });
+    }
+
     async function fullscreen() {
         try {
             if (document.fullscreenElement) await document.exitFullscreen();
-            else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+            else if (document.documentElement.requestFullscreen) {
+                fullscreenScroll = { x: window.scrollX, y: window.scrollY };
+                await document.documentElement.requestFullscreen();
+            }
         } catch (e) { flash(el('fullscreen'), 'Unavailable'); }
     }
     el('playPause').addEventListener('click', togglePlay);
@@ -1920,6 +1987,7 @@
             const seconds = STEPS.countdownAt(explanation, scenes[idx]._sim.explanationElapsedMs || 0);
             el('manualCountdown').textContent = seconds ? 'Impact in ' + seconds + 's' : 'Impact resolved';
         }
+        syncPresentation(scenes[idx]);
     }
     function syncCurrentGuidance(sc) {
         if (FIGHT.stateLabels && sc._sim) {
@@ -1958,6 +2026,7 @@
 
     // lets the screenshot harness step scenes without synthesising key events
     window.__tactics = { show, showExplanation, briefing: BRIEFING, primaryOrder, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
+        get presenting() { return presenting; },
         get viewport() { return { ...viewRect }; },
         lesson: LESSON_RENDER ? { get model() { return scenes[idx]._lesson || null; }, get layout() { return scenes[idx]._lessonLayout || null; } } : null,
         guided: STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: STEPS.all(), chapterSteps: STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: STEPS.timelineFor, isGuided: isGuidedScene } : null };

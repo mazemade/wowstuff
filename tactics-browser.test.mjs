@@ -113,7 +113,7 @@ async function waitForPresenter() {
     if (await evaluate("typeof __tactics === 'object' && fx.width > 0 && fx.height > 0 && [...document.images].every(img => img.complete)")) return;
     await sleep(100);
   }
-  throw new Error("Presenter map did not become ready");
+  throw new Error("Presenter map did not become ready: " + browserErrors.join("\n") + " State: " + JSON.stringify(await evaluate("({presenter:typeof __tactics,canvas:document.getElementById('fx')?.getBoundingClientRect().toJSON()})")));
 }
 async function waitForHub() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -1418,11 +1418,95 @@ async function checkShortBriefings(port) {
   pass('condensed animations preserve missing-role warnings at internal source beats');
 }
 
+
+async function checkPresentation(port) {
+  await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=bt-najentus&chapter=positioning`});await waitForPresenter();
+  await evaluate(`localStorage.clear();localStorage.setItem('raidAssignmentsState',JSON.stringify({manual:[['WARRIOR','Protection'],...Array(6).fill(['SHAMAN','Restoration']),...Array(7).fill(['ROGUE','Combat']),...Array(11).fill(['MAGE','Arcane'])].map(([cls,spec],i)=>({name:'Longplayer'+String(i+1).padStart(2,'0'),class:cls,spec,flags:[],source:'manual'})),playerMeta:{Longplayer01:{mt:true}}}))`);
+  const geometry=()=>evaluate(`(()=>{const a=__tactics,r=a.fight.arena;return {viewport:a.viewport,corners:[a.px({x:r.x0,y:r.y0}),a.px({x:r.x1,y:r.y1})]}})()`);
+  const drawnNames=()=>evaluate(`(()=>{const c=fx.getContext('2d'),f=c.fillText,n=[];c.fillText=function(t,x,y,...args){const a=__tactics.viewport;if(String(t).includes('Longplayer')&&x>=a.x&&x<=a.x+a.w&&y>=a.y&&y<=a.y+a.h)n.push(t);return f.call(this,t,x,y,...args)};try{__tactics.render(performance.now())}finally{c.fillText=f}return n})()`);
+  const drawnText=()=>evaluate(`(()=>{const c=fx.getContext('2d'),f=c.fillText,n=[];c.fillText=function(text,x,y,...args){n.push({text:String(text),x,y,font:this.font,align:this.textAlign});return f.call(this,text,x,y,...args)};try{__tactics.render(performance.now())}finally{c.fillText=f}return n})()`);
+  const simulations=()=>evaluate(`JSON.stringify(__tactics.scenes.map(s=>[s.id,...[0,s.duration/2,s.duration].map(t=>__tactics.simulate(s,t))]))`);
+  const fights=await evaluate('Object.values(TacticsData.FIGHTS).map(f=>({id:f.id,positioning:f.positioningSceneId}))');
+  for(const {id:fight,positioning} of fights) {
+    for(const [width,height,dpr] of [[1280,720,1],[1440,900,2]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:dpr,mobile:false});
+      await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}&chapter=${positioning}`});await waitForPresenter();await evaluate('document.fonts.ready');await sleep(300);
+      const normal=await geometry(), original=await simulations(), originalNames=await drawnNames(), originalDrawing=await drawnText();
+      const originalScroll=await evaluate("window.scrollTo(0,90);window.scrollY");
+      await evaluate(`window.__normalArena=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{write:async items=>{window.__normalArena=await items[0].getType('image/png')}}});copyImage.click()`);
+      for(let n=0;n<40 && !(await evaluate('!!window.__normalArena'));n++)await sleep(50);
+      const normalPng=await evaluate(`(async()=>{const b=await createImageBitmap(__normalArena),r=fx.getBoundingClientRect(),a=__tactics.viewport;return{w:b.width,h:b.height,expectedW:Math.round(a.w*fx.width/r.width),expectedH:Math.round(a.h*fx.height/r.height)}})()`);
+      assert.equal(normalPng.w,normalPng.expectedW);assert.equal(normalPng.h,normalPng.expectedH,'normal positioning export excludes lesson panels');
+
+      await send('Runtime.evaluate',{expression:'document.getElementById("fullscreen").click()',userGesture:true});await sleep(400);
+      assert.equal(await evaluate('__tactics.presenting'),true);
+      const full=await geometry();
+      assert(full.viewport.h>normal.viewport.h,`${fight} arena gains substantial height`);
+      assert(full.viewport.w>normal.viewport.w,`${fight} arena gains width`);
+      assert.equal(await evaluate("document.querySelector('.rail').getClientRects().length"),0);
+      assert.equal(await evaluate("document.querySelector('.stage__head').getClientRects().length"),0);
+      assert.equal(await evaluate('document.documentElement.scrollHeight<=innerHeight+1'),true,'fullscreen fits without page scrolling');
+      assert.equal(await simulations(),original,'fullscreen preserves every sampled simulation frame');
+      assert.deepEqual(full.viewport,{x:0,y:0,w:width,h:height-(height>=850?156:148)-48});
+      const names=await evaluate(`(()=>{const c=fx.getContext('2d'),f=c.fillText,n=[];c.fillText=function(t,...args){n.push(t);return f.call(this,t,...args)};try{__tactics.render(performance.now())}finally{c.fillText=f}return n})()`);
+      assert.deepEqual(await drawnNames(),originalNames,'fullscreen preserves the original player labels');
+      assert(!names.includes(await evaluate('presentationTitle.textContent')),fight+' heading is outside the arena canvas');
+      await screenshot(fight+'-presentation-positioning-'+width);
+      // Copy must match just the arena canvas, including DPR, without the heading or controls.
+      await evaluate(`window.__presentationBlob=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{write:async items=>{window.__presentationBlob=await items[0].getType('image/png')}}});copyImage.click()`);
+      for(let n=0;n<40 && !(await evaluate('!!window.__presentationBlob'));n++)await sleep(50);
+      const png=await evaluate(`(async()=>{const b=await createImageBitmap(__presentationBlob);return {w:b.width,h:b.height,cw:fx.width,ch:fx.height,url:await new Promise(resolve=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.readAsDataURL(__presentationBlob)})}})()`);
+      assert.equal(png.w,png.cw);assert.equal(png.h,png.ch);
+      if(process.env.TACTICS_SCREENSHOT_DIR)await writeFile(join(process.env.TACTICS_SCREENSHOT_DIR,fight+'-presentation-export-'+width+'.png'),Buffer.from(png.url.split(',')[1],'base64'));
+      // Keep one framing across every explanation, including differently sized spell descriptions.
+      const failures=await evaluate(`(()=>{
+        const a=__tactics,bad=[],baseline=JSON.stringify(a.viewport);
+        for(const step of a.guided.steps){
+          a.showExplanation(step.index);const now=performance.now();a.playback.pause(now);
+          for(const elapsed of [0,(step.holdAtMs-step.startMs)/2,step.holdAtMs-step.startMs]){
+            a.playback.seek(elapsed,now);a.render(now);const head=presentationHead,r=a.fight.arena,sc=a.scenes.find(s=>s.id===step.sceneId);
+            if(JSON.stringify(a.viewport)!==baseline)bad.push([step.id,'camera resized']);
+            if(head.scrollHeight>head.clientHeight+1)bad.push([step.sceneId,step.id,'heading overflows',head.scrollHeight,head.clientHeight]);
+            const spellIds=TacticsPresentation.abilityIds(a.fight,sc,sc._sim);
+            if(presentationSpells.dataset.spells!==spellIds.join('|'))bad.push([step.id,'stale spells']);
+            if(spellIds.length>2)bad.push([step.id,'too many spells for compact heading']);
+            for(const corner of [{x:r.x0,y:r.y0},{x:r.x1,y:r.y1}]){const p=a.px(corner);if(p.x<-.01||p.y<-.01||p.x>a.viewport.w+.01||p.y>a.viewport.h+.01)bad.push([step.id,'arena clipped']);}
+          }
+        }
+        return bad;
+      })()`);
+      assert.deepEqual(failures,[],fight+' fullscreen presentation at '+width);
+      const expected=fight==='bt-najentus'?[['burst',0,'shield'],['burst',3500,'hurl'],['burst',5700,'burst']]:fight==='hyjal-winterchill'?[['icebolt',1800,'icebolt'],['dnd',1800,'dnd'],['nova',2500,'nova']]:await evaluate(`__tactics.scenes.filter(s=>s.id!==__tactics.fight.positioningSceneId && s.id!=='overview' && s.highlight?.length).slice(0,2).map(s=>{const time=s.duration/2;return [s.id,time,TacticsPresentation.abilityIds(__tactics.fight,s,__tactics.simulate(s,time)).join('|')]})`);
+      for(const [scene,time,spell] of expected){await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id===${JSON.stringify(scene)}));__seekSource(${time})`);assert.equal(await evaluate('presentationSpells.dataset.spells'),spell);await screenshot(fight+'-presentation-'+spell+'-'+width);}
+
+      const expectedDownload=await evaluate("__tactics.fight.slug+'-'+__tactics.guided.active.sceneId+'.png'");
+      await evaluate(`window.__download=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{write:async()=>{throw Error('Clipboard denied')}}});HTMLAnchorElement.prototype.click=function(){window.__download=this.download};copyImage.click();quickRecap.click()`);
+      for(let n=0;n<40 && !(await evaluate('!!window.__download'));n++)await sleep(50);
+      assert.equal(await evaluate('__download'),expectedDownload,'download fallback keeps the clicked mechanic after navigation');
+      // Controls wake on input and do not change arena size; previous/next and exit restore normal view.
+      await evaluate("document.activeElement.blur();document.dispatchEvent(new PointerEvent('pointermove'))");await sleep(2700);
+      assert.equal(await evaluate("document.body.classList.contains('presentation-idle')"),true);
+      await key('ArrowRight');assert.equal(await evaluate("document.body.classList.contains('presentation-idle')"),false);
+      await evaluate("__tactics.show(__tactics.scenes.findIndex(s=>s.id===__tactics.fight.positioningSceneId))");await key('f','KeyF');await sleep(500);
+      assert.equal(await evaluate('__tactics.presenting'),false);
+      assert.deepEqual(await geometry(),normal,'leaving fullscreen restores the original layout');
+      assert.deepEqual(await drawnText(),originalDrawing,fight+' all normal canvas text, coordinates and fonts are identical after fullscreen exit');
+      assert.equal(await evaluate('window.scrollY'),originalScroll,'fullscreen exit restores scroll position');
+      assert.equal(await simulations(),original);
+      pass(`${fight} presentation at ${width}×${height}, DPR ${dpr}: larger fixed arena, original names/frames, live spells, arena export and clean exit`);
+    }
+  }
+
+  await evaluate('localStorage.clear()');
+  assert.equal(browserErrors.length,0,browserErrors.join('\n'));
+}
+
 async function run() {
   const port = await startServer();
   await startChrome();
   await send("Page.enable"); await send("Runtime.enable");
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installSourceSeeker.toString()})()` });
+  if (process.env.TACTICS_PRESENTATION_ONLY) { await checkPresentation(port); return; }
   if (process.env.TACTICS_HYJAL_ONLY) {
     await checkRaidHubAndHyjal(port);
     return;
@@ -1447,6 +1531,7 @@ async function run() {
   }
   if (process.env.TACTICS_SHORT_ONLY) {
     await checkShortBriefings(port);
+  await checkPresentation(port);
     assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
     return;
   }
@@ -1764,6 +1849,7 @@ async function run() {
   await checkOnScreenGuidance(port);
   await checkStableFightFraming(port);
   await checkShortBriefings(port);
+  await checkPresentation(port);
   assert.equal(browserErrors.length, 0, browserErrors.join("\n"));
 }
 

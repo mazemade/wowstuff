@@ -185,22 +185,23 @@
             destinations.forEach(dest=>{const end=api.px(dest);path(ctx,p,end,tone,true);ring(ctx,{x:p.x+(end.x-p.x)*progress,y:p.y+(end.y-p.y)*progress},4,tone,tone);if(progress>.7)ring(ctx,end,15,tone);});
             if(tip.kind==='glove-backup' && progress>.6) text(ctx,'Backup interrupt',clamp(q.x-45,12,w-112),q.y+35,compact?14:17,tone);
         }
+        if(api.presenting)return;
         const title=(tip.optional?'Optional · ':'')+(tip.label || tip.kind).replace(/^Optional\s*·\s*/i,''),size=compact?15:21,bw=Math.min(w-28,compact?330:510),rows=lines(ctx,title,bw-20,size),ph=rows.length*(size+4)+20,py=h-124-ph;
         panel(ctx,(w-bw)/2,py,bw,ph,tone);paragraph(ctx,title,(w-bw)/2+10,py+9,bw-20,size,tone);
     }
     function positioning(api,scene,frame) {
         const {ctx}=api,{w,h,compact}=layout(api);
-        panel(ctx,12,12,w-24,compact?82:72);text(ctx,'Face the boss away from the raid',24,24,compact?20:25,gold);paragraph(ctx,'Tanks in front. Melee behind; ranged and healers farther back.',24,compact?50:53,w-48,compact?15:17);
+        if(!api.presenting){panel(ctx,12,12,w-24,compact?82:72);text(ctx,'Face the boss away from the raid',24,24,compact?20:25,gold);paragraph(ctx,'Tanks in front. Melee behind; ranged and healers farther back.',24,compact?50:53,w-48,compact?15:17);}
         const groups=[['tank','Tanks · front'],['melee','Melee · behind'],['healer','Healers'],['ranged','Ranged']];
         groups.forEach(([kind,label],i)=>{const members=(scene.raid||[]).filter(p=>p.kind===kind);if(!members.length)return;const points=members.map(p=>api.px(frame.pos[p.id])),p={x:points.reduce((v,p)=>v+p.x,0)/points.length,y:points.reduce((v,p)=>v+p.y,0)/points.length};font(ctx,compact?14:18);const bw=ctx.measureText(label).width+20,x=i%2? w-bw-20:20,y=clamp(p.y+(i>1?45:-35),105,h-65);path(ctx,{x:x+bw/2,y:y+14},p,'#aec7b9',true);panel(ctx,x,y,bw,30);text(ctx,label,x+10,y+6,compact?14:18);});
     }
     function draw(layer,api,scene,frame) {
         const {ctx}=api;ctx.save();
         if(layer==='floor') { ctx.fillStyle='rgba(3,10,10,.25)';ctx.fillRect(0,0,api.width,api.height||api.width*.5625);ctx.restore();return; }
-        if(frame.stage==='overview'){overview(api);ctx.restore();return;}
+        if(frame.stage==='overview'){if(!api.presenting)overview(api);ctx.restore();return;}
         if(frame.stage==='positioning'){positioning(api,scene,frame);ctx.restore();return;}
         const box=api.lessonLayout || teachingLayout(api,scene,frame), area={left:box.action.x,right:box.action.x+box.action.w,top:box.action.y,bottom:box.action.y+box.action.h};
-        mechanics(api,scene,frame,area);actions(api,frame);tipVisual(api,scene,frame);actorLabels(api,scene,frame,area);teaching(api,scene,frame,box);
+        mechanics(api,scene,frame,area);actions(api,frame);tipVisual(api,scene,frame);actorLabels(api,scene,frame,area);if(!api.presenting)teaching(api,scene,frame,box);
         ctx.restore();
     }
     return {draw, layout:teachingLayout, reserve};

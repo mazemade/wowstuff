@@ -33,6 +33,14 @@
     <noscript><p>Enable JavaScript to view the interactive raid briefings.</p></noscript>
     <main class="brief" hidden>
       <section class="stage" aria-labelledby="bossName">
+        <header class="presentation-head" id="presentationHead" hidden>
+          <div class="presentation-heading">
+            <p class="presentation-context" id="presentationContext"></p>
+            <h2 id="presentationTitle"></h2>
+            <p class="presentation-detail" id="presentationDetail"></p>
+          </div>
+          <div class="presentation-spells" id="presentationSpells" aria-label="Current mechanic spells"></div>
+        </header>
         <header class="stage__head">
           <nav class="page-tabs" aria-label="Raid tools">
             <a href="./" class="page-tab">Assignments</a>
@@ -220,6 +228,7 @@
     <script src="tactics-hyjal.js"></script>
     <script src="tactics-hyjal-render.js"></script>
     <script src="tactics-lesson-render.js"></script>
+    <script src="tactics-presentation.js"></script>
     <script src="tactics.js"></script>
   </body>
 </html>
