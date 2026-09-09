@@ -15,7 +15,7 @@ let passed = 0;
 function test(name, fn) { fn(); console.log('ok -', name); passed++; }
 
 test('registers an eleven-chapter Reliquary after Akama with complete guidance', () => {
-    assert.deepEqual(Object.keys(D.FIGHTS), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan']);
+    assert.deepEqual(Object.keys(D.FIGHTS).filter(id => id.startsWith('bt-')), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan']);
     assert.equal(fight.scenes.length, 11);
     fight.scenes.forEach(s => {
         ['chapter', 'title', 'caption', 'call', 'why', 'mistake'].forEach(k => assert.ok(s[k], s.id + ' ' + k));

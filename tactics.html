@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Supremus — fight briefing</title>
+    <title>Raid tactics — guided briefings</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,7 +13,25 @@
     <link rel="stylesheet" href="tactics.css" />
   </head>
   <body class="tactics">
-    <main class="brief">
+    <main class="tactics-hub" id="tacticsHub" hidden>
+      <nav class="page-tabs" aria-label="Raid tools">
+        <a href="./" class="page-tab">Assignments</a>
+        <a href="positions.html" class="page-tab">Positioning</a>
+        <a href="vetting.html" class="page-tab">Vetting</a>
+        <a href="tactics.html" class="page-tab active" aria-current="page">Tactics</a>
+      </nav>
+      <a class="hub-back" id="hubBack" href="tactics.html" hidden>← All raids</a>
+      <header class="hub-header" id="hubHeader">
+        <p class="eyebrow" id="hubEyebrow">The Burning Crusade / Raid tactics</p>
+        <h1 id="hubTitle">Know the fight.</h1>
+        <p id="hubIntro">Choose your raid. Bring a clear plan to every pull.</p>
+      </header>
+      <p class="hub-notice" id="hubNotice" hidden></p>
+      <div id="hubContent"></div>
+      <p class="hub-footer">Positions. Role calls. Movement. A quick recap before the pull.</p>
+    </main>
+    <noscript><p>Enable JavaScript to view the interactive raid briefings.</p></noscript>
+    <main class="brief" hidden>
       <section class="stage" aria-labelledby="bossName">
         <header class="stage__head">
           <nav class="page-tabs" aria-label="Raid tools">
@@ -24,7 +42,7 @@
               >Tactics</a
             >
           </nav>
-          <nav class="boss-tabs" id="bossNav" aria-label="Boss briefings"></nav>
+          <div class="raid-navigation"><a id="raidBack" class="hub-back" href="tactics.html">← All raids</a><nav class="boss-tabs" id="bossNav" aria-label="Boss briefings"></nav></div>
           <div class="ident">
             <img class="ident__portrait" id="portrait" alt="" />
             <div class="ident__copy">
@@ -169,13 +187,19 @@
     <script src="tactics-mother-data.js"></script>
     <script src="tactics-council-data.js"></script>
     <script src="tactics-illidan-data.js"></script>
+    <script src="hyjal-positions.js"></script>
+    <script src="tactics-hyjal-archimonde.js"></script>
+    <script src="tactics-hyjal-data.js"></script>
     <script src="tactics-data.js"></script>
+    <script src="tactics-raids.js"></script>
+    <script src="tactics-hub.js"></script>
     <script src="tactics-layout.js"></script>
     <script src="tactics-playback.js"></script>
     <script src="tactics-bloodboil-steps.js"></script>
     <script src="tactics-mother-steps.js"></script>
     <script src="tactics-council-steps.js"></script>
     <script src="tactics-illidan-steps.js"></script>
+    <script src="tactics-hyjal-steps.js"></script>
     <script src="tactics-steps.js"></script>
     <script src="tactics-briefing.js"></script>
     <script src="tactics-najentus.js"></script>
@@ -193,6 +217,8 @@
     <script src="tactics-illidan.js"></script>
     <script src="tactics-council-render.js"></script>
     <script src="tactics-illidan-render.js"></script>
+    <script src="tactics-hyjal.js"></script>
+    <script src="tactics-hyjal-render.js"></script>
     <script src="tactics-lesson-render.js"></script>
     <script src="tactics.js"></script>
   </body>

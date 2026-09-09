@@ -4,12 +4,13 @@
 (function () {
     'use strict';
 
+    if (window.TacticsHub.showIfNeeded()) return;
     const requestedFight = new URL(location.href).searchParams.get('fight');
     const fights = window.TacticsData.FIGHTS;
     const FIGHT = Object.hasOwn(fights, requestedFight) ? fights[requestedFight] : fights['bt-najentus'];
     const L = window.TacticsLayout;
-    const ADAPTER = FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : FIGHT.id === 'bt-mother' ? window.TacticsMother : FIGHT.id === 'bt-council' ? window.TacticsCouncil : FIGHT.id === 'bt-illidan' ? window.TacticsIllidan : null;
-    const OVERLAY = FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : FIGHT.id === 'bt-mother' ? window.TacticsMotherRender : FIGHT.id === 'bt-council' ? window.TacticsCouncilRender : FIGHT.id === 'bt-illidan' ? window.TacticsIllidanRender : null;
+    const ADAPTER = FIGHT.id.startsWith('hyjal-') ? window.TacticsHyjal : FIGHT.id === 'bt-najentus' ? window.TacticsNajentus : FIGHT.id === 'bt-akama' ? window.TacticsAkama : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquary : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboil : FIGHT.id === 'bt-mother' ? window.TacticsMother : FIGHT.id === 'bt-council' ? window.TacticsCouncil : FIGHT.id === 'bt-illidan' ? window.TacticsIllidan : null;
+    const OVERLAY = FIGHT.id.startsWith('hyjal-') ? window.TacticsHyjalRender : FIGHT.id === 'bt-najentus' ? window.TacticsNajentusRender : FIGHT.id === 'bt-akama' ? window.TacticsAkamaRender : FIGHT.id === 'bt-reliquary' ? window.TacticsReliquaryRender : FIGHT.id === 'bt-bloodboil' ? window.TacticsBloodboilRender : FIGHT.id === 'bt-mother' ? window.TacticsMotherRender : FIGHT.id === 'bt-council' ? window.TacticsCouncilRender : FIGHT.id === 'bt-illidan' ? window.TacticsIllidanRender : null;
     const LESSON_RENDER = FIGHT.id === 'bt-reliquary' ? null : window.TacticsLessonRender;
     const BRIEFING = new URL(location.href).searchParams.get('view') !== 'detail';
     const STEPS = (BRIEFING ? window.TacticsBriefing : window.TacticsSteps)?.forFight(FIGHT.id) || null;
@@ -33,10 +34,10 @@
         try { players = E.deriveRoster(state, links) || []; } catch (e) { return null; }
         if (!players.length) return null;
 
-        const out = { tanks: [], healers: [], melee: [], ranged: [], classOf: {} };
+        const out = { tanks: [], healers: [], melee: [], ranged: [], classOf: {}, positioningRoster: players, tankHealerNames: E.autoAssign(players, state.overrides || {}).duties.find(d => d.id === 'tankheal')?.players || [] };
         players.forEach(p => {
             const b = E.bucketOf(p);
-            const group = b === 'tanks' ? 'tanks' : b === 'healers' ? 'healers'
+            const group = b === 'tanks' || (FIGHT.id === 'hyjal-archimonde' && p.mt) ? 'tanks' : b === 'healers' ? 'healers'
                 : b === 'melee' ? 'melee' : 'ranged';
             out[group].push(p.name);
             out.classOf[p.name] = p.class;
@@ -50,7 +51,10 @@
     const assigned = L.assign(FIGHT, roster);
     assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; });
     const BLOODBOIL_SOAK_KEY = 'tacticsBloodboilMeleeSoakers';
-    const bloodboilOptions = { meleeSoakers: [] };
+    const bloodboilOptions = { meleeSoakers: [], positioningRoster: roster?.positioningRoster, tankHealerNames: roster?.tankHealerNames };
+    if (FIGHT.id === 'hyjal-archimonde') {
+        try { bloodboilOptions.positioningState = JSON.parse(localStorage.getItem('raidPositionsState')) || {}; } catch (e) { /* Use the Positioning defaults. */ }
+    }
     if (FIGHT.id === 'bt-bloodboil') {
         try { bloodboilOptions.meleeSoakers = ADAPTER.soakAssignment(assigned, JSON.parse(localStorage.getItem(BLOODBOIL_SOAK_KEY))).selectedKeys; }
         catch (e) { /* Start with the available ranged and healers. */ }
@@ -1281,6 +1285,7 @@
         return sc.jobs || [];
     }
     function recapRows() {
+        if (FIGHT.recapRows) return FIGHT.recapRows;
         if (FIGHT.id === 'bt-bloodboil' || FIGHT.id === 'bt-council' || FIGHT.id === 'bt-illidan') return FIGHT.recapRows || FIGHT.scenes[0].jobs;
         if (FIGHT.id === 'bt-najentus') return [['Tank & spread', 'Tank holds Naj’entus; everyone spreads to limit Needle splash.'], ['Free the spine', 'Nearest player rescues the impaled ally and keeps the spine.'], ['Heal before shield', 'Top the raid while Tidal Shield is active; prepare the holder.'], ['One called throw', 'One holder moves within 25 yards and throws only on the call.'], ['Burst & spare', 'Survive the 8,500 Frost hit, heal up, and retain a spare spine.']];
         if (FIGHT.id === 'bt-supremus') return [['Phase 1 tanks', 'Main tank holds him; a healthy high-threat Hateful soak stays in melee.'], ['Blue fire', 'Spread loosely, step sideways into clear ground, and leave the trail clear.'], ['Before Phase 2', 'Melee leaves early while tanks keep control until Fixate begins.'], ['Phase 2 movement', 'Fixate runners use clear routes; everyone avoids volcanoes and stays in healer reach.'], ['Reset pickup', 'At the return, tanks pick up and available Misdirect helps rebuild control before damage.']];
@@ -1461,9 +1466,14 @@
     image(FIGHT.map);
     document.title = FIGHT.name + ' — fight briefing';
     const bossNav = el('bossNav');
-    Object.entries(fights).forEach(([id, fight]) => {
+    const currentRaid = window.TacticsRaids.forFight(FIGHT.id);
+    el('raidBack').href = 'tactics.html?raid=' + currentRaid.id;
+    el('raidBack').textContent = '← ' + currentRaid.name;
+    bossNav.setAttribute('aria-label', currentRaid.name + ' boss briefings');
+    currentRaid.fights.filter(id => Object.hasOwn(fights, id)).forEach(id => {
+        const fight = fights[id];
         const link = document.createElement('a'), url = new URL(location.href);
-        url.searchParams.set('fight', id); url.hash = '';
+        url.searchParams.set('fight', id); url.searchParams.delete('chapter'); url.searchParams.delete('raid'); url.hash = '';
         link.href = url.href; link.className = 'boss-tab'; link.textContent = fight.name;
         if (id === FIGHT.id) link.setAttribute('aria-current', 'page');
         bossNav.appendChild(link);
@@ -1498,6 +1508,13 @@
         sheet.innerHTML = '<h3 class="sheet__title">' + (FIGHT.remindersTitle || FIGHT.referenceTitle) + '</h3><ol class="sheet__steps">' +
             FIGHT.tips.map(t => '<li>' + t + '</li>').join('') + '</ol>';
         reference.appendChild(sheet);
+    }
+    if (FIGHT.trashWaves?.length) {
+        const waves = document.createElement('section'), title = document.createElement('h3'), list = document.createElement('ol');
+        waves.className = 'sheet'; title.className = 'sheet__title'; title.textContent = 'Eight waves before ' + FIGHT.name;
+        list.className = 'sheet__steps';
+        FIGHT.trashWaves.forEach(text => { const row = document.createElement('li'); row.textContent = text; list.appendChild(row); });
+        waves.append(title, list); reference.appendChild(waves);
     }
     const credit = document.createElement('div');
     credit.className = 'credit';
@@ -1622,6 +1639,7 @@
         show(scenes.findIndex(scene => scene.id === sceneId));
     }
     if (BRIEFING && STEPS.optionalScenes.length) {
+        if (FIGHT.id.startsWith('hyjal-')) el('alternateExamples').querySelector('summary').textContent = 'Before the boss';
         el('briefingExamples').hidden = false;
         if (STEPS.optionalScenes.includes('cycle')) {
             el('watchFight').hidden = false;

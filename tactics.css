@@ -17,6 +17,47 @@
   --body: "IBM Plex Sans", sans-serif;
   --radius: 4px;
 }
+
+/* Raid library: the same field-guide typography, with room for the raid artwork. */
+body.tactics.is-hub { overflow: auto; }
+.tactics-hub { max-width: 1320px; margin: 0 auto; padding: 24px 40px 32px; }
+.tactics-hub > .page-tabs { margin-bottom: 34px; }
+.hub-header { padding: 20px 0 30px; }
+.hub-header h1 { margin: 6px 0 12px; font: 600 clamp(56px, 6vw, 88px)/.95 var(--display); letter-spacing: -.025em; }
+.hub-header > p:last-child { margin: 0; color: var(--bone-2); font-size: 16px; }
+.hub-header .eyebrow { color: var(--ember-2); }
+.hub-back { display: inline-block; flex: none; color: var(--bone-2); text-decoration: none; font-size: 12px; }
+.hub-back:hover { color: var(--bone); }
+.raid-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.raid-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-height: clamp(350px, 43vw, 490px); overflow: hidden; border: 1px solid var(--line-hi); border-radius: 5px; color: var(--bone); text-decoration: none; isolation: isolate; background: var(--stone-2); }
+.raid-card::after { content: ''; position: absolute; z-index: -1; inset: 0; background: linear-gradient(180deg, rgba(5,10,8,.05) 10%, rgba(5,10,8,.28) 38%, rgba(5,10,8,.93) 81%); }
+.raid-card__image { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.raid-card:hover { border-color: var(--ember-2); }
+.raid-card:hover .raid-card__image { transform: scale(1.035); }
+.raid-card__copy { padding: 100px 30px 28px; }
+.raid-card__copy .eyebrow { color: var(--ember-3); }
+.raid-card--hyjal .eyebrow { color: #b4e0ce; }
+.raid-card h2 { margin: 7px 0 12px; font: 600 clamp(42px, 4.7vw, 66px)/1 var(--display); }
+.raid-card__copy > p:last-child { color: #c1c9bf; margin: 0; font-size: 15px; }
+.raid-card__foot { display: flex; justify-content: space-between; gap: 16px; padding: 19px 30px; border-top: 1px solid #ffffff24; color: var(--bone-2); font-size: 12px; }
+.raid-card__foot > :last-child { color: var(--bone); }
+.hub-footer { margin: 26px 0 0; color: var(--bone-3); font-size: 12px; }
+.hub-header--raid { position: relative; margin: 22px 0 26px; padding: 42px 32px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: linear-gradient(90deg, #080d0bf2 15%, #080d0b65), var(--raid-image) center 42% / cover; }
+.hub-header--raid h1 { font-size: 64px; }
+.encounter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.encounter-card { display: flex; align-items: center; gap: 20px; min-height: 132px; padding: 22px; border: 1px solid var(--line); border-radius: 4px; color: var(--bone); text-decoration: none; background: var(--stone-1); }
+.encounter-card:hover { border-color: var(--line-hi); background: var(--stone-2); }
+.encounter-card__portrait { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--line-hi); border-radius: 50%; }
+.encounter-card__copy { flex: 1; min-width: 0; }
+.encounter-card h2 { margin: 3px 0 5px; font: 600 28px/1.08 var(--display); }
+.encounter-card p { margin: 0; color: var(--bone-2); font-size: 12px; }
+.encounter-card .eyebrow { font-size: 10px; color: var(--bone-3); }
+.card-arrow { font-size: 22px; color: var(--ember-2); }
+.raid-navigation { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px 16px; }
+.raid-navigation .boss-tabs { margin: 0 0 9px; }
+.hub-notice { color: var(--ember-3); padding: 12px 16px; border: 1px solid var(--line-hi); }
+.raid-card:focus-visible, .encounter-card:focus-visible, .hub-back:focus-visible { outline: 3px solid var(--ember-2); outline-offset: 5px; }
+@media (prefers-reduced-motion: reduce) { .raid-card__image { transition: none; } }
 * {
   box-sizing: border-box;
 }
@@ -287,22 +328,22 @@ button {
 }
 /* Guided lessons reserve their own canvas panels.  Give the drawing room a real
    minimum instead of letting flexbox reduce it to zero when the legend is outside. */
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) {
   overflow: auto;
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .brief {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .brief {
   height: auto;
   min-height: 100vh;
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .stage__map {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .stage__map {
   min-height: var(--lesson-stage-min-height, 520px);
 }
-body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .mobile-call {
+body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .mobile-call {
   display: none;
 }
 @media (min-width: 1181px) {
   /* The stage sets the desktop row height; opening references only scrolls the rail. */
-  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .rail {
+  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .rail {
     contain: size;
   }
 }
@@ -382,6 +423,8 @@ body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-
 .legend__mark--spite { border-radius: 50%; border: 2px solid #d9a5ff; background: rgba(180,105,242,.2); box-shadow: 0 0 5px rgba(217,165,255,.48); }
 .legend__mark--mother-tanks { border-radius: 50%; border: 2px solid #90b9ff; }
 .legend__mark--mother-silence { border-radius: 50%; border: 2px solid #ffac70; }
+.legend__mark--tank { border-radius: 50%; border: 2px solid #90b9ff; }
+.legend__mark--danger { border-radius: 50%; background: #eb6522; }
 body[data-fight="bt-reliquary"] .map__meta { align-items: flex-end; }
 body[data-fight="bt-reliquary"] .map__scale { max-width: 165px; text-align: right; }
 body[data-fight="bt-reliquary"] .map__meta { display: none; }
@@ -418,18 +461,18 @@ body[data-fight="bt-akama"] .map__meta::after {
 }
 @media (min-width: 721px) {
   body[data-fight="bt-najentus"] .map,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .map { display: flex; flex-direction: column; }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .map { display: flex; flex-direction: column; }
   body[data-fight="bt-najentus"] .map canvas,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .map canvas { flex: 1 1 0; height: 0; min-height: var(--lesson-canvas-min-height, 230px); }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .map canvas { flex: 1 1 0; height: 0; min-height: var(--lesson-canvas-min-height, 230px); }
   body[data-fight="bt-najentus"] .map__meta,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .map__meta { position: relative; inset: auto; flex: none; padding: 7px 10px; border-top: 1px solid var(--line); background: var(--stone-0); }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .map__meta { position: relative; inset: auto; flex: none; padding: 7px 10px; border-top: 1px solid var(--line); background: var(--stone-0); }
   body[data-fight="bt-najentus"] .legend,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .legend { max-width: none; border: 0; padding: 0; backdrop-filter: none; }
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .legend { max-width: none; border: 0; padding: 0; backdrop-filter: none; }
   body[data-fight="bt-najentus"] .stage__foot,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .stage__foot,
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .stage__foot,
   body:is([data-fight="bt-akama"], [data-fight="bt-reliquary"]) .stage__foot { grid-template-columns: minmax(0, 1fr) auto; min-height: 34px; }
   body[data-fight="bt-najentus"] .stage__foot .step,
-  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .stage__foot .step,
+  body:is([data-fight="bt-supremus"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .stage__foot .step,
   body:is([data-fight="bt-akama"], [data-fight="bt-reliquary"]) .stage__foot .step { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 }
 .map__scale {
@@ -990,7 +1033,7 @@ body.has-guided-explanation .key-hint { display: none; }
   .stage__map {
     height: clamp(330px, 47vh, 430px);
   }
-  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"]) .stage__map {
+  body:is([data-fight="bt-najentus"], [data-fight="bt-supremus"], [data-fight="bt-akama"], [data-fight="bt-reliquary"], [data-fight="bt-bloodboil"], [data-fight="bt-mother"], [data-fight="bt-council"], [data-fight="bt-illidan"], [data-fight^="hyjal-"]) .stage__map {
     height: var(--lesson-stage-min-height, 660px);
     min-height: var(--lesson-stage-min-height, 660px);
   }

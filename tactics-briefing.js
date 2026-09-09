@@ -119,7 +119,7 @@
         const sceneData = fightData ? new Map(fightData.scenes.map(scene => [scene.id, scene])) : null;
         const fightGroups = Object.hasOwn(groups, fightId) ? groups[fightId] : null;
         const order = source.order.filter(sceneId => !sceneData || sceneData.has(sceneId));
-        const optionalScenes = order.filter(sceneId => optionalSceneNames.has(sceneId));
+        const optionalScenes = order.filter(sceneId => optionalSceneNames.has(sceneId) || sceneData?.get(sceneId)?.optional);
         const primaryOrder = order.filter(sceneId => !optionalScenes.includes(sceneId));
         const chapters = new Map();
 
@@ -127,7 +127,7 @@
             const rows = source.forScene(sceneId);
             if (!rows.length) return;
             const isStatic = rows.length === 1 && rows[0].startMs === 0 && rows[0].holdAtMs === 0;
-            const configured = fightGroups && Object.hasOwn(fightGroups, sceneId) ? fightGroups[sceneId] : null;
+            const configured = fightGroups && Object.hasOwn(fightGroups, sceneId) ? fightGroups[sceneId] : sceneData?.get(sceneId)?.briefing;
             if (!configured && !isStatic) throw new Error('Missing briefing groups for ' + fightId + ':' + sceneId);
             const specs = configured || [{ id: rows[0].id, title: rows[0].title, detail: rows[0].detail }];
             const sourceById = new Map(rows.map(item => [item.id, item]));

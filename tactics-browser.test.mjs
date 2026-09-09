@@ -115,6 +115,127 @@ async function waitForPresenter() {
   }
   throw new Error("Presenter map did not become ready");
 }
+async function waitForHub() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (await evaluate("typeof TacticsHub === 'object' && !tacticsHub.hidden && hubContent.children.length > 0 && [...tacticsHub.querySelectorAll('img')].every(img => img.complete && img.naturalWidth > 0)")) return;
+    await sleep(100);
+  }
+  throw new Error('Raid selection did not become ready');
+}
+
+async function checkRaidHubAndHyjal(port) {
+  await send('Emulation.setDeviceMetricsOverride', {width:1280,height:800,deviceScaleFactor:1,mobile:false});
+  await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html`});
+  await waitForHub();
+  await evaluate('localStorage.clear()');
+  assert.equal(await evaluate('document.querySelector(".brief").hidden'), true);
+  assert.equal(await evaluate('typeof __tactics'), 'undefined', 'hub does not initialize the fight loop');
+  assert.deepEqual(await evaluate('[...hubContent.querySelectorAll("h2")].map(n=>n.textContent)'), ['Black Temple','Mount Hyjal']);
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await screenshot('raid-selection-1280');
+  await evaluate('hubContent.querySelector(".raid-card--hyjal").click()'); await sleep(200); await waitForHub();
+  const hyjalIds = ['hyjal-winterchill','hyjal-anetheron','hyjal-kazrogal','hyjal-azgalor','hyjal-archimonde'];
+  assert.deepEqual(await evaluate('[...hubContent.querySelectorAll("a")].map(a=>new URL(a.href).searchParams.get("fight"))'), hyjalIds);
+  await screenshot('hyjal-boss-selection-1280');
+  await evaluate('hubContent.querySelector("a").click()'); await sleep(200); await waitForPresenter();
+  assert.equal(await evaluate('__tactics.fight.id'), hyjalIds[0]);
+  assert.deepEqual(await evaluate('[...bossNav.children].map(a=>new URL(a.href).searchParams.get("fight"))'), hyjalIds);
+  await evaluate('raidBack.click()'); await sleep(200); await waitForHub();
+  await evaluate('hubBack.click()'); await sleep(200); await waitForHub();
+  await evaluate('hubContent.querySelector(".raid-card--bt").click()'); await sleep(200); await waitForHub();
+  assert.equal(await evaluate('hubContent.children.length'), 8);
+  assert.equal(await evaluate('[...hubContent.querySelectorAll("a")].every(a=>new URL(a.href).searchParams.get("fight").startsWith("bt-"))'), true);
+  pass('Tactics image cards, raid-specific boss selection, and return navigation work at laptop size');
+
+  for (const fight of hyjalIds) {
+    await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`}); await waitForPresenter();
+    assert.equal(await evaluate('__tactics.briefing'), true);
+    assert.equal(await evaluate('[...document.images].every(img=>img.complete && img.naturalWidth>0)'), true, fight+' assets load');
+    assert.equal(await evaluate('TacticsBriefing.forFight(__tactics.fight.id).primaryOrder.includes("waves")'), false);
+    for (const [width,height] of [[1280,720],[1440,900]]) {
+      await send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false}); await sleep(100);
+      const failures = await evaluate(`(async()=>{
+        const a=__tactics,bad=[],route=a.guided.steps.filter(s=>a.primaryOrder.includes(s.sceneId));
+        for (const step of route) {
+          a.showExplanation(step.index);
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          const scene=a.scenes.find(s=>s.id===step.sceneId);
+          for(const elapsed of [0,(step.holdAtMs-step.startMs)/2,step.holdAtMs-step.startMs]) {
+            const now=performance.now();a.playback.pause(now);a.playback.seek(elapsed,now);a.render(now);
+            const f=scene._sim,box=fx.getBoundingClientRect();
+            for(const p of [f.boss,...Object.values(f.pos),...(f.adds||[]).map(x=>x.at)]) {
+              const q=a.px(p);
+              if(!Number.isFinite(q.x)||!Number.isFinite(q.y)||q.x<0||q.y<0||q.x>box.width||q.y>box.height)bad.push([scene.id,elapsed,'actor off canvas',p,q,{width:box.width,height:box.height},a.lesson?.layout]);
+            }
+            if(Object.keys(f.pos).length!==a.assigned.length)bad.push([scene.id,'phantom roster']);
+            if(!sceneCall.textContent||/undefined|NaN/.test(sceneCall.textContent+encounterState.textContent))bad.push([scene.id,'invalid guidance']);
+          }
+          const selected=a.guided.selectedIndex;
+          if(!next.disabled){next.click();prev.click();if(a.guided.selectedIndex!==selected)bad.push([scene.id,'navigation mismatch']);}
+        }
+        if(document.documentElement.scrollWidth>innerWidth)bad.push('horizontal overflow');
+        quickRecap.click();if(a.guided.steps[a.guided.selectedIndex].sceneId!=='overview')bad.push('bad recap');
+        if(!a.lesson?.model.rows.length)bad.push('missing recap rows');
+        return bad;
+      })()`);
+      assert.deepEqual(failures, [], fight+' guided scenes at '+width);
+      await screenshot(fight+'-recap-'+width);
+    }
+    await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id==='positioning'))`); await sleep(150);
+    await screenshot(fight+'-positioning-1440');
+    const movementScene={'hyjal-winterchill':['dnd',6500],'hyjal-anetheron':['infernal',6500],'hyjal-kazrogal':['mark',6500],'hyjal-azgalor':['rain',7500],'hyjal-archimonde':['doomfire',6500]}[fight];
+    await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id===${JSON.stringify(movementScene[0])}));__seekSource(${movementScene[1]})`); await sleep(150);
+    await screenshot(fight+'-movement-1440');
+    const feature = {'hyjal-winterchill':['icebolt',2000],'hyjal-anetheron':['infernal',6500],'hyjal-kazrogal':['mark',6500],'hyjal-azgalor':['doom',21500],'hyjal-archimonde':['airburst',4500]}[fight];
+    await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id===${JSON.stringify(feature[0])}));__seekSource(${feature[1]})`);
+    await screenshot(fight+'-mechanic-1440');
+    await evaluate(`(()=>{window.__exports=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>__exports.push(t),write:async items=>window.__image=await items[0].getType('image/png')}});window.ClipboardItem=class{constructor(items){this.items=items}getType(type){return this.items[type]}}})()`);
+    await evaluate('copyText.click();copyImage.click()'); await sleep(200);
+    assert((await evaluate('__exports[0]')).includes(await evaluate('sceneCall.textContent')));
+    assert((await evaluate('__image.size'))>1000);
+    await send('Page.navigate', {url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}&view=detail&chapter=${feature[0]}`}); await waitForPresenter();
+    assert.equal(await evaluate('__tactics.briefing'), false);
+    assert.equal(await evaluate('__tactics.guided.steps[__tactics.guided.selectedIndex].sceneId'), feature[0]);
+    assert.equal(await evaluate('[...bossNav.children].every(a=>!new URL(a.href).searchParams.has("chapter"))'), true, 'boss switch clears previous chapter');
+    await send('Emulation.setEmulatedMedia', { features: [{name:'prefers-reduced-motion',value:'reduce'}] }); await reload();
+    assert.equal(await evaluate('__tactics.playback.playing'), false);
+    await send('Emulation.setEmulatedMedia', {features:[]});
+    pass(fight+' supports every guided scene, recap, detail deep links, text/PNG exports and reduced motion');
+  }
+  const sparse=JSON.stringify({manual:[{name:'HyjalSoloTank',class:'WARRIOR',spec:'Protection',mt:true,flags:[],source:'manual'}],playerMeta:{HyjalSoloTank:{mt:true}}});
+  for(const fight of hyjalIds){
+    await evaluate(`localStorage.setItem('raidAssignmentsState',${JSON.stringify(sparse)})`);
+    await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=${fight}`}); await waitForPresenter();
+    assert.equal(await evaluate('__tactics.assigned.length'),1,'sparse imported roster is preserved');
+    await evaluate(`(()=>{for(const scene of __tactics.scenes){__tactics.show(__tactics.scenes.indexOf(scene));__seekSource(scene.duration);}})()`);
+    await evaluate(`__tactics.show(__tactics.scenes.findIndex(s=>s.id==='finish'));__seekSource(10000)`);
+    assert.notEqual(await evaluate(`__tactics.scenes.find(s=>s.id==='finish')._sim.stage`),'complete');
+    assert.match(await evaluate('sceneCall.textContent'),/missing/i,'incomplete roster does not claim a completed kill');
+  }
+  pass('All five Hyjal briefings preserve sparse imported rosters and display missing coverage');
+  await evaluate(`(()=>{
+    const manual=[['Main','WARRIOR','Protection'],['Other','PALADIN','Protection'],['Sham1','SHAMAN','Enhancement'],['Sham2','SHAMAN','Restoration'],['Sham3','SHAMAN','Elemental'],['Heal','PRIEST','Holy'],['Druid','DRUID','Restoration'],['Rogue','ROGUE','Combat'],['Fury','WARRIOR','Fury'],['Mage','MAGE','Arcane'],['Hunter','HUNTER','Beast Mastery'],['Lock','WARLOCK','Destruction']].map(([name,cls,spec])=>({name,class:cls,spec,flags:[],source:'manual'}));
+    localStorage.setItem('raidAssignmentsState',JSON.stringify({manual,playerMeta:{Main:{mt:true}}}));
+    localStorage.setItem('raidPositionsState',JSON.stringify({swapTanks:{archimonde:true},encounters:{'hyjal-archimonde':{saved:{nudges:{Mage:{dx:.015,dy:-.01}},anchorNudges:{boss:{dx:.02,dy:.01},'party-1':{dx:.015,dy:0}}},nudges:{Mage:{dx:.005,dy:.012}},anchorNudges:{boss:{dx:.01,dy:0},'party-2':{dx:0,dy:.01}}}}}));
+  })()`);
+  await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?fight=hyjal-archimonde`}); await waitForPresenter();
+  const parity=await evaluate(`(()=>{
+    const E=AssignmentsEngine,HP=HyjalPositions,state=JSON.parse(localStorage.raidAssignmentsState),ps=JSON.parse(localStorage.raidPositionsState),scope=ps.encounters['hyjal-archimonde'];
+    const roster=E.deriveRoster(state,{}), expected=HP.computePositions(roster,E.proposeGroups(roster),E.autoAssign(roster,state.overrides||{}).duties,{encounter:'hyjal-archimonde',boss:'archimonde',swapTanks:true,nudges:HP.combineNudges(scope.saved.nudges,scope.nudges),anchorNudges:HP.combineNudges(scope.saved.anchorNudges,scope.anchorNudges)});
+    const sc=__tactics.scenes.find(s=>s.id==='positioning');__tactics.show(__tactics.scenes.indexOf(sc));
+    return {actual:sc.raid.map(p=>({name:p.name,...sc.baseById[p.id],party:p.group+1})).sort((a,b)=>a.name.localeCompare(b.name)),expected:expected.markers.filter(m=>m.name).map(m=>({name:m.name,x:m.x,y:m.y,party:m.party})).sort((a,b)=>a.name.localeCompare(b.name)),boss:sc._sim.boss,expectedBoss:expected.markers.find(m=>m.kind==='boss'),mt:sc.raid.find(p=>p.id===sc.primaryTank).name,mtRole:sc._sim.roles[sc.primaryTank]};
+  })()`);
+  // The MT is physically separate but retains its logical party in Tactics.
+  parity.expected.forEach(p=>{if(p.name===parity.mt)p.party=parity.actual.find(a=>a.name===p.name).party;});
+  assert.deepEqual(parity.actual,parity.expected,'Tactics preserves Positioning party membership and every saved/live marker adjustment');
+  assert.deepEqual(parity.boss,{x:parity.expectedBoss.x,y:parity.expectedBoss.y},'simulation retains the saved boss position');
+  assert.equal(parity.mt,'Other','Positioning tank swap is honored');
+  assert.equal(parity.mtRole,'MT','swapped main tank keeps the main-tank callout');
+  pass('Archimonde matches Positioning parties, saved/live player/group/boss adjustments and tank swap in the browser');
+
+  await evaluate('localStorage.clear()');
+  assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+}
 async function screenshot(name) {
   if (!process.env.TACTICS_SCREENSHOT_DIR) return;
   await mkdir(process.env.TACTICS_SCREENSHOT_DIR, { recursive: true });
@@ -161,7 +282,7 @@ async function checkReliquary(port) {
   await waitForPresenter();
   assert.equal(await evaluate('__tactics.fight.id'), 'bt-reliquary');
   assert.deepEqual(await evaluate('__tactics.scenes.map(s=>s.id)'), ['overview','positioning','fixate','suffering','souls','desire','interrupts','deaden','anger','spite','cycle']);
-  assert.equal(await evaluate('bossNav.children[3].getAttribute("aria-current")'), 'page');
+  assert.equal(await evaluate(`bossNav.querySelector('[href*="fight=bt-reliquary"]').getAttribute("aria-current")`), 'page');
   assert.equal(await evaluate('[...document.images].every(i=>i.complete&&i.naturalWidth>0)'), true);
   assert.equal(await evaluate('__tactics.assigned.length'), 25);
   assert.equal(await evaluate(`(()=>{const a=__tactics;return a.scenes.every((s,i)=>{a.show(i);a.playback.pause(performance.now());return [...sceneSpells.querySelectorAll('a')].every(link=>link.href.startsWith('https://')&&!link.href.includes('undefined'))})})()`),true,'every spell card links to a real source');
@@ -721,7 +842,7 @@ async function checkStableFightFraming(port) {
     await send('Page.navigate',{url:`http://127.0.0.1:${port}/tactics.html?view=detail&fight=${fight}`});
     await waitForPresenter();
     let desktopGeometry;
-    for (const [width,height] of [[1600,1000],[1280,720],[390,844]]) {
+    for (const [width,height] of (fight.startsWith('hyjal-') ? [[1600,1000],[1280,720]] : [[1600,1000],[1280,720],[390,844]])) {
       await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
       await sleep(200);
       if(width===1600) desktopGeometry=await geometry();
@@ -1302,6 +1423,10 @@ async function run() {
   await startChrome();
   await send("Page.enable"); await send("Runtime.enable");
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installSourceSeeker.toString()})()` });
+  if (process.env.TACTICS_HYJAL_ONLY) {
+    await checkRaidHubAndHyjal(port);
+    return;
+  }
   await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-supremus` });
   await waitForPresenter();
   assert.equal(await evaluate("typeof __tactics"), "object", "presenter loaded"); pass("presenter loaded");
@@ -1470,14 +1595,16 @@ async function run() {
   assert.equal(await evaluate("__tactics.assigned.length"), 29); assert.equal(await evaluate("Object.values(__tactics.scenes[6]._sim.pos).every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))"), true); pass("Najentus MT-only and oversized browser rosters avoid phantom effects and remain drawable");
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); await reload(); await evaluate("__tactics.show(6)");
   assert.equal(await evaluate("__tactics.playback.playing"), false); await send("Emulation.setEmulatedMedia", { features: [] }); pass("Najentus reduced motion opens paused");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=constructor` }); await waitForPresenter();
-  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=__proto__` }); await waitForPresenter();
-  assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus"); pass("unknown and prototype fight ids fall back safely");
+  for (const invalid of ['constructor', '__proto__']) {
+    await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?fight=${invalid}` }); await waitForHub();
+    assert.equal(await evaluate("typeof __tactics"), "undefined");
+    assert.equal(await evaluate("hubNotice.hidden"), false);
+  }
+  pass("unknown and prototype fight ids return safely to raid selection");
   await evaluate("localStorage.clear()");
-  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail` }); await waitForPresenter();
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/tactics.html?view=detail&fight=bt-najentus` }); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-najentus");
-  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-reliquary', 'bt-bloodboil', 'bt-mother', 'bt-council', 'bt-illidan']);
+  assert.deepEqual(await evaluate("[...bossNav.children].map(a=>new URL(a.href).searchParams.get('fight'))"), ['bt-najentus', 'bt-supremus', 'bt-akama', 'bt-bloodboil', 'bt-reliquary', 'bt-mother', 'bt-council', 'bt-illidan']);
   await evaluate("bossNav.children[2].click()"); await sleep(250); await waitForPresenter();
   assert.equal(await evaluate("__tactics.fight.id"), "bt-akama");
   assert.equal(await evaluate("__tactics.count"), 10);
@@ -1627,6 +1754,7 @@ async function run() {
   assert.doesNotMatch(await evaluate('encounterState.textContent'), /AoE Channelers and adds/);
   assert.equal(await evaluate('__shadeScene._sim.npcs.every(n=>n.hp===1)'), true);
   pass('alternate strategy with a partial roster preserves real tank ownership and cannot fabricate a kill');
+  await checkRaidHubAndHyjal(port);
   await checkReliquary(port);
   await checkBloodboil(port);
   await checkMother(port);
