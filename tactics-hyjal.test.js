@@ -193,13 +193,37 @@ assert.equal(
   "a healer is not fabricated as a decurser",
 );
 const decurseRoster = Layout.assign(arch, roster);
-decurseRoster.find((p) => p.kind === "healer").class = "DRUID";
+const restoDruid = decurseRoster.find((p) => p.kind === "healer");
+restoDruid.class = "DRUID";
+restoDruid.spec = "Restoration";
 const curseWithDecurse = Hyjal.prepareScene(
   arch,
   scene(arch, "curse"),
   decurseRoster,
 );
 assert.equal(frame(arch, curseWithDecurse, 2500).effects.curse.decursed, true);
+assert.equal(
+  curseWithDecurse.decurser,
+  restoDruid.id,
+  "a Restoration Druid, rather than the tank, owns Grip decurse",
+);
+const guardianTankRoster = Layout.assign(arch, roster);
+const guardianTank = guardianTankRoster.find((p) => p.kind === "tank");
+guardianTank.class = "DRUID";
+guardianTank.spec = "Guardian";
+const guardianResto = guardianTankRoster.find((p) => p.kind === "healer");
+guardianResto.class = "DRUID";
+guardianResto.spec = "Restoration";
+const curseWithGuardianTank = Hyjal.prepareScene(
+  arch,
+  scene(arch, "curse"),
+  guardianTankRoster,
+);
+assert.equal(
+  curseWithGuardianTank.decurser,
+  guardianResto.id,
+  "a Guardian main tank is never selected to decurse Grip",
+);
 
 for (const id of ids) {
   const fight = Data.FIGHTS[id],

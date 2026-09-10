@@ -34,7 +34,9 @@
     ranged: ["MAGE", "WARLOCK", "HUNTER", "DRUID"],
   };
   const isDispel = (p) => ["PRIEST", "PALADIN"].includes(cls(p)),
-    isDecurse = (p) => ["MAGE", "DRUID"].includes(cls(p));
+    isDecurse = (p) =>
+      cls(p) === "MAGE" ||
+      (cls(p) === "DRUID" && /^(restoration|resto)$/i.test(p.spec || ""));
   function fireTrail(plan, t) {
     const progress = clamp((t - 900) / 6500) * (plan.path.length - 1);
     const point = (u) => {

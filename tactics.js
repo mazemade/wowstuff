@@ -36,13 +36,14 @@
         try { players = E.deriveRoster(state, links) || []; } catch (e) { return null; }
         if (!players.length) return null;
 
-        const out = { tanks: [], healers: [], melee: [], ranged: [], classOf: {}, positioningRoster: players, tankHealerNames: E.autoAssign(players, state.overrides || {}).duties.find(d => d.id === 'tankheal')?.players || [] };
+        const out = { tanks: [], healers: [], melee: [], ranged: [], classOf: {}, specOf: {}, positioningRoster: players, tankHealerNames: E.autoAssign(players, state.overrides || {}).duties.find(d => d.id === 'tankheal')?.players || [] };
         players.forEach(p => {
             const b = E.bucketOf(p);
             const group = b === 'tanks' || (FIGHT.id === 'hyjal-archimonde' && p.mt) ? 'tanks' : b === 'healers' ? 'healers'
                 : b === 'melee' ? 'melee' : 'ranged';
             out[group].push(p.name);
             out.classOf[p.name] = p.class;
+            out.specOf[p.name] = p.spec;
         });
         const mainTanks = new Set(players.filter(p => p.mt).map(p => p.name));
         out.tanks.sort((a, b) => Number(mainTanks.has(b)) - Number(mainTanks.has(a)));
@@ -51,7 +52,7 @@
 
     const roster = loadRoster();
     const assigned = L.assign(FIGHT, roster);
-    assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; });
+    assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; p.spec = roster?.specOf[p.name] || null; });
     const BLOODBOIL_SOAK_KEY = 'tacticsBloodboilMeleeSoakers';
     const bloodboilOptions = { meleeSoakers: [], positioningRoster: roster?.positioningRoster, tankHealerNames: roster?.tankHealerNames };
     if (FIGHT.id === 'hyjal-archimonde') {
