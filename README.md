@@ -119,6 +119,11 @@ groups, and checks live whether assignments were actually done.
   optimizer's group layout with one click.
 - `/racheck` — per-pull compliance scoreboard: were assigned debuffs and group buffs
   actually kept up, and by whom. A live in-fight view shows uptimes as they happen.
+- `/rakick` — local raid leader kick order. Choose a boss, click player names in kick
+  order, then **Save team**. The small panel shows who kicks next and estimated cooldowns;
+  **More** opens extra controls and statistics. `/rakick demo`
+  previews the panel outside combat. Other raiders do not need the addon; this feature
+  sends no messages. See [interrupt setup and encounter coverage](docs/raidleader-interrupts.md).
 - Minimap hub with status lines and buttons for all of the above.
 
 Install by copying the `RaidAssign/` folder into `Interface/AddOns/`.
@@ -148,10 +153,25 @@ npm run test:storage-browser       # same harness; vetting/feedback browser stor
 luajit raid-assign.test.lua       # addon: payload parsing, whisper queue
 luajit raid-spec-scan.test.lua    # addon: talent scanning
 luajit raid-track.test.lua        # addon: compliance tracking
+luajit raid-interrupts.test.lua   # addon: interrupt evidence, rotations, encounter filters
+luajit raid-interrupts-ui.test.lua # addon: interrupt panel and setup interactions
+luajit raid-interrupts-integration.test.lua # addon: real setup UI with real engine
 ```
 
 The Lua suites stub the WoW API and drive the addon's public surface; run them from the
 repo root.
+
+## Deep player evaluation
+
+Player reports opened from Vetting now use `evaluation.html`: per-boss evidence, practical
+action plans and role-specific checks across all 28 TBC spec/role entries. Open any readable
+report by player name or source ID, including unranked players and selected wipes. DPS and
+tank models disclose their inputs and limits; healer feedback uses healing, preparation and
+survival evidence. Estimated gains appear only for completed, supported scenarios.
+
+Run `npm run build:evaluation` to build the pinned simulator before starting the server.
+See [the evaluation guide](docs/deep-player-evaluation.md) for coverage, assumptions,
+persistence, deployment setup and verification.
 
 ## Calibration
 

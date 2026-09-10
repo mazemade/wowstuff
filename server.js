@@ -14,6 +14,10 @@ try {
   });
 } catch (err) { /* no .env is fine — the AI endpoint answers 503 */ }
 
+// The public player view is allowlisted; all tool pages and private APIs require a session.
+if (process.env.RAILWAY_ENVIRONMENT_ID) app.set('trust proxy', 1);
+require('./tool-auth.js').installToolAuth(app);
+
 // Serve static files from the current directory. index:false is load-bearing — with the
 // default, express.static answers "/" with index.html before the route below ever runs.
 app.use(express.static(path.join(__dirname), { index: false }));
@@ -531,6 +535,14 @@ app.post('/api/ai-review', async (req, res) => {
     if (err.name === 'AbortError' || err.name === 'TimeoutError') return res.status(504).json({ error: 'OpenAI request timed out' });
     res.status(502).json({ error: 'Failed to reach OpenAI' });
   }
+});
+
+// Deep reports run outside the HTTP request so expensive event reads and simulations can
+// finish while the page polls or is reopened. Keep the existing WCL test seam dynamic.
+require('./evaluation-jobs.js').installEvaluationRoutes(app, {
+  query: (query, variables) => wclQuery(query, variables),
+  loadProfile,
+  getDbIndex: getVetDbIndex,
 });
 
 // Unknown routes land on the tool rather than the old hub

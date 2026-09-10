@@ -494,7 +494,7 @@ function renderSummary() {
 function toggleDetail(key) { expanded = expanded === key ? null : key; renderTable(); }
 function feedbackUrl(r) {
     const player = state.players.find(p => p.name.toLowerCase() === r.key) || {};
-    return 'feedback.html?name=' + encodeURIComponent(r.name) + '&server=' + encodeURIComponent(player.server || wcl.server) + '&region=' + encodeURIComponent(wcl.region) +
+    return 'evaluation.html?name=' + encodeURIComponent(r.name) + '&server=' + encodeURIComponent(player.server || wcl.server) + '&region=' + encodeURIComponent(wcl.region) +
            '&zone=' + ZONE + '&thresholds=' + encodeURIComponent(JSON.stringify(state.thresholds)) +
            // logs-first B4: a row that came from a log opens its report on that night.
            (player.source && player.source.report ? '&report=' + encodeURIComponent(player.source.report) : '');

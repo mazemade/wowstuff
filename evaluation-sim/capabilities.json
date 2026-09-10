@@ -1,0 +1,13 @@
+{
+  "source": "wowsims/tbc",
+  "commit": "72e0c8a8feaf62da67add31090666773d6040f69",
+  "generatedFrom": ["ui/*/*/presets.ts", "ui/*/*/apls/*.apl.json", "ui/*/*/gear_sets/*.gear.json"],
+  "native": {
+    "dps": ["Balance Druid", "Feral Cat Druid", "Beast Mastery Hunter", "Survival Hunter", "Marksmanship Hunter (verified talent override required)", "Arcane Mage", "Fire Mage (verified talent override required)", "Frost Mage (verified talent override required)", "Retribution Paladin", "Shadow Priest", "Combat Rogue", "Assassination Rogue (verified talent override required)", "Subtlety Rogue (verified talent override required)", "Elemental Shaman", "Enhancement Shaman", "Affliction Warlock", "Demonology Warlock", "Destruction Warlock", "Fury Warrior", "Arms Warrior"],
+    "tank": []
+  },
+  "notApplicable": ["Feral Bear Druid", "Protection Paladin", "Protection Warrior", "Restoration Druid", "Holy Paladin", "Restoration Shaman", "Holy Priest", "Discipline Priest"],
+  "raceHandling": "All TBC class-valid playable races are accepted. The source preset race is used conditionally only when combatant/racial evidence does not identify a valid race.",
+  "encounterHandling": "Encounter metadata controls duration, model shape, mob type, and optional armor. Unknown encounters use a clearly labeled controlled target and do not claim replay fidelity.",
+  "rules": ["A named specialization is never silently replaced with another model.", "APL and talent-profile assumptions are surfaced as conditional coverage when WCL lacks detailed talent ranks.", "Healer HPS and tank mitigation or threat are not fabricated by the DPS simulator."]
+}

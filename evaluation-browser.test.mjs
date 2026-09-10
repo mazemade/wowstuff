@@ -1,0 +1,331 @@
+// Recruitment integration in headless Chrome: imports, edits, settings and copying.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, join, normalize, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+if (typeof WebSocket === "undefined") throw new Error("evaluation-browser.test.mjs requires Node 22 or newer (global WebSocket is required)");
+const root = dirname(fileURLToPath(import.meta.url));
+const varenthilFixture = await readFile(join(root, 'output/evaluation/varenthil-review.json'), 'utf8').then(JSON.parse).catch(() => null);
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const allowed = new Set([".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".webp", ".svg"]);
+const mime = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml" };
+
+let sharedSnapshot;
+let server, chrome, profile, socket, id = 0;
+const pending = new Map();
+const browserErrors = [];
+function pass(message) { console.log(`PASS ${message}`); }
+
+async function startServer() {
+  server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, "http://localhost");
+      if (url.pathname === '/api/vet/nights') {
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ nights: [{ code: 'MODEL', date: '2026-09-06', zoneName: 'Test raid', bosses: ['Training Demon', 'Training Giant'] }, { code: 'UNSUPPORTED', date: '2026-09-07', bosses: ['Training Giant'] }] })); return;
+      }
+      if (url.pathname === '/api/vet/evaluation' && req.method === 'POST') {
+        let body = ''; for await (const chunk of req) body += chunk;
+        const q = JSON.parse(body); starts.push(q); const jobId = 'job-' + q.report; jobs.set(jobId, q.report);
+        res.writeHead(202, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: jobId, status: 'running', progress: { stage: 'simulate', message: 'Testing fixture scenarios; these are not real player estimates.', completed: 1, total: 3 } })); return;
+      }
+      if (url.pathname.endsWith('/share') && req.method === 'POST') {
+        const jobId = url.pathname.split('/')[4];
+        sharedSnapshot = structuredClone(reportFixture(jobs.get(jobId)));
+        res.writeHead(201, { 'content-type': 'application/json' }); res.end(JSON.stringify({ token: 'a'.repeat(48) })); return;
+      }
+      if (url.pathname.startsWith('/api/shared-evaluation/')) {
+        const valid = url.pathname.endsWith('a'.repeat(48));
+        res.writeHead(valid ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(valid ? { result: sharedSnapshot } : { error: 'Unavailable' })); return;
+      }
+      if (url.pathname.startsWith('/api/vet/evaluation/')) {
+        const jobId = decodeURIComponent(url.pathname.split('/').pop()); const report = jobs.get(jobId);
+        if (!report) { res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'Expired fixture' })); return; }
+        if (report === 'RETRY' && retryFailures++ === 0) { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'Temporary fixture outage' })); return; }
+        const held = report === 'RESUME' && hold;
+        const failed = report === 'PARTIAL';
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: jobId, status: held ? 'running' : failed ? 'failed' : 'complete', progress: { stage: 'simulate', message: 'Waiting for fixture simulation', completed: 1, total: 2 }, ...(held ? {} : { result: reportFixture(report) }), ...(failed ? { error: 'One simulation failed' } : {}) })); return;
+      }
+      const pathname = decodeURIComponent(url.pathname);
+      if (pathname.split("/").some((part) => part.startsWith(".")) || !allowed.has(extname(pathname).toLowerCase())) { res.writeHead(404).end("Not found"); return; }
+      const file = resolve(root, `.${normalize(pathname)}`);
+      if (!file.startsWith(`${root}/`)) { res.writeHead(404).end("Not found"); return; }
+      await stat(file);
+      res.writeHead(200, { "content-type": mime[extname(file).toLowerCase()] || "application/octet-stream", "cache-control": "no-store" });
+      res.end(await readFile(file));
+    } catch { res.writeHead(404).end("Not found"); }
+  });
+  await new Promise((resolveListen, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolveListen); });
+  return server.address().port;
+}
+
+function chromePath() {
+  if (process.env.CHROME_BIN) return [process.env.CHROME_BIN];
+  if (process.platform === "darwin") return ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"];
+  return ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+}
+async function startChrome() {
+  profile = await mkdtemp(join(tmpdir(), "evaluation-browser-"));
+  let lastError;
+  for (const bin of chromePath()) {
+    try {
+      chrome = spawn(bin, ["--headless=new", "--remote-debugging-port=0", "--window-size=1400,1000", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], { stdio: "ignore" });
+      await Promise.race([new Promise((_, reject) => chrome.once("error", reject)), sleep(150)]);
+      if (chrome.exitCode == null) break;
+    } catch (error) { lastError = error; chrome = undefined; }
+  }
+  if (!chrome) throw new Error(`Could not launch Chrome${lastError ? `: ${lastError.message}` : ""}. Set CHROME_BIN.`);
+  const activePort = join(profile, "DevToolsActivePort");
+  let contents;
+  for (let attempt = 0; attempt < 600; attempt++) { try { contents = await readFile(activePort, "utf8"); break; } catch { await sleep(100); } }
+  assert(contents, "Chrome exposed a DevTools port");
+  const port = Number(contents.split(/\r?\n/)[0]);
+  let targets;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (targets.some((target) => target.type === "page")) break; } catch {}
+    await sleep(100);
+  }
+  const page = targets?.find((target) => target.type === "page");
+  assert(page, "Chrome exposed a page target");
+  socket = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolveOpen, reject) => { socket.onopen = resolveOpen; socket.onerror = reject; });
+  socket.onmessage = ({ data }) => {
+    const message = JSON.parse(data);
+    if (message.id && pending.has(message.id)) { pending.get(message.id)(message); pending.delete(message.id); }
+    if (message.method === "Runtime.exceptionThrown") browserErrors.push(message.params.exceptionDetails?.exception?.description || message.params.exceptionDetails?.text);
+  };
+}
+function send(method, params = {}) {
+  return new Promise((resolveSend, reject) => {
+    const requestId = ++id;
+    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(`CDP timeout: ${method}`)); }, 15_000);
+    pending.set(requestId, (message) => { clearTimeout(timer); if (message.error) reject(new Error(`${method}: ${message.error.message}`)); else resolveSend(message.result); });
+    socket.send(JSON.stringify({ id: requestId, method, params }));
+  });
+}
+async function evaluate(expression) {
+  const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+  return result.result.value;
+}
+async function waitFor(expression, what, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt++) { if (await evaluate(expression)) return; await sleep(100); }
+  throw new Error(`Timed out waiting for ${what}`);
+}
+async function navigate(url, readyExpr, what) { await send("Page.navigate", { url }); await waitFor(readyExpr, what); }
+
+// Deterministic UI fixtures only. These values are not real player estimates.
+const starts = [], jobs = new Map();
+let hold = true, retryFailures = 0;
+function reportFixture(code) {
+  if (code === 'VARENTHELUI0001' && varenthilFixture) return varenthilFixture;
+  if (['HEALERFIXTURE001', 'TANKERFIXTURE001', 'CONDITIONALMODEL'].includes(code)) return roleReportFixture(code);
+  const model = { status: 'complete', baselineDps: 1500, version: 'fixture-only-v1', actions: [
+    { id: 'haste', title: 'Use the test potion', owner: 'player', change: 'Use the potion in the burst window.', when: '0:18 alongside cooldowns', gainDps: 80, evidence: ['Fixture evidence: no potion used.'], caveats: ['Synthetic UI estimate; not a real simulation.'] },
+    { id: 'support', title: 'Arrange test support', owner: 'raid', change: 'Confirm buff coverage.', gainDps: 120, evidence: ['Fixture support absent.'], caveats: [] }
+  ], packages: [{ id: 'personal', title: 'Personal changes', actionIds: ['haste'], gainDps: 80 }, { id: 'combined', title: 'Personal + raid support', actionIds: ['haste', 'support'], gainDps: 215 }], assumptions: ['Fixture only: full support coverage.'], validation: { fixture: true } };
+  model.actions.push({ id: 'negative', title: 'Never recommend a regression', gainDps: -10 }, { id: 'zero', title: 'Never recommend zero gain', impact: { value: 0, unit: 'DPS', kind: 'modeled' } });
+  model.packages.push({ id: 'negative', title: 'Never recommend losing package', gainDps: -5 });
+  model.actions.unshift({ id: 'boots', title: 'Enchant fixture boots', owner: 'player', change: 'Add the missing enchant.', gainDps: 7, evidence: [], caveats: [] });
+  model.actions.unshift({ id: 'optional-gear', title: 'Optional fixture item', owner: 'gear', change: 'Consider only when available.', gainDps: 500, evidence: [], caveats: [] });
+  const missing = { status: 'unsupported', reason: 'No validated model for this fixture specialization.', actions: [{ id: 'poison', title: 'Never show fabricated estimate', gainDps: 9999 }], packages: [{ title: 'Invalid stale package', gainDps: 9999 }], assumptions: [] };
+  const fight = { id: 1, name: 'Training Demon', durationSec: 116, wclUrl: 'https://classic.warcraftlogs.com/reports/fixture#fight=1', observed: { dps: 1500, referenceDps: 2400, gapDps: 900 }, comparison: [{ name: 'Heroic Strike uses', player: 34, reference: 35, unit: 'casts', note: 'Nearly equal uses; outcomes differ.' }], findings: [{ id: 'rage', title: 'Investigate rage supply', owner: 'player', action: 'Preserve main abilities before spending surplus rage.', confidence: 'inferred', gainDps: null, evidence: [{ text: 'No valid rage samples.', startSec: 18, endSec: 33, url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1' }] }], timeline: [{ label: 'Burst window', startSec: 18, endSec: 33, kind: 'cooldown' }], limitations: ['No exact action replay.'], simulation: code === 'UNSUPPORTED' || code === 'PARTIAL' ? missing : model };
+  if (code === 'DIAGNOSIS') {
+    fight.observed = { dps: 835, referenceDps: 1887, gapDps: 1052 };
+    fight.damageAnalysis = { reference: { name: 'ReferenceRet', url: 'https://classic.warcraftlogs.com/reports/reference#fight=1&source=8', durationSec: 118 }, player: { name: 'FixtureWarrior', url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1&source=4', durationSec: 116 }, gapDps: 1052, accountedDps: 792, residualDps: 260, rows: [
+      { id: 'crusader-strike', name: 'Crusader Strike', playerDps: 66, referenceDps: 238, differenceDps: 172, playerCount: 7, referenceCount: 20, playerPerMinute: 3.6, referencePerMinute: 10.2, playerAverage: 1090, referenceAverage: 1404, frequencyDps: 128, yieldDps: 44, countLabel: 'casts' },
+      { id: 'seal', name: 'Seal damage', playerDps: 155, referenceDps: 366, differenceDps: 211, playerCount: 19, referenceCount: 42, playerPerMinute: 9.8, referencePerMinute: 21.4, playerAverage: 940, referenceAverage: 1026, frequencyDps: 180, yieldDps: 31, countLabel: 'hits' },
+      { id: 'melee', name: 'Melee', playerDps: 330, referenceDps: 420, differenceDps: 90, playerCount: 92, referenceCount: 106, playerPerMinute: 47.6, referencePerMinute: 53.9, playerAverage: 416, referenceAverage: 467, frequencyDps: 36, yieldDps: 54, countLabel: 'swings' },
+      { id: 'consecration', name: 'Consecration', playerDps: 0, referenceDps: 184, differenceDps: 184, playerCount: 0, referenceCount: 40, playerPerMinute: 0, referencePerMinute: 20.3, playerAverage: null, referenceAverage: 538, frequencyDps: null, yieldDps: null, countLabel: 'reference only' },
+      { id: 'judgement', name: 'Judgement', playerDps: 102, referenceDps: 189, differenceDps: 87, playerCount: 12, referenceCount: 18, playerPerMinute: 6.2, referencePerMinute: 9.2, playerAverage: 986, referenceAverage: 1239, frequencyDps: 50, yieldDps: 37, countLabel: 'casts' },
+      { id: 'residual', name: 'Other recorded sources', playerDps: 182, referenceDps: 230, differenceDps: 48, playerCount: null, referenceCount: null, playerPerMinute: null, referencePerMinute: null, playerAverage: null, referenceAverage: null, frequencyDps: null, yieldDps: null, countLabel: 'residual' }
+    ], limitations: ['The comparison does not reconstruct movement or target availability.'] };
+    fight.findings.push({ id: 'crusader-strike', title: 'Keep Crusader Strike on cooldown', owner: 'player', category: 'execution', priority: 'high', action: 'Use Crusader Strike whenever it is ready during boss contact.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Seven casts in this pull versus 20 for the reference.', url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1&source=4' }] });
+    fight.findings.push({ id: 'seal-twist', title: 'Practice the seal twist window', owner: 'player', category: 'execution', priority: 'medium', action: 'Twist the seal in the judged window while staying on the target.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Seal damage and hit rate trailed the reference.' }] });
+  }
+  if (code === 'UNSUPPORTED') fight.findings.push({ id: 'cooldown-review', title: 'Review cooldown timing', owner: 'player', category: 'execution', priority: 'high', action: 'Use the recorded cooldown window as the next-pull review point.', confidence: 'observed', gainDps: null, evidence: [{ text: 'The log contains a cooldown window but no validated damage model.' }] });
+  const second = structuredClone(fight); second.id = 2; second.name = 'Training Giant'; second.simulation = missing; second.wclUrl = 'javascript:window.BAD_LINK=true'; second.findings[0].title = '<img src=x onerror="window.BAD_HTML=true">'; second.findings[0].evidence[0].url = 'javascript:window.BAD_LINK=true';
+  fight.findings.push({ id: 'haste-potion', title: 'Potion was absent', owner: 'player', action: 'Use the potion in the burst window.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Fixture observed potion count: zero.', startSec: 18, url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1' }] });
+  return { schemaVersion: code === 'NEWSCHEMA' ? 3 : 1, player: { name: 'FixtureWarrior', spec: 'Fury', classToken: 'WARRIOR' }, night: { code, date: '2026-09-06' }, generatedAt: '2026-09-10T12:00:00Z', fights: code === 'LATE_MODEL' ? [second, fight] : [fight, second], limitations: ['All values in this browser test are synthetic fixtures.'] };
+}
+function roleReportFixture(code) {
+  const healer = code !== 'TANKERFIXTURE001';
+  const conditional = code === 'CONDITIONALMODEL';
+  const metric = healer ? 'hps' : 'dtps';
+  const player = conditional ? { name: 'FixtureDruid', classToken: 'DRUID', spec: 'Restoration', role: 'healer' } : healer ? { name: 'FixturePriest', classToken: 'PRIEST', spec: 'Holy', role: 'healer' } : { name: 'FixtureTank', classToken: 'WARRIOR', spec: 'Protection', role: 'tank' };
+  const action = healer ? { id: 'renew', title: 'Refresh assigned Renew coverage', owner: 'player', change: 'Keep the assigned tank covered through the damage window.', impact: { value: 180, unit: 'effective HPS', label: 'measured in this pull', kind: 'measured' }, evidence: ['Renew dropped during the assigned damage window.'] } : { id: 'mitigation', title: 'Plan a mitigation cooldown', owner: 'player', change: 'Use the assigned cooldown before the next spike.', impact: { value: 1, unit: 'cooldown window', label: 'capacity for next pull', kind: 'capacity' }, evidence: ['A mitigation cooldown was available at the spike.'] };
+  const simulation = conditional ? { status: 'complete', coverage: { kind: 'conditional', spec: 'Restoration', reason: 'Exact talent settings were supplied for this model.' }, actions: [action], packages: [], assumptions: [] } : { status: healer ? 'unavailable' : 'not-applicable', coverage: { kind: healer ? 'conditional' : 'not-applicable', spec: player.spec, reason: healer ? 'No native reconstruction is available; this observed improvement remains useful.' : 'Tank mitigation is reviewed from encounter evidence.' }, actions: [action], packages: [], assumptions: [] };
+  const fight = { id: 7, name: healer ? 'Healing Drill' : 'Tank Drill', durationSec: 140, wclUrl: 'https://classic.warcraftlogs.com/reports/fixture#fight=7&source=19', observed: { metric, playerValue: healer ? 1120 : 2630, referenceValue: healer ? 1180 : 2450, gapValue: healer ? 60 : -180 }, coverage: { spec: player.spec, role: player.role, checks: [{ id: 'events', label: healer ? 'Effective healing events' : 'Incoming damage events', status: 'checked' }, { id: 'assignment', label: 'Assignment context', status: 'unknown', reason: 'Record the assignment before the next pull.' }, { id: 'threat', label: 'Threat rotation', status: 'not-applicable', reason: healer ? 'Not part of this healing review.' : 'Not part of this mitigation review.' }] }, findings: [{ id: 'assignment', title: healer ? 'Confirm the healing assignment' : 'Confirm the tank assignment', owner: 'raid', action: 'Record the assignment in the next pull.', confidence: 'observed', evidence: ['The report has no assignment marker.'] }], comparison: [{ name: healer ? 'Assigned healing casts' : 'Mitigation uses', player: healer ? 8 : 2, reference: healer ? 9 : 3, unit: 'casts', note: 'Use this with the assignment context.' }], timeline: [{ label: healer ? 'Raid damage window' : 'Melee spike', startSec: 44, endSec: 57 }], limitations: ['Synthetic role fixture.'], simulation };
+  return { schemaVersion: 1, player, night: { code, date: '2026-09-09' }, generatedAt: '2026-09-10T12:00:00Z', fights: [fight], limitations: ['Role-specific synthetic browser fixture.'] };
+}
+
+try {
+  const port = await startServer(); await startChrome(); await send('Runtime.enable'); await send('Page.enable');
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copied = text; } } });" });
+  const base = `http://127.0.0.1:${port}/evaluation.html?name=FixtureWarrior&server=test-realm&region=eu`;
+  await navigate(base, "document.querySelector('#nightSelect')?.options.length === 3", 'night picker');
+  assert.equal(starts.length, 1); assert.equal(starts[0].report, undefined); pass('A named character starts a most-recent evaluation while the raid-night picker remains available');
+  await evaluate("const select = document.querySelector('#nightSelect'); select.value = 'MODEL'; select.dispatchEvent(new Event('change')); ");
+  await waitFor("document.querySelector('#jobStatus') && !document.querySelector('#jobStatus').hidden", 'job progress');
+  await waitFor("document.querySelectorAll('.action').length === 4", 'completed model');
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /\+215/);
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Do not add overlapping/);
+  assert.equal(await evaluate("document.querySelectorAll('.package').length"), 2);
+  assert.equal(await evaluate("document.querySelector('#jobStatus').hidden"), true);
+  pass('Modeled actions and separately tested packages are distinguished from observed DPS');
+  if (process.env.EVALUATION_SCREENSHOT) { const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }); await writeFile(process.env.EVALUATION_SCREENSHOT, Buffer.from(capture.data, 'base64')); }
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.action h3')].map(el => el.textContent)"), ['Use the test potion', 'Enchant fixture boots', 'Arrange test support', 'Optional fixture item']);
+  pass('Action plan orders personal improvements by gain, then raid support, then optional gear');
+  assert.equal(await evaluate("document.querySelectorAll('.finding').length"), 1);
+  assert.match(await evaluate("document.querySelector('.action details').textContent"), /Fixture observed potion count: zero/);
+  assert.match(await evaluate("document.querySelector('.finding').textContent"), /Investigate rage supply/);
+  pass('Modeled recommendations absorb matching observed proof; independent context remains visible');
+  await evaluate("document.querySelector('#copyPlanBtn').click()");
+  await waitFor('Boolean(window.__copied)', 'action plan clipboard');
+  const copied = await evaluate('window.__copied'); assert.match(copied, /0:18 alongside cooldowns/); assert.match(copied, /\+215 DPS modeled/); assert.match(copied, /not assigned to player fault/); assert.doesNotMatch(copied, /Training Giant/); assert.equal(copied.split('Use the potion in the burst window.').length - 1, 1);
+  await evaluate("document.querySelector('#copyReportBtn').click()"); await waitFor("window.__copied.includes('Training Giant')", 'full report clipboard');
+  assert.match(await evaluate('window.__copied'), /Synthetic UI estimate/); pass('Copy plan includes timing and modeling caveats; full report includes every encounter');
+  await evaluate("document.querySelector('[role=tab][aria-selected=true]').focus()");
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+  assert.equal(await evaluate("document.activeElement.id"), 'fight-tab-1');
+  assert.equal(await evaluate("document.querySelectorAll('.action-gain,.package').length"), 0);
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /DPS gains are not quantified/);
+  assert.doesNotMatch(await evaluate("document.querySelector('#fightReport').innerText"), /9999|9,999|Never show fabricated/);
+  assert.equal(await evaluate("Boolean(window.BAD_HTML || window.BAD_LINK || document.querySelector('#fightReport img') || document.querySelector('#fightReport a[href^=\"javascript:\"]'))"), false);
+  assert.equal(await evaluate("document.querySelector('#sourceLink').hidden"), true);
+  pass('Keyboard boss switching works; unsupported models expose facts without stale gains; HTML and URLs are safe');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await evaluate("document.querySelector('#fight-tab-0').click()");
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  pass('Report and action plan fit a 390px mobile viewport without page overflow');
+  await send('Emulation.clearDeviceMetricsOverride');
+  assert.equal(starts[0].force, undefined);
+  await evaluate("document.querySelector('#refreshBtn').click()");
+  await waitFor("document.querySelector('#jobStatus') && !document.querySelector('#jobStatus').hidden", 'forced rebuild');
+  assert.equal(starts.at(-1).force, true);
+  await waitFor("document.querySelector('#jobStatus').hidden", 'forced rebuild completion');
+  pass('Only an explicit rebuild requests a fresh job');
+  const beforeResume = starts.length;
+  await navigate(base + '&report=RESUME', "document.querySelector('#statusText')?.textContent.includes('fixture simulation')", 'held job');
+  await send('Page.reload'); await waitFor("document.querySelector('#statusText')?.textContent.includes('fixture simulation')", 'resumed job');
+  assert.equal(starts.length, beforeResume + 1); hold = false;
+  await waitFor("document.querySelectorAll('.action').length === 4", 'resumed completion');
+  pass('Reload resumes the saved job without starting another analysis');
+  await navigate(base + '&report=PARTIAL', "document.querySelector('#errorBox')?.textContent.includes('One simulation failed')", 'partial failure');
+  assert.equal(await evaluate("document.querySelector('#report').hidden"), false);
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Investigate rage supply/);
+  assert.equal(await evaluate("document.querySelectorAll('.action-gain,.package').length"), 0);
+  pass('Partial failure preserves observed findings and exposes the error');
+  await navigate(base + '&report=RETRY', "document.querySelector('#errorBox')?.textContent.includes('reconnect automatically')", 'network retry');
+  await waitFor("document.querySelectorAll('.action').length === 4", 'reconnected report');
+  assert.equal(await evaluate("document.querySelector('#errorBox').hidden"), true);
+  pass('Transient polling failures reconnect and render the completed report');
+  await evaluate("localStorage.setItem('raidEvaluation:v1:eu/test-realm/fixturewarrior/1060/EXPIRED', JSON.stringify({version:1,id:'missing-job'}))");
+  await navigate(base + '&report=EXPIRED', "document.querySelector('#errorBox')?.textContent.includes('expired')", 'expired job');
+  assert.equal(await evaluate("document.querySelector('#refreshBtn').disabled"), false);
+  await navigate(base + '&report=LATE_MODEL', "document.querySelectorAll('.action').length === 4", 'preferred modeled encounter');
+  assert.equal(await evaluate("document.querySelector('[role=tab][aria-selected=true]').textContent"), 'Training Demon');
+  assert.equal(await evaluate("document.querySelector('[role=tab][aria-selected=true]').id"), 'fight-tab-1');
+  await evaluate("document.querySelector('#fight-tab-0').click(); document.querySelector('#refreshBtn').click()");
+  await waitFor("document.querySelector('#jobStatus') && !document.querySelector('#jobStatus').hidden", 'selected encounter rebuild');
+  await waitFor("document.querySelector('#jobStatus').hidden", 'selected encounter rebuild completion');
+  assert.equal(await evaluate("document.querySelector('[role=tab][aria-selected=true]').id"), 'fight-tab-0');
+  assert.equal(await evaluate("document.querySelectorAll('.action').length"), 0);
+  pass('Default view prefers a modeled encounter; user boss selection survives later updates');
+  await navigate(base + '&report=DIAGNOSIS', "document.querySelector('#fightReport')?.innerText.includes('What the logs show')", 'damage diagnosis');
+  const diagnosisText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(diagnosisText, /ReferenceRet/);
+  assert.match(diagnosisText, /1,052 DPS/);
+  assert.match(diagnosisText, /Consecration/i);
+  assert.match(diagnosisText, /Frequency \+128/i);
+  assert.match(diagnosisText, /Keep Crusader Strike on cooldown/);
+  assert.ok(diagnosisText.indexOf('What the logs show') < diagnosisText.indexOf('Tested equipment & support options'));
+  assert.match(diagnosisText, /\+80 DPS\s*modeled/);
+  assert.doesNotMatch(diagnosisText, /recoverable gain/);
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Damage diagnosis')", 'diagnosis action-plan copy');
+  assert.match(await evaluate('window.__copied'), /Priority execution \(High priority\): Keep Crusader Strike on cooldown/);
+  await evaluate("document.querySelector('#copyReportBtn').click()"); await waitFor("window.__copied.includes('ReferenceRet')", 'diagnosis full-report copy');
+  assert.match(await evaluate('window.__copied'), /Consecration/);
+  pass('A large observed gap leads with damage accounting and high-priority execution, while tested options stay separate');
+  await navigate(base + '&report=UNSUPPORTED', "document.querySelector('#fightReport')?.innerText.includes('Review cooldown timing')", 'unmodeled priority execution');
+  const unmodeledText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(unmodeledText, /Change these first on the next pull/);
+  assert.doesNotMatch(unmodeledText, /Damage diagnosis/);
+  assert.equal(unmodeledText.split('Review cooldown timing').length - 1, 1);
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Review cooldown timing')", 'unmodeled priority action-plan copy');
+  const unmodeledCopy = await evaluate('window.__copied');
+  assert.equal(unmodeledCopy.split('Review cooldown timing').length - 1, 1);
+  assert.match(unmodeledCopy, /Priority execution \(High priority\)/);
+  pass('DPS execution priorities lead even without a reference ledger or modeled gain');
+  if (varenthilFixture) {
+    await navigate(`http://127.0.0.1:${port}/evaluation.html?report=VARENTHELUI0001&fightId=9&sourceId=1`, "document.querySelector('#playerTitle')?.textContent === 'Varenthil'", 'saved Varenthil review');
+    const varenthilText = await evaluate("document.querySelector('#fightReport').innerText");
+    assert.match(varenthilText, /Aboujudger/);
+    assert.match(varenthilText, /Observed account/i);
+    assert.match(varenthilText, /Options supported by this pull/);
+    assert.doesNotMatch(varenthilText, /Modeled baseline|iterations per scenario/i);
+    await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Damage diagnosis')", 'saved Varenthil action-plan copy');
+    pass('Saved Varenthil ledger renders without importing model assumptions');
+  }
+  await navigate(base + '&report=NEWSCHEMA', "document.querySelector('#errorBox')?.textContent.includes('report format')", 'schema mismatch');
+  assert.equal(await evaluate("document.querySelector('#refreshBtn').disabled"), false);
+  assert.equal(await evaluate("document.querySelector('#jobStatus').hidden"), true);
+  pass('Unsupported report schemas stop polling and allow a rebuild');
+  await navigate(`http://127.0.0.1:${port}/evaluation.html?report=HEALERFIXTURE001&fightId=7&sourceId=19`, "document.querySelector('#playerTitle')?.textContent === 'FixturePriest'", 'direct healer report');
+  assert.deepEqual(starts.at(-1), { region: 'eu', zone: '1060', report: 'HEALERFIXTURE001', fightId: '7', sourceId: '19' });
+  const healerText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(healerText, /Effective healing \/ HPS observed/);
+  assert.match(healerText, /Effective healing is context, not a target to maximize/);
+  assert.match(healerText, /What was checked for Holy healer/);
+  assert.match(healerText, /Unknown.*Record the assignment before the next pull/);
+  assert.doesNotMatch(healerText, /DPS gains|recoverable|player fault/);
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Effective healing / HPS')", 'healer action-plan copy');
+  assert.doesNotMatch(await evaluate('window.__copied'), /DPS/);
+  pass('Direct healer reports work without ranked-night identity and keep healing evidence role-specific');
+  await navigate(`http://127.0.0.1:${port}/evaluation.html?report=TANKERFIXTURE001&fightId=7&sourceId=19`, "document.querySelector('#playerTitle')?.textContent === 'FixtureTank'", 'direct tank report');
+  const tankText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(tankText, /Incoming damage \/ DTPS observed/);
+  assert.match(tankText, /Lower DTPS is not automatically better/);
+  assert.match(tankText, /\+1 cooldown window/);
+  assert.doesNotMatch(tankText, /DPS gains|recoverable/);
+  pass('Tank reports present incoming damage as context and retain capacity improvements without a DPS model');
+  await navigate(base, "document.querySelector('#nightSelect')?.options.length === 3", 'conditional report input');
+  await evaluate("document.querySelector('#nameInput').value = ''; document.querySelector('#serverInput').value = ''; document.querySelector('#reportInput').value = 'https://classic.warcraftlogs.com/reports/CONDITIONALMODEL#fight=7&source=19'; document.querySelector('#raceInput').value = 'Tauren'; document.querySelector('#talentsInput').value = '12345'; document.querySelector('#identityForm').requestSubmit()");
+  await waitFor("document.querySelector('#playerTitle')?.textContent === 'FixtureDruid'", 'conditional direct report');
+  assert.equal(starts.at(-1).report, 'CONDITIONALMODEL'); assert.equal(starts.at(-1).fightId, '7'); assert.equal(starts.at(-1).sourceId, '19');
+  assert.deepEqual(starts.at(-1).modelOverrides, { race: 'Tauren', talentsString: '12345' });
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Conditional model/);
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Exact talent settings were supplied/);
+  pass('Pasted Warcraft Logs pulls parse fight and source IDs; optional settings reach conditional models');
+  await navigate(base + '&report=DIAGNOSIS', "document.querySelector('#shareBtn')?.disabled === false", 'shareable report');
+  await evaluate("document.querySelector('#shareBtn').click()");
+  await waitFor("document.querySelector('#shareLinkBox')?.hidden === false", 'share link');
+  const sharedUrl = await evaluate("document.querySelector('#shareLinkInput').value");
+  assert.match(sharedUrl, /shared-evaluation\.html#[a-f0-9]{48}$/);
+  assert.equal(await evaluate('window.__copied'), sharedUrl);
+  const beforeShareStarts = starts.length;
+  await navigate(sharedUrl.replace('#', '?name=DifferentPlayer&sourceId=99#'), "document.querySelector('#report')?.hidden === false", 'recipient report');
+  assert.equal(await evaluate("document.querySelector('#playerTitle').textContent"), 'FixtureWarrior');
+  assert.equal(await evaluate("!!document.querySelector('nav, .back-link, #identityForm, #refreshBtn, #nightSelect, #shareBtn')"), false);
+  assert.equal(starts.length, beforeShareStarts, 'recipient does not build or select another report');
+  assert.equal(await evaluate("[...document.querySelectorAll('a[href]')].some(a => a.origin === location.origin)"), false);
+  await evaluate("document.querySelector('#copyPlanBtn').click()");
+  await waitFor("window.__copied?.includes('Damage diagnosis')", 'recipient plan copy');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+  await navigate(`http://127.0.0.1:${port}/shared-evaluation.html#bad`, "document.querySelector('#errorBox')?.hidden === false", 'invalid shared link');
+  assert.equal(await evaluate("!!document.querySelector('nav, #identityForm')"), false);
+  pass('Player links show only the saved report, ignore identity changes, support copying/mobile and fail closed');
+  assert.equal(browserErrors.length, 0, browserErrors.join('\n'));
+  pass('Expired jobs can be rebuilt; no browser runtime errors');
+} finally {
+  if (socket) socket.close();
+  if (chrome) { chrome.kill('SIGTERM'); await Promise.race([new Promise(resolveExit => chrome.once('exit', resolveExit)), sleep(3000)]); }
+  if (server) await new Promise(resolveClose => server.close(resolveClose));
+  if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}

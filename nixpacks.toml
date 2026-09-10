@@ -1,0 +1,10 @@
+# Keep the Node provider's setup and add the build tools for the pinned TBC simulator.
+# Configuration reference: https://nixpacks.com/docs/configuration/file
+[phases.setup]
+nixPkgs = ['...', 'go', 'protobuf', 'git']
+
+[phases.build]
+cmds = ['npm run build:evaluation']
+
+[variables]
+GOTOOLCHAIN = 'auto'

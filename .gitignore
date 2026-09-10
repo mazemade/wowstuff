@@ -40,3 +40,5 @@ calibration/vendor/
 calibration/out/
 calibration/dump-profiles/out/
 scratchpad/
+evaluation-sim/vendor/
+.evaluation-cache/

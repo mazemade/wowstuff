@@ -1,0 +1,12 @@
+{
+  "description": "Minimal WCL-shaped rows used by role evidence tests. Timestamps are report milliseconds; tables retain WCL data wrappers.",
+  "fight": {"id": 91, "name": "Training Boss", "startTime": 1000000, "endTime": 1120000, "kill": true},
+  "dmgAll": {"data": {"entries": [{"id": 7, "name": "Tester", "icon": "Druid-Feral", "total": 24000}]}},
+  "tables": {
+    "dmg": {"data": {"entries": [{"guid": 33983, "name": "Mangle (Cat)", "total": 6000, "hitCount": 5, "missCount": 0}]}},
+    "casts": {"data": {"entries": [{"guid": 33983, "name": "Mangle (Cat)", "total": 5}, {"guid": 1719, "name": "Recklessness", "total": 2}]}},
+    "buffs": {"data": {"auras": [{"guid": 27008, "name": "Rip", "totalUptime": 72000, "bands": [{"startTime": 1010000, "endTime": 1082000}]}]}},
+    "debuffs": {"data": {"entries": [{"guid": 25225, "name": "Sunder Armor"}]}}
+  },
+  "events": {"complete": true, "data": [{"type": "cast", "sourceID": 7, "abilityGameID": 1719, "timestamp": 1001000}, {"type": "cast", "sourceID": 7, "abilityGameID": 1719, "timestamp": 1111000}]}
+}

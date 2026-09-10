@@ -17,7 +17,11 @@ const P = require('./vet-profile.js');
 const F = require('./vet-feedback.js');
 const V = require('./vet-engine.js');
 const L = require('./wcl-logs.js');
+process.env.TOOL_ADMIN_PASSWORD = 'server-route-tests-only-password';
 const app = require('./server.js');
+const nativeFetch = global.fetch;
+let authCookie = '';
+const fetch = (url, options = {}) => nativeFetch(url, { ...options, headers: { Cookie: authCookie, ...options.headers } });
 const NOTT = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wcl-vet-nottomwro.json'), 'utf8'));
 
 let passed = 0, failed = 0;
@@ -35,7 +39,13 @@ function test(name, fn) {
 const srv = http.createServer(app);
 let base = '';
 chain = new Promise((resolve, reject) => {
-    srv.listen(0, '127.0.0.1', () => { base = `http://127.0.0.1:${srv.address().port}`; resolve(); });
+    srv.listen(0, '127.0.0.1', async () => {
+        base = `http://127.0.0.1:${srv.address().port}`;
+        try {
+            const login = await nativeFetch(base + '/api/tool-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ password: process.env.TOOL_ADMIN_PASSWORD }) });
+            assert.strictEqual(login.status, 204); authCookie = login.headers.get('set-cookie').split(';')[0]; resolve();
+        } catch (err) { reject(err); }
+    });
     srv.on('error', reject);
 });
 

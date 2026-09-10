@@ -1,0 +1,78 @@
+{
+  "source": "Warcraft Logs classic API report X6mnbPQpGhjJC2TN fight 38, captured 2026-09-10",
+  "fight": {
+    "id": 38,
+    "name": "Anetheron",
+    "startTime": 3964929,
+    "endTime": 4080759,
+    "kill": true,
+    "encounterID": 50619
+  },
+  "healer": {
+    "player": {
+      "name": "Sspope",
+      "classToken": "PRIEST",
+      "spec": "Holy",
+      "role": "healer"
+    },
+    "sourceId": 2,
+    "casts": [
+      { "name": "Prayer of Mending", "guid": 33076, "total": 8 },
+      { "name": "Circle of Healing", "guid": 34866, "total": 6 },
+      { "name": "Renew", "guid": 25222, "total": 13 }
+    ],
+    "healing": [
+      { "name": "Prayer of Mending", "guid": 33110, "total": 23850, "overheal": 2867, "hitCount": 13, "tickCount": 0 },
+      { "name": "Circle of Healing", "guid": 34866, "total": 21372, "overheal": 7533, "hitCount": 24, "tickCount": 0 },
+      { "name": "Power Word: Shield", "guid": 25218, "total": 4522, "hitCount": 2, "tickCount": 0 },
+      { "name": "Renew", "guid": 25222, "total": 27608, "overheal": 38007, "hitCount": 0, "tickCount": 74 }
+    ],
+    "events": [
+      { "timestamp": 3974967, "type": "applybuff", "sourceID": 2, "targetID": 7, "abilityGameID": 25222 },
+      { "timestamp": 3983233, "type": "heal", "sourceID": 2, "targetID": 49, "abilityGameID": 25235, "amount": 2721 },
+      { "timestamp": 3983244, "type": "applybuff", "sourceID": 2, "targetID": 2, "abilityGameID": 34754 },
+      { "timestamp": 3988910, "type": "refreshbuff", "sourceID": 2, "targetID": 7, "abilityGameID": 25222 },
+      { "timestamp": 3993019, "type": "applybuff", "sourceID": 2, "targetID": 7, "abilityGameID": 25218 },
+      { "timestamp": 3993793, "type": "absorbed", "sourceID": 2, "targetID": 7, "abilityGameID": 25218, "amount": 2261 },
+      { "timestamp": 4006904, "type": "removebuff", "sourceID": 2, "targetID": 7, "abilityGameID": 25222 }
+    ],
+    "combatantInfo": {
+      "timestamp": 3964929,
+      "type": "combatantinfo",
+      "fight": 38,
+      "sourceID": 2,
+      "gear": [
+        { "id": 30152, "quality": 4, "itemLevel": 133, "permanentEnchant": 3001, "gems": [{ "id": 25901 }, { "id": 24060 }] },
+        { "id": 30018, "quality": 4, "itemLevel": 138 },
+        { "id": 30154, "quality": 4, "itemLevel": 133, "permanentEnchant": 2979 },
+        { "id": 0, "quality": 1, "itemLevel": 0 },
+        { "id": 30150, "quality": 4, "itemLevel": 133, "permanentEnchant": 1144 }
+      ]
+    }
+  },
+  "tank": {
+    "player": {
+      "name": "Smellmystaff",
+      "classToken": "DRUID",
+      "spec": "Guardian",
+      "role": "tank"
+    },
+    "sourceId": 7,
+    "damageTaken": [
+      { "name": "Immolation", "guid": 31303, "total": 10402, "hitCount": 3, "missCount": 1 },
+      { "name": "Carrion Swarm", "guid": 31306, "total": 9139, "hitCount": 2, "missCount": 0 },
+      { "name": "Melee", "guid": 1, "total": 120002, "totalReduced": 115480, "hitCount": 29, "missCount": 22 }
+    ],
+    "damageTakenEvents": [
+      { "timestamp": 3972998, "type": "damage", "sourceID": 94, "targetID": 7, "abilityGameID": 1, "amount": 4962, "mitigated": 13043, "unmitigatedAmount": 18005 },
+      { "timestamp": 3973826, "type": "damage", "sourceID": 94, "targetID": 7, "abilityGameID": 1, "amount": 7049, "mitigated": 10001, "unmitigatedAmount": 17050 },
+      { "timestamp": 4057889, "type": "damage", "sourceID": 94, "targetID": 7, "abilityGameID": 1, "amount": 960, "absorbed": 2261, "mitigated": 9663, "unmitigatedAmount": 12884 }
+    ]
+  },
+  "actors": [
+    { "id": 39, "name": "Nukunacht", "type": "Player", "subType": "Hunter", "petOwner": null },
+    { "id": 40, "name": "Zirpzirp", "type": "Pet", "subType": "Pet", "petOwner": 39 },
+    { "id": 43, "name": "Funkell", "type": "Player", "subType": "Hunter", "petOwner": null },
+    { "id": 51, "name": "BugLightyear", "type": "Pet", "subType": "Pet", "petOwner": 43 }
+  ]
+}

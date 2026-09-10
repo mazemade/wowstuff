@@ -1,0 +1,7 @@
+{
+  "description": "Absence-safe WCL-shaped samples. Empty tables mean no recording, never an absent talent or unaffordable ability.",
+  "fight": {"id": 92, "name": "Training Boss", "startTime": 2000000, "endTime": 2120000, "kill": true},
+  "dmgAll": {"data": {"entries": [{"id": 8, "name": "Unknown", "icon": "Hunter-BeastMastery", "total": 18000}]}},
+  "tables": {"dmg": {"data": {"entries": []}}, "casts": {"data": {"entries": []}}, "buffs": {"data": {"auras": []}}},
+  "events": {"complete": false, "data": []}
+}
