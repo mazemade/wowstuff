@@ -56,6 +56,19 @@
     return p.spec || byClass[cls(p)] || "Arcane";
   };
   function applyB12Formation(fight, sc, options) {
+    const state = options.positioningState || {};
+    const scope = (state.encounters && state.encounters["hyjal-b12"]) || {};
+    const saved = scope.saved || {};
+    const hasSavedFormation = [saved.nudges, saved.anchorNudges, scope.nudges, scope.anchorNudges]
+      .some((layer) => layer && Object.keys(layer).length);
+    const boss = fight.id === "hyjal-anetheron" ? "anetheron" : "winterchill";
+    // Templates are stored as offsets from Positioning's exact computed seats.
+    // With no saved template, keep the authored wide teaching formation below;
+    // with one, do not alter the Positioning baseline before restoring its offsets.
+    if (!hasSavedFormation) {
+      sc.positioningSource = { encounter: "hyjal-b12", boss, rosterSource: "authored-wide" };
+      return;
+    }
     const supplied = Array.isArray(options.positioningRoster) && options.positioningRoster.length;
     const roster = supplied
       ? options.positioningRoster
@@ -74,28 +87,12 @@
       sc.raid.forEach((actor, index) =>
         byName.set(actor.name || "__b12_actor_" + (actor.id || index), actor),
       );
-    const state = options.positioningState || {};
-    const scope = (state.encounters && state.encounters["hyjal-b12"]) || {};
-    const saved = scope.saved || {};
-    const boss = fight.id === "hyjal-anetheron" ? "anetheron" : "winterchill";
     const baseDuties = options.positioningDuties || E.autoAssign(roster, {}).duties;
     const dutyTankHealers = (baseDuties.find((duty) => duty.id === "tankheal") || {}).players || [];
-    const availableHealers = roster
-      .filter((player) => E.bucketOf(player) === "healers")
-      .map((player) => player.name);
-    // autoAssign may contain only one explicit tank-healer. Always finish the
-    // pair from the available healers so the renderer and the shared map agree
-    // about which two people must occupy the opposite safe seats.
-    const preferredTankHealers = (options.tankHealerNames || []).filter(Boolean);
-    const assignedTankHealers = [
-      ...(preferredTankHealers.length ? preferredTankHealers : dutyTankHealers),
-      ...availableHealers,
-    ].filter((name, index, names) => names.indexOf(name) === index).slice(0, 2);
-    const tankHealDuty = { id: "tankheal", players: assignedTankHealers };
-    const duties = baseDuties.some((duty) => duty.id === "tankheal")
-      ? baseDuties.map((duty) => duty.id === "tankheal" ? { ...duty, ...tankHealDuty } : duty)
-      : baseDuties.concat(tankHealDuty);
-    const computed = HP.computePositions(roster, E.proposeGroups(roster), duties, {
+    // Use the exact assignment result that Positioning uses. Saved templates are
+    // offsets from these seats, so replacing its tank-healer row would shift every
+    // saved token before the offsets were restored.
+    const computed = HP.computePositions(roster, E.proposeGroups(roster), baseDuties, {
       encounter: "hyjal-b12",
       boss,
       swapTanks: !!(state.swapTanks || {})[boss],
@@ -121,7 +118,11 @@
     sc.offTank = offTankMarker && byName.get(offTankMarker.name)
       ? byName.get(offTankMarker.name).id
       : boss === "anetheron" ? null : sc.offTank;
-    const dutyNames = assignedTankHealers;
+    const dutyNames = [
+      ...(options.tankHealerNames || []).filter(Boolean),
+      ...dutyTankHealers,
+      ...roster.filter((player) => E.bucketOf(player) === "healers").map((player) => player.name),
+    ].filter((name, index, names) => names.indexOf(name) === index).slice(0, 2);
     sc.tankHealers = dutyNames
       .map((name) => byName.get(name))
       .filter((actor) => actor && sc.healers.includes(actor.id))
@@ -149,7 +150,7 @@
         )[0] || sc.target;
     }
     sc.positioningWarnings = computed.warnings.slice();
-    sc.positioningSource = { encounter: "hyjal-b12", boss, rosterSource: supplied ? "positioningRoster" : "scene" };
+    sc.positioningSource = { encounter: "hyjal-b12", boss, rosterSource: supplied ? "positioningRoster" : "scene", saved: true };
   }
   function fireTrail(plan, t) {
     const progress = clamp((t - 900) / 6500) * (plan.path.length - 1);
@@ -413,48 +414,49 @@
       "hyjal-winterchill": {
         facing: -25,
         healer: [
-          [0.495, 0.18],
-          [0.665, 0.18],
-          [0.413, 0.37],
+          [0.475, 0.148],
+          [0.611, 0.148],
+          [0.425, 0.36],
           [0.693, 0.55],
           [0.49, 0.619],
           [0.62, 0.64],
         ],
         ranged: [
-          [0.585, 0.155],
+          [0.539, 0.16],
           [0.428, 0.25],
           [0.714, 0.4],
-          [0.415, 0.51],
-          [0.6, 0.62],
-          [0.53, 0.16],
+          [0.37, 0.5],
+          [0.5, 0.72],
+          [0.586, 0.24],
           [0.68, 0.275],
           [0.73, 0.49],
-          [0.535, 0.66],
-          [0.4, 0.43],
-          [0.455, 0.6],
+          [0.55, 0.7],
+          [0.365, 0.4],
+          [0.42, 0.58],
         ],
       },
       "hyjal-anetheron": {
         facing: -25,
         healer: [
-          [0.529, 0.172],
-          [0.715, 0.285],
-          [0.419, 0.376],
-          [0.716, 0.506],
-          [0.5, 0.635],
-          [0.606, 0.632],
+          [0.475, 0.148],
+          [0.611, 0.148],
+          [0.425, 0.36],
+          [0.693, 0.55],
+          [0.49, 0.619],
+          [0.62, 0.64],
         ],
         ranged: [
-          [0.585, 0.225],
-          [0.475, 0.24],
-          [0.425, 0.5],
-          [0.745, 0.37],
-          [0.61, 0.68],
-          [0.465, 0.585],
-          [0.72, 0.6],
-          [0.43, 0.29],
-          [0.68, 0.39],
-          [0.52, 0.255],
+          [0.539, 0.16],
+          [0.428, 0.25],
+          [0.714, 0.4],
+          [0.37, 0.5],
+          [0.5, 0.72],
+          [0.586, 0.24],
+          [0.68, 0.275],
+          [0.73, 0.49],
+          [0.55, 0.7],
+          [0.365, 0.4],
+          [0.42, 0.58],
         ],
         offTank: [0.72, 0.16],
       },
@@ -522,10 +524,12 @@
       else if (rear.includes(p))
         at = polar(
           8.5,
-          slots.facing +
-            180 -
-            38 +
-            (76 * rear.indexOf(p)) / Math.max(1, rear.length - 1),
+          ["hyjal-winterchill", "hyjal-anetheron"].includes(fight.id)
+            ? slots.facing + 180
+            : slots.facing +
+              180 -
+              38 +
+              (76 * rear.indexOf(p)) / Math.max(1, rear.length - 1),
         );
       else if (fight.id === "hyjal-azgalor") {
         const radius = p.kind === "healer" ? 31 : cls(p) === "PRIEST" ? 24 : 37;
@@ -541,7 +545,9 @@
         );
       sc.baseById[p.id] = inside(fight, at);
     });
-    if (fight.id === "hyjal-anetheron") {
+    if (["hyjal-winterchill", "hyjal-anetheron"].includes(fight.id))
+      applyB12Formation(fight, sc, options);
+    if (["hyjal-winterchill", "hyjal-anetheron"].includes(fight.id) && !sc.positioningSource?.saved) {
       const preferred = (options.tankHealerNames || [])
         .map((name) => g.healer.find((p) => p.name === name))
         .filter(Boolean);
@@ -550,19 +556,12 @@
         ...g.healer.filter((p) => !preferred.includes(p)),
       ];
       sc.tankHealers = ordered.slice(0, 2).map((p) => p.id);
-      sc.addHealer = ordered[2]?.id || ordered[0]?.id || null;
-      // Keep every healer outside cones aimed through the dense rear melee sector.
-      // The two tank healers are diametrically opposite, with the northern one
-      // also within reach of the Infernal station.
-      const healerAngles = [-100, 80, -24, -130, 15, 45];
+      // Your B12 template intentionally gives the tank-healer pair the left and
+      // right anchors, never the stacked melee rear. Fill the remaining wide
+      // anchors in order so no two healer tokens overlap.
+      const healerAnchors = [slots.healer[2], slots.healer[3], slots.healer[0], slots.healer[1], ...slots.healer.slice(4)];
       ordered.forEach((p, index) => {
-        sc.baseById[p.id] =
-          index === 2
-            ? { x: 0.715, y: 0.285 }
-            : polar(
-                index < 2 ? 27 : 29,
-                healerAngles[index % healerAngles.length],
-              );
+        sc.baseById[p.id] = inside(fight, spreadSlot(healerAnchors, index));
       });
       if (sc.tankHealers.length < 2)
         sc.missingRoles.push(
@@ -570,9 +569,14 @@
             sc.tankHealers.length +
             " loaded.",
         );
+      if (fight.id === "hyjal-anetheron")
+        sc.addHealer = ordered
+          .slice(2)
+          .sort((a, b) =>
+            dist(fight, sc.baseById[a.id], sc.baseById[sc.offTank]) -
+            dist(fight, sc.baseById[b.id], sc.baseById[sc.offTank]),
+          )[0]?.id || ordered[0]?.id || null;
     }
-    if (["hyjal-winterchill", "hyjal-anetheron"].includes(fight.id))
-      applyB12Formation(fight, sc, options);
     if (fight.id === "hyjal-archimonde") {
       ARCH.applyFormation(fight, sc, options);
       sc.offTank = null; // Additional tanks stay in their parties; there is no Archimonde add-tank duty.

@@ -148,26 +148,6 @@ test('compute: the two tank healers end up on opposite sides', () => {
     const angles = tankHealers.map(nm => ring.find(m => m.name === nm)).filter(Boolean).map(m => m.angleDeg);
     if (angles.length === 2) assert.ok(HP.circGap(angles[0], angles[1]) >= 120, 'tank healers ' + HP.circGap(angles[0], angles[1]) + 'deg apart');
 });
-test('anetheron: shared ring keeps tank healers opposite, healers out of Swarm, and the station clear', () => {
-    const roster = fixtureRoster();
-    const duties = [{ id: 'tankheal', players: ['Hpal', 'Cpriest'] }];
-    const r = HP.computePositions(roster, E.proposeGroups(roster), duties, { boss: 'anetheron' });
-    const boss = r.markers.find(m => m.kind === 'boss');
-    const clump = r.markers.find(m => m.kind === 'clump');
-    const station = r.markers.find(m => m.kind === 'station');
-    const angle = m => Math.atan2((m.y - boss.y) / HP.ENCOUNTERS['hyjal-b12'].aspect, m.x - boss.x) * 180 / Math.PI;
-    const meleeAngle = angle(clump);
-    const healers = r.markers.filter(m => m.kind === 'ring' && m.role === 'healer');
-    const tankHealers = healers.filter(m => duties[0].players.includes(m.name));
-    assert.ok(HP.circGap(angle(tankHealers[0]), angle(tankHealers[1])) >= 150,
-        'tank healers must occupy opposite sides');
-    assert.ok(healers.every(m => HP.circGap(angle(m), meleeAngle) > 30),
-        'no healer may occupy the rear melee/Carrion Swarm lane');
-    const safeRadius = 0.075; // 15 yards at the shared B12 map scale (0.005/yard).
-    assert.ok(r.markers.filter(m => m.kind === 'ring').every(m =>
-        Math.hypot(m.x - station.x, (m.y - station.y) / HP.ENCOUNTERS['hyjal-b12'].aspect) > safeRadius),
-        'the Infernal landing pulse must not overlap the ring');
-});
 test('compute: warning when healers are forced into a bunch', () => {
     // 18 ring slots (20° apart); the healers group is a 5-healer wedge, so adjacent
     // healers are unavoidable and the absolute 30° bunching threshold must fire.

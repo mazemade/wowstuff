@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const Data = require("./tactics-data.js");
 const Layout = require("./tactics-layout.js");
 const Hyjal = require("./tactics-hyjal.js");
+const Assignments = require("./assignments-engine.js");
+const HyjalPositions = require("./hyjal-positions.js");
 const ids = [
   "hyjal-winterchill",
   "hyjal-anetheron",
@@ -90,6 +92,39 @@ assert.equal(
   "infernal is shown as threat pickup, not taunt",
 );
 assert(frame(anetheron, infernal, 4000).effects.infernal.isolated);
+
+const savedB12Roster = [
+  { name: "Saved MT", class: "WARRIOR", spec: "Protection", mt: true },
+  { name: "Saved OT", class: "PALADIN", spec: "Protection" },
+  { name: "Saved Healer 1", class: "PRIEST", spec: "Holy" },
+  { name: "Saved Healer 2", class: "SHAMAN", spec: "Restoration" },
+  { name: "Saved Melee", class: "ROGUE", spec: "Combat" },
+  { name: "Saved Range", class: "MAGE", spec: "Arcane" },
+];
+const savedB12State = {
+  encounters: {
+    "hyjal-b12": { saved: { nudges: { "Saved Healer 1": { dx: -0.06, dy: 0.04 } } } },
+  },
+};
+const savedB12Assigned = Layout.assign(anetheron, {
+  tanks: ["Saved MT", "Saved OT"], healers: ["Saved Healer 1", "Saved Healer 2"],
+  melee: ["Saved Melee"], ranged: ["Saved Range"],
+});
+savedB12Assigned.forEach((actor) => Object.assign(actor, savedB12Roster.find((player) => player.name === actor.name)));
+const expectedB12 = HyjalPositions.computePositions(
+  savedB12Roster,
+  Assignments.proposeGroups(savedB12Roster),
+  Assignments.autoAssign(savedB12Roster, {}).duties,
+  { encounter: "hyjal-b12", boss: "anetheron", nudges: savedB12State.encounters["hyjal-b12"].saved.nudges },
+);
+const savedB12Scene = Hyjal.prepareScene(anetheron, scene(anetheron, "positioning"), savedB12Assigned, {
+  positioningRoster: savedB12Roster, positioningState: savedB12State,
+});
+expectedB12.markers.filter((marker) => marker.name).forEach((marker) => {
+  const actor = savedB12Scene.raid.find((player) => player.name === marker.name);
+  assert.deepEqual(savedB12Scene.baseById[actor.id], { x: marker.x, y: marker.y },
+    "saved B12 Positioning seats carry unchanged into the briefing: " + marker.name);
+});
 
 const kaz = Data.FIGHTS["hyjal-kazrogal"],
   cleave = prep(kaz, "cleave"),
