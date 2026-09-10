@@ -71,10 +71,10 @@
         // Dark burned ground, orange flame edges, and a hot core make the
         // advancing head distinct from the persistent dangerous trail.
         for (const [width, color] of [
-          [12, "rgba(68,23,13,.9)"],
-          [10, "rgba(214,69,15,.8)"],
-          [6, "rgba(255,133,24,.9)"],
-          [2, "#ffd071"],
+          [8, "rgba(68,23,13,.9)"],
+          [6.5, "rgba(214,69,15,.8)"],
+          [4, "rgba(255,133,24,.9)"],
+          [1.5, "#ffd071"],
         ]) {
           ctx.lineWidth = yd(width);
           ctx.strokeStyle = color;
@@ -87,7 +87,7 @@
         trail.forEach((q, i) => {
           if (i % 3) return;
           const flicker = (Math.sin(frame.timeMs / 160 + i * 2) + 1) / 2;
-          const r = yd(2 + flicker);
+          const r = yd(1.3 + flicker * 0.7);
           ctx.fillStyle = i > trail.length - 5 ? "#fff0ad" : "#ffc34a";
           ctx.beginPath();
           ctx.moveTo(q.x - r, q.y + r / 2);
@@ -102,7 +102,7 @@
           ctx.fill();
         });
         const head = px(e.doomfire.at);
-        ring(ctx, head, yd(5), "#ffe3a1", "rgba(255,189,66,.6)");
+        ring(ctx, head, yd(3.3), "#ffe3a1", "rgba(255,189,66,.6)");
         if (trail.length > 1) {
           const previous = trail[Math.max(0, trail.length - 4)],
             angle = Math.atan2(head.y - previous.y, head.x - previous.x),
@@ -118,6 +118,20 @@
           ctx.fill();
         }
         ctx.restore();
+      } else if (e.fear?.fire) {
+        const p = px(e.fear.fire), r = yd(e.fear.fire.yards);
+        ring(ctx, p, r, "#e97a30", "rgba(112,37,12,.85)");
+        for (let i = 0; i < 7; i++) {
+          const angle = i * 2.4, spread = i ? r * 0.55 : 0;
+          const x = p.x + Math.cos(angle) * spread, y = p.y + Math.sin(angle) * spread;
+          const flame = r * (0.25 + 0.06 * Math.sin(frame.timeMs / 220 + i));
+          ctx.fillStyle = i % 2 ? "#ff9b37" : "#ffd17d";
+          ctx.beginPath();
+          ctx.moveTo(x - flame, y + flame);
+          ctx.quadraticCurveTo(x - flame, y, x, y - flame * 2);
+          ctx.quadraticCurveTo(x + flame * 1.5, y, x + flame, y + flame);
+          ctx.closePath(); ctx.fill();
+        }
       } else
         (frame.hazards || []).forEach((h) =>
           ring(ctx, px(h), yd(h.yards), "#f58d69", "rgba(228,95,44,.17)"),
@@ -199,25 +213,46 @@
           (item) => item.label === "Thrall",
         );
       const isAzgalorFormation = !!scene.positioningGuide?.rainRange;
-      const groupLabelY = { left: -Infinity, right: -Infinity };
+      const radius = Math.max(11, Math.min(25, yd(1.7)));
+      ctx.save();
+      ctx.font = '600 14px "Barlow Condensed", sans-serif';
+      const playerBounds = (scene.raid || []).filter((p) => frame.pos[p.id]).map((p) => {
+        const point = px(frame.pos[p.id]);
+        return { x: point.x, y: point.y, w: Math.max(radius * 2, ctx.measureText(p.label || "").width) + 8, h: radius * 2 + 42 };
+      });
+      (api.nameBounds || []).forEach(b => playerBounds.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, w: b.w, h: b.h }));
+      ctx.restore();
       (scene.groups || [])
         .slice()
         .sort((a, b) => a.at.y - b.at.y)
         .forEach((g) => {
-          const side = g.at.x < frame.boss.x ? "left" : "right";
-          const p = px(g.at || scene.baseById[g.members[0]]);
-          const callout = {
-            x: px({ x: g.at.x < frame.boss.x ? 0.2 : 0.86, y: g.at.y }).x,
-            y: Math.max(
-              p.y + (g.at.y < frame.boss.y ? -22 : 22),
-              groupLabelY[side] + 32,
-            ),
+          // The main tank stands separately; anchor the party heading to its cluster.
+          const members = g.members.filter((id) => id !== scene.primaryTank);
+          const points = (members.length ? members : g.members)
+            .map((id) => frame.pos[id])
+            .filter(Boolean)
+            .map(px);
+          if (!points.length) return;
+          const center = (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2;
+          const names = (api.nameBounds || []).filter(b => g.members.includes(b.id));
+          const y = Math.min(Math.min(...points.map((p) => p.y)) - radius - 30,
+            ...names.map(b => b.y - 12));
+          // Adjacent melee parties can leave no space directly above their center.
+          // Slide only the heading sideways, keeping it above the same cluster.
+          const candidates = [0, 20, -20, 40, -40, 60, -60, 80, -80, 100, -100, 120, -120];
+          const score = (offset) => {
+            const x = center + offset;
+            const overlaps = playerBounds.filter((b) => Math.abs(b.x - x) < b.w / 2 + 20 && Math.abs(b.y - (y - 6)) < b.h / 2 + 15).length
+              + occupied.filter((b) => Math.abs(b.x - x) < b.w / 2 + 24 && Math.abs(b.y - y) < 28).length;
+            return overlaps * 1000 + Math.abs(offset);
           };
-          groupLabelY[side] = callout.y;
-          line(ctx, p, { ...callout, y: callout.y - 6 }, "#76aa98");
+          const offset = candidates.reduce((best, candidate) => score(candidate) < score(best) ? candidate : best, 0);
           label(
-            callout,
-            "Group " + g.id + (g.shamans.length ? " · Tremor" : " · no Shaman"),
+            {
+              x: center + offset,
+              y,
+            },
+            "G" + g.id,
             "#9dccba",
           );
         });
@@ -305,7 +340,7 @@
         const p = px(h);
         label(
           { x: p.x, y: p.y - yd(h.yards) - 10 },
-          h.kind + " · " + h.yards + " yd",
+          e.fear ? "Doomfire · move clear before Fear" : h.kind + " · " + h.yards + " yd",
           "#ffbf91",
         );
       });
@@ -335,8 +370,10 @@
       label(
         { x: p.x, y: p.y - 26 },
         e.icebolt.stunned
-          ? "Icebolt · heal the frozen target"
-          : "Icebolt ends · keep healing coverage",
+          ? "Icebolt · use PvP trinket"
+          : e.icebolt.trinketUsed
+            ? "PvP trinket · Icebolt removed"
+            : "Icebolt ends · keep healing coverage",
         "#b7e8ff",
       );
     }
@@ -400,7 +437,9 @@
       );
     if (e.fear)
       panel(
-        e.fear.broken
+        frame.timeMs < e.fear.startsAt
+          ? "Move away from the fire before Fear"
+          : e.fear.broken
           ? "Tremor helps this group · stop before the fire"
           : e.fear.active
             ? "Fear can push players into Doomfire"

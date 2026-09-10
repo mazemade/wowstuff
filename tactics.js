@@ -216,9 +216,9 @@
         const box = viewRect.w / Math.max(1, viewRect.h);
         // Guided briefings teach the entire room.  Their camera deliberately ignores a
         // scene's local view so replaying, advancing and changing guidance never zooms.
-        const f = (LESSON_RENDER || FIGHT.id === 'bt-reliquary')
+        const f = archimondeCamera || ((LESSON_RENDER || FIGHT.id === 'bt-reliquary')
             ? { x0: FIGHT.arena.x0, y0: FIGHT.arena.y0, x1: FIGHT.arena.x1, y1: FIGHT.arena.y1, pad: 2 }
-            : frameOf(view, sc);
+            : frameOf(view, sc));
         const padX = f.pad * FIGHT.yard, padY = f.pad * FIGHT.yard * FIGHT.aspect;
         const wantW = (f.x1 - f.x0 + 2 * padX) * MW;
         const wantH = (f.y1 - f.y0 + 2 * padY) * MH;
@@ -1026,7 +1026,7 @@
             ctx.strokeRect(c.x - bw / 2, y, bw, bh);
             ctx.restore();
         }
-        if (p.label && !faint) {
+        if (p.label && !faint && !(FIGHT.id === 'hyjal-archimonde' && sc.id === 'positioning')) {
             // stacked tanks and a tight melee arc would otherwise print their names on top of
             // each other: lift every other one above its token instead of below.
             const above = p.kind === 'tank' ? p.slotIndex % 2 === 1 : p.slotIndex % 2 === 0;
@@ -1036,6 +1036,38 @@
         // the word for what this person is doing about it, which is the thing to read first
         if (sc._roles[p.id]) label(c.x, c.y - r - 9, sc._roles[p.id], '#c5f4e9', 17);
         ctx.restore();
+    }
+
+    function drawArchimondeNames(sc) {
+        const radius = clamp(yd(1.7), 11, 25), gap = 5;
+        const blocks = sc.raid.map(p => {
+            const c = px(sc._sim.pos[p.id]);
+            return { x: c.x - radius - gap, y: c.y - radius - 9, w: radius * 2 + gap * 2, h: radius * 2 + 15 };
+        });
+        const boss = px(sc._sim.boss);
+        blocks.push({ x: boss.x - 30, y: boss.y - 30, w: 60, h: 60 });
+        const placed = [];
+        ctx.save(); ctx.font = '600 14px "Barlow Condensed", sans-serif';
+        sc.raid.filter(p => p.label && p.id !== sc.primaryTank).forEach(p => {
+            const c = px(sc._sim.pos[p.id]), w = ctx.measureText(p.label).width + 6;
+            const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+                * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+            let best;
+            for (const dy of [-radius - 18, radius + 22, -radius - 36, radius + 40, -radius - 54, radius + 58]) {
+                for (const dx of [0, -20, 20, -40, 40, -60, 60, -80, 80, -100, 100]) {
+                    const x = clamp(c.x + dx, viewRect.x + w / 2 + 4, viewRect.x + viewRect.w - w / 2 - 4);
+                    const y = clamp(c.y + dy, viewRect.y + 16, viewRect.y + viewRect.h - 4);
+                    const box = { x: x - w / 2, y: y - 14, w, h: 18 };
+                    const hits = blocks.concat(placed).reduce((sum, b) => sum + overlap(box, b), 0);
+                    const cost = hits * 10000 + Math.abs(x - c.x) * 1.2 + Math.abs(y - c.y);
+                    if (!best || cost < best.cost) best = { x, y, box, cost };
+                }
+            }
+            placed.push({ ...best.box, id: p.id });
+            label(best.x, best.y, p.label, p.kind === 'tank' ? '#bcd6f2' : '#e2ded2', 14);
+        });
+        ctx.restore();
+        return placed;
     }
 
     // ---- steps ----------------------------------------------------------------
@@ -1090,6 +1122,28 @@
     const scenes = ADAPTER
         ? FIGHT.scenes.map(s => ADAPTER.prepareScene(FIGHT, s, assigned, bloodboilOptions))
         : FIGHT.scenes.map(prepareSupremusScene);
+    // Fit Archimonde's whole demonstration once, including escape routes and fire.
+    // The forest outside it adds empty space without helping identify the parties.
+    const archimondeCamera = FIGHT.id === 'hyjal-archimonde' ? (() => {
+        const points = [];
+        const include = (p, yards = 0) => {
+            if (!p) return;
+            const dx = yards * FIGHT.yard, dy = dx * FIGHT.aspect;
+            points.push({ x: p.x - dx, y: p.y - dy }, { x: p.x + dx, y: p.y + dy });
+        };
+        scenes.forEach(sc => {
+            for (let time = 0; time <= sc.duration; time += 500) {
+                const frame = simulate(sc, time);
+                Object.values(frame.pos).forEach(p => include(p));
+                include(frame.boss, 16);
+                (frame.hazards || []).forEach(h => include(h, h.yards));
+                const burst = frame.effects?.airburst;
+                if (burst) include(sc.baseById[burst.targetId], burst.splashYards);
+            }
+        });
+        return { x0: Math.min(...points.map(p => p.x)), x1: Math.max(...points.map(p => p.x)),
+            y0: Math.min(...points.map(p => p.y)), y1: Math.max(...points.map(p => p.y)), pad: 9 };
+    })() : null;
     if (!ADAPTER) scenes.forEach(sc => {
         if (!sc.continueFrom) return;
         const previous = scenes.find(s => s.id === sc.continueFrom);
@@ -1446,9 +1500,10 @@
             drawRoutes(sc, t);
             if (sc._sim.bossVisible !== false) drawBoss(sc.bossActor, sc);
             sc.raid.forEach(p => drawPlayer(p, sc, t));
+            const nameBounds = FIGHT.id === 'hyjal-archimonde' && sc.id === 'positioning' ? drawArchimondeNames(sc) : null;
             (sc.effects || []).filter(e => e.kind === 'gaze').forEach(e => drawGaze(e, sc, t));
             (sc.effects || []).filter(e => e.kind === 'call').forEach(e => drawCall(e, sc, t));
-            if (OVERLAY && FIGHT.id !== 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting }, sc, sc._sim);
+            if (OVERLAY && FIGHT.id !== 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting, nameBounds }, sc, sc._sim);
             ctx.restore();
             if (OVERLAY && FIGHT.id === 'bt-reliquary') OVERLAY.draw('foreground', { ctx, px, yd, width: W, height: H, action: canvasLayout?.action, lessonLayout: canvasLayout, presenting }, sc, sc._sim);
         }
@@ -2028,6 +2083,7 @@
     window.__tactics = { show, showExplanation, briefing: BRIEFING, primaryOrder, count: scenes.length, scenes, assigned, roster, playback, render, frameOf, px, simulate, fight: FIGHT,
         get presenting() { return presenting; },
         get viewport() { return { ...viewRect }; },
+        get cameraBounds() { return archimondeCamera || FIGHT.arena; },
         lesson: LESSON_RENDER ? { get model() { return scenes[idx]._lesson || null; }, get layout() { return scenes[idx]._lessonLayout || null; } } : null,
         guided: STEPS ? { get active() { return scenes[idx]._sim?.explanation || resolvedExplanation(currentExplanation(), scenes[idx]); }, steps: STEPS.all(), chapterSteps: STEPS.forScene, get selectedIndex() { return explanationIndex; }, timelineFor: STEPS.timelineFor, isGuided: isGuidedScene } : null };
 }());

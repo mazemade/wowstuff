@@ -44,14 +44,20 @@
         [
           0,
           "target",
-          "Icebolt selects a player.",
-          "The target takes immediate and ticking Frost damage.",
+          "Icebolt hits and freezes a player.",
+          "The target takes immediate Frost damage and starts taking the dangerous Icebolt tick.",
+        ],
+        [
+          800,
+          "trinket",
+          "Use the PvP trinket immediately.",
+          "It removes the Icebolt stun and ticking damage; healers still recover the initial hit.",
         ],
         [
           1800,
-          "save",
-          "Assigned healers stabilize the target.",
-          "Tank healers retain their assignment.",
+          "top-off",
+          "Assigned healers top off the target.",
+          "Tank healers retain their assignment after the trinket breaks Icebolt.",
         ],
         [
           6500,
@@ -433,17 +439,29 @@
       fear: beats(10000, [
         [
           0,
-          "fear",
-          "Raid-wide Fear begins.",
-          "It is lethal when it walks players into Doomfire.",
+          "fire-nearby",
+          "Doomfire lands nearby.",
+          "Leave the small fire patch while you still control your character.",
         ],
         [
-          2500,
-          "break",
-          "Use assigned fear protection or removal.",
-          "Recheck the safe path after control returns.",
+          1400,
+          "move-clear",
+          "Move clear before Fear begins.",
+          "Hold the clear ground you created; do not wait for the fear response.",
         ],
-        [7500, "ready", "Fear recovery is complete.", "Stay out of Doomfire."],
+        [
+          2000,
+          "fear",
+          "Raid-wide Fear begins.",
+          "The player is already away from Doomfire; Tremor or another assigned response restores control.",
+        ],
+        [
+          3500,
+          "break",
+          "Covered groups regain control.",
+          "Groups without nearby Tremor retain their own fear plan.",
+        ],
+        [10000, "ready", "Fear recovery is complete.", "Stay out of Doomfire."],
       ]),
       curse: beats(10000, [
         [0, "grip", "Grip of the Legion lands.", "Call the curse immediately."],

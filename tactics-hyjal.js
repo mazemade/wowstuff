@@ -127,6 +127,61 @@
       }
     );
   }
+  function planFearEscape(fight, sc, target) {
+    const from = sc.baseById[target.id],
+      fireRadius = 4,
+      safeDistance = 18,
+      blockers = sc.raid
+        .filter((p) => p.id !== target.id)
+        .map((p) => sc.baseById[p.id])
+        .concat(sc.bossAt),
+      baseAngle = Math.atan2(
+        (from.y - sc.bossAt.y) / fight.aspect,
+        from.x - sc.bossAt.x,
+      ),
+      offsets = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI];
+    const clearance = (at, points) =>
+      Math.min(...points.map((point) => dist(fight, at, point)));
+    let fallback = null;
+    for (const radius of [8, 10, 12]) {
+      let best = null;
+      for (const offset of offsets) {
+        const angle = baseAngle + offset,
+          fire = inside(fight, {
+            x: from.x + Math.cos(angle) * radius * fight.yard,
+            y: from.y + Math.sin(angle) * radius * fight.yard * fight.aspect,
+          }),
+          fireDistance = dist(fight, from, fire),
+          to = inside(fight, {
+            x: fire.x + ((from.x - fire.x) * safeDistance) / fireDistance,
+            y: fire.y + ((from.y - fire.y) * safeDistance) / fireDistance,
+          }),
+          fireClearance = clearance(fire, blockers),
+          routeClearance = Math.min(
+            ...Array.from({ length: 11 }, (_, index) =>
+              clearance(mix(from, to, index / 10), blockers),
+            ),
+          ),
+          candidate = { fire, to, fireDistance, fireClearance, routeClearance };
+        if (!fallback || fireClearance > fallback.fireClearance)
+          fallback = candidate;
+        if (
+          fireDistance >= fireRadius &&
+          fireClearance >= fireRadius + 2 &&
+          routeClearance >= fireRadius
+        ) {
+          if (
+            !best ||
+            Math.min(fireClearance, routeClearance) >
+              Math.min(best.fireClearance, best.routeClearance)
+          )
+            best = candidate;
+        }
+      }
+      if (best) return best;
+    }
+    return fallback;
+  }
   function prepareScene(fight, source, assigned, options = {}) {
     const sc = JSON.parse(JSON.stringify(source)),
       g = { tank: [], melee: [], healer: [], ranged: [] },
@@ -200,6 +255,9 @@
     // This teaching example assumes the required pre-pull item was collected.
     // A roster import cannot inspect inventory.
     sc.hasTears = true;
+    // Icebolt's stun and damage-over-time are both removable with a PvP trinket.
+    // Treat the prepared scene as a player who brought the assigned trinket.
+    sc.hasPvpTrinket = true;
     sc.warlock = sc.raid.find((p) => cls(p) === "WARLOCK")?.id || null;
     sc.missingRoles = [];
     if (!sc.primaryTank) sc.missingRoles.push("No main tank loaded.");
@@ -431,6 +489,8 @@
           "The saved formation has no clear escape for this Doomfire example. Adjust the party positions.",
         );
     }
+    if (fight.id === "hyjal-archimonde" && sc.id === "fear" && sc.target)
+      sc.fearEscape = planFearEscape(fight, sc, sc.target);
     return sc;
   }
   function move(f, id, from, to, t) {
@@ -501,20 +561,27 @@
             (a, b) =>
               dist(fight, f.pos[a], frozen) - dist(fight, f.pos[b], frozen),
           )[0];
+        const trinketAt = 800,
+          trinketUsed = sc.hasPvpTrinket && t >= trinketAt;
         f.effects.icebolt = {
           targetId: target,
           frozenAt: frozen,
-          stunned: t < 5000,
+          stunned: !trinketUsed && t < 4000,
+          dotActive: !trinketUsed && t < 4000,
+          trinketUsed,
+          trinketAt,
           healerId: nearest || null,
           healing: !!nearest && t >= 400,
           immunity: false,
         };
         f.focus[target] = true;
         f.hp[target] =
-          nearest && t >= 400 ? 0.65 + 0.3 * clamp((t - 400) / 4500) : 0.4;
-        f.call = healer
-          ? "Frozen Icebolt target stays put; assigned healer stabilizes them."
-          : "Frozen Icebolt target needs healer coverage.";
+          nearest && t >= 400 ? 0.55 + 0.4 * clamp((t - 400) / 3200) : 0.4;
+        f.call = !trinketUsed
+          ? "Icebolt freezes the target: use the PvP trinket immediately."
+          : healer
+            ? "PvP trinket removes Icebolt; assigned healer tops the target off."
+            : "PvP trinket removes Icebolt; the target still needs healer coverage.";
       }
       if (sc.id === "dnd") {
         const h = {
@@ -905,7 +972,7 @@
         const plan = sc.doomfirePlan,
           trail = fireTrail(plan, t),
           head = trail.at(-1);
-        f.hazards = trail.map((p) => ({ ...p, yards: 6, kind: "Doomfire" }));
+        f.hazards = trail.map((p) => ({ ...p, yards: 4, kind: "Doomfire" }));
         plan.members.forEach((id) => {
           const start = sc.baseById[id],
             to = { x: start.x + plan.shift.x, y: start.y + plan.shift.y };
@@ -931,34 +998,39 @@
       }
       if (sc.id === "fear" && target) {
         const from = sc.baseById[target],
-          fire = inside(fight, { x: from.x + 0.11, y: from.y + 0.08 });
+          // Keep the teaching fire out of every saved player position, then
+          // show the target leaving it while they still have control.
+          escape = sc.fearEscape,
+          fire = escape.fire;
         const support = sc.raid.find(
           (p) =>
             cls(p) === "SHAMAN" &&
             p.group === sc.target.group &&
             dist(fight, sc.baseById[p.id], from) < 30,
         )?.id;
-        const progress = support ? clamp(t / 2500) * 0.28 : clamp(t / 7000);
-        const to = {
-          x: from.x + (fire.x - from.x) * 0.85,
-          y: from.y + (fire.y - from.y) * 0.85,
-        };
-        move(f, target, from, to, progress);
-        f.hazards.push({ ...fire, yards: 6, kind: "Doomfire" });
+        const fearAt = 2000,
+          brokenAt = fearAt + 1500;
+        const fireHazard = { ...fire, yards: 4, kind: "Doomfire" };
+        move(f, target, from, escape.to, t / 1400);
+        f.hazards.push(fireHazard);
         f.effects.fear = {
-          active: t < 8000,
+          active: t >= fearAt && t < fearAt + 8000,
           seconds: 8,
+          startsAt: fearAt,
           shamanId: support || null,
           covered: false,
           exampleGroupCovered: !!support,
-          broken: !!support && t >= 2500,
+          broken: !!support && t >= brokenAt,
           targetId: target,
+          fire: fireHazard,
         };
         f.focus[target] = true;
-        if (dist(fight, f.pos[target], fire) < 6) f.hp[target] = 0.45;
-        f.call = support
-          ? "Tremor helps this group regain control before the fire; other groups retain their own fear plans."
-          : "No nearby Tremor support: fear can carry the player into Doomfire.";
+        f.call =
+          t < fearAt
+            ? "Doomfire is nearby: move clear while you still control your character."
+            : support
+              ? "Tremor restores this group's control; they were already clear of Doomfire."
+              : "No nearby Tremor support: stay clear before Fear begins; this group remains uncontrolled.";
       }
       if (sc.id === "curse") {
         const removed = !!sc.decurser && t >= 1000;

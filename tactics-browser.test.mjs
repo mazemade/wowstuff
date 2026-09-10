@@ -847,7 +847,7 @@ async function checkStableFightFraming(port) {
       await sleep(200);
       if(width===1600) desktopGeometry=await geometry();
       const failures = await evaluate(`(()=>{
-        const a=__tactics,bad=[],arena=a.fight.arena;
+        const a=__tactics,bad=[],arena=a.cameraBounds;
         const geometry=()=>JSON.stringify({action:a.viewport,corners:[a.px({x:arena.x0,y:arena.y0}),a.px({x:arena.x1,y:arena.y1})]});
         const steps=a.guided.steps.map((s,i)=>({s,i})).filter(({s})=>s.sceneId!=='overview');
         a.showExplanation(steps[0].i);const baseline=geometry();
@@ -1451,6 +1451,23 @@ async function checkPresentation(port) {
       const names=await evaluate(`(()=>{const c=fx.getContext('2d'),f=c.fillText,n=[];c.fillText=function(t,...args){n.push(t);return f.call(this,t,...args)};try{__tactics.render(performance.now())}finally{c.fillText=f}return n})()`);
       assert.deepEqual(await drawnNames(),originalNames,'fullscreen preserves the original player labels');
       assert(!names.includes(await evaluate('presentationTitle.textContent')),fight+' heading is outside the arena canvas');
+      if(fight==='hyjal-archimonde') {
+        const collisions=await evaluate(`(()=>{
+          const ctx=fx.getContext('2d'),original=ctx.fillText,names=[],groups=[];
+          ctx.fillText=function(text,x,y,...args){
+            if(String(text).includes('Longplayer'))names.push({text,x:x-this.measureText(text).width/2,y:y-14,w:this.measureText(text).width,h:17});
+            if(/^G\\d+$/.test(text))groups.push(text);
+            return original.call(this,text,x,y,...args);
+          };
+          try{__tactics.render(performance.now())}finally{ctx.fillText=original}
+          const bad=[];
+          names.forEach((a,i)=>names.slice(i+1).forEach(b=>{if(a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y)bad.push([a.text,b.text])}));
+          const sc=__tactics.scenes.find(s=>s.id==='positioning');
+          if(groups.length!==sc.groups.length)bad.push(['missing short group headings']);
+          return bad;
+        })()`);
+        assert.deepEqual(collisions,[],'Archimonde positioning names remain readable at '+width);
+      }
       await screenshot(fight+'-presentation-positioning-'+width);
       // Copy must match just the arena canvas, including DPR, without the heading or controls.
       await evaluate(`window.__presentationBlob=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{write:async items=>{window.__presentationBlob=await items[0].getType('image/png')}}});copyImage.click()`);
@@ -1464,7 +1481,7 @@ async function checkPresentation(port) {
         for(const step of a.guided.steps){
           a.showExplanation(step.index);const now=performance.now();a.playback.pause(now);
           for(const elapsed of [0,(step.holdAtMs-step.startMs)/2,step.holdAtMs-step.startMs]){
-            a.playback.seek(elapsed,now);a.render(now);const head=presentationHead,r=a.fight.arena,sc=a.scenes.find(s=>s.id===step.sceneId);
+            a.playback.seek(elapsed,now);a.render(now);const head=presentationHead,r=a.cameraBounds,sc=a.scenes.find(s=>s.id===step.sceneId);
             if(JSON.stringify(a.viewport)!==baseline)bad.push([step.id,'camera resized']);
             if(head.scrollHeight>head.clientHeight+1)bad.push([step.sceneId,step.id,'heading overflows',head.scrollHeight,head.clientHeight]);
             const spellIds=TacticsPresentation.abilityIds(a.fight,sc,sc._sim);

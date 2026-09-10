@@ -44,7 +44,17 @@ for (const id of ids) {
 }
 const winter = Data.FIGHTS["hyjal-winterchill"];
 const icebolt = prep(winter, "icebolt");
-assert(frame(winter, icebolt, 1000).effects.icebolt.stunned);
+assert(frame(winter, icebolt, 500).effects.icebolt.stunned);
+assert.equal(
+  frame(winter, icebolt, 1000).effects.icebolt.trinketUsed,
+  true,
+  "Icebolt's target uses a PvP trinket to break the stun and ticking damage",
+);
+assert.equal(
+  frame(winter, icebolt, 1000).effects.icebolt.dotActive,
+  false,
+  "the PvP trinket removes Icebolt's ticking damage",
+);
 assert(
   frame(winter, icebolt, 3000).effects.icebolt.healing,
   "Icebolt rescue uses real healing coverage",
@@ -171,6 +181,11 @@ const airWithTears = Hyjal.prepareScene(
 );
 assert(frame(arch, airWithTears, 5000).effects.airburst.tearsUsed);
 assert(frame(arch, fire, 5000).effects.doomfire.trail.length >= 2);
+assert.equal(
+  frame(arch, fire, 5000).hazards[0].yards,
+  4,
+  "Doomfire uses the smaller four-yard visual and hazard radius",
+);
 assert.equal(frame(arch, curse, 500).effects.curse.decursed, false);
 assert.equal(
   frame(arch, curse, 2500).effects.curse.decursed,
@@ -372,13 +387,92 @@ assert(
 assert(!airFrame.effects.airburst.targetIds.includes(archAir.primaryTank));
 const fearDemo = prep(arch, "fear", null);
 assert(
-  frame(arch, fearDemo, 3000).hazards.length,
-  "Fear visually explains the Doomfire interaction",
-);
-assert(
   fearDemo.groups.every((group) => group.shamans.length),
   "teaching parties have Shaman support",
 );
+const fearStart = frame(arch, fearDemo, 0),
+  fearClear = frame(arch, fearDemo, 1400),
+  fearBegins = frame(arch, fearDemo, 2000),
+  fearBroken = frame(arch, fearDemo, 3500),
+  fearFire = fearStart.hazards[0];
+assert.equal(fearStart.hazards.length, 1, "Fear keeps one nearby Doomfire visible");
+assert.equal(fearFire.yards, 4, "Fear uses a smaller stationary Doomfire patch");
+assert.deepEqual(
+  fearStart.effects.fear.fire,
+  fearFire,
+  "Fear exposes the persistent fire for its dedicated render treatment",
+);
+assert.deepEqual(
+  fearClear.hazards,
+  fearStart.hazards,
+  "the Doomfire stays in place while the player moves clear before Fear",
+);
+assert(
+  Layout.dist(arch, fearClear.pos[fearDemo.target.id], fearFire) >= 14,
+  "the target reaches clear ground before Fear starts",
+);
+assert.equal(fearClear.effects.fear.active, false, "Fear has not started during the escape");
+assert.equal(fearBegins.effects.fear.active, true, "Fear begins after the early move");
+assert.deepEqual(
+  fearBegins.pos[fearDemo.target.id],
+  fearClear.pos[fearDemo.target.id],
+  "Fear does not walk the prepared player back toward Doomfire",
+);
+assert.equal(fearBroken.effects.fear.broken, true, "Tremor restores control for the covered example group");
+const fearWithoutTremor = prep(arch, "fear", roster);
+assert.equal(
+  frame(arch, fearWithoutTremor, 3500).effects.fear.shamanId,
+  null,
+  "a roster without a nearby Shaman does not invent Tremor coverage",
+);
+assert.equal(
+  frame(arch, fearWithoutTremor, 3500).effects.fear.broken,
+  false,
+  "Fear remains uncontrolled when nearby Tremor coverage is missing",
+);
+const namedFearRoster = Layout.assign(arch, {
+  tanks: ["Tank"],
+  healers: Array.from({ length: 6 }, (_, index) => "Resto " + (index + 1)),
+  melee: Array.from({ length: 7 }, (_, index) => "Rogue " + (index + 1)),
+  ranged: Array.from({ length: 11 }, (_, index) => "Mage " + (index + 1)),
+});
+namedFearRoster.forEach((player) => {
+  player.class =
+    player.kind === "tank"
+      ? "WARRIOR"
+      : player.kind === "healer"
+        ? "SHAMAN"
+        : player.kind === "melee"
+          ? "ROGUE"
+          : "MAGE";
+});
+const namedFear = Hyjal.prepareScene(arch, scene(arch, "fear"), namedFearRoster),
+  namedFearStart = frame(arch, namedFear, 0),
+  namedFearFire = namedFearStart.effects.fear.fire;
+for (const player of namedFear.raid.filter((p) => p.id !== namedFear.target.id))
+  assert(
+    Layout.dist(arch, namedFear.baseById[player.id], namedFearFire) >=
+      namedFearFire.yards + 2,
+    "named Fear fire stays clear of " + player.name,
+  );
+assert(
+  Layout.dist(arch, namedFear.bossAt, namedFearFire) >=
+    namedFearFire.yards + 2,
+  "named Fear fire stays clear of Archimonde",
+);
+for (const time of [0, 350, 700, 1050, 1400]) {
+  const fearFrame = frame(arch, namedFear, time),
+    targetAt = fearFrame.pos[namedFear.target.id];
+  assert(
+    Layout.dist(arch, targetAt, namedFearFire) >= namedFearFire.yards,
+    "the named target's escape remains outside Doomfire at " + time + "ms",
+  );
+  for (const player of namedFear.raid.filter((p) => p.id !== namedFear.target.id))
+    assert(
+      Layout.dist(arch, targetAt, namedFear.baseById[player.id]) >= 4,
+      "the named target's route stays clear of " + player.name,
+    );
+}
 const partialGroups = prep(arch, "positioning", roster);
 assert(
   partialGroups.groupCoverageMissing.length,

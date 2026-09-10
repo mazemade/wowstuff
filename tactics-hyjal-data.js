@@ -216,7 +216,7 @@
     {
       ready: "Prepare",
       positioning: "Pull · spread",
-      icebolt: "Icebolt · save target",
+      icebolt: "Icebolt · trinket out",
       dnd: "Death and Decay · move",
       nova: "Frost Nova · free movement",
       finish: "Finish",
@@ -226,8 +226,8 @@
       ability(
         "icebolt",
         "Icebolt",
-        "A random player takes 4–5k Frost damage, is stunned, and takes another 10k Frost damage over 5 seconds.",
-        "Heal the target immediately; use the available immunity or PvP trinket as assigned.",
+        "A random player takes 4–5k Frost damage, is stunned for 4 seconds, and takes another 10k Frost damage while stunned.",
+        "Use the PvP trinket immediately to remove the stun and ticking damage; then heal the initial hit.",
         "https://www.wowhead.com/tbc/guide/rage-winterchill-hyjal-summit-strategy-burning-crusade-classic",
       ),
       ability(
@@ -957,12 +957,12 @@
       scene(
         "fear",
         "Fear",
-        "Prevent or break fear before Doomfire catches you.",
-        "The eight-second raid fear is dangerous chiefly because it can carry players into Doomfire.",
-        "Use assigned fear protection; remove it quickly and recheck your path.",
-        "Fear is a movement mechanic when fire is active.",
+        "Move clear before Fear begins.",
+        "The eight-second raid fear is dangerous chiefly when Doomfire is already nearby. Leave the fire while you still control your character, then use fear protection or removal.",
+        "Move clear first. Use assigned fear protection; recheck your path when control returns.",
+        "Fear is a movement mechanic when fire is active, so create space before it begins.",
         [
-          ["Raid", "Use assigned fear tools."],
+          ["Raid", "Leave nearby Doomfire before fear; use assigned fear tools."],
           ["Healers", "Recover anyone who entered Doomfire."],
         ],
         "Treating fear as harmless raid-wide crowd control.",
