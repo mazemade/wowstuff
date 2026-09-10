@@ -1,7 +1,7 @@
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("./tactics-hyjal-archimonde.js"));
-  else root.TacticsHyjalData = factory(root.TacticsHyjalArchimonde);
-})(typeof self !== "undefined" ? self : this, function (ARCH) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./tactics-hyjal-archimonde.js"), require("./hyjal-positions.js"));
+  else root.TacticsHyjalData = factory(root.TacticsHyjalArchimonde, root.HyjalPositions);
+})(typeof self !== "undefined" ? self : this, function (ARCH, HP) {
   "use strict";
   const sheet =
     "https://docs.google.com/spreadsheets/d/1G-gKlnhkNR6RmLISbSZOCe5Disi_WNB0Gv2Tk19CxVg/edit";
@@ -1162,9 +1162,15 @@
     ["Doomfire", "The threatened party sidesteps; the trail keeps burning."],
     ["Deaths", "Prevent Soul Charge cascades with personal survival."],
   ];
-  // Map anchors follow the guild drawings: ballista, Thrall clearing, summit.
-  winter.bossAt = { x: 0.555, y: 0.395 };
-  anetheron.bossAt = { x: 0.563, y: 0.4 };
+  // Winterchill and Anetheron deliberately render on the exact same B12 map as
+  // the Positioning tab. Their shared engine owns the boss and player anchors.
+  const b12 = HP.ENCOUNTERS["hyjal-b12"];
+  [winter, anetheron].forEach((fight) => {
+    fight.map = b12.map;
+    fight.mapSize = { width: 1698, height: 926 };
+    fight.aspect = b12.aspect;
+    fight.bossAt = { ...b12.anchors.boss };
+  });
   anetheron.arena.y0 = 0;
   kazrogal.bossAt = { x: 0.525, y: 0.67 };
   azgalor.bossAt = { x: 0.527, y: 0.63 };

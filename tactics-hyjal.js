@@ -3,13 +3,17 @@
     module.exports = factory(
       require("./tactics-layout.js"),
       require("./tactics-hyjal-archimonde.js"),
+      require("./assignments-engine.js"),
+      require("./hyjal-positions.js"),
     );
   else
     root.TacticsHyjal = factory(
       root.TacticsLayout,
       root.TacticsHyjalArchimonde,
+      root.AssignmentsEngine,
+      root.HyjalPositions,
     );
-})(typeof self !== "undefined" ? self : this, function (L, ARCH) {
+})(typeof self !== "undefined" ? self : this, function (L, ARCH, E, HP) {
   "use strict";
   const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n)),
     cp = (p) => ({ x: p.x, y: p.y }),
@@ -37,6 +41,116 @@
     isDecurse = (p) =>
       cls(p) === "MAGE" ||
       (cls(p) === "DRUID" && /^(restoration|resto)$/i.test(p.spec || ""));
+  const b12Spec = (p) => {
+    const byClass = {
+      WARRIOR: p.kind === "tank" ? "Protection" : "Fury",
+      PALADIN: p.kind === "tank" ? "Protection" : p.kind === "healer" ? "Holy" : "Retribution",
+      DRUID: p.kind === "tank" ? "Guardian" : p.kind === "healer" ? "Restoration" : p.kind === "melee" ? "Feral" : "Balance",
+      PRIEST: p.kind === "ranged" ? "Shadow" : "Holy",
+      SHAMAN: p.kind === "healer" ? "Restoration" : p.kind === "melee" ? "Enhancement" : "Elemental",
+      HUNTER: "Beast Mastery",
+      ROGUE: "Combat",
+      MAGE: "Arcane",
+      WARLOCK: "Destruction",
+    };
+    return p.spec || byClass[cls(p)] || "Arcane";
+  };
+  function applyB12Formation(fight, sc, options) {
+    const supplied = Array.isArray(options.positioningRoster) && options.positioningRoster.length;
+    const roster = supplied
+      ? options.positioningRoster
+      : sc.raid.map((actor, index) => {
+          const name = actor.name || "__b12_actor_" + (actor.id || index);
+          return {
+            name,
+            class: cls(actor),
+            spec: b12Spec(actor),
+            mt: actor.id === sc.primaryTank,
+            flags: actor.flags || [],
+          };
+        });
+    const byName = new Map(sc.raid.filter((actor) => actor.name).map((actor) => [actor.name, actor]));
+    if (!supplied)
+      sc.raid.forEach((actor, index) =>
+        byName.set(actor.name || "__b12_actor_" + (actor.id || index), actor),
+      );
+    const state = options.positioningState || {};
+    const scope = (state.encounters && state.encounters["hyjal-b12"]) || {};
+    const saved = scope.saved || {};
+    const boss = fight.id === "hyjal-anetheron" ? "anetheron" : "winterchill";
+    const baseDuties = options.positioningDuties || E.autoAssign(roster, {}).duties;
+    const dutyTankHealers = (baseDuties.find((duty) => duty.id === "tankheal") || {}).players || [];
+    const availableHealers = roster
+      .filter((player) => E.bucketOf(player) === "healers")
+      .map((player) => player.name);
+    // autoAssign may contain only one explicit tank-healer. Always finish the
+    // pair from the available healers so the renderer and the shared map agree
+    // about which two people must occupy the opposite safe seats.
+    const preferredTankHealers = (options.tankHealerNames || []).filter(Boolean);
+    const assignedTankHealers = [
+      ...(preferredTankHealers.length ? preferredTankHealers : dutyTankHealers),
+      ...availableHealers,
+    ].filter((name, index, names) => names.indexOf(name) === index).slice(0, 2);
+    const tankHealDuty = { id: "tankheal", players: assignedTankHealers };
+    const duties = baseDuties.some((duty) => duty.id === "tankheal")
+      ? baseDuties.map((duty) => duty.id === "tankheal" ? { ...duty, ...tankHealDuty } : duty)
+      : baseDuties.concat(tankHealDuty);
+    const computed = HP.computePositions(roster, E.proposeGroups(roster), duties, {
+      encounter: "hyjal-b12",
+      boss,
+      swapTanks: !!(state.swapTanks || {})[boss],
+      nudges: HP.combineNudges(saved.nudges, scope.nudges),
+      anchorNudges: HP.combineNudges(saved.anchorNudges, scope.anchorNudges),
+    });
+    const markersByName = new Map();
+    computed.markers.forEach((marker) => {
+      if (marker.name) markersByName.set(marker.name, marker);
+      (marker.names || []).forEach((name) => markersByName.set(name, marker));
+    });
+    sc.baseById = {};
+    sc.raid.forEach((actor) => {
+      const marker = markersByName.get(actor.name) || [...byName.entries()].find(([name, value]) => value === actor && markersByName.has(name))?.[0];
+      const resolved = typeof marker === "string" ? markersByName.get(marker) : marker;
+      if (resolved) sc.baseById[actor.id] = cp(resolved);
+    });
+    const bossMarker = computed.markers.find((marker) => marker.kind === "boss");
+    if (bossMarker) sc.bossAt = cp(bossMarker);
+    const mtMarker = computed.markers.find((marker) => marker.kind === "mt");
+    if (mtMarker && byName.get(mtMarker.name)) sc.primaryTank = byName.get(mtMarker.name).id;
+    const offTankMarker = computed.markers.find((marker) => marker.kind === "offtank");
+    sc.offTank = offTankMarker && byName.get(offTankMarker.name)
+      ? byName.get(offTankMarker.name).id
+      : boss === "anetheron" ? null : sc.offTank;
+    const dutyNames = assignedTankHealers;
+    sc.tankHealers = dutyNames
+      .map((name) => byName.get(name))
+      .filter((actor) => actor && sc.healers.includes(actor.id))
+      .slice(0, 2)
+      .map((actor) => actor.id);
+    if (sc.tankHealers.length < 2)
+      sc.tankHealers = sc.healers.slice(0, 2);
+    if (boss === "anetheron") {
+      const station = computed.markers.find((marker) => marker.kind === "station");
+      sc.infernalStation = station ? cp(station) : null;
+      sc.addHealer = sc.healers
+        .filter((id) => !sc.tankHealers.includes(id))
+        .sort((a, b) =>
+          dist(fight, sc.baseById[a], station || sc.bossAt) -
+          dist(fight, sc.baseById[b], station || sc.bossAt),
+        )[0] || sc.tankHealers[0] || null;
+      // The closest ranged player runs to the already-reserved station.  This
+      // keeps the demonstration readable at normal movement speed without
+      // putting a healer in the Carrion Swarm/melee lane.
+      sc.target = sc.raid
+        .filter((actor) => actor.kind === "ranged" && actor.id !== sc.offTank)
+        .sort((a, b) =>
+          dist(fight, sc.baseById[a.id], sc.infernalStation || sc.bossAt) -
+          dist(fight, sc.baseById[b.id], sc.infernalStation || sc.bossAt),
+        )[0] || sc.target;
+    }
+    sc.positioningWarnings = computed.warnings.slice();
+    sc.positioningSource = { encounter: "hyjal-b12", boss, rosterSource: supplied ? "positioningRoster" : "scene" };
+  }
   function fireTrail(plan, t) {
     const progress = clamp((t - 900) / 6500) * (plan.path.length - 1);
     const point = (u) => {
@@ -456,8 +570,9 @@
             sc.tankHealers.length +
             " loaded.",
         );
-      sc.target = g.ranged[8] || g.ranged.at(-1) || sc.target;
     }
+    if (["hyjal-winterchill", "hyjal-anetheron"].includes(fight.id))
+      applyB12Formation(fight, sc, options);
     if (fight.id === "hyjal-archimonde") {
       ARCH.applyFormation(fight, sc, options);
       sc.offTank = null; // Additional tanks stay in their parties; there is no Archimonde add-tank duty.
@@ -681,9 +796,9 @@
           "Swarm hits one direction. Unaffected healers cover tanks while affected healers have 75% reduced output.";
       }
       if (sc.id === "infernal" && target) {
-        const spawn = { x: 0.66, y: 0.14 },
+        const spawn = sc.infernalStation || { x: 0.69, y: 0.12 },
           retreat = sc.baseById[target],
-          tankAt = { x: 0.688, y: 0.147 };
+          tankAt = sc.baseById[sc.offTank] || spawn;
         move(f, target, sc.baseById[target], spawn, t / 3000);
         if (t >= 5500) move(f, target, spawn, retreat, (t - 5500) / 3500);
         if (sc.offTank && t >= 3500)

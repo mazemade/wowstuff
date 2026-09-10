@@ -793,8 +793,8 @@ const tankHealAngles = anSetup.tankHealers.map((id) =>
   angleOf(anetheron, anSetup.baseById[id], boss),
 );
 assert(
-  Math.abs(angularGap(...tankHealAngles) - Math.PI) < 0.001,
-  "two tank healers stand on opposite sides",
+  angularGap(...tankHealAngles) >= (5 * Math.PI) / 6,
+  "two tank healers stand on opposite sides of the formation",
 );
 assert.equal(
   frame(anetheron, prep(anetheron, "swarm", null), 1000).effects.carrion

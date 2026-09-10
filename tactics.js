@@ -55,7 +55,7 @@
     assigned.forEach(p => { p.class = roster?.classOf[p.name] || null; p.spec = roster?.specOf[p.name] || null; });
     const BLOODBOIL_SOAK_KEY = 'tacticsBloodboilMeleeSoakers';
     const bloodboilOptions = { meleeSoakers: [], positioningRoster: roster?.positioningRoster, tankHealerNames: roster?.tankHealerNames };
-    if (FIGHT.id === 'hyjal-archimonde') {
+    if (['hyjal-winterchill', 'hyjal-anetheron', 'hyjal-archimonde'].includes(FIGHT.id)) {
         try { bloodboilOptions.positioningState = JSON.parse(localStorage.getItem('raidPositionsState')) || {}; } catch (e) { /* Use the Positioning defaults. */ }
     }
     if (FIGHT.id === 'bt-bloodboil') {

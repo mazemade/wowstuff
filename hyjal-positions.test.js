@@ -148,6 +148,26 @@ test('compute: the two tank healers end up on opposite sides', () => {
     const angles = tankHealers.map(nm => ring.find(m => m.name === nm)).filter(Boolean).map(m => m.angleDeg);
     if (angles.length === 2) assert.ok(HP.circGap(angles[0], angles[1]) >= 120, 'tank healers ' + HP.circGap(angles[0], angles[1]) + 'deg apart');
 });
+test('anetheron: shared ring keeps tank healers opposite, healers out of Swarm, and the station clear', () => {
+    const roster = fixtureRoster();
+    const duties = [{ id: 'tankheal', players: ['Hpal', 'Cpriest'] }];
+    const r = HP.computePositions(roster, E.proposeGroups(roster), duties, { boss: 'anetheron' });
+    const boss = r.markers.find(m => m.kind === 'boss');
+    const clump = r.markers.find(m => m.kind === 'clump');
+    const station = r.markers.find(m => m.kind === 'station');
+    const angle = m => Math.atan2((m.y - boss.y) / HP.ENCOUNTERS['hyjal-b12'].aspect, m.x - boss.x) * 180 / Math.PI;
+    const meleeAngle = angle(clump);
+    const healers = r.markers.filter(m => m.kind === 'ring' && m.role === 'healer');
+    const tankHealers = healers.filter(m => duties[0].players.includes(m.name));
+    assert.ok(HP.circGap(angle(tankHealers[0]), angle(tankHealers[1])) >= 150,
+        'tank healers must occupy opposite sides');
+    assert.ok(healers.every(m => HP.circGap(angle(m), meleeAngle) > 30),
+        'no healer may occupy the rear melee/Carrion Swarm lane');
+    const safeRadius = 0.075; // 15 yards at the shared B12 map scale (0.005/yard).
+    assert.ok(r.markers.filter(m => m.kind === 'ring').every(m =>
+        Math.hypot(m.x - station.x, (m.y - station.y) / HP.ENCOUNTERS['hyjal-b12'].aspect) > safeRadius),
+        'the Infernal landing pulse must not overlap the ring');
+});
 test('compute: warning when healers are forced into a bunch', () => {
     // 18 ring slots (20° apart); the healers group is a 5-healer wedge, so adjacent
     // healers are unavoidable and the absolute 30° bunching threshold must fire.
@@ -180,8 +200,8 @@ function mirrorNudge(result, name) {
     return { [name]: { dx: 2 * (boss.x - m.x), dy: 2 * (boss.y - m.y) } };
 }
 test('warnings: dragging a tank healer to the opposite side clears the Carrion warning', () => {
-    // Both tank healers share one 3-slot wedge on a 12-slot ring: at best 60° apart,
-    // so the same-side warning fires on the un-nudged layout.
+    // The automatic layout puts this pair on opposite sides. Deliberately stack them,
+    // then drag one through the boss to prove the warning follows the rendered map.
     const roster = [mk('Mt', 'WARRIOR', 'Protection', { mt: true }),
         mk('H1', 'PRIEST', 'Holy'), mk('H2', 'PALADIN', 'Holy'), mk('D1', 'MAGE', 'Frost')];
     for (let i = 2; i <= 11; i++) roster.push(mk('D' + i, 'MAGE', 'Frost'));
@@ -194,8 +214,17 @@ test('warnings: dragging a tank healer to the opposite side clears the Carrion w
     ] };
     const duties = [{ id: 'tankheal', players: ['H1', 'H2'] }];
     const base = HP.computePositions(roster, groups, duties, {});
-    assert.ok(base.warnings.some(w => w.includes('Carrion')), 'fixture broke: ' + JSON.stringify(base.warnings));
-    const dragged = HP.computePositions(roster, groups, duties, { nudges: mirrorNudge(base, 'H2') });
+    const h1 = base.markers.find(m => m.name === 'H1');
+    const h2 = base.markers.find(m => m.name === 'H2');
+    const together = HP.computePositions(roster, groups, duties, {
+        nudges: { H2: { dx: h1.x + 0.01 - h2.x, dy: h1.y - h2.y } },
+    });
+    assert.ok(together.warnings.some(w => w.includes('Carrion')), 'fixture broke: ' + JSON.stringify(together.warnings));
+    const boss = base.markers.find(m => m.kind === 'boss');
+    const oppositeH1 = { x: 2 * boss.x - h1.x, y: 2 * boss.y - h1.y };
+    const dragged = HP.computePositions(roster, groups, duties, {
+        nudges: { H2: { dx: oppositeH1.x - h2.x, dy: oppositeH1.y - h2.y } },
+    });
     assert.ok(!dragged.warnings.some(w => w.includes('Carrion')),
         'warning survived the drag: ' + JSON.stringify(dragged.warnings));
 });

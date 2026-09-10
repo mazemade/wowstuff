@@ -175,9 +175,9 @@
     }
 
     // Angular evenness of healers plus tank-healer opposition. Higher is better.
-    function scoreArrangement(ordered, isHealer, tankHealerNames, startDeg) {
+    function scoreArrangement(ordered, isHealer, tankHealerNames, startDeg, avoidHealerAngle) {
         const n = ordered.length;
-        const angles = slotAngles(n, startDeg);
+        const angles = Array.isArray(startDeg) ? startDeg : slotAngles(n, startDeg);
         const healerAngles = [], thAngles = [];
         ordered.forEach((p, i) => {
             if (isHealer(p)) healerAngles.push(angles[i]);
@@ -188,7 +188,12 @@
             for (let j = i + 1; j < healerAngles.length; j++)
                 minGap = Math.min(minGap, circGap(healerAngles[i], healerAngles[j]));
         const thSep = thAngles.length === 2 ? circGap(thAngles[0], thAngles[1]) : 180;
-        return 2 * minGap + thSep;
+        const unsafeHealers = Number.isFinite(avoidHealerAngle)
+            ? healerAngles.filter(angle => circGap(angle, avoidHealerAngle) <= 30).length
+            : 0;
+        // Carrion Swarm follows the dense melee lane. Keep every healer out of that
+        // 60-degree sector before optimizing their general spread or tank-healer pair.
+        return 2 * minGap + thSep - unsafeHealers * 10000;
     }
 
     function pickTanks(roster) {
@@ -263,7 +268,7 @@
             const u = mtAnchor.x - bossPos.x;
             const v = (mtAnchor.y - bossPos.y) / enc.aspect;
             const mtDist = Math.hypot(u, v) || 1;
-            const CLUMP_DIST = 0.06; // clear of the boss dot, well inside the ring
+            const CLUMP_DIST = 0.055; // clear of the boss dot, while remaining in melee reach
             markers.push({
                 kind: 'clump',
                 x: clamp01(bossPos.x - CLUMP_DIST * u / mtDist + clumpN.dx),
@@ -289,6 +294,25 @@
         const isHealer = p => roleOf(p) === 'healer';
         const tankHealRow = (duties || []).find(d => d.id === 'tankheal');
         const tankHealerNames = tankHealRow ? tankHealRow.players : [];
+        const meleeAngle = Math.atan2(
+            -(mtAnchor.y - bossPos.y) / enc.aspect,
+            -(mtAnchor.x - bossPos.x)
+        ) * 180 / Math.PI;
+        // Anetheron's station is deliberately kept clear: Infernal's landing pulse
+        // is 15 yards, so no raid marker may occupy the short arc around it.  The
+        // rest of the ring is identical to Winterchill's shared B12 formation.
+        let ringAngles = slotAngles(ringPeople.length, enc.ring.startDeg);
+        if (bossMode === 'anetheron' && bossDef.station && ringAngles.length) {
+            const stationAngle = Math.atan2(
+                (bossDef.station.y + stationN.dy - bossPos.y) / enc.aspect,
+                bossDef.station.x + stationN.dx - bossPos.x
+            ) * 180 / Math.PI;
+            const clearArc = 58;
+            const usableArc = 360 - clearArc;
+            ringAngles = Array.from({ length: ringPeople.length }, (_, i) =>
+                stationAngle + clearArc / 2 + i * usableArc / ringPeople.length
+            );
+        }
         // Per-wedge seat candidates, seeded from the interleave so the search can only
         // match or beat the old fixed placement.
         const sig = arr => arr.map(p => isHealer(p) ? 1 : 0).join('');
@@ -302,7 +326,9 @@
         permutations(wedgeCands).forEach(perm => {
             const choice = perm.map(w => w.seed);
             const flatten = () => perm.flatMap((w, i) => w.cands[choice[i]]);
-            const score = () => scoreArrangement(flatten(), isHealer, tankHealerNames, enc.ring.startDeg);
+            const score = () => scoreArrangement(
+                flatten(), isHealer, tankHealerNames, ringAngles, meleeAngle
+            );
             // Coordinate ascent over the per-wedge seat choices: try each wedge's
             // alternatives one at a time, keep strict improvements, stop at a fixed point.
             // Not exhaustive (the joint space can be huge) but deterministic.
@@ -325,7 +351,30 @@
         });
         const ordered = (best || []).flatMap(w => w.players.map(p => ({ p, party: w.party })));
         const n = ordered.length;
-        const angles = slotAngles(n, enc.ring.startDeg);
+        const angles = ringAngles;
+        // The two boss-tank healers need genuinely opposite sight lines. The party optimizer
+        // chooses a safe, spread-out seating order first; then swap their seats with the
+        // closest opposing safe pair. This preserves every party and every marker while
+        // making the two assigned healers resilient to a single Carrion Swarm lane.
+        const namedTankHealers = tankHealerNames.filter(name => ordered.some(o => o.p.name === name)).slice(0, 2);
+        if (namedTankHealers.length === 2) {
+            let pair = null;
+            angles.forEach((a, i) => angles.forEach((b, j) => {
+                if (i === j || circGap(a, meleeAngle) <= 30 || circGap(b, meleeAngle) <= 30) return;
+                const separation = circGap(a, b);
+                const candidate = { i, j, score: Math.abs(180 - separation) };
+                if (!pair || candidate.score < pair.score) pair = candidate;
+            }));
+            if (pair) {
+                const place = (name, index) => {
+                    const current = ordered.findIndex(o => o.p.name === name);
+                    if (current >= 0 && current !== index)
+                        [ordered[current], ordered[index]] = [ordered[index], ordered[current]];
+                };
+                place(namedTankHealers[0], pair.i);
+                place(namedTankHealers[1], pair.j);
+            }
+        }
         ordered.forEach((o, i) => {
             const r = enc.ring.rBase + (i % 2 ? enc.ring.rJitter : -enc.ring.rJitter);
             const pos = angleToXY(bossPos, r, angles[i], enc.aspect);
@@ -340,6 +389,8 @@
 
         const ringMarkers = markers.filter(m => m.kind === 'ring');
         const healerMarks = ringMarkers.filter(m => m.role === 'healer');
+        if (healerMarks.some(m => circGap(m.angleDeg, meleeAngle) <= 30))
+            warnings.push('A healer is in the rear melee lane — Carrion Swarm can reduce their healing.');
         if (healerMarks.length >= 2) {
             let minGap = 360;
             for (let i = 0; i < healerMarks.length; i++)
@@ -348,7 +399,7 @@
             if (minGap < 30) warnings.push('Healers are bunched: two healers stand within 30° of each other.');
         }
         const thMarks = ringMarkers.filter(m => tankHealerNames.includes(m.name));
-        if (thMarks.length === 2 && circGap(thMarks[0].angleDeg, thMarks[1].angleDeg) < 90)
+        if (thMarks.length === 2 && circGap(thMarks[0].angleDeg, thMarks[1].angleDeg) < 150)
             warnings.push('Tank healers are on the same side of the boss — one Carrion Swarm can hit both.');
         const byParty = {};
         ringMarkers.forEach(m => { (byParty[m.party] = byParty[m.party] || []).push(m); });
