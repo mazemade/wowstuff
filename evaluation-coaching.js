@@ -323,7 +323,7 @@ function buildNightCoaching(result = {}) {
           fights.length +
           ' pull' +
           (fights.length === 1 ? '' : 's') +
-          ' the biggest sized lever is ' +
+          ' the biggest sized lever: ' +
           (topSized[0].title || topSized[0].what) +
           ' (' +
           topSized[0].size.label +

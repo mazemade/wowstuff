@@ -164,6 +164,17 @@ test('topSized dedupes repeated boss names when the same encounter recurs across
     assert.deepEqual(night.topSized[0].bosses, ['Repeat']);
 });
 
+test('the night assessment does not turn a finding observation into a broken "lever is" sentence', () => {
+    const fight = { name: 'Boss', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [{ id: 'melee', name: 'Melee', differenceDps: 50 }], limitations: [] },
+        causes: [], pricing: { status: 'unavailable', prices: {} },
+        findings: [{ id: 'gap-finding', title: 'Slice and Dice was absent for 5 white outcomes', disposition: 'improve', action: 'Refresh it.', evidence: [{ text: 'x' }], bucket: 'melee', measure: { lostSeconds: 3, activeRateDps: 100 } }] };
+    const c = buildFightCoaching(fight);
+    const night = buildNightCoaching({ fights: [{ name: 'Boss', coaching: c }] });
+    assert.match(night.assessment, /the biggest sized lever: Slice and Dice was absent for 5 white outcomes/);
+    assert.doesNotMatch(night.assessment, /lever is /);
+});
+
 test('a missing reference name falls back to "the reference" in the assessment', () => {
     const fight = { name: 'NoRefName', durationSec: 100,
         budget: { status: 'decomposed', gapDps: 20, player: { dps: 500 }, reference: { dps: 520 }, buckets: [], limitations: [] },

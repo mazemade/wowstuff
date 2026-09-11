@@ -20,7 +20,7 @@ const { buildFightCoaching, buildNightCoaching } = require('./evaluation-coachin
 const { encounterContext } = require('./evaluation-encounters.js');
 const V = require('./vet-engine.js');
 const P = require('./vet-profile.js');
-const VERSION = 'deep-evaluation-4';
+const VERSION = 'deep-evaluation-5';
 const MAX_EVENT_PAGES = 20;
 
 function eventQuery(incoming) {

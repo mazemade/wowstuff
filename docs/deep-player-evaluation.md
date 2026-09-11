@@ -156,3 +156,90 @@ Funkell's recorded Sept 10 Hyjal fixture protects specific actions: Azgalor/Arch
 Pet damage comparison groups differently named pets into one family without summing composite children twice. All classes also receive actionable preparation findings for known unenchanted equipment and empty gem sockets, without assuming a universally optimal enhancement.
 
 This adds dedicated hunter decision coverage to the existing rogue, Fury and Retribution analysis. The common layout applies to every class; recognizing a specialization's spells still does not mean complete specialization expertise. There is no claim that every DPS difference is recoverable or that every class has equal decision depth. Add real positive and legitimate-exception fixtures when expanding a specialization, and evaluate the player-facing action plan, not merely the number of checks.
+
+## Damage budget (engine 5)
+
+DPS reports now lead with a damage budget instead of a bare damage table. The report states the
+gap against the comparison player once ("You did 1546 DPS, Jofrey did 1815 over a similar pull"),
+then opens the gap into buckets: one "Whole pull" bucket for consumables, blessings, raid buffs,
+procs and debuffs that apply to every family, one bucket per damage family whose difference is at
+least 20 DPS or that already has causes attached, and a final "Execution and survival" bucket for
+findings — deaths, positioning, timing — that touch no single family. Every existing execution
+finding (Slice and Dice gaps, pet deaths, Kill Command windows, Steady Shot gaps, cooldown timing,
+consumable timing) now lands inside the bucket it affects instead of a separate list.
+
+A decomposable family (white melee, yellow melee, ranged, spell) is split into four factors from
+the damage table's hit and miss details, each carrying its own DPS: **zero-damage outcomes** (miss,
+dodge, parry, resist), **outcomes per minute** (swing/cast rate), **damage per landed hit**, and
+**crit rate**. These four add back to the family's observed difference, with any leftover stated as
+an explicit residual rather than silently dropped:
+
+```
+differenceDps = zeroDamage.dps + rate.dps + yield.dps + residualDps
+yield.dps      = perHit.dps + crit.dps
+```
+
+Pet and periodic damage are never decomposed into these factors (their totals still appear as a
+bucket). A family is only decomposed when both sides have at least 20 recorded outcomes and full
+hit/miss detail; short of that the bucket shows totals only, with an explicit "too few outcomes to
+decompose" assumption instead of treating the missing detail as zero.
+
+**Source resolution.** Each factor difference is walked down to a named source, in this order:
+stat snapshot difference (combatant info at pull) is resolved against the item database
+(`data/tbc-item-db.json`) to name the equipped item, gem or enchant supplying the stat; a stat
+difference the equipment audit cannot explain falls back to auras present at pull (self-cast
+entries are consumables you own, entries cast by another actor are blessings/party buffs owned by
+the raid); uptime differences are resolved against buff bands for a catalogue of haste/attack-power/
+damage buffs, classified as raid buff, trinket/weapon proc, or the player's own cooldown; and
+target-debuff differences are read from the report's debuff table (Sunder, Faerie Fire, Curse of
+Recklessness, Expose Weakness, Improved Scorch, Misery), owned by the raid. Bloodlust and Heroism
+are tracked as one family. A source already present at the pull is not reported again from an
+uptime band. Parries are never modelled from observed counts — a recorded parry only proves time
+spent in front of the target, so the expected parry rate is always the "behind the target" case,
+and extra parries on the player's side surface as a positioning note, not a stat cause. A
+reference-only proc item is a gear cause only when the player is wearing a trinket with no damage
+stats in that slot; otherwise it is luck.
+
+**Sizes.** Every cause and finding carries a `size`, one of four kinds:
+
+- `priced` — a controlled sim of the player's own reconstructed character, one change at a time:
+  "about 34 DPS for your build, priced with the validated rotation" (or "unvalidated rotation" —
+  see the sanity gate below). A price of zero or less still counts as priced and reads "no
+  measurable gain in the model" rather than being hidden.
+- `bound` — an observed-rate upper bound for execution findings no sim prices: "up to about 110
+  DPS on this pull", the player's own observed rate for the affected damage while active × seconds
+  it was inactive ÷ pull duration. It is capped at the bucket's own observed difference when the
+  reference is ahead of the player, or at the player's own bucket DPS otherwise, and a capped bound
+  says so.
+- `variance` — an outcome count within two binomial standard deviations of its expectation from
+  the recorded ratings. Sized as zero, owned by luck, no action; only the part of a difference
+  outside that range is ever attributed to a stat.
+- `unsized` — no defensible price or bound: "not sized", or "not sized: <reason>" when pricing
+  could not run for the fight (see the sanity gate).
+
+Prices and bounds are never summed; every bucket carries the note "These values overlap and do not
+add up to the gap." Within a bucket, and in the night overview, items sort positive priced/bound
+first (larger DPS first), then zero-or-negative priced, then unsized, then variance last — a "no
+change; this is variance" card can never lead a bucket ahead of an actual lever. Ties break you
+before raid before luck.
+
+**Sanity gate.** Absolute-DPS prices are withheld unless the model's baseline DPS for the fight
+lands within 70%–150% of either the player's or the reference's own observed DPS. When it doesn't,
+every cause in the fight becomes `unsized` with a reason that names only the two observed DPS
+values and points to Model settings — it never states a direction ("too high"/"too low") and never
+prints the model's own baseline number, because an unvalidated rotation must not surface an
+absolute DPS claim. Assassination's preset talents always fail this gate, because the preset
+route sims Combat talents; entering a real talent string in Model settings both fixes the mismatch
+and switches every price's label to "unvalidated rotation" (stat prices tolerate rotation error;
+absolute DPS does not, so it stays hidden until the rotation is validated).
+
+**Owner labels.** `you` (preparation, gear, execution), `raid` (blessings, raid buffs, drums,
+composition), `luck` (variance within expectation). A raid-owned cause is still shown in full; nothing about it is suppressed because the player cannot act on it alone.
+
+**Not compared.** Target armor, weapon damage ranges and positioning are never modelled; a
+residual line says so explicitly rather than folding them into a stat cause.
+
+**Version.** `VERSION` in `evaluation-service.js` is `'deep-evaluation-5'`. Saved reports built by
+an older engine have no `coaching.buckets`; they keep rendering in the layout engine 4 produced
+(damage table plus the existing coaching list) rather than being reinterpreted under the new
+order. Regenerate a saved evaluation to see it under engine 5.
