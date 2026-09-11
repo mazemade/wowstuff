@@ -77,9 +77,9 @@ test('coaching buckets omit the heavy outcomes payload but keep factors and assu
 });
 
 test('withheld pricing labels every cause and old reports without a budget keep the current shape', () => {
-    const fight = { name: 'A', durationSec: 100, budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] }, causes: [{ id: 'stat-hit', bucket: 'all', owner: 'you', title: 't', observation: 'o', action: 'a', evidence: [], sim: {} }], pricing: { status: 'withheld', reason: 'The model baseline (666 DPS) cannot reproduce the observed 1815 DPS; enter your talents in Model settings to price gear and buffs.', prices: {} }, findings: [] };
+    const fight = { name: 'A', durationSec: 100, budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] }, causes: [{ id: 'stat-hit', bucket: 'all', owner: 'you', title: 't', observation: 'o', action: 'a', evidence: [], sim: {} }], pricing: { status: 'withheld', reason: "The model lands well below both your observed 1000 DPS and Jofrey's 1100 DPS, so gear and buff prices are withheld; enter your talents in Model settings to price them.", prices: {} }, findings: [] };
     const c = buildFightCoaching(fight);
-    assert.match(c.buckets[0].items[0].size.label, /not sized: The model baseline/);
+    assert.match(c.buckets[0].items[0].size.label, /not sized: The model lands well below/);
     const legacy = buildFightCoaching({ name: 'B', findings: [{ id: 'x', title: 'X', disposition: 'improve', action: 'a', evidence: ['e'] }] });
     assert.equal(legacy.buckets, undefined); assert.equal(legacy.improvements.length, 1);
     const night = buildNightCoaching({ fights: [{ name: 'A', coaching: c }, { name: 'B', coaching: legacy }] });

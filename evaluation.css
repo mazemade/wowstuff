@@ -476,16 +476,16 @@ li {
     gap:10px;
     margin-top:10px;
 }
-.coaching-item {
+.coaching-item, .bucket-item {
     border-left:3px solid var(--rule);
     background:var(--surface-raised);
     padding:15px 16px;
 }
 .coaching-item.coaching-high { border-left-color:var(--amber); }
-.coaching-item p { font-size:13px; margin-bottom:7px; }
-.coaching-item strong { color:var(--ink); }
-.coaching-item .coaching-change { color:var(--ink); font-size:14px; }
-.coaching-item .coaching-observed { color:var(--muted); }
+.coaching-item p, .bucket-item p { font-size:13px; margin-bottom:7px; }
+.coaching-item strong, .bucket-item strong { color:var(--ink); }
+.coaching-item .coaching-change, .bucket-item .coaching-change { color:var(--ink); font-size:14px; }
+.coaching-item .coaching-observed, .bucket-item .coaching-observed, .bucket-item .bucket-observation { color:var(--muted); }
 .budget-strip {
     display:grid;
     grid-template-columns:repeat(3,1fr);
@@ -522,11 +522,6 @@ li {
     gap:10px;
     margin-top:10px;
 }
-.bucket-item {
-    border-left:3px solid var(--rule);
-    background:var(--surface-raised);
-    padding:15px 16px;
-}
 .bucket-item.owner-raid { border-left-color:var(--amber); }
 .bucket-item.owner-luck { border-left-color:var(--muted); }
 .bucket-item.size-unsized { opacity:.85; }
@@ -539,10 +534,6 @@ li {
     color:var(--muted);
 }
 .bucket-item h4 { font-size:15px; margin:4px 0 6px; }
-.bucket-item p { font-size:13px; margin-bottom:7px; }
-.bucket-item strong { color:var(--ink); }
-.bucket-item .coaching-change { color:var(--ink); font-size:14px; }
-.bucket-item .bucket-observation, .bucket-item .coaching-observed { color:var(--muted); }
 .boss-lines {
     margin:12px 0;
     padding-left:22px;

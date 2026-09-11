@@ -151,7 +151,10 @@ test('a baseline sane for either the player or the reference DPS is priced', asy
 test('a baseline far from both observed values withholds every price with an actionable reason', async () => {
     const { deps } = fakeDeps(666, () => 700);
     const result = await priceCauses({ player: { classToken: 'ROGUE', spec: 'Assassination' } }, { budget, causes }, deps);
-    assert.equal(result.status, 'withheld'); assert.match(result.reason, /666 DPS/); assert.match(result.reason, /Model settings/);
+    assert.equal(result.status, 'withheld'); assert.match(result.reason, /well below/); assert.match(result.reason, /Model settings/);
+    assert.match(result.reason, /1546 DPS/); assert.match(result.reason, /1815 DPS/);
+    assert.doesNotMatch(result.reason, /666|667/, 'an unvalidated rotation never prints an absolute model DPS');
+    assert.equal(result.baselineDps, 666, 'the baseline stays in the result for callers that may use it');
     assert.deepEqual(result.prices, {});
     assert.ok(666 / 1815 < SANITY.low);
 });

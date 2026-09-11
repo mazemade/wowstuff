@@ -58,11 +58,15 @@
         if (!findings.length) return '';
         return '<section class="report-section priority-section"><p class="eyebrow">Priority execution</p><h2>Change these first on the next pull</h2><div class="finding-grid">' + findings.map(item => '<div class="finding priority-' + esc(String(item.priority || '').toLowerCase()) + '"><span class="owner">' + esc(priorityLabel(item.priority)) + '<span class="evidence-tag">' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + '</span></span><h3>' + esc(item.title) + '</h3><p>' + esc(item.action) + '</p>' + detail('Inspect the evidence', item.evidence) + '</div>').join('') + '</div></section>';
     }
+    function basisLabel(item) { return item.basis === 'practice' ? 'Practice next pull' : item.basis === 'correction' ? 'Correction' : ''; }
+    function observedAtHtml(item) {
+        const timed = list(item.evidence).find(e => e && typeof e === 'object' && number(e.startSec));
+        return timed ? '<p class="coaching-observed"><strong>Observed at:</strong> ' + seconds(timed.startSec) + (number(timed.endSec) ? '–' + seconds(timed.endSec) : '') + '</p>' : '';
+    }
     function coachingItemHtml(item) {
         const alternatives = list(item.alternatives).map(value => '<li>' + esc(value) + '</li>').join('');
-        const basis = item.basis === 'practice' ? 'Practice next pull' : item.basis === 'correction' ? 'Correction' : '';
-        const timed = list(item.evidence).find(e => e && typeof e === 'object' && number(e.startSec));
-        const observedAt = timed ? '<p class="coaching-observed"><strong>Observed at:</strong> ' + seconds(timed.startSec) + (number(timed.endSec) ? '–' + seconds(timed.endSec) : '') + '</p>' : '';
+        const basis = basisLabel(item);
+        const observedAt = observedAtHtml(item);
         return '<article class="coaching-item coaching-' + esc(item.priority || 'low') + '"><span class="owner">' + esc(priorityLabel(item.priority)) + (basis ? ' · ' + basis : '') + (item.owner ? ' · ' + esc(owner(item.owner)) : '') + '</span><h3>' + esc(item.what || item.title || 'Finding') + '</h3>' + (item.observed ? '<p class="coaching-observed"><strong>Observed:</strong> ' + esc(item.observed) + '</p>' : '') + observedAt + '<p><strong>Why it matters:</strong> ' + esc(item.why || 'The supplied evidence needs review in context.') + '</p>' + (item.change ? '<p class="coaching-change"><strong>Next pull:</strong> ' + esc(item.change) + '</p>' : '') + '<p><strong>Verify:</strong> ' + esc(item.verification || 'Inspect the source evidence on the next comparable pull.') + '</p>' + (alternatives ? '<details><summary>Alternatives to check</summary><ul>' + alternatives + '</ul></details>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
     }
     function coachingItems(value) { return list(value).filter(item => item && typeof item === 'object'); }
@@ -84,17 +88,19 @@
     function bucketItemHtml(item) {
         const title = item.title || item.what || 'Finding';
         const action = item.itemKind === 'finding' ? item.change : item.action;
-        const basis = item.basis === 'practice' ? ' · Practice next pull' : item.basis === 'correction' ? ' · Correction' : '';
-        const timed = list(item.evidence).find(e => e && typeof e === 'object' && number(e.startSec));
-        const observedAt = timed ? '<p class="coaching-observed"><strong>Observed at:</strong> ' + seconds(timed.startSec) + (number(timed.endSec) ? '–' + seconds(timed.endSec) : '') + '</p>' : '';
+        const basis = basisLabel(item) ? ' · ' + basisLabel(item) : '';
+        const observedAt = observedAtHtml(item);
         return '<article class="bucket-item owner-' + esc(item.owner || 'review') + ' size-' + esc(item.size?.kind || 'unsized') + '"><span class="owner">' + ownerTag(item.owner) + ' · <span class="size">' + sizeText(item.size) + basis + '</span></span><h4>' + esc(title) + '</h4>' +
             (item.observation || item.observed ? '<p class="bucket-observation">' + esc(item.observation || item.observed) + '</p>' : '') + observedAt + (item.why && item.itemKind === 'finding' ? '<p><strong>Why it matters:</strong> ' + esc(item.why) + '</p>' : '') +
             (action ? '<p class="coaching-change"><strong>Next:</strong> ' + esc(action) + '</p>' : '') + (item.verification ? '<p><strong>Verify:</strong> ' + esc(item.verification) + '</p>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
     }
     function factorLineHtml(b) {
-        const f = b.factors; if (!f) return '';
+        const f = b.factors; if (!f || typeof f !== 'object') return '';
         const signed = v => number(v) ? (v > 0 ? '−' : '+') + fmt(Math.abs(v)) + ' DPS' : '—';
-        return '<p class="factor-line">Zero-damage outcomes ' + esc(f.zeroDamage.player) + '% vs ' + esc(f.zeroDamage.reference) + '% (' + signed(f.zeroDamage.dps) + ') · Rate ' + esc(f.rate.player) + ' vs ' + esc(f.rate.reference) + '/min (' + signed(f.rate.dps) + ') · Per landed hit ' + fmt(f.yield.player) + ' vs ' + fmt(f.yield.reference) + ' (' + signed(f.yield.dps) + '; crit share ' + esc(f.yield.crit.player) + '% vs ' + esc(f.yield.crit.reference) + '%)</p>' + (list(b.assumptions).length ? '<p class="model-note">' + esc(b.assumptions.join(' ')) + '</p>' : '');
+        // A partial factors object must degrade to '—', never throw inside innerHTML.
+        const exact = v => number(v) ? String(v) : '—';
+        const zero = f.zeroDamage || {}, per = f.rate || {}, landed = f.yield || {}, crit = landed.crit || {};
+        return '<p class="factor-line">Zero-damage outcomes ' + exact(zero.player) + '% vs ' + exact(zero.reference) + '% (' + signed(zero.dps) + ') · Rate ' + exact(per.player) + ' vs ' + exact(per.reference) + '/min (' + signed(per.dps) + ') · Per landed hit ' + fmt(landed.player) + ' vs ' + fmt(landed.reference) + ' (' + signed(landed.dps) + '; crit share ' + exact(crit.player) + '% vs ' + exact(crit.reference) + '%)</p>' + (list(b.assumptions).length ? '<p class="model-note">' + esc(b.assumptions.join(' ')) + '</p>' : '');
     }
     function budgetHtml(coaching) {
         const budget = coaching.budget, buckets = list(coaching.buckets); if (!budget) return '';
@@ -249,7 +255,7 @@
         const optionsHtml = actions.length || !hasPrimaryCoaching ? '<section aria-label="Tested options" class="tested-options"><div class="section-top"><div><p class="eyebrow">Useful modeled actions</p><h2>' + esc(planTitle) + '</h2></div><span class="model-label">' + esc(modelLabel) + '</span></div>' + (packageHtml ? '<div class="package-grid">' + packageHtml + '</div>' : '') + '<p class="model-note">' + esc(planNote) + '</p>' + (actions.length ? '<ol class="action-list">' + actionHtml + '</ol>' : noActions) + '</section>' : '';
         const explain = info.metric === 'dtps' ? 'Incoming damage differs by mechanics, assignments, cooldown coverage, and who was targeted. Treat this comparison as context for a mitigation and survival review.' : info.metric === 'hps' ? 'Effective healing differs with damage patterns, assignments, overhealing, and other healers. Treat this comparison as context for the next healing plan.' : 'The observed difference can include gear, support, encounter conditions, random outcomes, and execution. It is context for the next pull, not a measure of player fault.';
         const background = damageAnalysisHtml(damageAnalysis) + (findingHtml ? '<section class="report-section"><p class="eyebrow">Additional findings</p><h2>Evidence to review</h2><div class="finding-grid">' + findingHtml + '</div></section>' : '') + coverageHtml(f.coverage, role) + comparisonHtml + timelineHtml + '<section class="report-section"><h2>' + (info.metric === 'dps' ? 'Comparison context' : 'Pull context') + '</h2><p class="model-note">' + esc(explain) + '</p>' + detail('Model assumptions & validation', modelEvidence(sim)) + detail('Encounter limitations', list(f.limitations)) + '</section>';
-        const primaryHtml = bucketed ? budgetHtml(coaching) + coachingSecondaryHtml(coaching) : coachingHtml(coaching) + priorityFindingsHtml(priorityFindings);
+        const primaryHtml = bucketed ? budgetHtml(coaching) + priorityFindingsHtml(priorityFindings) + coachingSecondaryHtml(coaching) : coachingHtml(coaching) + priorityFindingsHtml(priorityFindings);
         const testedHtml = bucketed && optionsHtml ? '<details class="background-details tested-background"><summary>Tested packages</summary>' + optionsHtml + '</details>' : optionsHtml;
         $('fightReport').innerHTML = '<div class="fight-title"><h2>' + esc(f.name) + '</h2><span class="muted">' + seconds(f.durationSec) + ' pull</span></div>' + primaryHtml + testedHtml + '<div class="observed-strip">' + stats + '</div>' + (background ? '<details class="background-details report-background"><summary>Background details & evidence</summary><div class="background-content">' + background + '</div></details>' : '');
     }

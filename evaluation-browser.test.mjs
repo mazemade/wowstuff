@@ -369,7 +369,7 @@ try {
   assert.match(winterchillText, /These values overlap and do not add up to the gap/);
   assert.match(winterchillText, /Whole pull[\s\S]*Keep, review & coverage/i, 'buckets come before the collapsed legacy sections');
   assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
-  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied?.includes('Budget: you 1546')", 'budget plan');
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied?.includes('Budget: you 1546 DPS, Jofrey 1815 DPS, gap 269.')", 'budget plan');
   assert.match(await evaluate('window.__copied'), /\[you\] Close the expertise gap/);
   const nightText = await evaluate("document.querySelector('#nightOverview').innerText");
   assert.match(nightText, /Slice and Dice was absent[\s\S]*up to about 7 DPS[\s\S]*Rage Winterchill/, 'the night lists the sized levers');
@@ -380,7 +380,7 @@ try {
   await evaluate("document.querySelector('#fight-tab-4').click(); document.querySelector('#copyPlanBtn').click()");
   await waitFor("window.__copied?.includes('103.6 seconds')", 'recorded Archimonde action plan');
   assert.match(await evaluate('window.__copied'), /before the pull/);
-  assert.doesNotMatch(await evaluate('window.__copied'), /Open question:/);
+  assert.doesNotMatch(await evaluate('window.__copied'), /Damage source:|Open question:/);
   await evaluate("document.querySelector('#shareBtn').click()");
   await waitFor("document.querySelector('#shareLinkBox')?.hidden === false", 'recorded player link');
   await navigate(await evaluate("document.querySelector('#shareLinkInput').value"), "document.querySelector('#playerTitle')?.textContent === 'Utopik'", 'recorded recipient report');
