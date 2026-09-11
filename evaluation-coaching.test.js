@@ -64,6 +64,18 @@ test('buckets carry causes and findings sorted by size, with the whole-pull buck
     assert.equal(c.improvements.length, 1, 'legacy lists still exist');
 });
 
+test('coaching buckets omit the heavy outcomes payload but keep factors and assumptions', () => {
+    const fight = { name: 'A', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, limitations: [], residualDps: 0,
+            buckets: [{ id: 'melee', name: 'Melee', attack: 'melee-white', playerDps: 900, referenceDps: 1000, differenceDps: 100, factors: { zeroDamage: 1 }, assumptions: ['a'], outcomes: { player: {}, reference: {} } }] },
+        causes: [], findings: [] };
+    const c = buildFightCoaching(fight);
+    const melee = c.buckets.find(b => b.id === 'melee');
+    assert.equal(melee.outcomes, undefined, 'outcomes should not be copied into coaching buckets');
+    assert.deepEqual(melee.factors, { zeroDamage: 1 });
+    assert.deepEqual(melee.assumptions, ['a']);
+});
+
 test('withheld pricing labels every cause and old reports without a budget keep the current shape', () => {
     const fight = { name: 'A', durationSec: 100, budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] }, causes: [{ id: 'stat-hit', bucket: 'all', owner: 'you', title: 't', observation: 'o', action: 'a', evidence: [], sim: {} }], pricing: { status: 'withheld', reason: 'The model baseline (666 DPS) cannot reproduce the observed 1815 DPS; enter your talents in Model settings to price gear and buffs.', prices: {} }, findings: [] };
     const c = buildFightCoaching(fight);

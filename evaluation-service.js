@@ -358,7 +358,7 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
         }
         await progress({ stage: 'pricing', message: 'Pricing gear and buff changes for ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result);
         try { fight.pricing = await (deps.priceCauses || priceCauses)(raw, { budget: fight.budget, causes: fight.causes }); }
-        catch (error) { fight.pricing = { status: 'unavailable', reason: 'Pricing could not finish: ' + error.message, prices: {} }; }
+        catch (error) { fight.pricing = { status: 'unavailable', reason: 'Pricing could not finish: ' + ((error && error.message) || String(error)), prices: {} }; }
         fight.coaching = buildFightCoaching(fight);
         result.fights.push(fight);
         result.coaching = buildNightCoaching(result);

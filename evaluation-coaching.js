@@ -107,7 +107,10 @@ function buildBuckets(fight, improvements) {
     const duration = fight.durationSec;
     const all = { id: 'all', name: 'Whole pull (buffs, consumables, raid support)', differenceDps: budget.gapDps, durationSec: duration, items: [] };
     const pull = { id: 'pull', name: 'Execution and survival', differenceDps: null, durationSec: duration, items: [] };
-    const buckets = list(budget.buckets).map((b) => ({ ...b, durationSec: duration, items: [] }));
+    // outcomes is the raw per-hit-outcome ledger used to compute the bucket; it is large and
+    // only needed to build the analysis, never to render or persist coaching. factors and
+    // assumptions stay — the renderer explains a bound/priced size using them.
+    const buckets = list(budget.buckets).map((b) => { const { outcomes, ...rest } = b; return { ...rest, durationSec: duration, items: [] }; });
     const find = (id) => (id === 'all' ? all : buckets.find((b) => b.id === id) || null);
     for (const cause of list(fight.causes)) {
         const item = { ...cause, itemKind: 'cause', size: sizeForCause(cause, pricing) };

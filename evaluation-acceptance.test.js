@@ -75,14 +75,24 @@ test('recorded Utopik Anetheron states the execution headline and the expertise 
     assert.match(a.budget.headline || '', /matched .* with more stats/);
     assert.ok(a.causes.some(c => c.id === 'stat-expertise' && /Fang of Vashj|Mooyootoo/.test(c.evidence.map(e => e.text).join(' '))));
 });
-test('recorded Funkell Archimonde bounds the pet bucket and keeps Kill Command below it', () => {
-    const { combinedEvidence } = require('./evaluation-service');
+test('recorded Funkell Archimonde bounds the pet bucket', () => {
     const raw = structuredClone(require('./fixtures/evaluation/funkell-hunter.json').fights.find(f => f.name === 'Archimonde'));
     const fight = { name: 'Archimonde', durationSec: 231.3, ...combinedEvidence(raw), pricing: { status: 'unavailable', prices: {} } };
     const coaching = buildFightCoaching(fight);
     const pet = coaching.buckets.find(b => b.id === 'pet-damage');
     assert.ok(pet, 'pet bucket'); assert.equal(pet.items[0].id, 'hunter-pet-survival'); assert.equal(pet.items[0].size.kind, 'bound');
     assert.ok(pet.items[0].size.dps > 150 && pet.items[0].size.dps <= Math.abs(pet.differenceDps), 'bound between 150 and the bucket difference: ' + pet.items[0].size.dps);
-    const kc = coaching.sized.find(i => i.id.startsWith('hunter-kill-command'));
-    if (kc) assert.ok(kc.size.dps < pet.items[0].size.dps);
+});
+test('recorded Funkell Kaz\'rogal bounds an expired Kill Command opportunity inside the pet bucket', () => {
+    const raw = structuredClone(require('./fixtures/evaluation/funkell-hunter.json').fights.find(f => f.name === "Kaz'rogal"));
+    const f = raw.context.fights.find(x => x.id === raw.fightId) || raw.context.fights[0];
+    const durationSec = (f.endTime - f.startTime) / 1000;
+    const fight = { name: "Kaz'rogal", durationSec, ...combinedEvidence(raw), pricing: { status: 'unavailable', prices: {} } };
+    const coaching = buildFightCoaching(fight);
+    const pet = coaching.buckets.find(b => b.id === 'pet-damage');
+    assert.ok(pet, 'pet bucket');
+    const kc = pet.items.find(i => i.id === 'hunter-kill-command');
+    assert.ok(kc, 'hunter-kill-command in the pet bucket');
+    assert.equal(kc.size.kind, 'bound');
+    assert.ok(kc.size.dps > 5, 'about 2 attempts x ~671 over ~182s ~= 7.4 DPS: ' + kc.size.dps);
 });
