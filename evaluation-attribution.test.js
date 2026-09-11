@@ -6,6 +6,7 @@ const { attributeCauses } = require('./evaluation-attribution');
 const recorded = require('./fixtures/evaluation/utopik-investigation.json');
 const fight = name => structuredClone(recorded.fights.find(f => f.name === name));
 const causesFor = name => { const raw = fight(name); return attributeCauses(raw, analyzeBudget(raw)).causes; };
+const funkellHunter = require('./fixtures/evaluation/funkell-hunter.json');
 
 test('Winterchill expertise gap resolves to Fang of Vashj with the reference luck stated', () => {
     const causes = causesFor('Rage Winterchill');
@@ -119,4 +120,11 @@ test('parries are positioning, not stat luck: only flagged when the player is pa
     assert.ok(positioning, 'expected positioning-melee-parry when the player is parried more than the reference');
     assert.equal(positioning.owner, 'you');
     assert.match(positioning.observation, /5 of your attacks were parried against 3/);
+});
+
+test('a buff already named as an aura-at-pull cause is not priced again as an uptime cause (Funkell/Anetheron Battle Shout)', () => {
+    const raw = structuredClone(funkellHunter.fights.find(f => f.name === 'Anetheron'));
+    const causes = attributeCauses(raw, analyzeBudget(raw)).causes;
+    assert.ok(causes.some(c => c.id === 'aura-2048'), 'expected aura-2048 (Battle Shout at pull) to exist');
+    assert.equal(causes.find(c => c.id === 'uptime-2048'), undefined, 'Battle Shout must not also be priced as an uptime cause');
 });

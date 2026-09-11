@@ -146,6 +146,10 @@ function attributeCauses(raw, budget) {
                     push({ id: 'proc-' + item, bucket: 'all', factor: affects, kind: 'gear', owner: 'you', title: wearer.name + ' proc uptime', observation: reference.player.name + ' had ' + e.name + ' from ' + wearer.name + ' active ' + round(theirs) + '% of the pull. You do not wear it; you wore ' + weakest.name + ', which has no damage stats.', action: 'Never raid with ' + weakest.name + ' equipped; any damage trinket beats it.', evidence: [ev(reference.player.name + ' equipped ' + wearer.name + '.', reference), ev('Your ' + weakest.label + ': ' + weakest.name + '.')], sim: { equip: { slot: SLOT_TO_SIM[weakest.key], id: item, replaces: weakest.id } }, priority: 'high' });
                     continue;
                 }
+                // A buff at pull (Kings, a flask, etc.) and its own uptime aura share the same
+                // catalogue id (e.g. Battle Shout 2048): once the "at pull" pass above already
+                // named it as aura-<id>, the uptime pass must not price the same buff twice.
+                if (out.causes.some(c => c.id === 'aura-' + id)) continue;
                 push({ id: 'uptime-' + id, bucket: 'all', factor: affects, kind: e.kind, owner: e.owner, title: e.name + ' uptime', observation: e.name + ' was active ' + round(mine) + '% of your pull and ' + round(theirs) + '% of ' + reference.player.name + "'s.", action: e.owner === 'raid' ? 'Ask your raid leader whether ' + e.name + ' can be provided to your group.' : 'Keep ' + e.name + ' running; compare the bands on the next pull.', evidence: [ev('Buff bands from both logs.')], sim: e.sim, priority: e.owner === 'you' ? 'high' : 'medium' });
             }
         }
