@@ -76,9 +76,10 @@ function headlineFor(gap, playerDps, ownCi, otherCi, referenceName, role) {
 
 function analyzeBudget(raw) {
     if (['healer', 'tank'].includes(raw.player?.role) || !raw.player?.spec) return { status: 'unavailable', reason: 'Damage budgets apply to DPS roles.', buckets: [], limitations: [] };
+    // chooseReference only accepts candidates with durationOf(r) > 0 (evaluation-damage-analysis.js),
+    // so a truthy reference here always has a positive otherDuration.
     const reference = chooseReference(raw), duration = durationOf(raw), otherDuration = durationOf(reference);
     if (!reference || !(duration > 0) || !entries(raw.tables?.dmg)) return { status: 'unavailable', reason: 'An independent same-spec reference with a damage table is required.', buckets: [], limitations: [] };
-    if (!(otherDuration > 0)) return { status: 'unavailable', reason: 'The reference pull has no timing.', buckets: [], limitations: [] };
     const limitations = [];
     const own = entries(raw.tables.dmg), other = entries(reference.tables.dmg);
     const ids = [...new Set([...own, ...other].filter(r => finite(r.total)).map(r => family(r).id))];

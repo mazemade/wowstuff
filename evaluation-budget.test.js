@@ -28,6 +28,10 @@ test('Utopik on Winterchill: melee bucket carries the four factors from the reco
     assert.ok(Math.abs(melee.factors.yield.crit.dps + melee.factors.yield.perHit.dps - melee.factors.yield.dps) < 0.6);
     assert.ok(melee.assumptions.some(a => /Precision/.test(a)));
     assert.equal(budget.buckets.find(b => b.id === 'deadly poison vii').factors, null, 'periodic families are not decomposed'); // family() keys on the recorded ability name, "Deadly Poison VII"
+    assert.ok(budget.buckets.find(b => b.id === 'deadly poison vii').assumptions.includes('Periodic damage is not decomposed into outcomes.'));
+    const eviscerate = budget.buckets.find(b => b.id === 'eviscerate');
+    assert.equal(eviscerate.playerDps, 0); assert.equal(eviscerate.referenceDps, 92.7);
+    assert.ok(eviscerate.assumptions.includes('Only one player recorded this damage family.'));
 });
 
 test('missing reference or hit details degrade to unavailable without inventing counts', () => {
@@ -74,8 +78,3 @@ test('Winterchill gearAudit is refreshed alongside the combatant snapshot (2 hea
     assert.equal(head.gems.length, 2);
 });
 
-test('a reference pull with no timing degrades to unavailable', () => {
-    const raw = winterchill();
-    for (const ref of raw.references) delete ref.context.fights; // Winterchill has several candidate references; strip timing from all of them
-    assert.equal(analyzeBudget(raw).status, 'unavailable');
-});
