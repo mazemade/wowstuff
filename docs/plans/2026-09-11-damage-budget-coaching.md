@@ -30,8 +30,8 @@ Per boss, in this order:
        expertise ≈ N DPS for your build.
      - "13 misses against 6 at 272 hit rating against 252. Your count is above expectation and
        his is below; this line is mostly variance." Source: luck.
-   - "Your crits averaged 939, his 1026. At pull you had no flask or battle elixir; Jofrey had
-     Flask of Relentless Assault. You had Salvation and Might; Jofrey also had Kings. Jofrey had
+   - "Your crits averaged 939, his 1026. At pull you had Elixir of Major Agility and no guardian
+     elixir; Jofrey had Flask of Relentless Assault. You had Salvation and Might; Jofrey also had Kings. Jofrey had
      Unleashed Rage 80% of the pull from an enhancement shaman; you had none. Heartrazor procced
      33% against 14%." Sources: consumable (player, priced), blessing (raid, priced), raid buff
      (raid, priced), proc (luck).
@@ -162,8 +162,11 @@ New modules, all pure except pricing:
 - `evaluation.js`, `evaluation.css`, shared page — new order and bucket layout; copy plan text
   follows the same order.
 
-Finding contract additions: `bucket` (family id or `pull`), `factor`, `size {kind, dps, label}`,
-`sources [{kind, name, owner, statDelta, evidence}]`. Older saved reports without these fields
+Finding contract additions: `bucket` (damage family id) and `measure` (`{ lostSeconds,
+activeRateDps }` or `{ lostCasts, averageDamage }`, plus a `note`) on execution findings; the
+coaching layer adds `size {kind, dps, label}`. Named sources are separate `causes` records
+(`{ id, bucket, factor, kind, owner, title, observation, action, evidence, statDelta, sim }`)
+attached to the fight beside `budget` and `pricing`. Older saved reports without these fields
 render under the current layout unchanged.
 
 Item, consumable, aura and debuff catalogues are data files with spell and item ids, no name
