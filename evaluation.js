@@ -67,20 +67,53 @@
     }
     function coachingItems(value) { return list(value).filter(item => item && typeof item === 'object'); }
     function coachedIds(coaching) { return new Set(['improvements', 'keeps', 'reviews'].flatMap(key => coachingItems(coaching?.[key]).map(item => item.id).filter(Boolean))); }
-    function coachingHtml(coaching) {
-        if (!coaching || typeof coaching !== 'object') return '';
-        const improvements = coachingItems(coaching.improvements), keeps = coachingItems(coaching.keeps), reviews = coachingItems(coaching.reviews), depth = coaching.depth && typeof coaching.depth === 'object' ? coaching.depth : {};
+    function coachingSecondaryHtml(coaching) {
+        const keeps = coachingItems(coaching.keeps), reviews = coachingItems(coaching.reviews), depth = coaching.depth && typeof coaching.depth === 'object' ? coaching.depth : {};
         const keepHtml = keeps.length ? '<details class="coaching-details"><summary>Keep doing (' + keeps.length + ')</summary><div class="coaching-list">' + keeps.map(coachingItemHtml).join('') + '</div></details>' : '';
         const reviewHtml = reviews.length ? '<details class="coaching-details"><summary>Open review (' + reviews.length + ')</summary><p class="model-note">These observations need encounter context before they become a change request.</p><div class="coaching-list">' + reviews.map(coachingItemHtml).join('') + '</div></details>' : '';
         const coverage = depth && (list(depth.reviewed).length || list(depth.unresolved).length) ? '<details class="coaching-depth"><summary>' + esc(depth.status === 'complete' ? 'Review coverage' : 'Inspection coverage') + '</summary><span>Reviewed: ' + esc(list(depth.reviewed).join(', ') || '—') + '</span><span>Unresolved: ' + esc(list(depth.unresolved).join(', ') || '—') + '</span></details>' : '';
-        return '<section class="report-section coaching-section"><p class="eyebrow">Next-pull coaching</p><h2>Make these changes</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p><div class="coaching-list">' + (improvements.length ? improvements.map(coachingItemHtml).join('') : '<p class="model-note">No evidence-backed change is ready for this pull.</p>') + '</div>' + (keepHtml || reviewHtml || coverage ? '<details class="background-details coaching-background"><summary>Keep, review & coverage</summary>' + keepHtml + reviewHtml + coverage + '</details>' : '') + '</section>';
+        return keepHtml || reviewHtml || coverage ? '<details class="background-details coaching-background"><summary>Keep, review & coverage</summary>' + keepHtml + reviewHtml + coverage + '</details>' : '';
+    }
+    function coachingHtml(coaching) {
+        if (!coaching || typeof coaching !== 'object') return '';
+        const improvements = coachingItems(coaching.improvements);
+        return '<section class="report-section coaching-section"><p class="eyebrow">Next-pull coaching</p><h2>Make these changes</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p><div class="coaching-list">' + (improvements.length ? improvements.map(coachingItemHtml).join('') : '<p class="model-note">No evidence-backed change is ready for this pull.</p>') + '</div>' + coachingSecondaryHtml(coaching) + '</section>';
+    }
+    const ownerTag = value => ({ you: 'You', player: 'You', raid: 'Raid', luck: 'Luck', context: 'Fight context' }[value] || 'Review');
+    const sizeText = size => esc(size && size.label ? size.label : 'not sized');
+    function bucketItemHtml(item) {
+        const title = item.title || item.what || 'Finding';
+        const action = item.itemKind === 'finding' ? item.change : item.action;
+        const basis = item.basis === 'practice' ? ' · Practice next pull' : item.basis === 'correction' ? ' · Correction' : '';
+        const timed = list(item.evidence).find(e => e && typeof e === 'object' && number(e.startSec));
+        const observedAt = timed ? '<p class="coaching-observed"><strong>Observed at:</strong> ' + seconds(timed.startSec) + (number(timed.endSec) ? '–' + seconds(timed.endSec) : '') + '</p>' : '';
+        return '<article class="bucket-item owner-' + esc(item.owner || 'review') + ' size-' + esc(item.size?.kind || 'unsized') + '"><span class="owner">' + ownerTag(item.owner) + ' · <span class="size">' + sizeText(item.size) + basis + '</span></span><h4>' + esc(title) + '</h4>' +
+            (item.observation || item.observed ? '<p class="bucket-observation">' + esc(item.observation || item.observed) + '</p>' : '') + observedAt + (item.why && item.itemKind === 'finding' ? '<p><strong>Why it matters:</strong> ' + esc(item.why) + '</p>' : '') +
+            (action ? '<p class="coaching-change"><strong>Next:</strong> ' + esc(action) + '</p>' : '') + (item.verification ? '<p><strong>Verify:</strong> ' + esc(item.verification) + '</p>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
+    }
+    function factorLineHtml(b) {
+        const f = b.factors; if (!f) return '';
+        const signed = v => number(v) ? (v > 0 ? '−' : '+') + fmt(Math.abs(v)) + ' DPS' : '—';
+        return '<p class="factor-line">Zero-damage outcomes ' + esc(f.zeroDamage.player) + '% vs ' + esc(f.zeroDamage.reference) + '% (' + signed(f.zeroDamage.dps) + ') · Rate ' + esc(f.rate.player) + ' vs ' + esc(f.rate.reference) + '/min (' + signed(f.rate.dps) + ') · Per landed hit ' + fmt(f.yield.player) + ' vs ' + fmt(f.yield.reference) + ' (' + signed(f.yield.dps) + '; crit share ' + esc(f.yield.crit.player) + '% vs ' + esc(f.yield.crit.reference) + '%)</p>' + (list(b.assumptions).length ? '<p class="model-note">' + esc(b.assumptions.join(' ')) + '</p>' : '');
+    }
+    function budgetHtml(coaching) {
+        const budget = coaching.budget, buckets = list(coaching.buckets); if (!budget) return '';
+        const pricing = budget.pricing || {};
+        const priceLine = pricing.status === 'priced' ? 'Prices use the ' + (pricing.rotation === 'validated' ? 'validated' : 'unvalidated') + ' rotation on your recorded gear.' : 'Prices are not available: ' + (pricing.reason || 'no simulator run.');
+        const strip = '<div class="budget-strip"><div class="stat"><span class="stat-label">You</span><span class="stat-number">' + fmt(budget.player?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">' + link(budget.reference?.url, budget.reference?.name || 'Reference') + '</span><span class="stat-number">' + fmt(budget.reference?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">Gap</span><span class="stat-number">' + fmt(budget.gapDps) + '</span><span class="stat-unit">DPS</span></div></div>';
+        const bucketHtml = buckets.map(b => '<section class="bucket"><div class="bucket-head"><h3>' + esc(b.name) + '</h3>' + (number(b.playerDps) ? '<span class="muted">you ' + fmt(b.playerDps) + ' · ref ' + fmt(b.referenceDps) + ' · diff ' + (b.differenceDps > 0 ? '+' : '') + fmt(b.differenceDps) + ' DPS</span>' : '') + '</div>' + factorLineHtml(b) + '<div class="bucket-items">' + list(b.items).filter(i => i && !i.mirrored).map(bucketItemHtml).join('') + '</div><p class="model-note">' + esc(b.note) + '</p></section>').join('');
+        return '<section class="report-section budget-section"><p class="eyebrow">Damage budget</p><h2>Where the gap is and what it is worth</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p>' + strip + (budget.headline ? '<p class="budget-headline">' + esc(budget.headline) + '</p>' : '') + '<p class="model-note">' + esc(priceLine) + ' ' + esc(list(budget.limitations).join(' ')) + '</p>' + bucketHtml + '</section>';
     }
     function nightCoachingHtml(coaching) {
         if (!coaching || typeof coaching !== 'object') return '';
         const questions = list(coaching.openQuestions);
         const changes = coachingItems(coaching.topChanges || coaching.improvements).slice(0, 5);
         const briefChange = value => { const text = String(value || '').trim(), sentence = text.match(/^.*?[.!?](?=\s|$)/)?.[0] || text; return sentence.length > 160 ? sentence.slice(0, 157).trimEnd() + '…' : sentence; };
-        const changeHtml = changes.length ? '<ol class="night-priorities">' + changes.map(item => '<li><strong>' + esc(item.what || item.title || 'Finding') + '</strong><span>' + esc(briefChange(item.change || item.observed || 'Review the available evidence before the next pull.')) + ' · ' + esc(priorityLabel(item.priority)) + ' · ' + esc(list(item.bosses).join(', ') || 'Encounter context unavailable') + '</span></li>').join('') + '</ol>' : '';
+        const sized = coachingItems(coaching.topSized);
+        const bossLines = list(coaching.bossLines).filter(line => line && typeof line === 'object');
+        const sizedHtml = '<ol class="night-priorities">' + sized.map(item => '<li><strong>' + esc(item.what || item.title || 'Finding') + '</strong><span>' + sizeText(item.size) + ' · ' + esc(list(item.bosses).join(', ') || 'Encounter context unavailable') + '</span></li>').join('') + '</ol>'
+            + (bossLines.length ? '<ul class="boss-lines">' + bossLines.map(line => '<li>' + esc(line.boss || 'Encounter') + ': you ' + fmt(line.playerDps) + ' vs ' + fmt(line.referenceDps) + ', gap ' + fmt(line.gapDps) + (line.topBucket ? ', largest bucket ' + esc(line.topBucket) : '') + '</li>').join('') + '</ul>' : '');
+        const changeHtml = sized.length ? sizedHtml : changes.length ? '<ol class="night-priorities">' + changes.map(item => '<li><strong>' + esc(item.what || item.title || 'Finding') + '</strong><span>' + esc(briefChange(item.change || item.observed || 'Review the available evidence before the next pull.')) + ' · ' + esc(priorityLabel(item.priority)) + ' · ' + esc(list(item.bosses).join(', ') || 'Encounter context unavailable') + '</span></li>').join('') + '</ol>' : '';
         return '<section class="night-coaching"><p class="eyebrow">Night overview</p><p>' + esc(coaching.assessment || 'This overview summarizes the available encounter coaching.') + '</p>' + changeHtml + (questions.length ? '<details><summary>Open questions (' + questions.length + ')</summary><ul>' + questions.map(question => '<li>' + esc(question) + '</li>').join('') + '</ul></details>' : '') + '</section>';
     }
     function modelEvidence(sim) {
@@ -210,12 +243,15 @@
         const planTitle = modeled ? 'Tested equipment & support options' : 'Options supported by this pull';
         const modelCoverage = sim.coverage || {}, modelLabel = modelCoverage.kind === 'conditional' ? 'Conditional model' : modelCoverage.kind === 'native' ? 'Native model' : modeled ? 'Controlled estimate' : 'Encounter evidence';
         const planNote = (modeled ? 'Use one tested package at a time. Do not add overlapping estimates together.' : 'These are useful options supported by this pull.') + (modelCoverage.reason ? ' ' + modelCoverage.reason : '');
-        const hasPrimaryCoaching = coachingItems(coaching?.improvements).length || priorityFindings.length;
+        const bucketed = !!(coaching && list(coaching.buckets).length && coaching.budget);
+        const hasPrimaryCoaching = bucketed || coachingItems(coaching?.improvements).length || priorityFindings.length;
         const noActions = '<div class="unmodeled"><h3>' + (info.metric === 'dps' ? 'DPS gains are not quantified for this pull' : 'No tested option for this pull') + '</h3><p>' + esc(sim.reason || 'No tested change is ready for this pull yet.') + '</p></div>';
         const optionsHtml = actions.length || !hasPrimaryCoaching ? '<section aria-label="Tested options" class="tested-options"><div class="section-top"><div><p class="eyebrow">Useful modeled actions</p><h2>' + esc(planTitle) + '</h2></div><span class="model-label">' + esc(modelLabel) + '</span></div>' + (packageHtml ? '<div class="package-grid">' + packageHtml + '</div>' : '') + '<p class="model-note">' + esc(planNote) + '</p>' + (actions.length ? '<ol class="action-list">' + actionHtml + '</ol>' : noActions) + '</section>' : '';
         const explain = info.metric === 'dtps' ? 'Incoming damage differs by mechanics, assignments, cooldown coverage, and who was targeted. Treat this comparison as context for a mitigation and survival review.' : info.metric === 'hps' ? 'Effective healing differs with damage patterns, assignments, overhealing, and other healers. Treat this comparison as context for the next healing plan.' : 'The observed difference can include gear, support, encounter conditions, random outcomes, and execution. It is context for the next pull, not a measure of player fault.';
         const background = damageAnalysisHtml(damageAnalysis) + (findingHtml ? '<section class="report-section"><p class="eyebrow">Additional findings</p><h2>Evidence to review</h2><div class="finding-grid">' + findingHtml + '</div></section>' : '') + coverageHtml(f.coverage, role) + comparisonHtml + timelineHtml + '<section class="report-section"><h2>' + (info.metric === 'dps' ? 'Comparison context' : 'Pull context') + '</h2><p class="model-note">' + esc(explain) + '</p>' + detail('Model assumptions & validation', modelEvidence(sim)) + detail('Encounter limitations', list(f.limitations)) + '</section>';
-        $('fightReport').innerHTML = '<div class="fight-title"><h2>' + esc(f.name) + '</h2><span class="muted">' + seconds(f.durationSec) + ' pull</span></div>' + coachingHtml(coaching) + priorityFindingsHtml(priorityFindings) + optionsHtml + '<div class="observed-strip">' + stats + '</div>' + (background ? '<details class="background-details report-background"><summary>Background details & evidence</summary><div class="background-content">' + background + '</div></details>' : '');
+        const primaryHtml = bucketed ? budgetHtml(coaching) + coachingSecondaryHtml(coaching) : coachingHtml(coaching) + priorityFindingsHtml(priorityFindings);
+        const testedHtml = bucketed && optionsHtml ? '<details class="background-details tested-background"><summary>Tested packages</summary>' + optionsHtml + '</details>' : optionsHtml;
+        $('fightReport').innerHTML = '<div class="fight-title"><h2>' + esc(f.name) + '</h2><span class="muted">' + seconds(f.durationSec) + ' pull</span></div>' + primaryHtml + testedHtml + '<div class="observed-strip">' + stats + '</div>' + (background ? '<details class="background-details report-background"><summary>Background details & evidence</summary><div class="background-content">' + background + '</div></details>' : '');
     }
     function reportText(full) {
         const fights = full ? current.fights : [current.fights[fightIndex]], lines = [current.player.name + ' — ' + (full ? 'deep evaluation' : 'next raid action plan'), current.night?.date || current.night?.code || 'Selected report'];
@@ -227,9 +263,23 @@
             const sim = f.simulation || {}, modeled = sim.status === 'complete', values = observedValues(f.observed || {}), info = metricInfo(f.observed || {}), actions = usableActions(sim, modeled), packages = usablePackages(sim, modeled);
             lines.push('', f.name, 'Observed: ' + fmt(values.player) + ' ' + info.title + '; reference ' + fmt(values.reference) + '; observed difference ' + fmt(values.difference) + '.');
             const coaching = f.coaching && typeof f.coaching === 'object' ? f.coaching : {};
+            const budget = coaching.budget, budgetBuckets = list(coaching.buckets), bucketed = !!(budget && budgetBuckets.length);
             const coachingChanges = coachingItems(coaching.improvements);
             if (coaching.assessment) lines.push('Coaching assessment: ' + coaching.assessment);
-            [...coachingChanges, ...(full ? [...coachingItems(coaching.keeps), ...coachingItems(coaching.reviews)] : [])].forEach(item => {
+            if (bucketed) {
+                lines.push('Budget: you ' + Math.round(budget.player?.dps || 0) + ' DPS, ' + (budget.reference?.name || 'reference') + ' ' + Math.round(budget.reference?.dps || 0) + ' DPS, gap ' + Math.round(budget.gapDps || 0) + '.');
+                if (budget.headline) lines.push(budget.headline);
+                budgetBuckets.forEach(b => {
+                    lines.push('Bucket ' + b.name + ': ' + (number(b.playerDps) ? 'you ' + Math.round(b.playerDps) + ', ref ' + Math.round(b.referenceDps) + ', ' : '') + 'diff ' + Math.round(b.differenceDps || 0) + '.');
+                    list(b.items).filter(item => item && !item.mirrored).forEach(item => {
+                        const action = item.itemKind === 'finding' ? item.change : item.action, observation = item.observation || item.observed || '';
+                        lines.push('- [' + (item.owner === 'player' ? 'you' : item.owner || 'review') + '] ' + (item.title || item.what || 'Finding') + ' — ' + (item.size?.label || 'not sized') + '.' + (observation ? ' ' + observation : '') + (action ? ' Next: ' + action : ''));
+                        if (full) list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : '')));
+                    });
+                });
+                list(budget.limitations).forEach(l => lines.push('Budget limitation: ' + l));
+            }
+            [...(bucketed ? [] : coachingChanges), ...(full ? [...coachingItems(coaching.keeps), ...coachingItems(coaching.reviews)] : [])].forEach(item => {
                 const basis = item.basis === 'practice' ? ' · Practice next pull' : item.basis === 'correction' ? ' · Correction' : '';
                 const label = coachingChanges.includes(item) ? 'Coaching change (' + priorityLabel(item.priority) + basis + ')' : coachingItems(coaching.keeps).includes(item) ? 'Keep' : 'Review';
                 lines.push(label + ': ' + (item.what || item.title || 'Finding') + (item.observed ? ' Observed: ' + item.observed : '') + ' — Why: ' + (item.why || '') + (item.change ? ' Change: ' + item.change : '') + ' Verify: ' + (item.verification || ''));
@@ -245,7 +295,7 @@
             }
             priorityFindings.forEach(item => { lines.push('Priority execution (' + priorityLabel(item.priority) + '): ' + item.title + ' — ' + item.action); if (full) list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); });
             actions.forEach(a => { const impact = impactFor(a, modeled); lines.push('- ' + owner(a.owner) + ': ' + a.title + ' — ' + a.change + (a.when ? ' When: ' + a.when + '.' : '') + ' [' + impactText(impact) + ' ' + impactLabel(impact) + ']'); if (full) { actionEvidence(a, f.findings).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); list(a.caveats).forEach(c => lines.push('  Limit: ' + c)); } });
-            if (!actions.length && !coachingChanges.length && !priorityFindings.length) lines.push('Next step: check the coverage and logged evidence before the next pull.');
+            if (!actions.length && !coachingChanges.length && !priorityFindings.length && !bucketed) lines.push('Next step: check the coverage and logged evidence before the next pull.');
             packages.forEach(p => { const impact = impactFor(p, modeled); lines.push('Tested package: ' + p.title + ' = ' + impactText(impact) + ' ' + impactLabel(impact) + '.'); });
             const priorityIds = new Set(priorityFindings.map(item => item.id));
             if (full) remainingFindings(actions, f.findings).filter(item => !priorityIds.has(item.id) && !coachingIdsForFight.has(item.id)).forEach(item => { lines.push('- ' + owner(item.owner) + ': ' + item.title + ' — ' + item.action + ' [' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + ']'); list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); });

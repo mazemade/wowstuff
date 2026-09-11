@@ -486,6 +486,73 @@ li {
 .coaching-item strong { color:var(--ink); }
 .coaching-item .coaching-change { color:var(--ink); font-size:14px; }
 .coaching-item .coaching-observed { color:var(--muted); }
+.budget-strip {
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    margin:14px 0 18px;
+    border-block:1px solid var(--rule);
+}
+.budget-strip .stat-label a { color:var(--ink); }
+.budget-headline {
+    color:var(--ink);
+    font-weight:600;
+    margin-bottom:10px;
+}
+.bucket {
+    border-top:1px solid var(--rule);
+    padding-block:14px;
+}
+.bucket-head {
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:6px 16px;
+}
+.bucket-head h3 { font-size:17px; }
+.bucket-head .muted { font:12px/1.5 var(--mono); }
+.factor-line {
+    font-size:13px;
+    color:var(--muted);
+    margin-top:6px;
+}
+.bucket-items {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:10px;
+    margin-top:10px;
+}
+.bucket-item {
+    border-left:3px solid var(--rule);
+    background:var(--surface-raised);
+    padding:15px 16px;
+}
+.bucket-item.owner-raid { border-left-color:var(--amber); }
+.bucket-item.owner-luck { border-left-color:var(--muted); }
+.bucket-item.size-unsized { opacity:.85; }
+.bucket-item .owner { margin-bottom:6px; }
+.bucket-item .owner .size {
+    text-transform:none;
+    letter-spacing:normal;
+    font-size:12px;
+    line-height:1.6;
+    color:var(--muted);
+}
+.bucket-item h4 { font-size:15px; margin:4px 0 6px; }
+.bucket-item p { font-size:13px; margin-bottom:7px; }
+.bucket-item strong { color:var(--ink); }
+.bucket-item .coaching-change { color:var(--ink); font-size:14px; }
+.bucket-item .bucket-observation, .bucket-item .coaching-observed { color:var(--muted); }
+.boss-lines {
+    margin:12px 0;
+    padding-left:22px;
+    color:var(--muted);
+    font-size:13px;
+}
+.boss-lines li { padding:3px 0; }
+@media (max-width:640px) {
+    .bucket-items { grid-template-columns:1fr; }
+}
 .coaching-details { margin-top:14px; }
 .coaching-depth {
     display:flex;

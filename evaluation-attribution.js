@@ -71,13 +71,18 @@ function attributeCauses(raw, budget) {
             const bucket = budget.buckets.find(b => b.id === target.bucket);
             const evidence = [];
             let gearDiff = null;
+            const contributors = [];
             if (slots && otherSlots) {
                 gearDiff = 0;
-                for (const s of slots) { const o = otherSlots.find(x => x.key === s.key); if (!o) continue; const d = slotStat(o, index) - slotStat(s, index); if (d) { gearDiff += d; evidence.push(ev('Your ' + describeSlot(s, index) + ' ' + label + '.')); evidence.push(ev(reference.player.name + "'s " + describeSlot(o, index) + ' ' + label + '.', reference)); } }
+                for (const s of slots) { const o = otherSlots.find(x => x.key === s.key); if (!o) continue; const d = slotStat(o, index) - slotStat(s, index); if (d) { gearDiff += d; if (d > 0) contributors.push({ name: o.name, label: o.label, d }); evidence.push(ev('Your ' + describeSlot(s, index) + ' ' + label + '.')); evidence.push(ev(reference.player.name + "'s " + describeSlot(o, index) + ' ' + label + '.', reference)); } }
             }
+            // The report collapses evidence into a details element, so the named items have to
+            // survive in the visible observation: name the two biggest reference contributions.
+            const top = contributors.sort((a, b) => b.d - a.d).slice(0, 2).map(c => c.name + ' (' + c.label + ')');
+            const sources = top.length ? ' ' + reference.player.name + "'s " + other[key] + ' ' + label + ' comes from ' + top.join(' and ') + '.' : '';
             if (!evidence.length) evidence.push(ev('Combatant snapshot: you have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.'));
             const unexplained = gearDiff === null ? null : diff - gearDiff;
-            const observation = (key === 'expertise' ? zeroNote(bucket, 'dodge') + ' ' : key.startsWith('hit') ? zeroNote(bucket, 'miss') + ' ' : '') + 'You have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.' + (gearDiff === null ? ' Equipment stats are unavailable for one side.' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + ' is buffs, scrolls or consumables at pull.');
+            const observation = (key === 'expertise' ? zeroNote(bucket, 'dodge') + ' ' : key.startsWith('hit') ? zeroNote(bucket, 'miss') + ' ' : '') + 'You have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.' + (gearDiff === null ? ' Equipment stats are unavailable for one side.' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + ' is buffs, scrolls or consumables at pull.') + sources;
             // Only a stat the reference has more of becomes a cause; the luck lines below carry the counts either way.
             if (diff > 0) push({ id: 'stat-' + key.replace(/Melee|Ranged|Spell/, ''), bucket: target.bucket, alsoBuckets: target.alsoBuckets, factor, kind: 'gear', owner: 'you', title: 'Close the ' + label + ' gap', observation, action: gearDiff === null ? "Equipment stats are unavailable for one side; compare your items with the reference's." : gearDiff > 0 ? 'Compare the named slots above; the reference item, gem or enchant supplies the stat you lack.' : 'The stat gap is not from equipment; check the aura causes below.', evidence, statDelta: { [index]: round(diff) }, sim: { bonusStats: { [index]: round(diff) } }, priority: factor === 'zeroDamage' ? 'high' : 'medium' });
         }

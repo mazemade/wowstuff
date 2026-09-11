@@ -26,6 +26,12 @@ test('Winterchill expertise gap resolves to Fang of Vashj with the reference luc
     assert.ok(expertise.alsoBuckets.includes('mutilate'));
 });
 
+test('the expertise observation names the reference item that supplies the stat', () => {
+    const expertise = causesFor('Rage Winterchill').find(c => c.id === 'stat-expertise');
+    assert.match(expertise.observation, /Fang of Vashj \(Main hand\)/);
+    assert.match(expertise.observation, /Jofrey's 21 expertise comes from/);
+});
+
 test('Winterchill auras at pull: flask against elixir, Kings, Unleashed Rage; trinket without damage stats', () => {
     const causes = causesFor('Rage Winterchill');
     const flask = causes.find(c => c.id === 'aura-flask');
