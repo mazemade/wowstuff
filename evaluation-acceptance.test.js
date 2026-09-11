@@ -59,3 +59,30 @@ test('recorded fixtures carry reference combatant info, buff bands and gear audi
     const funkell = require('./fixtures/evaluation/funkell-hunter.json').fights.find(f => f.name === 'Archimonde');
     assert.ok(funkell.tables.ci && funkell.references[0].tables.ci && funkell.references[0].gearAudit);
 });
+test('recorded Utopik Winterchill leads with the budget and names every source behind the melee bucket', () => {
+    const w = byBoss('Rage Winterchill');
+    assert.equal(w.budget.status, 'decomposed'); assert.equal(Math.round(w.budget.gapDps), 269); // real capture: 268.54 rounds to 269 (brief's worked example said 268; see evaluation-budget.test.js:15)
+    const ids = w.coaching.buckets.flatMap(b => b.items.map(i => i.id));
+    for (const id of ['stat-expertise', 'luck-melee-miss', 'aura-flask', 'aura-25898', 'uptime-30807', 'proc-28830', 'rogue-snd-midfight-gap']) assert.ok(ids.includes(id), id);
+    const melee = w.coaching.buckets.find(b => b.id === 'melee');
+    assert.equal(melee.items.find(i => i.id === 'rogue-snd-midfight-gap').size.kind, 'bound');
+    assert.equal(melee.items.find(i => i.id === 'stat-expertise').size.kind, 'unsized', 'no simulator in the recorded replay');
+    assert.ok(!w.findings.some(f => f.id.startsWith('damage-driver-') || f.id === 'comparison-equipment'), 'legacy driver cards are superseded');
+    assert.match(w.coaching.assessment, /1546 DPS against Jofrey's 1815/);
+});
+test('recorded Utopik Anetheron states the execution headline and the expertise gear action', () => {
+    const a = byBoss('Anetheron');
+    assert.match(a.budget.headline || '', /matched .* with more stats/);
+    assert.ok(a.causes.some(c => c.id === 'stat-expertise' && /Fang of Vashj|Mooyootoo/.test(c.evidence.map(e => e.text).join(' '))));
+});
+test('recorded Funkell Archimonde bounds the pet bucket and keeps Kill Command below it', () => {
+    const { combinedEvidence } = require('./evaluation-service');
+    const raw = structuredClone(require('./fixtures/evaluation/funkell-hunter.json').fights.find(f => f.name === 'Archimonde'));
+    const fight = { name: 'Archimonde', durationSec: 231.3, ...combinedEvidence(raw), pricing: { status: 'unavailable', prices: {} } };
+    const coaching = buildFightCoaching(fight);
+    const pet = coaching.buckets.find(b => b.id === 'pet-damage');
+    assert.ok(pet, 'pet bucket'); assert.equal(pet.items[0].id, 'hunter-pet-survival'); assert.equal(pet.items[0].size.kind, 'bound');
+    assert.ok(pet.items[0].size.dps > 150 && pet.items[0].size.dps <= Math.abs(pet.differenceDps), 'bound between 150 and the bucket difference: ' + pet.items[0].size.dps);
+    const kc = coaching.sized.find(i => i.id.startsWith('hunter-kill-command'));
+    if (kc) assert.ok(kc.size.dps < pet.items[0].size.dps);
+});

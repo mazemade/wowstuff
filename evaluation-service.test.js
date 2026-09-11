@@ -64,6 +64,27 @@ test('simulation failure leaves useful evidence and reports missing estimates', 
     assert.equal(result.fights[0].complete, true);
 });
 
+test('buildEvaluation prices causes after simulation and survives a pricing failure', async () => {
+    const context = { fights: [{ id: 38, name: 'Anetheron', startTime: 100, endTime: 120100 }], masterData: { actors: [{ id: 4, name: 'Warrior' }] } };
+    const stages = [];
+    const result = await buildEvaluation({ name: 'Warrior', report: 'abcdefghijklmnop' }, {
+        loadProfile: async () => ({ profile: { parses: {} } }), getDbIndex: () => ({}),
+        query: async q => ({ reportData: { report: q === F.FIGHT_QUERY ? context : q === F.PLAYER_QUERY ? {} : { events: { data: [], nextPageTimestamp: null } } } }),
+        fetchFeedback: async query => {
+            await query(F.FIGHT_QUERY, { c: 'abcdefghijklmnop', f: [38] });
+            await query(F.PLAYER_QUERY, { c: 'abcdefghijklmnop', f: [38], s: 4 });
+            return { player: { name: 'Warrior' }, kills: [{ name: 'Anetheron', reportCode: 'abcdefghijklmnop', fightId: 38 }] };
+        },
+        analyzeFight: raw => ({ findings: [{ title: 'Measured observation' }], limitations: [], budget: { status: 'unavailable', buckets: [], limitations: [] }, causes: [] }),
+        evaluateFight: async () => ({ status: 'unsupported', reason: 'test', actions: [], packages: [], assumptions: [] }),
+        priceCauses: async () => { throw new Error('boom'); },
+    }, progress => { stages.push(progress.stage); });
+    assert.equal(result.fights[0].pricing.status, 'unavailable');
+    assert.match(result.fights[0].pricing.reason, /boom/);
+    assert.ok(stages.includes('pricing'));
+    assert.equal(result.fights[0].findings[0].title, 'Measured observation');
+});
+
 const { REPORT_QUERY, ROLE_CONTEXT_QUERY, ROLE_PLAYER_QUERY, selectActor, pullPlayer } = require('./evaluation-service.js');
 function directDeps({ fights = [{ id: 38, name: 'Anetheron', startTime: 0, endTime: 120000, encounterID: 50619, kill: true }], role = 'healer', spec = 'Holy', missingRole = false } = {}) {
     const actor = { id: 2, name: 'Priest', subType: 'Priest', server: 'Spineshatter' };

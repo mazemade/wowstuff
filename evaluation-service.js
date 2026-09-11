@@ -13,6 +13,9 @@ const { analyzeHunter } = require('./evaluation-hunter-evidence.js');
 const { analyzeDecisions } = require('./evaluation-decision-evidence.js');
 const { analyzeInvestigation, requestsFor } = require('./evaluation-investigation.js');
 const { selectReferences } = require('./evaluation-reference.js');
+const { analyzeBudget } = require('./evaluation-budget.js');
+const { attributeCauses } = require('./evaluation-attribution.js');
+const { priceCauses } = require('./evaluation-pricing.js');
 const { buildFightCoaching, buildNightCoaching } = require('./evaluation-coaching.js');
 const { encounterContext } = require('./evaluation-encounters.js');
 const V = require('./vet-engine.js');
@@ -259,6 +262,7 @@ function combinedEvidence(raw) {
     const refs = selectReferences(raw);
     raw = { ...raw, references: refs.accepted, referenceExclusions: [...(raw.referenceExclusions || []), ...refs.excluded] };
     const specific = specEvidence(raw), common = analyzeCommon(raw), damage = analyzeDamage(raw);
+    const budget = analyzeBudget(raw), attribution = attributeCauses(raw, budget);
     const paladin = analyzePaladin(raw);
     const decisions = analyzeDecisions(raw), rogue = analyzeRogue(raw), hunter = analyzeHunter(raw), investigation = analyzeInvestigation(raw);
     const depth = { ...decisions.depth, reviewed: [...new Set([...(decisions.depth?.reviewed || []), ...[rogue, paladin, hunter, investigation].flatMap(result => result.checks.filter(c => c.status === 'checked' && !['rogue-events', 'investigation-events'].includes(c.id)).map(c => c.label))])] };
@@ -273,11 +277,18 @@ function combinedEvidence(raw) {
         common.comparison.push(...damage.comparison);
         common.checks.push(...damage.checks);
     }
+    common.checks.push(...attribution.checks);
+    common.limitations.push(...attribution.limitations);
+    if (budget.status === 'decomposed') {
+        // Buckets and named causes supersede the former single-comparison driver cards.
+        common.findings = common.findings.filter(f => !/^damage-driver-/.test(f.id) && f.id !== 'throughput-stat-context' && f.id !== 'comparison-equipment');
+    }
     const specificIds = new Set(specific.findings.map(f => f.id));
     const comparisons = new Set(specific.comparison.map(c => c.name));
     const timeline = [...specific.timeline, ...common.timeline];
     return { ...specific, observed: specific.observed || { metric: raw.player?.role === 'healer' ? 'hps' : raw.player?.role === 'tank' ? 'dtps' : 'dps', playerValue: null, referenceValue: null, gapValue: null },
         ...(damage.damageAnalysis ? { damageAnalysis: damage.damageAnalysis } : {}),
+        budget, causes: attribution.causes,
         findings: [...specific.findings, ...common.findings.filter(f => !specificIds.has(f.id) && !(f.id === 'preparation-enchants' && specificIds.has('boots-enchant') && f.evidence.length === 1 && f.evidence[0].text.startsWith('Boots:')))],
         comparison: [...specific.comparison, ...common.comparison.filter(c => !comparisons.has(c.name))],
         timeline: timeline.filter((t, i) => timeline.findIndex(x => x.label === t.label && x.startSec === t.startSec && x.endSec === t.endSec) === i).sort((a, b) => a.startSec - b.startSec),
@@ -345,6 +356,9 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
         } catch (_) {
             fight.simulation = { status: 'unavailable', reason: 'Simulation could not finish. The fight evidence is still available.', actions: [], packages: [], assumptions: [] };
         }
+        await progress({ stage: 'pricing', message: 'Pricing gear and buff changes for ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result);
+        try { fight.pricing = await (deps.priceCauses || priceCauses)(raw, { budget: fight.budget, causes: fight.causes }); }
+        catch (error) { fight.pricing = { status: 'unavailable', reason: 'Pricing could not finish: ' + error.message, prices: {} }; }
         fight.coaching = buildFightCoaching(fight);
         result.fights.push(fight);
         result.coaching = buildNightCoaching(result);
