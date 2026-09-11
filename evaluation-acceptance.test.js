@@ -50,3 +50,12 @@ test('detailed talents do not bypass the unvalidated Assassination finisher mode
     assert.notEqual(result.status, 'complete'); assert.deepEqual(result.actions, []);
     assert.match(result.reason, /poison, Rupture and Envenom/);
 });
+test('recorded fixtures carry reference combatant info, buff bands and gear audits', () => {
+    const utopik = require('./fixtures/evaluation/utopik-investigation.json').fights[0];
+    assert.ok(utopik.tables.ci && utopik.gearAudit && utopik.context.debuffs, 'own snapshot, audit and debuffs');
+    const jofrey = utopik.references.find(r => r.player.name === 'Jofrey');
+    assert.ok(jofrey.tables.ci && jofrey.tables.buffs && jofrey.gearAudit && jofrey.context.dmgAll, 'reference snapshot, bands, audit, totals');
+    assert.equal(jofrey.gearAudit.slots.find(s => s.label === 'Main hand').stats[24], 21);
+    const funkell = require('./fixtures/evaluation/funkell-hunter.json').fights.find(f => f.name === 'Archimonde');
+    assert.ok(funkell.tables.ci && funkell.references[0].tables.ci && funkell.references[0].gearAudit);
+});

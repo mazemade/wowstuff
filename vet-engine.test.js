@@ -123,6 +123,18 @@ test('summarizeGear: unknown item ids are listed and skipped, never thrown', () 
     assert.strictEqual(s.slots[0].itemLevel, 100, 'WCL ilvl still used for the average');
 });
 
+test('summarizeGear exposes per-slot stats including enchant, gems and active socket bonus', () => {
+    const db = V.indexDb(require('./data/tbc-item-db.json'));
+    const gear = new Array(19).fill(null).map(() => ({ id: 0 }));
+    gear[0] = { id: 30146, permanentEnchant: 3003, gems: [{ id: 32409 }, { id: 33131 }] }; // Deathmantle Helm, Glyph of Ferocity, meta + Crimson Sun
+    gear[15] = { id: 30103, permanentEnchant: 2673, gems: [] }; // Fang of Vashj + Mongoose
+    const audit = V.summarizeGear(gear, db, 'ROGUE');
+    const head = audit.slots.find(s => s.key === 'head'), mh = audit.slots.find(s => s.key === 'mainHand' || s.label === 'Main hand');
+    assert.strictEqual(mh.stats[24], 21, 'Fang of Vashj supplies 21 expertise');
+    assert.ok(head.stats[1] >= 12, 'meta gem agility is included');
+    assert.ok(Object.keys(head.stats).length > 3);
+});
+
 test('derivedStats: reported ratings win, gear-only stats come from the sum, skills derived', () => {
     const c = V.derivedStats({ 5: 100, 4: 200, 17: 500, 25: 120, 24: 60, 35: 12, 20: 50 },
                              { hitMelee: 171, hitRanged: 171, hitSpell: 0, expertise: 0, critMelee: 157 });

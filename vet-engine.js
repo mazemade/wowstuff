@@ -158,6 +158,7 @@
             if (!g || !g.id) return { key: slot.key, label: slot.label, id: 0, empty: true };
             const item = db.items.get(g.id);
             if (!item) unknownItems.push(g.id);
+            const slotStats = {};
             const itemLevel = g.itemLevel || (item && item.ilvl) || 0;
             const twoHanded = !!(item && item.handType === HAND_TYPE_TWO_HAND);
             // A two-hander occupies both weapon slots, so it counts for both in the average.
@@ -172,30 +173,33 @@
             }
             gearScore += slotScore;
             addStats(stats, item && item.stats);
+            addStats(slotStats, item && item.stats);
             let enchant = null;
             if (g.permanentEnchant) {
                 const e = db.enchants.get(g.permanentEnchant);
                 enchant = { id: g.permanentEnchant, name: e ? e.name : 'Unknown enchant ' + g.permanentEnchant };
                 addStats(stats, e && e.stats);
+                addStats(slotStats, e && e.stats);
             }
             const sockets = item ? (item.gemSockets || []) : [];
             const gemsIn = (g.gems || []).map(x => {
                 const gem = db.gems.get(x.id);
                 addStats(stats, gem && gem.stats);
+                addStats(slotStats, gem && gem.stats);
                 return { id: x.id, name: gem ? gem.name : 'Unknown gem ' + x.id, color: gem ? gem.color : 0 };
             });
             const slotEmpty = Math.max(0, sockets.length - gemsIn.length);
             emptySockets += slotEmpty;
             const bonusActive = sockets.length > 0 && slotEmpty === 0 &&
                 sockets.every((c, j) => gemsIn[j] && (GEM_FITS[gemsIn[j].color] || []).indexOf(c) !== -1);
-            if (bonusActive) addStats(stats, item.socketBonus);
+            if (bonusActive) { addStats(stats, item.socketBonus); addStats(slotStats, item.socketBonus); }
             const enchantable = isEnchantable(slot.key, item, classToken, ringEnchanter);
             if (enchantable && !enchant) missingEnchants++;
             return {
                 key: slot.key, label: slot.label, id: g.id, name: item ? item.name : 'Unknown item ' + g.id,
                 itemLevel, quality: g.quality != null ? g.quality : (item ? item.quality : 0),
                 enchant, gems: gemsIn.map(x => ({ id: x.id, name: x.name })), sockets: sockets.length,
-                emptySockets: slotEmpty, socketBonusActive: bonusActive, enchantable,
+                emptySockets: slotEmpty, socketBonusActive: bonusActive, enchantable, stats: slotStats,
             };
         });
         return {
