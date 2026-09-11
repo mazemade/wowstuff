@@ -111,18 +111,20 @@ function buildBuckets(fight, improvements) {
     const find = (id) => (id === 'all' ? all : buckets.find((b) => b.id === id) || null);
     for (const cause of list(fight.causes)) {
         const item = { ...cause, itemKind: 'cause', size: sizeForCause(cause, pricing) };
-        const targets = [cause.bucket, ...list(cause.alsoBuckets)].map(find).filter(Boolean);
+        // A cause's own bucket can be repeated in alsoBuckets by mistake; dedupe
+        // the ids before resolving so it is never pushed twice into one bucket.
+        const ids = [...new Set([cause.bucket, ...list(cause.alsoBuckets)])];
+        const targets = ids.map(find).filter(Boolean);
         (targets.length ? targets : [pull]).forEach((t, i) => t.items.push(i ? { ...item, mirrored: true } : item));
     }
     for (const finding of improvements) {
         const source = list(fight.findings).find((f) => f.id === finding.id) || {};
         const target = find(source.bucket) || pull;
-        target.items.push({
-            ...finding,
-            bucket: target.id,
-            itemKind: 'finding',
-            size: source.measure ? boundFor(source, target) : { kind: 'unsized', dps: null, label: 'not sized' },
-        });
+        // boundFor's unsized branch omits dps entirely; normalise so every
+        // unsized size (cause or finding) carries an explicit dps: null.
+        const rawSize = source.measure ? boundFor(source, target) : { kind: 'unsized', dps: null, label: 'not sized' };
+        const size = rawSize.kind === 'unsized' ? { kind: 'unsized', dps: null, label: rawSize.label } : rawSize;
+        target.items.push({ ...finding, bucket: target.id, itemKind: 'finding', size });
     }
     const result = [all, ...buckets.filter((b) => b.items.length || Math.abs(b.differenceDps) >= 20), pull].filter(
         (b) => b.items.length || (b.id !== 'pull' && b.id !== 'all'),
@@ -181,12 +183,12 @@ function buildFightCoaching(fight = {}) {
             ' you did ' +
             Math.round(budget.player.dps) +
             ' DPS against ' +
-            budget.reference.name +
+            (budget.reference.name || 'the reference') +
             "'s " +
             Math.round(budget.reference.dps) +
             '.' +
             (budget.headline ? ' ' + budget.headline : '') +
-            (sized.length
+            (sized.length && sized[0].size?.dps > 0
                 ? ' The biggest sized lever: ' + (sized[0].title || sized[0].what) + ' (' + sized[0].size.label + ').'
                 : ' No cause could be sized on this pull.');
     } else if (improvements.length) {
@@ -196,7 +198,7 @@ function buildFightCoaching(fight = {}) {
     } else {
         assessment = name + ' has no evidence-backed change ready yet.';
     }
-    if (!buckets && tested.length && !improvements.length)
+    if (tested.length && !improvements.length)
         assessment +=
             ' ' +
             tested.length +
@@ -275,15 +277,20 @@ function buildNightCoaching(result = {}) {
     fights.forEach((fight, index) => {
         const coaching = fightCoaching[index] || {};
         const boss = text(fight?.name) || 'Unlabelled pull';
-        list(coaching.sized).forEach((item) => {
-            const key = text(item.id) || text(item.title || item.what) || 'unlabelled';
-            const existing = sizedById.get(key);
-            if (!existing || (item.size?.dps ?? -Infinity) > (existing.size?.dps ?? -Infinity)) {
-                sizedById.set(key, { ...item, bosses: [...(existing?.bosses || []), boss] });
-            } else {
-                existing.bosses.push(boss);
-            }
-        });
+        // A priced cause with dps <= 0 was actually modeled (so it still sorts
+        // ahead of variance/unsized in a bucket), but it is not a lever worth
+        // surfacing in the night's top list.
+        list(coaching.sized)
+            .filter((item) => item.size?.dps > 0)
+            .forEach((item) => {
+                const key = text(item.id) || text(item.title || item.what) || 'unlabelled';
+                const existing = sizedById.get(key);
+                if (!existing || item.size.dps > existing.size.dps) {
+                    sizedById.set(key, { ...item, bosses: [...new Set([...(existing?.bosses || []), boss])] });
+                } else {
+                    existing.bosses = [...new Set([...existing.bosses, boss])];
+                }
+            });
     });
     const topSized = sortItems([...sizedById.values()]).slice(0, 5);
 

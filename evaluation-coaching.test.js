@@ -73,3 +73,100 @@ test('withheld pricing labels every cause and old reports without a budget keep 
     const night = buildNightCoaching({ fights: [{ name: 'A', coaching: c }, { name: 'B', coaching: legacy }] });
     assert.equal(night.topSized.length, 0, 'unsized items never reach the night top list');
 });
+
+test('the tested-options suffix still appears on a bucketed fight assessment', () => {
+    const fight = { name: 'Sized', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 20, player: { dps: 500 }, reference: { dps: 520 }, buckets: [], limitations: [] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [],
+        simulation: { status: 'complete', actions: [{ id: 'boots', title: 'Enchant boots', gainDps: 5 }] } };
+    const c = buildFightCoaching(fight);
+    assert.equal(c.improvements.length, 0);
+    assert.match(c.assessment, /1 separately modeled option is available below/);
+});
+
+test('a priced cause with a negative price is labelled no measurable gain and sorts between a bound item and variance', () => {
+    const fight = { name: 'Neg', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [{ id: 'melee', name: 'Melee', differenceDps: 50 }], limitations: [] },
+        causes: [
+            { id: 'neg-cause', bucket: 'melee', owner: 'you', title: 'Negative thing', evidence: [] },
+            { id: 'luck-cause', bucket: 'melee', owner: 'luck', title: 'Luck thing', evidence: [] },
+        ],
+        pricing: { status: 'priced', rotation: 'validated', prices: { 'neg-cause': { dps: -3 } } },
+        findings: [{ id: 'bound-finding', title: 'Gap', disposition: 'improve', action: 'Fix', evidence: [{ text: 'x' }], bucket: 'melee', measure: { lostSeconds: 5, activeRateDps: 100 } }] };
+    const c = buildFightCoaching(fight);
+    const melee = c.buckets.find((b) => b.id === 'melee');
+    assert.deepEqual(melee.items.map((i) => i.id), ['bound-finding', 'neg-cause', 'luck-cause']);
+    assert.equal(melee.items[1].size.label, 'no measurable gain in the model');
+});
+
+test('budget.pricing.baselineDps is present only when the rotation is validated', () => {
+    const base = { name: 'Base', durationSec: 100, budget: { status: 'decomposed', gapDps: 10, player: { dps: 100 }, reference: { dps: 110 }, buckets: [], limitations: [] }, causes: [], findings: [] };
+    const validated = buildFightCoaching({ ...base, pricing: { status: 'priced', rotation: 'validated', baselineDps: 999, prices: {} } });
+    const unvalidated = buildFightCoaching({ ...base, pricing: { status: 'priced', rotation: 'unvalidated', baselineDps: 999, prices: {} } });
+    assert.equal(validated.budget.pricing.baselineDps, 999);
+    assert.equal(unvalidated.budget.pricing.baselineDps, undefined);
+});
+
+test('night bossLines topBucket names the bucket with the largest absolute difference, excluding whole-pull and execution', () => {
+    const fight = { name: 'Bucketed', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 60, player: { dps: 900 }, reference: { dps: 960 },
+            buckets: [{ id: 'melee', name: 'Melee', differenceDps: 40 }, { id: 'rupture', name: 'Rupture', differenceDps: -55 }], limitations: [] },
+        causes: [{ id: 'melee-cause', bucket: 'melee', owner: 'you', title: 'Melee thing', evidence: [] }, { id: 'rupture-cause', bucket: 'rupture', owner: 'you', title: 'Rupture thing', evidence: [] }],
+        pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const night = buildNightCoaching({ fights: [{ name: 'Bucketed', coaching: c }] });
+    assert.equal(night.bossLines[0].topBucket, 'Rupture');
+});
+
+test('a zero-priced cause does not become the sized headline or reach the night top list', () => {
+    const fight = { name: 'Zero', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 20, player: { dps: 500 }, reference: { dps: 520 }, buckets: [], limitations: [] },
+        causes: [{ id: 'zero-cause', bucket: 'all', owner: 'you', title: 'Zero gain', evidence: [] }],
+        pricing: { status: 'priced', rotation: 'validated', prices: { 'zero-cause': { dps: 0 } } }, findings: [] };
+    const c = buildFightCoaching(fight);
+    assert.match(c.assessment, /No cause could be sized/);
+    const night = buildNightCoaching({ fights: [{ name: 'Zero', coaching: c }] });
+    assert.equal(night.topSized.length, 0);
+});
+
+test('a cause whose bucket is duplicated in alsoBuckets is not double counted', () => {
+    const fight = { name: 'Dup', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [{ id: 'melee', name: 'Melee', differenceDps: 50 }], limitations: [] },
+        causes: [{ id: 'dup-cause', bucket: 'melee', alsoBuckets: ['melee'], owner: 'you', title: 'Dup', evidence: [] }],
+        pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const melee = c.buckets.find((b) => b.id === 'melee');
+    assert.equal(melee.items.filter((i) => i.id === 'dup-cause').length, 1);
+});
+
+test('topSized dedupes repeated boss names when the same encounter recurs across pulls', () => {
+    const mkFight = (dps) => ({ name: 'Repeat', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [], limitations: [] },
+        causes: [{ id: 'stat-x', bucket: 'all', owner: 'you', title: 'Stat X', evidence: [] }],
+        pricing: { status: 'priced', rotation: 'validated', prices: { 'stat-x': { dps } } }, findings: [] });
+    const cA = buildFightCoaching(mkFight(10));
+    const cB = buildFightCoaching(mkFight(20));
+    const night = buildNightCoaching({ fights: [{ name: 'Repeat', coaching: cA }, { name: 'Repeat', coaching: cB }] });
+    assert.deepEqual(night.topSized[0].bosses, ['Repeat']);
+});
+
+test('a missing reference name falls back to "the reference" in the assessment', () => {
+    const fight = { name: 'NoRefName', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 20, player: { dps: 500 }, reference: { dps: 520 }, buckets: [], limitations: [] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    assert.match(c.assessment, /the reference's 520/);
+    assert.equal(/undefined/.test(c.assessment), false);
+});
+
+test('an unsized finding always carries an explicit dps: null on its size, matching the unsized cause shape', () => {
+    const fight = { name: 'ExplicitNull', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 20, player: { dps: 500 }, reference: { dps: 520 }, buckets: [{ id: 'melee', name: 'Melee', differenceDps: 20 }], limitations: [] },
+        causes: [], pricing: { status: 'unavailable', prices: {} },
+        findings: [{ id: 'zero-measure', title: 'No time lost', disposition: 'improve', action: 'a', evidence: [{ text: 'x' }], bucket: 'melee', measure: { lostSeconds: 0, activeRateDps: 100 } }] };
+    const c = buildFightCoaching(fight);
+    const item = c.buckets.find((b) => b.id === 'melee').items.find((i) => i.id === 'zero-measure');
+    assert.equal(item.size.kind, 'unsized');
+    assert.equal(item.size.dps, null);
+    assert.ok('dps' in item.size);
+});
