@@ -57,7 +57,7 @@ Stat indices are the item-database indices already used in `vet-engine.js` (`STA
 **Interfaces:**
 - Produces:
   - `RATING`, `BOSS`, `CRIT_PERCENT_PER_AGILITY`, `ATTACK_POWER_PER_STRENGTH`, `ATTACK_POWER_PER_AGILITY`, `HIT_TALENTS`, `SOURCE_COMMIT`
-  - `hitPercentRange({ rating, kind: 'physical'|'spell', classToken, talentKnown })` → `{ min, max, assumption }`
+  - `hitPercentRange({ rating, kind: 'physical'|'spell', classToken })` → `{ min, max, assumption }`
   - `expectedOutcomes({ attack: 'melee-white'|'melee-yellow'|'ranged'|'spell', swings, hitRating, expertiseRating, classToken, inFront })` → `{ rates: { miss:{min,max}, dodge:{min,max}, parry:{min,max}, glance:{min,max}, block:{min,max} }, expected: same shape × swings, assumptions: string[] }`
   - `varianceCheck(observed, expectedRange, swings)` → `{ within: boolean, low, high, sd }`
 
