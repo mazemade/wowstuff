@@ -28,7 +28,9 @@ function augment(fixtureFile, rawDir) {
         // capture left this fixture's own combatant row stripped to {sourceID, gear}, with no
         // strength/agility/hitMelee/expertise — the budget engine needs those, and the current
         // raw capture has the full WCL combatant-info row, so prefer it over any stale stub.
-        fight.tables.ci = ciFor(raw) || fight.tables.ci; fight.tables.buffs ||= bands(raw.tables.buffs); fight.gearAudit ||= audit(fight.tables.ci, raw.player.classToken);
+        // gearAudit is derived from tables.ci, so it must refresh unconditionally too, or a
+        // stale audit (computed from the old stripped gear) contradicts the fresh combatant row.
+        fight.tables.ci = ciFor(raw) || fight.tables.ci; fight.tables.buffs ||= bands(raw.tables.buffs); fight.gearAudit = audit(fight.tables.ci, raw.player.classToken) || fight.gearAudit;
         fight.context.debuffs ||= bands(raw.context.debuffs); fight.context.dmgAll ||= raw.context.dmgAll;
         addMissdetails(fight.tables.dmg, raw.tables.dmg);
         for (const ref of fight.references || []) {

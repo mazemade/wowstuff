@@ -41,6 +41,10 @@ function attackKind(raw, fam, own, other) {
 
 function factorsFor(attack, own, other, duration, otherDuration, ownCi, otherCi, classToken, assumptions) {
     if (!own || !other || !own.detailed || !other.detailed || !own.outcomes || !other.outcomes) return null;
+    if (own.outcomes < 20 || other.outcomes < 20) {
+        assumptions.push('Too few outcomes to decompose (' + own.outcomes + ' against ' + other.outcomes + ').');
+        return null;
+    }
     const hitKey = attack === 'spell' ? 'hitSpell' : attack === 'ranged' ? 'hitRanged' : 'hitMelee';
     const expect = (p, c) => expectedOutcomes({ attack, swings: p.outcomes, hitRating: c?.[hitKey] ?? 0, expertiseRating: c?.expertise ?? 0, classToken, inFront: p.zero.parry > 0 });
     const eP = expect(own, ownCi), eR = expect(other, otherCi);
@@ -74,7 +78,8 @@ function analyzeBudget(raw) {
     if (['healer', 'tank'].includes(raw.player?.role) || !raw.player?.spec) return { status: 'unavailable', reason: 'Damage budgets apply to DPS roles.', buckets: [], limitations: [] };
     const reference = chooseReference(raw), duration = durationOf(raw), otherDuration = durationOf(reference);
     if (!reference || !(duration > 0) || !entries(raw.tables?.dmg)) return { status: 'unavailable', reason: 'An independent same-spec reference with a damage table is required.', buckets: [], limitations: [] };
-    const limitations = [], assumptionsAll = [];
+    if (!(otherDuration > 0)) return { status: 'unavailable', reason: 'The reference pull has no timing.', buckets: [], limitations: [] };
+    const limitations = [];
     const own = entries(raw.tables.dmg), other = entries(reference.tables.dmg);
     const ids = [...new Set([...own, ...other].filter(r => finite(r.total)).map(r => family(r).id))];
     const ownCi = ci(raw), otherCi = ci(reference), classToken = String(raw.player.classToken || '').toUpperCase();
@@ -85,10 +90,15 @@ function analyzeBudget(raw) {
         const playerDps = (p?.total || 0) / duration, referenceDps = (r?.total || 0) / otherDuration;
         const attack = attackKind(raw, fam, p, r);
         const assumptions = [];
+        if (attack === 'pet') assumptions.push('Pet damage is not decomposed into outcomes.');
+        if (attack === 'periodic') assumptions.push('Periodic damage is not decomposed into outcomes.');
+        if (!p || !r) assumptions.push('Only one player recorded this damage family.');
         const decomposable = ['melee-white', 'melee-yellow', 'ranged', 'spell'].includes(attack);
         const factors = decomposable ? factorsFor(attack, p, r, duration, otherDuration, ownCi, otherCi, classToken, assumptions) : null;
         if (decomposable && !factors && (p && !p.detailed || r && !r.detailed)) anyUndetailed = true;
-        return { id, name: fam.name, attack, playerDps: round(playerDps), referenceDps: round(referenceDps), differenceDps: round(referenceDps - playerDps), outcomes: { player: p, reference: r }, factors, assumptions };
+        const differenceDps = round(referenceDps - playerDps);
+        if (factors) factors.residualDps = round(differenceDps - (factors.rate.dps + factors.zeroDamage.dps + factors.yield.dps));
+        return { id, name: fam.name, attack, playerDps: round(playerDps), referenceDps: round(referenceDps), differenceDps, outcomes: { player: p, reference: r }, factors, assumptions };
     }).sort((a, b) => b.differenceDps - a.differenceDps);
     if (anyUndetailed) limitations.push('Some damage rows have no hit details; those buckets show totals only.');
     const ownTotal = buckets.reduce((s, b) => s + b.playerDps, 0), otherTotal = buckets.reduce((s, b) => s + b.referenceDps, 0);
