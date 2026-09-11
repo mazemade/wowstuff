@@ -141,6 +141,7 @@ test('pet survival findings carry a bucket and an observed-rate measure', () => 
     // WCL attributes Kill Command's landed damage to the pet under spell id 34027;
     // 34026 is only the hunter's cast. See task-6-report.md fix round 1.
     assert.equal(kc.bucket, 'pet-damage'); assert.equal(kc.measure.lostCasts, 2); assert.ok(kc.measure.averageDamage > 600 && kc.measure.averageDamage < 750);
+    assert.match(kc.measure.note, /misses included/);
     const steady = finding(raw("Kaz'rogal"), 'hunter-shot-rhythm');
     assert.equal(steady.bucket, 'steady shot'); assert.ok(steady.measure.lostSeconds > 40 && steady.measure.lostSeconds < 60, 'five gaps minus three seconds each: ' + steady.measure.lostSeconds);
     assert.ok(steady.measure.activeRateDps > 364.8, 'rate outside the gaps exceeds the whole-pull 364.8 DPS');

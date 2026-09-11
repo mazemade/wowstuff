@@ -194,7 +194,7 @@ function analyzeHunter(raw = {}) {
                 '. Kill Command cooldown was ready by ' + time((w.start - f.startTime) / 1000) + '; the opportunity expired at ' + time((w.end - f.startTime) / 1000) +
                 ' with no command, despite pet damage on the same target. Mana and command range remain unverified.', (w.start - f.startTime) / 1000, (w.end - f.startTime) / 1000)),
             { basis: 'practice', confidence: 'inferred', alternatives: ['The pet attacking the boss does not prove command range from the hunter. Mana snapshots do not establish affordability in malformed Classic records.', 'No hypothetical command count or DPS gain is assigned.'],
-                bucket: 'pet-damage', measure: { lostCasts: missed.length, averageDamage: kcDamage.length ? round(kcDamage.reduce((s, e) => s + e.amount, 0) / kcDamage.length) : 0, note: "One Kill Command per expired opportunity at this pull's average landed damage." } });
+                bucket: 'pet-damage', measure: { lostCasts: missed.length, averageDamage: kcDamage.length ? round(kcDamage.reduce((s, e) => s + e.amount, 0) / kcDamage.length) : 0, note: "One Kill Command per expired opportunity at this pull's average damage per Kill Command attempt, misses included." } });
     }
 
     const bw = casts.filter(e => spell(e) === 19574);
