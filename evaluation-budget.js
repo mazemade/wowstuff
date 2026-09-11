@@ -51,7 +51,11 @@ function factorsFor(attack, own, other, duration, otherDuration, ownCi, otherCi,
     // target" case (0) and the parry variance object goes unused.
     const expect = (p, c) => expectedOutcomes({ attack, swings: p.outcomes, hitRating: c?.[hitKey] ?? 0, expertiseRating: c?.expertise ?? 0, classToken, inFront: false });
     const eP = expect(own, ownCi), eR = expect(other, otherCi);
-    for (const a of [...eP.assumptions, ...eR.assumptions]) if (!assumptions.includes(a)) assumptions.push(a);
+    // The parry assumption explains recorded parries. With none on either side there is nothing to
+    // explain, and printing it invites the reader to look for time spent in front that never happened.
+    const anyParry = own.zero.parry > 0 || other.zero.parry > 0;
+    const relevant = a => anyParry || !/^Parries are expected to be zero from behind the target/.test(a);
+    for (const a of [...eP.assumptions, ...eR.assumptions]) if (relevant(a) && !assumptions.includes(a)) assumptions.push(a);
     if (!ownCi || !otherCi) assumptions.push('A combatant snapshot is missing on one side; expected outcome rates use zero hit and expertise rating for it.');
     const variance = {};
     for (const key of ['miss', 'dodge', 'parry']) variance[key] = { player: varianceCheck(own.zero[key], eP.expected[key], own.outcomes), reference: varianceCheck(other.zero[key], eR.expected[key], other.outcomes) };

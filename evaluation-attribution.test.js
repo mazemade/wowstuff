@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { analyzeBudget } = require('./evaluation-budget');
-const { attributeCauses } = require('./evaluation-attribution');
+const { attributeCauses, ownerFor } = require('./evaluation-attribution');
 const recorded = require('./fixtures/evaluation/utopik-investigation.json');
 const fight = name => structuredClone(recorded.fights.find(f => f.name === name));
 const causesFor = name => { const raw = fight(name); return attributeCauses(raw, analyzeBudget(raw)).causes; };
@@ -152,4 +152,89 @@ test('the stat-gap remainder names the auras the reference had at pull instead o
     const agility = causes.find(c => c.id === 'stat-agility');
     assert.match(agility.observation, /matches auras the reference had at pull: .*Kings/);
     assert.doesNotMatch(agility.observation, /buffs, scrolls or consumables/);
+});
+
+// --- Final fix wave ---
+
+const funkell = name => structuredClone(funkellHunter.fights.find(f => f.name === name));
+const funkellCauses = name => { const raw = funkell(name); return attributeCauses(raw, analyzeBudget(raw)).causes; };
+
+test("a stat gap only names sources that actually supply that stat (Funkell Kaz'rogal ranged haste)", () => {
+    const haste = funkellCauses("Kaz'rogal").find(c => c.id === 'stat-haste');
+    assert.match(haste.observation, /Drums of Battle/, 'Drums of Battle is the only recorded source of ranged haste rating');
+    assert.doesNotMatch(haste.observation, /Warp Burger|Battle Shout|Sanctity Aura|Wisdom|Leader of the Pack|Kings/);
+});
+
+test('an agility gap names the agility buffs and not the attack-power ones (Funkell Anetheron)', () => {
+    const agility = funkellCauses('Anetheron').find(c => c.id === 'stat-agility');
+    assert.match(agility.observation, /Kings|Warp Burger/);
+    assert.doesNotMatch(agility.observation, /Battle Shout|Prayer of Spirit|Demonslaying/);
+});
+
+test('a stat with no source on either side says so instead of listing unrelated auras', () => {
+    const raw = funkell("Kaz'rogal");
+    for (const r of raw.references) r.tables.buffs.data.auras = r.tables.buffs.data.auras.filter(a => Number(a.guid) !== 35476);
+    const haste = attributeCauses(raw, analyzeBudget(raw)).causes.find(c => c.id === 'stat-haste');
+    assert.match(haste.observation, /is not explained by equipment or auras at pull/);
+});
+
+test('a trinket the item database does not know is never named as the one with no damage stats', () => {
+    const raw = fight('Rage Winterchill');
+    const trinket = raw.gearAudit.slots.find(s => s.key === 'trinket1');
+    Object.assign(trinket, { id: 18846, name: 'Unknown item 18846', stats: {} });
+    raw.gearAudit.unknownItems = [18846];
+    const causes = attributeCauses(raw, analyzeBudget(raw)).causes;
+    assert.equal(causes.filter(c => /Unknown item/.test(c.action || '') || /Unknown item/.test(c.observation || '')).length, 0);
+    assert.ok(causes.some(c => c.id === 'proc-aura-34775'), 'falls back to the luck proc cause');
+});
+
+test('"comes from" is only used when the named slots cover the reference total', () => {
+    const expertise = causesFor('Rage Winterchill').find(c => c.id === 'stat-expertise');
+    assert.match(expertise.observation, /Jofrey's 21 expertise comes from Fang of Vashj \(Main hand\)/);
+    const agility = funkellCauses('Anetheron').find(c => c.id === 'stat-agility');
+    assert.match(agility.observation, /The equipment lead sits in .+\(.+, \+\d+\) and .+\(.+, \+\d+\)\./);
+    assert.doesNotMatch(agility.observation, /agility comes from/);
+});
+
+test('an unidentified food buff is stated as unidentified and never priced (Funkell Anetheron)', () => {
+    const food = funkellCauses('Anetheron').find(c => c.id === 'aura-food');
+    assert.equal(food.sim, null, 'the baseline has no food to price against');
+    assert.equal(food.unsizedReason, 'your food is not identified');
+    assert.match(food.observation, /At pull you had a food buff the log does not identify; Swagfan had Warp Burger\./);
+    assert.match(food.action, /^Use Warp Burger/);
+});
+
+test('a maintained buff the player keeps better than the reference is recorded as a keep', () => {
+    const keep = causesFor('Rage Winterchill').find(c => c.id === 'keep-uptime-6774');
+    assert.ok(keep, 'expected keep-uptime-6774');
+    assert.equal(keep.kind, 'keep'); assert.equal(keep.owner, 'you'); assert.equal(keep.bucket, 'all');
+    assert.equal(keep.title, 'Your Slice and Dice uptime beats Jofrey');
+    assert.match(keep.observation, /91/); assert.match(keep.observation, /82/);
+    assert.equal(keep.action, 'Keep it.');
+    assert.equal(keep.sim, null, 'a keep is never priced');
+});
+
+test("a hunter's own Ferocious Inspiration is owned by the player with a pet action", () => {
+    const fi = funkellCauses('Archimonde').find(c => c.id === 'uptime-34456');
+    assert.equal(fi.owner, 'you');
+    assert.equal(fi.action, 'Keep your pet alive and attacking; Ferocious Inspiration only lasts while it crits.');
+    assert.equal(ownerFor({ id: 30807, owner: 'raid' }, { classToken: 'SHAMAN', spec: 'Enhancement' }), 'you', 'an enhancement shaman provides their own Unleashed Rage');
+    assert.equal(ownerFor({ id: 30807, owner: 'raid' }, { classToken: 'ROGUE', spec: 'Assassination' }), 'raid');
+    assert.equal(ownerFor({ id: 34456, owner: 'raid' }, { classToken: 'ROGUE', spec: 'Assassination' }), 'raid');
+});
+
+test('an uptime the player already partly had asks to compare the windows, not the raid leader', () => {
+    const bloodlust = funkellCauses('Archimonde').find(c => c.id === 'uptime-2825');
+    assert.match(bloodlust.action, /^Compare when Bloodlust started and how long it lasted on each pull; Acamaz's raid had it \d/);
+    assert.doesNotMatch(bloodlust.action, /Ask your raid leader/);
+});
+
+test('a ranged role attributes stat gaps to the Auto Shot bucket when it is decomposed', () => {
+    assert.equal(funkellCauses("Kaz'rogal").find(c => c.id === 'stat-agility').bucket, 'auto shot');
+    assert.equal(funkellCauses('Anetheron').find(c => c.id === 'stat-agility').bucket, 'auto shot', 'Auto Shot is preferred over the larger Steady Shot bucket');
+});
+
+test('the luck title names a stat deficit, not a stat difference', () => {
+    const miss = causesFor('Rage Winterchill').find(c => c.id === 'luck-melee-miss');
+    assert.equal(miss.title, 'Misses on Melee differ without a stat deficit');
 });

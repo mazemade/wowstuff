@@ -78,3 +78,18 @@ test('Winterchill gearAudit is refreshed alongside the combatant snapshot (2 hea
     assert.equal(head.gems.length, 2);
 });
 
+
+// --- Final fix wave ---
+
+test('the parry assumption only appears when a parry was actually recorded', () => {
+    const PARRY = /^Parries are expected to be zero from behind the target/;
+    const withParries = analyzeBudget(winterchill()).buckets.find(b => b.id === 'melee');
+    assert.ok(withParries.assumptions.some(a => PARRY.test(a)), 'the recorded pull has 2 player and 3 reference parries');
+    const raw = winterchill();
+    const jofrey = raw.references.find(r => r.player?.name === 'Jofrey');
+    for (const table of [raw.tables.dmg, jofrey.tables.dmg])
+        for (const row of table.data.entries) for (const m of row.missdetails || []) if (m.type === 'Parry') m.count = 0;
+    const budget = analyzeBudget(raw);
+    for (const bucket of budget.buckets) assert.ok(!bucket.assumptions.some(a => PARRY.test(a)), bucket.id + ' must not assume about parries nobody recorded');
+    assert.ok(budget.buckets.find(b => b.id === 'melee').assumptions.some(a => /Precision/.test(a)), 'the other expectation assumptions stay');
+});

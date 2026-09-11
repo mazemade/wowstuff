@@ -52,16 +52,47 @@ function resolveAuraGaps(ownAuras, otherAuras) {
     }
     return gaps;
 }
-function auraGapNames(gaps) { return gaps.map(g => g.kind === 'slot' ? g.theirs.name : (g.isKings ? 'Greater Blessing of Kings' : g.entry.name)); }
+// A source may only be named for a stat gap when its catalogue affinity contains that stat's
+// item-db index: Battle Shout can never explain a haste difference. An entry with no affinity
+// (or an empty one) supplies no rated stat and is never named.
+function auraGapSources(gaps) { return gaps.map(g => g.kind === 'slot' ? g.theirs : (g.isKings ? g.entry : g.entry)).map(e => ({ name: e.name, stats: list(e.stats) })); }
+
+// Buff bands for both sides, resolved through the uptime catalogue. Shared between the uptime
+// causes and the stat-gap wording: a buff the reference ran and the player did not (Drums of
+// Battle, 80 haste rating) is the honest explanation for a rating the equipment cannot supply.
+function uptimeBands(raw, reference) {
+    const ownBands = raw?.tables?.buffs?.data?.auras, otherBands = reference?.tables?.buffs?.data?.auras;
+    if (!Array.isArray(ownBands) || !Array.isArray(otherBands)) return { status: 'missing-bands', entries: [] };
+    const d = durationOf(raw), dR = durationOf(reference);
+    if (!(finite(d) && d > 0 && finite(dR) && dR > 0)) return { status: 'missing-timing', entries: [] };
+    const canonicalId = id => UPTIME_ALIAS.get(id) || id;
+    const pct = (rows, id, dur) => { const total = rows.filter(a => canonicalId(Number(a.guid)) === id).reduce((s, r) => s + (finite(r.totalUptime) ? r.totalUptime : 0), 0); return Math.min(100, 100 * total / (dur * 1000)); };
+    const ids = new Set([...ownBands, ...otherBands].map(a => canonicalId(Number(a.guid))).filter(id => lookupUptime(id)));
+    return { status: 'ok', entries: [...ids].map(id => ({ id, entry: lookupUptime(id), mine: pct(ownBands, id, d), theirs: pct(otherBands, id, dR) })) };
+}
+
+// Ferocious Inspiration comes from a hunter's own pet and Unleashed Rage from an enhancement
+// shaman's own windfury: for those classes the buff is the player's own responsibility, not a
+// request to the raid leader.
+function ownerFor(entry, player) {
+    const classToken = String(player?.classToken || '').toUpperCase(), spec = String(player?.spec || '').toLowerCase();
+    if (entry?.id === 34456 && classToken === 'HUNTER') return 'you';
+    if (entry?.id === 30807 && classToken === 'SHAMAN' && spec.includes('enhance')) return 'you';
+    return entry?.owner;
+}
+const FEROCIOUS_INSPIRATION_ACTION = 'Keep your pet alive and attacking; Ferocious Inspiration only lasts while it crits.';
 
 // Every melee-role stat (expertise, hit, crit, haste, strength/agility) targets the primary
 // 'melee' bucket with every other decomposed melee-yellow bucket carried in alsoBuckets, so a
-// gear cause on 'melee' also covers e.g. Mutilate instead of leaving it as an unexplained luck line.
+// gear cause on 'melee' also covers e.g. Mutilate instead of leaving it as an unexplained luck
+// line. A ranged role's stats drive Auto Shot first — it is the one family that is pure stats and
+// carries no cast-time or movement component — with Steady Shot and the rest in alsoBuckets.
 function targetBucket(budget, role) {
     const kinds = role === 'caster' ? ['spell'] : role === 'ranged' ? ['ranged'] : ['melee-white', 'melee-yellow'];
     const candidates = budget.buckets.filter(b => kinds.includes(b.attack) && b.factors);
     if (!candidates.length) return null;
-    const primary = candidates.find(b => b.id === 'melee') || candidates[0];
+    const preferred = role === 'ranged' ? 'auto shot' : 'melee';
+    const primary = candidates.find(b => b.id === preferred) || candidates[0];
     return { bucket: primary.id, alsoBuckets: candidates.filter(b => b !== primary).map(b => b.id) };
 }
 
@@ -70,6 +101,7 @@ function attributeCauses(raw, budget) {
     if (!budget || budget.status !== 'decomposed') return out;
     const reference = chooseReference(raw);
     const own = ci(raw), other = ci(reference), role = raw.player?.role;
+    const bands = uptimeBands(raw, reference);
     const ev = (text, r = raw) => ({ text, url: urlOf(r) });
     const push = c => out.causes.push({ priority: 'medium', verification: 'Compare the same snapshot and outcome counts on the next comparable pull.', evidence: [], statDelta: null, sim: null, ...c });
     // Parries are not modelled against an expected rate (see evaluation-budget.js: inFront is
@@ -89,7 +121,17 @@ function attributeCauses(raw, budget) {
     // 1. Stat snapshot differences resolved through equipment
     if (own && other) {
         const slots = raw.gearAudit?.slots, otherSlots = reference.gearAudit?.slots;
-        const auraGaps = auraGapNames(resolveAuraGaps(own.auras, other.auras));
+        const auraSources = auraGapSources(resolveAuraGaps(own.auras, other.auras));
+        // Procs are variance, never a persistent stat source, so they never explain a snapshot difference.
+        const bandSources = bands.entries.filter(b => b.entry.kind !== 'proc' && list(b.entry.stats).length && b.theirs - b.mine >= 10);
+        const explainers = index => {
+            const auras = auraSources.filter(s => s.stats.includes(index)).map(s => s.name);
+            const running = bandSources.filter(b => b.entry.stats.includes(index)).map(b => b.entry.name + ' (' + round(b.theirs) + '% of their pull)');
+            const parts = [];
+            if (auras.length) parts.push('auras the reference had at pull: ' + auras.join(', '));
+            if (running.length) parts.push('buffs the reference ran and you did not: ' + running.join(', '));
+            return parts;
+        };
         for (const [key, index, label, factor, threshold, roles] of STATS) {
             if (!roles.includes(role) || !finite(own[key]) || !finite(other[key])) continue;
             const diff = other[key] - own[key];
@@ -117,21 +159,27 @@ function attributeCauses(raw, budget) {
             }
             // The report collapses evidence into a details element, so the named items have to
             // survive in the visible observation: name the two biggest reference contributions.
-            const top = contributors.sort((a, b) => b.d - a.d).slice(0, 2).map(c => c.name + ' (' + c.label + ')');
-            const sources = top.length ? ' ' + reference.player.name + "'s " + other[key] + ' ' + label + ' comes from ' + top.join(' and ') + '.' : '';
+            // "X's 21 expertise comes from Fang of Vashj" is only true when those slots actually
+            // supply nearly all of it; otherwise they are only where the lead sits, with their size.
+            const top = contributors.sort((a, b) => b.d - a.d).slice(0, 2);
+            const covered = top.reduce((s, c) => s + c.d, 0), total = Number(other[key]) || 0;
+            const sources = !top.length ? ''
+                : covered >= 0.9 * total ? ' ' + reference.player.name + "'s " + other[key] + ' ' + label + ' comes from ' + top.map(c => c.name + ' (' + c.label + ')').join(' and ') + '.'
+                    : ' The equipment lead sits in ' + top.map(c => c.name + ' (' + c.label + ', +' + round(c.d) + ')').join(' and ') + '.';
             if (!evidence.length) evidence.push(ev('Combatant snapshot: you have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.'));
             const unexplained = gearDiff === null ? null : diff - gearDiff;
-            const remaining = gearDiff === null ? '' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + (auraGaps.length ? ' matches auras the reference had at pull: ' + auraGaps.join(', ') + '.' : ' is not explained by equipment or auras at pull.');
+            const named = explainers(index);
+            const remaining = gearDiff === null ? '' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + (named.length ? ' matches ' + named.join('; ') + '.' : ' is not explained by equipment or auras at pull.');
             const observation = (key === 'expertise' ? zeroNote(bucket, 'dodge') + ' ' : key.startsWith('hit') ? zeroNote(bucket, 'miss') + ' ' : '') + 'You have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.' + (gearDiff === null ? ' Equipment stats are unavailable for one side.' : remaining) + sources;
             // Only a stat the reference has more of becomes a cause; the luck lines below carry the counts either way.
-            if (diff > 0) push({ id: 'stat-' + key.replace(/Melee|Ranged|Spell/, ''), bucket: target.bucket, alsoBuckets: target.alsoBuckets, factor, kind: 'gear', owner: 'you', title: 'Close the ' + label + ' gap', observation, action: gearDiff === null ? "Equipment stats are unavailable for one side; compare your items with the reference's." : gearDiff > 0 ? 'Compare the named slots above; the reference item, gem or enchant supplies the stat you lack.' : 'The stat gap is not from equipment; check the aura causes below.', evidence, statDelta: { [index]: round(diff) }, sim: { bonusStats: { [index]: round(diff) } }, priority: factor === 'zeroDamage' ? 'high' : 'medium' });
+            if (diff > 0) push({ id: 'stat-' + key.replace(/Melee|Ranged|Spell/, ''), bucket: target.bucket, alsoBuckets: target.alsoBuckets, factor, kind: 'gear', owner: 'you', title: 'Close the ' + label + ' gap', observation, action: gearDiff === null ? "Equipment stats are unavailable for one side; compare your items with the reference's." : gearDiff > 0 ? 'Compare the named slots above; the reference item, gem or enchant supplies the stat you lack.' : named.length ? 'The stat gap is not from equipment; check the buff and consumable causes below.' : "Neither your equipment nor the buffs recorded on this pull explain this gap; compare the two builds before changing anything.", evidence, statDelta: { [index]: round(diff) }, sim: { bonusStats: { [index]: round(diff) } }, priority: factor === 'zeroDamage' ? 'high' : 'medium' });
         }
         // Luck lines for miss/dodge not covered by a stat cause
         for (const bucket of budget.buckets.filter(b => b.factors)) for (const key of ['miss', 'dodge']) {
             const covered = out.causes.some(c => c.id.startsWith('stat-') && (c.bucket === bucket.id || list(c.alsoBuckets).includes(bucket.id)) && c.factor === 'zeroDamage' && ((key === 'dodge' && c.id === 'stat-expertise') || (key === 'miss' && c.id === 'stat-hit')));
             const p = bucket.outcomes.player.zero[key], r = bucket.outcomes.reference.zero[key];
             if (covered || p === r || (!p && !r)) continue;
-            push({ id: 'luck-' + bucket.id + '-' + key, bucket: bucket.id, factor: 'zeroDamage', kind: 'luck', owner: 'luck', title: (key === 'miss' ? 'Misses' : 'Dodges') + ' on ' + bucket.name + ' differ without a stat difference', observation: zeroNote(bucket, key), action: 'No change; this is variance on a short pull.', evidence: [ev('Outcome counts come from the recorded damage table.')], priority: 'low' });
+            push({ id: 'luck-' + bucket.id + '-' + key, bucket: bucket.id, factor: 'zeroDamage', kind: 'luck', owner: 'luck', title: (key === 'miss' ? 'Misses' : 'Dodges') + ' on ' + bucket.name + ' differ without a stat deficit', observation: zeroNote(bucket, key), action: 'No change; this is variance on a short pull.', evidence: [ev('Outcome counts come from the recorded damage table.')], priority: 'low' });
         }
         // Parries are not modelled against an expected rate (inFront is always false in
         // evaluation-budget.js), so they are never "luck against a stat"; only flag them as a
@@ -155,34 +203,54 @@ function attributeCauses(raw, budget) {
             const mine = covering(ownSlots, slot);
             if (mine && (mine.id === theirs.id || (mine.slot === 'flask' && slot !== 'flask'))) continue;
             const label = slot === 'food' ? 'food buff' : slot === 'flask' ? 'flask' : slot + ' elixir';
-            push({ id: 'aura-' + slot, bucket: 'all', factor: 'perHit', kind: 'consumable', owner: 'you', title: theirs.name + ' at pull', observation: 'At pull you had ' + (mine ? mine.name : 'no ' + label) + '; ' + reference.player.name + ' had ' + theirs.name + '.', action: 'Use ' + theirs.name + ' or an equivalent before the pull and recheck after every wipe.', evidence: [ev('Your auras at pull: ' + own.auras.map(a => a.name).join(', ') + '.'), ev(reference.player.name + "'s auras at pull: " + other.auras.map(a => a.name).join(', ') + '.', reference)], sim: theirs.sim, priority: 'high' });
+            // Warcraft Logs records an unidentified "Well Fed" for food it cannot resolve (43764).
+            // The player did eat, so the modeled baseline cannot be "no food at all": pricing the
+            // reference's food against it would sell a gain the player already partly has.
+            const unidentified = !!mine && mine.id === 43764;
+            push({ id: 'aura-' + slot, bucket: 'all', factor: 'perHit', kind: 'consumable', owner: 'you', title: theirs.name + ' at pull',
+                observation: unidentified ? 'At pull you had a food buff the log does not identify; ' + reference.player.name + ' had ' + theirs.name + '.'
+                    : 'At pull you had ' + (mine ? mine.name : 'no ' + label) + '; ' + reference.player.name + ' had ' + theirs.name + '.',
+                action: 'Use ' + theirs.name + ' or an equivalent before the pull and recheck after every wipe.', evidence: [ev('Your auras at pull: ' + own.auras.map(a => a.name).join(', ') + '.'), ev(reference.player.name + "'s auras at pull: " + other.auras.map(a => a.name).join(', ') + '.', reference)],
+                sim: unidentified ? null : theirs.sim, ...(unidentified ? { unsizedReason: 'your food is not identified' } : {}), priority: 'high' });
         }
         for (const id of otherIds) {
             const e = lookupAura(id); if (!e || e.slot || ownIds.has(id)) continue;
             if (e.kind === 'blessing' && e.id === 25898 && ownIds.has(25895)) push({ id: 'aura-25898', bucket: 'all', factor: 'perHit', kind: 'blessing', owner: 'raid', title: 'Greater Blessing of Kings instead of Salvation', observation: 'You had Salvation; ' + reference.player.name + ' had Kings (+10% to all stats).', action: 'Ask for Kings if your threat allows it; otherwise keep Salvation.', evidence: [ev('Auras at pull are recorded in the combatant snapshot.')], sim: { set: [...e.sim.set, [['raid', 'parties', 0, 'players', 0, 'buffs', 'blessingOfSalvation'], false]] }, priority: 'medium' });
-            else push({ id: 'aura-' + id, bucket: 'all', factor: 'perHit', kind: e.kind, owner: e.owner, title: e.name + ' was on ' + reference.player.name + ' and not on you', observation: e.name + ' is recorded on the reference at pull and absent from your snapshot.', action: e.owner === 'raid' ? 'Ask your raid leader whether ' + e.name + ' can reach your group.' : 'Apply ' + e.name + ' before the pull.', evidence: [ev('Auras at pull are recorded in the combatant snapshot.')], sim: e.sim, statDelta: e.stats || null, priority: 'medium' });
+            else {
+                const owner = ownerFor(e, raw.player);
+                push({ id: 'aura-' + id, bucket: 'all', factor: 'perHit', kind: e.kind, owner, title: e.name + ' was on ' + reference.player.name + ' and not on you', observation: e.name + ' is recorded on the reference at pull and absent from your snapshot.', action: owner === 'raid' ? 'Ask your raid leader whether ' + e.name + ' can reach your group.' : e.id === 34456 ? FEROCIOUS_INSPIRATION_ACTION : 'Apply ' + e.name + ' before the pull.', evidence: [ev('Auras at pull are recorded in the combatant snapshot.')], sim: e.sim, statDelta: e.statDelta || null, priority: 'medium' });
+            }
         }
     } else out.limitations.push('Auras at pull are missing on one side; consumable and blessing causes are not compared.');
     // 3. Buff uptime differences
-    const ownBands = raw.tables?.buffs?.data?.auras, otherBands = reference.tables?.buffs?.data?.auras;
-    if (Array.isArray(ownBands) && Array.isArray(otherBands)) {
-        const d = durationOf(raw), dR = durationOf(reference);
-        if (!(finite(d) && d > 0 && finite(dR) && dR > 0)) {
-            out.limitations.push('Fight timing is missing on one side; uptime causes are not compared.');
-        } else {
-            const canonicalId = id => UPTIME_ALIAS.get(id) || id;
-            const pct = (rows, id, dur) => { const total = rows.filter(a => canonicalId(Number(a.guid)) === id).reduce((s, r) => s + (finite(r.totalUptime) ? r.totalUptime : 0), 0); return Math.min(100, 100 * total / (dur * 1000)); };
-            const ids = new Set([...ownBands, ...otherBands].map(a => canonicalId(Number(a.guid))).filter(id => lookupUptime(id)));
+    if (bands.status === 'missing-bands') out.limitations.push('Buff bands are missing on one side; uptime causes are not compared.');
+    else if (bands.status === 'missing-timing') out.limitations.push('Fight timing is missing on one side; uptime causes are not compared.');
+    else {
+        {
             const gearAuditMissing = !raw.gearAudit?.slots;
             let gearAuditNoted = false;
-            for (const id of ids) {
-                const e = lookupUptime(id), mine = pct(ownBands, id, d), theirs = pct(otherBands, id, dR);
+            for (const { id, entry: e, mine, theirs } of bands.entries) {
+                // A maintained buff the player keeps better than the reference is a keep, not a
+                // silence: the report says so instead of only ever listing deficits. The deficit
+                // threshold (10 points) would miss the spec's own acceptance case — Utopik's 91.4%
+                // Slice and Dice against Jofrey's 81.8% is 9.6 points — and a keep only records an
+                // observation instead of asking for a change, so it uses a 5-point lead.
+                if (mine - theirs >= 5) {
+                    if (e.kind === 'maintained' && ownerFor(e, raw.player) === 'you')
+                        push({ id: 'keep-uptime-' + id, bucket: 'all', factor: e.affects === 'all' ? 'perHit' : e.affects, kind: 'keep', owner: 'you', title: 'Your ' + e.name + ' uptime beats ' + reference.player.name, observation: e.name + ' was active ' + Math.round(mine) + '% of your pull and ' + Math.round(theirs) + '% of ' + reference.player.name + "'s.", action: 'Keep it.', evidence: [ev('Buff bands from both logs.')], priority: 'low' });
+                    continue;
+                }
                 if (theirs - mine < 10) continue;
                 const affects = e.affects === 'all' ? 'perHit' : e.affects;
                 if (e.kind === 'proc') {
                     if (gearAuditMissing) { if (!gearAuditNoted) { out.limitations.push('Your equipment audit is unavailable; proc items are not compared.'); gearAuditNoted = true; } continue; }
                     const item = e.itemId, wearer = reference.gearAudit?.slots?.find(s => s.id === item), mineToo = raw.gearAudit.slots.find(s => s.id === item);
-                    const trinkets = raw.gearAudit.slots.filter(s => /^trinket/.test(s.key) && s.id);
+                    const unknownIds = new Set(list(raw.gearAudit.unknownItems).map(Number));
+                    // An item the item database does not know has no stats to read, so "it has no
+                    // damage stats" would be a claim about the database, not about the item. Such a
+                    // slot can never be the trinket the report tells the player to stop wearing.
+                    const unknownItem = s => unknownIds.has(Number(s.id)) || /^Unknown item/.test(String(s.name || ''));
+                    const trinkets = raw.gearAudit.slots.filter(s => /^trinket/.test(s.key) && s.id && !unknownItem(s));
                     const weakest = trinkets.find(s => !Object.keys(s.stats || {}).some(k => DAMAGE_STAT_KEYS.has(k))) || null;
                     // Both wearing it, nobody recorded wearing it, or the player has no trinket
                     // without damage stats to justify a swap: none of these support a concrete
@@ -195,10 +263,17 @@ function attributeCauses(raw, budget) {
                 // catalogue id (e.g. Battle Shout 2048): once the "at pull" pass above already
                 // named it as aura-<id>, the uptime pass must not price the same buff twice.
                 if (out.causes.some(c => c.id === 'aura-' + id)) continue;
-                push({ id: 'uptime-' + id, bucket: 'all', factor: affects, kind: e.kind, owner: e.owner, title: e.name + ' uptime', observation: e.name + ' was active ' + round(mine) + '% of your pull and ' + round(theirs) + '% of ' + reference.player.name + "'s.", action: e.owner === 'raid' ? 'Ask your raid leader whether ' + e.name + ' can be provided to your group.' : 'Keep ' + e.name + ' running; compare the bands on the next pull.', evidence: [ev('Buff bands from both logs.')], sim: e.sim, priority: e.owner === 'you' ? 'high' : 'medium' });
+                const owner = ownerFor(e, raw.player);
+                // The buff was partly up on the player's own pull: asking the raid leader to
+                // "provide" it would be false. What differs is when it started and how long it
+                // held, which is a question about this pull, not about raid composition.
+                const action = owner !== 'raid' ? (e.id === 34456 ? FEROCIOUS_INSPIRATION_ACTION : 'Keep ' + e.name + ' running; compare the bands on the next pull.')
+                    : mine > 0 ? 'Compare when ' + e.name + ' started and how long it lasted on each pull; ' + reference.player.name + "'s raid had it " + Math.round(theirs) + '% of the time.'
+                        : 'Ask your raid leader whether ' + e.name + ' can be provided to your group.';
+                push({ id: 'uptime-' + id, bucket: 'all', factor: affects, kind: e.kind, owner, title: e.name + ' uptime', observation: e.name + ' was active ' + round(mine) + '% of your pull and ' + round(theirs) + '% of ' + reference.player.name + "'s.", action, evidence: [ev('Buff bands from both logs.')], sim: e.sim, priority: owner === 'you' ? 'high' : 'medium' });
             }
         }
-    } else out.limitations.push('Buff bands are missing on one side; uptime causes are not compared.');
+    }
     // 4. Target debuffs — collapse by catalogue name, not id, so two spell ids for the same
     // named debuff (e.g. Faerie Fire 26993/25602) are not treated as different debuffs.
     const ownDebuffs = raw.context?.debuffs?.data?.auras, otherDebuffs = reference.context?.debuffs?.data?.auras;
@@ -215,4 +290,4 @@ function attributeCauses(raw, budget) {
     out.checks.push({ id: 'attribution', label: 'Named sources behind the gap', status: 'checked', reason: out.causes.length + ' causes resolved.' });
     return out;
 }
-module.exports = { attributeCauses };
+module.exports = { attributeCauses, ownerFor };

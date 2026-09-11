@@ -21,7 +21,10 @@ function boundFor(finding, bucket) {
         : finite(bucket?.playerDps) && bucket.playerDps > 0 ? bucket.playerDps : Infinity;
     const capped = dps > cap;
     const value = round(Math.min(dps, cap));
-    return { kind: 'bound', dps: value, capped, label: 'up to about ' + Math.round(value) + ' DPS on this pull' + (capped ? ' (capped at the bucket difference)' : '') + (m.note ? '. ' + m.note : '') };
+    // The label is the size and nothing else: it is repeated in the assessment headline and in the
+    // night list, where a trailing methodology sentence turns the headline into a paragraph. The
+    // note travels beside it and is rendered in the card body.
+    return { kind: 'bound', dps: value, capped, label: 'up to about ' + Math.round(value) + ' DPS on this pull' + (capped ? ' (capped at the bucket difference)' : ''), ...(m.note ? { note: m.note } : {}) };
 }
 
 // A WoWSims panic (an unknown item id, a bad request) surfaces as a multi-line Go stack trace
@@ -75,6 +78,18 @@ async function priceCauses(raw, { budget, causes }, deps = {}) {
     let info; try { info = d.combatant(raw); } catch (error) { return { ...result, reason: error.message }; }
     if (!info?.gear || !Array.isArray(info.gear) || info.gear.length < 16) return { ...result, reason: 'A complete combatant equipment snapshot is required to price changes.' };
     let built; try { built = d.buildBaseline(raw, info, model); } catch (error) { return { ...result, reason: reasonFor('Model build failed: ', error) }; }
+    // WoWSims panics on an item id it has no data for, which would void every price on the pull
+    // over one unknown item. The gear audit already knows which ids the database cannot resolve:
+    // drop those slots from the modeled character and say so, instead of losing the whole run.
+    const unknown = new Set((raw?.gearAudit?.unknownItems || []).map(Number).filter(Number.isFinite));
+    if (unknown.size) {
+        const items = built.request?.raid?.parties?.[0]?.players?.[0]?.equipment?.items;
+        if (Array.isArray(items)) for (const [index, item] of items.entries()) {
+            if (!item || !unknown.has(Number(item.id))) continue;
+            result.assumptions.push('Item ' + Number(item.id) + ' is unknown to the simulator and was removed from the modeled gear.');
+            items[index] = { id: 0, enchant: 0, gems: [] };
+        }
+    }
     const baselineRequest = clone(built.request); baselineRequest.simOptions.iterations = ITERATIONS;
     let baseline; try { baseline = await d.simulate(baselineRequest, binaries.sim); } catch (error) { return { ...result, reason: reasonFor('WoWSims execution failed: ', error) }; }
     const playerObserved = Number(budget.player?.dps) || 0;

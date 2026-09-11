@@ -369,6 +369,11 @@ try {
   assert.match(winterchillText, /These values overlap and do not add up to the gap/);
   assert.match(winterchillText, /Whole pull[\s\S]*Keep, review & coverage/i, 'buckets come before the collapsed legacy sections');
   assert.match(winterchillText, /Only Jofrey used Eviscerate/, 'an empty one-sided bucket that clears the size gate names the reason instead of rendering nothing');
+  await evaluate("document.querySelector('#fight-tab-1').click()");
+  const anetheronText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(anetheronText, /Covered by "Close the expertise gap"/, 'the mirrored expertise cause is visible in the Mutilate bucket instead of an empty bucket');
+  assert.match(anetheronText, /3 Mutilate dodges against 1/, 'the cross-reference carries the Mutilate bucket own dodge counts');
+  await evaluate("document.querySelector('#fight-tab-0').click()");
   assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
   await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied?.includes('Budget: you 1546 DPS, Jofrey 1815 DPS, gap 269.')", 'budget plan');
   assert.match(await evaluate('window.__copied'), /\[you\] Close the expertise gap/);

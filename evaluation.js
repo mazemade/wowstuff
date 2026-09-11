@@ -88,11 +88,17 @@
     function bucketItemHtml(item) {
         const title = item.title || item.what || 'Finding';
         const isNote = item.itemKind === 'note';
+        // A cross-reference is a pointer to the cause that already explains this bucket: one line,
+        // no size, no action of its own — the real card carries those.
+        if (item.itemKind === 'crossref')
+            return '<article class="bucket-item bucket-crossref"><span class="owner">See</span><h4>' + esc(title) + '</h4>' +
+                (item.observation ? '<p class="bucket-observation">' + esc(item.observation) + '</p>' : '') + '</article>';
         const action = item.itemKind === 'finding' ? item.change : item.action;
         const basis = basisLabel(item) ? ' · ' + basisLabel(item) : '';
         const observedAt = observedAtHtml(item);
         return '<article class="bucket-item owner-' + esc(item.owner || 'review') + ' size-' + esc(item.size?.kind || 'unsized') + '"><span class="owner">' + (isNote ? 'Context' : ownerTag(item.owner)) + ' · <span class="size">' + sizeText(item.size) + basis + '</span></span><h4>' + esc(title) + '</h4>' +
             (item.observation || item.observed ? '<p class="bucket-observation">' + esc(item.observation || item.observed) + '</p>' : '') + observedAt + (item.why && item.itemKind === 'finding' ? '<p><strong>Why it matters:</strong> ' + esc(item.why) + '</p>' : '') +
+            (item.size && item.size.note ? '<p class="model-note">' + esc(item.size.note) + '</p>' : '') +
             (!isNote && action ? '<p class="coaching-change"><strong>Next:</strong> ' + esc(action) + '</p>' : '') + (!isNote && item.verification ? '<p><strong>Verify:</strong> ' + esc(item.verification) + '</p>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
     }
     function factorLineHtml(b) {
@@ -116,7 +122,7 @@
         const pricing = budget.pricing || {};
         const priceLine = pricing.status === 'priced' ? 'Prices use the ' + (pricing.rotation === 'validated' ? 'validated' : 'unvalidated') + ' rotation on your recorded gear.' : 'Prices are not available: ' + (pricing.reason || 'no simulator run.');
         const strip = '<div class="budget-strip"><div class="stat"><span class="stat-label">You</span><span class="stat-number">' + fmt(budget.player?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">' + link(budget.reference?.url, budget.reference?.name || 'Reference') + '</span><span class="stat-number">' + fmt(budget.reference?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">Gap</span><span class="stat-number">' + fmt(budget.gapDps) + '</span><span class="stat-unit">DPS</span></div></div>';
-        const bucketHtml = buckets.map(b => '<section class="bucket"><div class="bucket-head"><h3>' + esc(b.name) + '</h3>' + (number(b.playerDps) ? '<span class="muted">you ' + fmt(b.playerDps) + ' · ref ' + fmt(b.referenceDps) + ' · diff ' + (b.differenceDps > 0 ? '+' : '') + fmt(b.differenceDps) + ' DPS</span>' : '') + '</div>' + factorLineHtml(b) + assumptionsHtml(b) + '<div class="bucket-items">' + list(b.items).filter(i => i && !i.mirrored).map(bucketItemHtml).join('') + '</div><p class="model-note">' + esc(b.note) + '</p></section>').join('');
+        const bucketHtml = buckets.map(b => '<section class="bucket"><div class="bucket-head"><h3>' + esc(b.name) + '</h3>' + (number(b.playerDps) ? '<span class="muted">you ' + fmt(b.playerDps) + ' · ref ' + fmt(b.referenceDps) + ' · diff ' + (b.differenceDps > 0 ? '+' : '') + fmt(b.differenceDps) + ' DPS</span>' : '') + '</div>' + factorLineHtml(b) + assumptionsHtml(b) + '<div class="bucket-items">' + list(b.items).filter(i => i && (!i.mirrored || i.itemKind === 'crossref')).map(bucketItemHtml).join('') + '</div><p class="model-note">' + esc(b.note) + '</p></section>').join('');
         return '<section class="report-section budget-section"><p class="eyebrow">Damage budget</p><h2>Where the gap is and what it is worth</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p>' + strip + (budget.headline ? '<p class="budget-headline">' + esc(budget.headline) + '</p>' : '') + '<p class="model-note">' + esc(priceLine) + ' ' + esc(list(budget.limitations).join(' ')) + '</p>' + bucketHtml + '</section>';
     }
     function nightCoachingHtml(coaching) {
@@ -286,9 +292,10 @@
                 if (budget.headline) lines.push(budget.headline);
                 budgetBuckets.forEach(b => {
                     lines.push('Bucket ' + b.name + ': ' + (number(b.playerDps) ? 'you ' + Math.round(b.playerDps) + ', ref ' + Math.round(b.referenceDps) + ', ' : '') + 'diff ' + Math.round(b.differenceDps || 0) + '.');
-                    list(b.items).filter(item => item && !item.mirrored).forEach(item => {
+                    list(b.items).filter(item => item && (!item.mirrored || item.itemKind === 'crossref')).forEach(item => {
                         const action = item.itemKind === 'finding' ? item.change : item.action, observation = item.observation || item.observed || '';
-                        lines.push('- [' + (item.owner === 'player' ? 'you' : item.owner || 'review') + '] ' + (item.title || item.what || 'Finding') + ' — ' + (item.size?.label || 'not sized') + '.' + (observation ? ' ' + observation : '') + (action ? ' Next: ' + action : ''));
+                        if (item.itemKind === 'crossref') { lines.push('- [see] ' + (item.title || 'Covered elsewhere') + (observation ? ' ' + observation : '')); return; }
+                        lines.push('- [' + (item.owner === 'player' ? 'you' : item.owner || 'review') + '] ' + (item.title || item.what || 'Finding') + ' — ' + (item.size?.label || 'not sized') + (item.size?.note ? ' (' + item.size.note + ')' : '') + '.' + (observation ? ' ' + observation : '') + (action ? ' Next: ' + action : ''));
                         if (full) list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : '')));
                     });
                 });

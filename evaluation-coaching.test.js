@@ -247,3 +247,53 @@ test('an empty bucket with no special assumption gets the generic no-named-cause
     assert.equal(item.title, 'No named cause resolved for Mutilate');
     assert.equal(item.observation, 'The 25 DPS difference in Mutilate has no resolved source on this pull.');
 });
+
+// --- Final fix wave ---
+
+const mirroredFight = () => ({ name: 'Anetheron', durationSec: 116,
+    budget: { status: 'decomposed', gapDps: 4, player: { name: 'Utopik', dps: 1862 }, reference: { name: 'Mooyootoo', dps: 1866 }, limitations: [], residualDps: 0,
+        buckets: [
+            { id: 'melee', name: 'Melee', attack: 'melee-white', playerDps: 1143, referenceDps: 1074, differenceDps: -69, factors: { zeroDamage: {} }, assumptions: [], outcomes: { player: { zero: { dodge: 9, miss: 6 } }, reference: { zero: { dodge: 11, miss: 0 } } } },
+            { id: 'mutilate', name: 'Mutilate', attack: 'melee-yellow', playerDps: 512, referenceDps: 662, differenceDps: 150, factors: { zeroDamage: {} }, assumptions: [], outcomes: { player: { zero: { dodge: 3, miss: 0 } }, reference: { zero: { dodge: 1, miss: 0 } } } },
+        ] },
+    causes: [{ id: 'stat-expertise', bucket: 'melee', alsoBuckets: ['mutilate'], owner: 'you', kind: 'gear', title: 'Close the expertise gap', observation: '9 dodges against 11.', action: 'Wear expertise.', evidence: [] }],
+    pricing: { status: 'unavailable', prices: {} }, findings: [] });
+
+test('a cause mirrored into a second bucket renders there as a cross-reference with that bucket own counts', () => {
+    const c = buildFightCoaching(mirroredFight());
+    const mutilate = c.buckets.find((b) => b.id === 'mutilate');
+    assert.ok(mutilate, 'the mirrored bucket stays visible');
+    assert.equal(mutilate.items.length, 1, 'no "no named cause resolved" note beside the cross-reference');
+    const crossref = mutilate.items[0];
+    assert.equal(crossref.itemKind, 'crossref');
+    assert.equal(crossref.mirrored, true);
+    assert.equal(crossref.title, 'Covered by "Close the expertise gap" (Melee)');
+    assert.match(crossref.observation, /3 Mutilate dodges against 1 — see the Melee item\./);
+    assert.deepEqual(crossref.size, { kind: 'unsized', dps: null, label: 'cross-reference' });
+    const melee = c.buckets.find((b) => b.id === 'melee');
+    assert.equal(melee.items[0].itemKind, 'cause', 'the primary bucket keeps the real cause');
+    assert.equal(c.sized.length, 0, 'a cross-reference is never a sized lever');
+});
+
+test('a cause with its own unsized reason keeps that reason instead of the pricing one', () => {
+    const fight = { name: 'Food', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] },
+        causes: [{ id: 'aura-food', bucket: 'all', owner: 'you', title: 'Warp Burger at pull', evidence: [], sim: null, unsizedReason: 'your food is not identified' }],
+        pricing: { status: 'withheld', reason: 'The model cannot reproduce your observed DPS.', prices: {} }, findings: [] };
+    const item = buildFightCoaching(fight).buckets[0].items[0];
+    assert.deepEqual(item.size, { kind: 'unsized', dps: null, label: 'not sized: your food is not identified' });
+});
+
+test('a keep cause is sized as "keep doing" and sorts behind every unsized change', () => {
+    const fight = { name: 'Keep', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [], limitations: [] },
+        causes: [
+            { id: 'keep-uptime-6774', bucket: 'all', owner: 'you', kind: 'keep', title: 'Your Slice and Dice uptime beats Jofrey', observation: 'o', action: 'Keep it.', evidence: [] },
+            { id: 'unsized-cause', bucket: 'all', owner: 'you', title: 'Unsized thing', evidence: [] },
+            { id: 'luck-cause', bucket: 'all', owner: 'luck', title: 'Luck thing', evidence: [] },
+        ],
+        pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const items = buildFightCoaching(fight).buckets[0].items;
+    assert.deepEqual(items.map((i) => i.id), ['unsized-cause', 'keep-uptime-6774', 'luck-cause']);
+    assert.deepEqual(items[1].size, { kind: 'unsized', dps: null, label: 'keep doing' });
+});

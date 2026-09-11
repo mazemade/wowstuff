@@ -96,3 +96,13 @@ test('recorded Funkell Kaz\'rogal bounds an expired Kill Command opportunity ins
     assert.equal(kc.size.kind, 'bound');
     assert.ok(kc.size.dps > 5, 'about 2 attempts x ~671 over ~182s ~= 7.4 DPS: ' + kc.size.dps);
 });
+
+// --- Final fix wave ---
+
+test('recorded Utopik Anetheron shows the Mutilate dodge count as a cross-reference to the expertise cause', () => {
+    const mutilate = byBoss('Anetheron').coaching.buckets.find(b => b.id === 'mutilate');
+    assert.ok(mutilate, 'the largest bucket on this pull must stay visible');
+    const text = mutilate.items.map(i => [i.title, i.observation].filter(Boolean).join(' ')).join(' ');
+    assert.match(text, /3 .*dodges? against 1/, 'the spec\'s "3 dodged Mutilates" count is visible in its own bucket');
+    assert.match(text, /Covered by "Close the expertise gap"/);
+});

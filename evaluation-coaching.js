@@ -68,14 +68,19 @@ function coachingFinding(finding) {
 // (it was actually modeled), but behind any item with a measurable gain.
 // Variance sorts last, behind unsized changes: a "no change; this is variance" luck card must
 // never lead a bucket on a report where nothing could be priced.
+// A "keep doing" card is not a change to make, so it sits behind every unsized change but still
+// ahead of variance: the reader should see what to fix before what to preserve.
 const sizeRank = (s) => {
     if (!s) return 2;
     if (s.kind === 'priced' || s.kind === 'bound') return Number.isFinite(s.dps) && s.dps > 0 ? 0 : 1;
     if (s.kind === 'variance') return 3;
+    if (s.label === 'keep doing' || s.label === 'cross-reference') return 2.5;
     return 2;
 };
 const ownerRank = (o) => ({ you: 0, player: 0, raid: 1, luck: 2 })[o] ?? 3;
 function sizeForCause(cause, pricing) {
+    // A keep is an observation about what already works; it is never priced.
+    if (cause.kind === 'keep') return { kind: 'unsized', dps: null, label: 'keep doing' };
     if (cause.owner === 'luck') return { kind: 'variance', dps: 0, label: 'variance' };
     const price = pricing?.prices?.[cause.id];
     if (price && Number.isFinite(price.dps)) {
@@ -91,7 +96,10 @@ function sizeForCause(cause, pricing) {
                 ' rotation',
         };
     }
-    return { kind: 'unsized', dps: null, label: pricing?.status === 'withheld' && pricing.reason ? 'not sized: ' + pricing.reason : 'not sized' };
+    // A cause can know why it cannot be sized (an unidentified food buff has nothing to model
+    // against), which is more specific than the pull-wide pricing reason and takes precedence.
+    const reason = text(cause.unsizedReason) || (pricing?.status === 'withheld' && pricing.reason ? pricing.reason : '');
+    return { kind: 'unsized', dps: null, label: reason ? 'not sized: ' + reason : 'not sized' };
 }
 function sortItems(items) {
     return items.sort(
@@ -114,13 +122,34 @@ function buildBuckets(fight, improvements) {
     // assumptions stay — the renderer explains a bound/priced size using them.
     const buckets = list(budget.buckets).map((b) => { const { outcomes, ...rest } = b; return { ...rest, durationSec: duration, items: [] }; });
     const find = (id) => (id === 'all' ? all : buckets.find((b) => b.id === id) || null);
+    // A mirrored cause used to be invisible (the renderer drops mirrored items), so the bucket it
+    // was mirrored into read as "nothing to say" while its own dodge or miss count was exactly what
+    // the cause explains. It now renders as a one-line cross-reference carrying that bucket's own
+    // counts, which have to be read here, before the outcomes ledger is stripped above.
+    const outcomesById = new Map(list(budget.buckets).map((b) => [b.id, b.outcomes]));
+    const zeroKeyFor = (cause) => (cause.id === 'stat-expertise' ? 'dodge' : /^stat-hit/.test(String(cause.id)) ? 'miss' : null);
+    const crossReference = (item, primary, target) => {
+        const key = zeroKeyFor(item), outcomes = outcomesById.get(target.id);
+        const mine = key ? outcomes?.player?.zero?.[key] : null, theirs = key ? outcomes?.reference?.zero?.[key] : null;
+        const label = key === 'dodge' ? (mine === 1 ? 'dodge' : 'dodges') : mine === 1 ? 'miss' : 'misses';
+        // With no zero-damage outcome on either side there is no count to print, and the
+        // cross-reference is only a pointer to where the cause is stated in full.
+        const counts = Number.isFinite(mine) && Number.isFinite(theirs) && mine + theirs > 0 ? mine + ' ' + target.name + ' ' + label + ' against ' + theirs : null;
+        return { ...item, mirrored: true, itemKind: 'crossref',
+            title: 'Covered by "' + (item.title || item.what || 'this cause') + '" (' + primary.name + ')',
+            observation: counts ? counts + ' — see the ' + primary.name + ' item.' : 'The same gap covers this family; see the ' + primary.name + ' item.',
+            size: { kind: 'unsized', dps: null, label: 'cross-reference' } };
+    };
     for (const cause of list(fight.causes)) {
         const item = { ...cause, itemKind: 'cause', size: sizeForCause(cause, pricing) };
         // A cause's own bucket can be repeated in alsoBuckets by mistake; dedupe
         // the ids before resolving so it is never pushed twice into one bucket.
         const ids = [...new Set([cause.bucket, ...list(cause.alsoBuckets)])];
         const targets = ids.map(find).filter(Boolean);
-        (targets.length ? targets : [pull]).forEach((t, i) => t.items.push(i ? { ...item, mirrored: true } : item));
+        // Only a cause with an outcome count of its own in the mirrored bucket has something to
+        // show there; the rest stay mirrored-but-hidden, as before, rather than adding a row of
+        // bare "see the Melee item" pointers.
+        (targets.length ? targets : [pull]).forEach((t, i) => t.items.push(i ? crossReference(item, targets[0], t) : item));
     }
     for (const finding of improvements) {
         const source = list(fight.findings).find((f) => f.id === finding.id) || {};
@@ -131,7 +160,11 @@ function buildBuckets(fight, improvements) {
         const size = rawSize.kind === 'unsized' ? { kind: 'unsized', dps: null, label: rawSize.label } : rawSize;
         target.items.push({ ...finding, bucket: target.id, itemKind: 'finding', size });
     }
-    const result = [all, ...buckets.filter((b) => b.items.length || Math.abs(b.differenceDps) >= 20), pull].filter(
+    // The size gate counts real items only — a cross-reference is a pointer, not a finding — but a
+    // bucket that carries one still has something to say and stays visible.
+    const ownItems = (b) => b.items.filter((i) => !i.mirrored && i.itemKind !== 'crossref');
+    const visibleItems = (b) => b.items.filter((i) => !i.mirrored || i.itemKind === 'crossref');
+    const result = [all, ...buckets.filter((b) => ownItems(b).length || visibleItems(b).length || Math.abs(b.differenceDps) >= 20), pull].filter(
         (b) => b.items.length || (b.id !== 'pull' && b.id !== 'all'),
     );
     // A bucket other than the two synthetic ones can survive the filter above (its gap is
@@ -140,7 +173,9 @@ function buildBuckets(fight, improvements) {
     // when there is a real, named reason nothing resolved; say the reason instead.
     const referenceName = text(budget.reference?.name) || 'the reference';
     for (const b of result) {
-        if (b.id !== 'all' && b.id !== 'pull' && !b.items.length) {
+        // The note explains a bucket the reader sees as empty, so it counts what the renderer
+        // actually shows: a hidden mirrored copy is not an explanation, a cross-reference is.
+        if (b.id !== 'all' && b.id !== 'pull' && !visibleItems(b).length) {
             const n = Math.round(Math.abs(b.differenceDps));
             let title, observation;
             if (list(b.assumptions).includes('Only one player recorded this damage family.')) {

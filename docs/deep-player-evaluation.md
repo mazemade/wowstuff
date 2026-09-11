@@ -209,8 +209,14 @@ and extra parries on the player's side surface as a positioning note, not a stat
 reference-only proc item is a gear cause only when the player is wearing a trinket with no damage
 stats in that slot; otherwise it is luck. Expertise and hit are melee-role stats, so their causes
 target the white-swing bucket but also cover every decomposed yellow-attack bucket for the same
-role (`alsoBuckets`) — a Mutilate dodge count that lines up with an expertise gap is folded into
-the expertise cause instead of being reported as a separate, unexplained luck line on Mutilate.
+role (`alsoBuckets`) — a Mutilate dodge count that lines up with an expertise gap is explained by
+the expertise cause, and the Mutilate bucket shows a one-line cross-reference carrying its own
+dodge counts ("3 Mutilate dodges against 1 — see the Melee item.") instead of an unexplained luck
+line or an empty bucket. A stat difference is only attributed to a buff whose catalogue affinity
+actually supplies that stat, so a haste gap can name Drums of Battle but never Battle Shout; a
+buff the reference ran and the player did not is named from the bands with its uptime. A
+maintained buff the player holds better than the reference is recorded as a `keep` cause ("Your
+Slice and Dice uptime beats Jofrey", sized "keep doing").
 
 **Mechanics constants.** The rating conversions, boss-level avoidance table, dual-wield penalty and
 similar constants are read from the pinned `wowsims/tbc-new` checkout `72e0c8a8`, one file:line

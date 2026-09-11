@@ -522,6 +522,7 @@ li {
     gap:10px;
     margin-top:10px;
 }
+.bucket-item.bucket-crossref { border-left-color:var(--muted); opacity:.85; }
 .bucket-item.owner-raid { border-left-color:var(--amber); }
 .bucket-item.owner-luck { border-left-color:var(--muted); }
 .bucket-item.size-unsized { opacity:.85; }

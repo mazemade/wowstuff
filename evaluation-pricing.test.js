@@ -194,3 +194,25 @@ test('a WoWSims panic (a Go stack trace for an unknown item) is trimmed to a sin
     assert.equal(result.reason, 'The simulator has no data for item 18846; prices are unavailable for this pull.');
     assert.equal(result.reason.includes('\n'), false);
 });
+
+// --- Final fix wave ---
+
+test('a bound label carries only the number; the measure note travels beside it', () => {
+    const b = boundFor({ measure: { lostSeconds: 115.7, activeRateDps: 440, note: 'Pet damage rate while the pet was alive on this pull.' } }, { differenceDps: 486, durationSec: 231.3 });
+    assert.equal(b.label, 'up to about 220 DPS on this pull');
+    assert.equal(b.note, 'Pet damage rate while the pet was alive on this pull.');
+    const capped = boundFor({ measure: { lostSeconds: 200, activeRateDps: 1000 } }, { differenceDps: 150, durationSec: 231.3 });
+    assert.equal(capped.label, 'up to about 150 DPS on this pull (capped at the bucket difference)');
+    assert.equal(capped.note, undefined);
+});
+
+test('an item the simulator does not know is removed from the baseline instead of voiding the pull', async () => {
+    const { calls, deps } = fakeDeps(1600, () => 1610);
+    deps.buildBaseline = () => ({ request: { raid: { parties: [{ players: [{ buffs: {}, consumables: {}, equipment: { items: [{ id: 18846, enchant: 3, gems: [1] }, ...new Array(16).fill(null).map(() => ({ id: 1, enchant: 0, gems: [] }))] }, bonusStats: undefined }], buffs: {} }], buffs: {}, debuffs: {} }, simOptions: { iterations: 10000, randomSeed: '1' } } });
+    const raw = { player: { classToken: 'HUNTER', spec: 'Beast Mastery' }, modelOverrides: { talentsString: 'x' }, gearAudit: { unknownItems: [18846] } };
+    const result = await priceCauses(raw, { budget, causes }, deps);
+    assert.equal(result.status, 'priced');
+    assert.deepEqual(calls[0].raid.parties[0].players[0].equipment.items[0], { id: 0, enchant: 0, gems: [] });
+    assert.ok(result.assumptions.includes('Item 18846 is unknown to the simulator and was removed from the modeled gear.'));
+    assert.ok(calls.every(c => !c.raid.parties[0].players[0].equipment.items.some(i => i && i.id === 18846)), 'every scenario starts from the repaired baseline');
+});
