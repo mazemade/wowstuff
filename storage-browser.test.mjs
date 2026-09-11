@@ -160,6 +160,24 @@ async function run() {
   assert.equal(await evaluate(`FeedbackCache.get(${JSON.stringify(oldKey2)}).then(v => v && v.facts.player.name)`), "Bejoux");
   pass("vetting: opening the vetting page also moves old feedback entries out of localStorage");
 
+  // Upstream failures must explain themselves in the row without requiring a hover.
+  await evaluate(`(() => {
+    const s = vetState();
+    s.players = [{ name: 'Slowplayer' }]; s.profiles = {}; s.errors = { slowplayer: 'WCL vetting lookup timed out' };
+    renderTable();
+  })()`);
+  assert.match(await evaluate("document.querySelector('#vetBody tr').textContent"), /WCL vetting lookup timed out/);
+  const partial = JSON.parse(await readFile(join(root, "fixtures", "vet-profile-bejoux.json"), "utf8"));
+  Object.assign(partial, { gear: null, gearSummary: null, gearOnly: null, computed: null, computedFromGear: null,
+    reported: null, lastSeen: null, partial: true, fetchWarning: 'Warcraft Logs gear lookup timed out — use Refresh all to retry.' });
+  await evaluate(`(() => {
+    const s = vetState(); s.players = [{ name: 'Bejoux' }]; s.errors = {}; s.profiles = { bejoux: ${JSON.stringify(partial)} };
+    renderTable();
+  })()`);
+  assert.match(await evaluate("document.querySelector('#vetBody tr').textContent"), /gear lookup timed out/);
+  assert.notEqual(await evaluate("document.querySelector('#vetBody .verdict').textContent"), 'pass');
+  pass("vetting: timeout errors and partial gear warnings are visible in the table");
+
   assert.deepEqual(browserErrors, [], "no uncaught browser errors");
   pass("no uncaught browser errors");
 }

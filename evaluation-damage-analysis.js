@@ -2,6 +2,7 @@
 
 // Reconcile the observed gap before offering counterfactual changes. Frequency and
 // yield are an arithmetic description of outcomes, never a causal loss estimate.
+const { selectReferences } = require('./evaluation-reference.js');
 const finite = x => typeof x === 'number' && Number.isFinite(x);
 const round = x => finite(x) ? Math.round(x * 10) / 10 : null;
 const entries = table => Array.isArray(table?.data?.entries) ? table.data.entries : null;
@@ -12,11 +13,16 @@ const urlOf = raw => 'https://classic.warcraftlogs.com/reports/' + raw.reportCod
 const canonical = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function chooseReference(raw) {
     const duration = durationOf(raw), fight = fightOf(raw);
-    return (raw.references || []).filter(r => canonical(r.player?.classToken) === canonical(raw.player?.classToken) &&
+    return selectReferences(raw).accepted.filter(r => raw.player?.classToken && raw.player?.spec && r.player?.classToken && r.player?.spec && canonical(r.player?.classToken) === canonical(raw.player?.classToken) &&
         canonical(r.player?.spec) === canonical(raw.player?.spec) && fightOf(r)?.name === fight?.name && durationOf(r) > 0 && entries(r.tables?.dmg))
         .sort((a, b) => Number(b.kind === 'benchmark') - Number(a.kind === 'benchmark') || Math.abs(durationOf(a) - duration) - Math.abs(durationOf(b) - duration))[0];
 }
 function family(row) {
+    // WCL names composite pet rows after the pet. Different pet names must not
+    // become a missing ability on one side and an unrelated loss on the other.
+    if (row.composite && ((row.sources?.length && row.sources.every(s => s.type === 'Pet')) ||
+        (row.subentries?.length && row.subentries.every(s => s.actorType === 'Pet'))))
+        return { id: 'pet-damage', name: 'Pet damage' };
     // TBC Classic faction equivalents. Aura/cast IDs deliberately excluded:
     // these are damage records, not seal applications or Judgement button presses.
     const id = spellId(row);

@@ -403,13 +403,14 @@ function rows() {
     return state.players.map(p => {
         const key = p.name.toLowerCase();
         const profile = state.profiles[key];
-        if (state.errors[key]) return { name: p.name, key, verdict: 'error', error: state.errors[key], profile: null, rules: [], reasons: [] };
+        if (state.errors[key]) return { name: p.name, key, verdict: 'error', error: state.errors[key], profile: null, rules: [], reasons: [state.errors[key]] };
         if (!profile) return { name: p.name, key, verdict: 'unverified', pending: true, profile: null, rules: [], reasons: ['fetching…'] };
         const ev = V.evaluate(profile, state.thresholds, now);
         // logs-first B4: gear is here, parses are streaming — shown as pending, never as
         // "unverified, no parses" while the request is still out.
         if (profile.parsesPending) return { name: p.name, key, verdict: 'unverified', pending: true, parsesPending: true, profile, rules: ev.rules, reasons: ['parses loading…'] };
-        return { name: p.name, key, verdict: ev.verdict, profile, rules: ev.rules, reasons: ev.reasons };
+        return { name: p.name, key, verdict: ev.verdict, profile, rules: ev.rules,
+            reasons: profile.fetchWarning ? [profile.fetchWarning].concat(ev.reasons) : ev.reasons };
     });
 }
 function ruleCell(r) {

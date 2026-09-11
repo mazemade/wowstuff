@@ -8,10 +8,16 @@ const { analyzeRole } = require('./evaluation-role-evidence.js');
 const { analyzeCommon } = require('./evaluation-common-evidence.js');
 const { analyzeDamage, chooseReference } = require('./evaluation-damage-analysis.js');
 const { analyzePaladin } = require('./evaluation-paladin-evidence.js');
+const { analyzeRogue } = require('./evaluation-rogue-evidence.js');
+const { analyzeHunter } = require('./evaluation-hunter-evidence.js');
+const { analyzeDecisions } = require('./evaluation-decision-evidence.js');
+const { analyzeInvestigation, requestsFor } = require('./evaluation-investigation.js');
+const { selectReferences } = require('./evaluation-reference.js');
+const { buildFightCoaching, buildNightCoaching } = require('./evaluation-coaching.js');
 const { encounterContext } = require('./evaluation-encounters.js');
 const V = require('./vet-engine.js');
 const P = require('./vet-profile.js');
-const VERSION = 'deep-evaluation-2';
+const VERSION = 'deep-evaluation-4';
 const MAX_EVENT_PAGES = 20;
 
 function eventQuery(incoming) {
@@ -42,6 +48,26 @@ async function collectEvents(query, raw, incoming = false) {
     } catch (err) {
         return { data, complete: false, reason: err.code === 'RATE_LIMIT' ? 'Warcraft Logs rate limit interrupted event collection.' : 'Warcraft Logs event collection was interrupted.' };
     }
+}
+
+async function collectInvestigation(query, raw, request) {
+    const fight = raw.context.fights[0], startTime = request.startTime ?? fight.startTime, endTime = request.endTime ?? fight.endTime;
+    const source = Number.isInteger(request.sourceId);
+    const q = 'query($c:String!,$start:Float,$end:Float,$filter:String!' + (source ? ',$s:Int!' : ',$f:[Int]!') + '){reportData{report(code:$c){events(dataType:' + request.dataType + ',' +
+        (source ? 'sourceID:$s,' : 'fightIDs:$f,') + 'startTime:$start,endTime:$end,filterExpression:$filter,limit:10000){data nextPageTimestamp}}}}';
+    const data = []; let start = startTime;
+    try {
+        for (let page = 0; page < 3; page++) {
+            const response = await query(q, { c: raw.reportCode, start, end: endTime, filter: request.filter || 'ability.id IN (' + request.ids.join(',') + ')', ...(source ? { s: request.sourceId } : { f: [raw.fightId] }) });
+            const stream = response?.reportData?.report?.events;
+            if (!Array.isArray(stream?.data)) throw Error('Missing investigation stream');
+            data.push(...stream.data);
+            if (stream.nextPageTimestamp == null) return { data, complete: true, startTime, endTime, scope: source ? 'player' : 'raid' };
+            if (!Number.isFinite(stream.nextPageTimestamp) || stream.nextPageTimestamp <= start) throw Error('Nonadvancing investigation cursor');
+            start = stream.nextPageTimestamp;
+        }
+    } catch (_) { /* Retain positive evidence, never turn a failed query into absence. */ }
+    return { data, complete: false, startTime, endTime, scope: source ? 'player' : 'raid', reason: 'Supplementary ' + request.key + ' evidence was incomplete; dependent timing conclusions are withheld.' };
 }
 
 // Retain real reference records while the existing discovery pipeline runs. Its aggregate
@@ -230,9 +256,15 @@ function specEvidence(raw) {
         timeline: [...fury.timeline, ...role.timeline].sort((a, b) => a.startSec - b.startSec), limitations: [...new Set([...fury.limitations, ...role.limitations])] };
 }
 function combinedEvidence(raw) {
+    const refs = selectReferences(raw);
+    raw = { ...raw, references: refs.accepted, referenceExclusions: [...(raw.referenceExclusions || []), ...refs.excluded] };
     const specific = specEvidence(raw), common = analyzeCommon(raw), damage = analyzeDamage(raw);
     const paladin = analyzePaladin(raw);
-    for (const key of ['findings', 'comparison', 'timeline', 'checks', 'limitations']) common[key].push(...paladin[key]);
+    const decisions = analyzeDecisions(raw), rogue = analyzeRogue(raw), hunter = analyzeHunter(raw), investigation = analyzeInvestigation(raw);
+    const depth = { ...decisions.depth, reviewed: [...new Set([...(decisions.depth?.reviewed || []), ...[rogue, paladin, hunter, investigation].flatMap(result => result.checks.filter(c => c.status === 'checked' && !['rogue-events', 'investigation-events'].includes(c.id)).map(c => c.label))])] };
+    for (const extra of [paladin, rogue, hunter, decisions, investigation]) {
+        for (const key of ['findings', 'comparison', 'timeline', 'checks', 'limitations']) common[key].push(...(extra[key] || []));
+    }
     if (damage.damageAnalysis) {
         // The complete ledger supersedes the former single-largest-ability hint.
         common.findings = common.findings.filter(f => f.id !== 'damage-composition');
@@ -249,7 +281,7 @@ function combinedEvidence(raw) {
         findings: [...specific.findings, ...common.findings.filter(f => !specificIds.has(f.id) && !(f.id === 'preparation-enchants' && specificIds.has('boots-enchant') && f.evidence.length === 1 && f.evidence[0].text.startsWith('Boots:')))],
         comparison: [...specific.comparison, ...common.comparison.filter(c => !comparisons.has(c.name))],
         timeline: timeline.filter((t, i) => timeline.findIndex(x => x.label === t.label && x.startSec === t.startSec && x.endSec === t.endSec) === i).sort((a, b) => a.startSec - b.startSec),
-        coverage: { ...specific.coverage, checks: [...(specific.coverage?.checks || []), ...common.checks] },
+        coverage: { ...specific.coverage, depth, checks: [...(specific.coverage?.checks || []), ...common.checks] },
         limitations: [...new Set([...specific.limitations, ...common.limitations])] };
 }
 async function buildEvaluation(identity, deps, progress = () => {}) {
@@ -272,8 +304,17 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
         [raw.events, raw.incoming, raw.damageTakenEvents] = await Promise.all([
             collectEvents(captured.query, raw), collectEvents(captured.query, raw, true), collectEvents(captured.query, raw, 'damageTaken'),
         ]);
-        const reference = !['healer', 'tank'].includes(raw.player?.role) && chooseReference(raw);
-        if (reference) {
+        const refs = selectReferences(raw);
+        raw.references = refs.accepted;
+        raw.referenceExclusions = refs.excluded;
+        raw.investigation = {};
+        for (const request of requestsFor(raw)) {
+            await progress({ stage: 'investigation', message: 'Checking ' + (request.key === 'cooldownHistory' ? 'earlier cooldown availability' : 'raid mechanic timing') + ' on ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result);
+            raw.investigation[request.key] = await collectInvestigation(captured.query, raw, request);
+        }
+        const primaryReference = !['healer', 'tank'].includes(raw.player?.role) && chooseReference(raw);
+        const timingReferences = primaryReference ? [primaryReference, ...(raw.player?.classToken === 'ROGUE' ? raw.references.filter(r => r !== primaryReference && chooseReference({ ...raw, references: [r] })) : [])].slice(0, 3) : [];
+        for (const reference of timingReferences) {
             const ci = reference.tables?.ci?.data?.find(e => e.sourceID === reference.sourceId);
             if (ci?.gear?.length >= 18) {
                 try { const audit = V.summarizeGear(ci.gear.map(g => ({ ...g, gems: g.gems?.filter(gem => gem.id > 0) })), deps.getDbIndex(), reference.player.classToken); reference.gearAudit = { slots: audit.slots, unknownItems: audit.unknownItems }; } catch (_) { /* Missing item data does not prevent timing comparisons. */ }
@@ -283,8 +324,9 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
                 collectEvents(captured.query, reference), collectEvents(captured.query, reference, true),
             ]);
             if (!reference.events.complete || !reference.incoming.complete) {
-                raw.collectionLimitations ||= [];
-                raw.collectionLimitations.push('Comparison event timing was incomplete; table comparisons remain available, but retry for full execution evidence.');
+                const key = reference === primaryReference ? 'collectionLimitations' : 'referenceTimingLimitations';
+                raw[key] ||= [];
+                raw[key].push((reference === primaryReference ? 'Comparison' : 'Additional comparison for ' + reference.player.name) + ' event timing was incomplete; table comparisons remain available, but retry for full execution evidence.');
             }
         }
         raw.encounter ||= encounterContext(raw.context.fights[0]);
@@ -294,17 +336,22 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
             durationSec: (raw.context.fights[0].endTime - raw.context.fights[0].startTime) / 1000,
             wclUrl: 'https://classic.warcraftlogs.com/reports/' + raw.reportCode + '#fight=' + raw.fightId + '&source=' + raw.sourceId, ...evidence };
         fight.limitations = [...(fight.limitations || []), ...(raw.collectionLimitations || []), ...[raw.events, raw.incoming, raw.damageTakenEvents].filter(stream => !stream.complete && stream.reason).map(stream => stream.reason), ...raw.encounter.limitations];
+        fight.limitations.push(...Object.values(raw.investigation).filter(stream => !stream.complete).map(stream => stream.reason));
+        fight.limitations.push(...(raw.referenceTimingLimitations || []));
+        fight.partial ||= Object.values(raw.investigation).some(stream => !stream.complete);
         await progress({ stage: 'simulation', message: 'Testing improvements for ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result);
         try {
             fight.simulation = await simulate(raw, { onProgress: message => progress({ stage: 'simulation', message: typeof message === 'string' ? message : 'Testing improvements for ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result) });
         } catch (_) {
             fight.simulation = { status: 'unavailable', reason: 'Simulation could not finish. The fight evidence is still available.', actions: [], packages: [], assumptions: [] };
         }
+        fight.coaching = buildFightCoaching(fight);
         result.fights.push(fight);
+        result.coaching = buildNightCoaching(result);
         await progress({ stage: 'analysis', message: raw.name + ' evaluation ready.', completed: result.fights.length, total: raws.length }, result);
     }
     result.partial = result.fights.some(f => f.partial) || result.limitations.some(text => /unavailable|retry/.test(text));
     if (result.fights.some(f => !['complete', 'not-applicable'].includes(f.simulation.status))) result.limitations.push('Some estimates are conditional or unavailable. Review model coverage and assumptions before treating an estimated gain as attainable on this pull.');
     return result;
 }
-module.exports = { VERSION, MAX_EVENT_PAGES, REPORT_QUERY, ROLE_CONTEXT_QUERY, ROLE_PLAYER_QUERY, eventQuery, collectEvents, captureQueries, rawFights, selectActor, pullPlayer, discoverRaws, combinedEvidence, buildEvaluation };
+module.exports = { VERSION, MAX_EVENT_PAGES, REPORT_QUERY, ROLE_CONTEXT_QUERY, ROLE_PLAYER_QUERY, eventQuery, collectEvents, collectInvestigation, captureQueries, rawFights, selectActor, pullPlayer, discoverRaws, combinedEvidence, buildEvaluation };

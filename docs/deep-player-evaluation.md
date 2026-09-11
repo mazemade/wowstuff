@@ -112,3 +112,47 @@ volume. Without either setting, local development uses the host temporary direct
 ephemeral deployments would lose their links. Keep deployment replicas at one while
 administrator sessions and login throttles are process-local. Back up the share volume if
 long-term retention is required. Removing a snapshot file revokes that link.
+
+
+## Investigative coaching (engine 3)
+
+The report now starts with a night action plan and encounter coaching. Each established change carries the observed event, explanation, next-pull behavior, verification target, alternatives, and source evidence. Good decisions and unresolved observations are separate. Modeled options remain separately labelled; their linked facts are not simultaneously shown as unresolved coaching questions. Old saved reports still render, and shared snapshots remain immutable.
+
+The production pipeline selects independent characters across uploads, collects complete player streams, and requests supplementary evidence when relevant. On-use trinket checks query a bounded pre-pull history; Kaz'rogal potion checks use raid-wide War Stomp damage; healer response checks request raid damage separately from player debuffs. Each supplemental query permits at most three pages. Failure preserves the report and marks dependent coverage unknown. Rogue cadence comparisons use up to three independent event-backed examples; other roles collect only their primary comparison's timing.
+
+### Actual decision coverage
+
+| Area | Implemented review | Limits |
+| --- | --- | --- |
+| Every supported spec | Observed mechanic families, safe target/control-aware activity review, utility, preparation, independent comparison | Spell observation is telemetry, not full decision coverage; exact resources, talents and assignments remain unresolved |
+| Selected fixed-duration DoTs | Source/target refresh timing and natural expiry followed by concurrent direct activity | Stacking/consumed effects are excluded; Moonfire is excluded because set bonuses change its duration; Rip is fixed at 12 seconds in the pinned source |
+| Rogues | White outcomes in SnD bands, mid-fight refresh opportunities, own poison stack expiry and recovery, Mutilate parent attempts, Envenom damage outcomes, Cold Blood consumption clusters, Deathmantle finisher use, named reference cadence and finisher offsets | No exact combo-point/energy reconstruction or universal finisher prescription; immediate poison reapplication is review context rather than a top-priority mistake |
+| Fury | Existing recorded Shout/contact/cooldown evidence and validated equipment scenarios retained in coaching | No instruction to spend rage that the log cannot establish was available |
+| Retribution | Existing seal-at-swing, post-Judgement resealing and twist evidence retained as coaching | Mana, target access and intended twisting still constrain advice |
+| Healers | Scoped raid damage, positive effective-heal response, health-deficit timing where fields exist | No HPS ranking or blame for targets without an established assignment; WCL `amount` already excludes overheal |
+| Tanks | Repeated incoming auto outcomes against observed defensive aura bands | No inferred charges, cooldown availability, mitigation requirement or DTPS ranking |
+| Relevant Hyjal encounters | Late observed Demonslaying application, on-use truncation, FAP/stomp overlap, repeated direct Rain of Fire, recognized control overlaps | Unknown positioning and assignments remain open questions; no automatic DPS attribution |
+
+This is a deterministic investigative release. It makes bounded follow-up queries and composes verified findings; it does not call an external language model. Every spec reports partial decision coverage rather than claiming that recognizing its spells is a complete expert review. A future reasoning-model layer can request validated investigations through the same evidence contract, but is not required to produce the current action plans.
+
+Assassination simulated gains are withheld even with detailed talent input: the current APL does not validate poison/Rupture/Envenom decisions. Event-backed coaching remains fully available. Other existing simulation routes retain their model/input limitations.
+
+### Acceptance and maintenance
+
+`evaluation-acceptance.test.js` replays projected real Utopik raid evidence through production evidence/composition functions and protects the Culuneta and Varenthil coaching regressions. `evaluation-browser.test.mjs` renders the same recorded Utopik report and checks action-plan copying and the recipient page. The captured fixture is a field projection, not generated gameplay; its report/date provenance is retained. Tests do not require ignored `output/` captures.
+
+Run `npm run test:evaluation`, `npm run test:evaluation-browser`, and `npm test`. Never promote a new rule on counts alone: add a nearby counterexample for partial data, legitimate consumption, control, assignment or target access. Regenerate saved evaluations to use a new engine; existing shared snapshots intentionally retain the assessment originally shared.
+
+## Action-first coaching (engine 4)
+
+The default encounter view presents the action, the recorded pattern behind it, why it matters, how to execute it, and what to check next pull. Damage accounting, legacy observations, comparison tables, timelines, coverage and model diagnostics are optional background details. The same presentation and copy plan are used by the administrator and saved recipient views. An encounter with actionable coaching is preferred over one selected only because a simulation completed.
+
+Findings can supply an imperative `actionTitle`, with the original `title` retained as `coaching.observed`. `basis: practice` distinguishes a conditional training plan from a confirmed correction. Practice is not a mechanism for converting every review observation into a mistake: it requires an explicit bounded rule, source evidence and conditions in the advice. The composition layer still refuses to manufacture actions, resource values or DPS gains. Night aggregation retains per-boss advice and uses the strongest priority example for recurring themes.
+
+Hunter analysis now inspects combat-pet deaths, incoming damage before death, return to positive pet damage, shared player/pet opening deaths, Bestial Wrath cut short by pet death, same-target Auto/Steady recovery windows and Kill Command opportunities. Kill Command critical strikes refresh one opportunity; casts consume it and start its cooldown. Only expired, cooldown-ready intervals with active combat-pet damage survive the evidence filters. Pet death and cooldown consequences are one coaching theme, not additive DPS losses. Combat-pet identity comes from the source-scoped Call Pet composite, checked against available ownership, so traps cannot stand in for the pet.
+
+Funkell's recorded Sept 10 Hyjal fixture protects specific actions: Azgalor/Archimonde pet survival and recovery, Winterchill opening survival, five Kaz'rogal Auto/Steady recovery windows, and two Kaz'rogal Kill Command expiry intervals (51.8–55.7 and 79.1–86.1 seconds). Malformed Classic resource records do not establish mana, affordability or lost casts; shot/command advice remains conditional practice. Feign Death, foreign pets, owned traps, control, incomplete streams, valid low-mana counterexamples and proc refresh/consumption have regressions. No player-name branch selects these rules.
+
+Pet damage comparison groups differently named pets into one family without summing composite children twice. All classes also receive actionable preparation findings for known unenchanted equipment and empty gem sockets, without assuming a universally optimal enhancement.
+
+This adds dedicated hunter decision coverage to the existing rogue, Fury and Retribution analysis. The common layout applies to every class; recognizing a specialization's spells still does not mean complete specialization expertise. There is no claim that every DPS difference is recoverable or that every class has equal decision depth. Add real positive and legitimate-exception fixtures when expanding a specialization, and evaluate the player-facing action plan, not merely the number of checks.

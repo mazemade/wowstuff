@@ -734,6 +734,10 @@ async function runEvaluation(raw, options) {
   const resolved = Models.modelFor(raw?.player);
   if (resolved.kind === 'not-applicable') return { status: 'not-applicable', reason: resolved.reason, coverage: { kind: 'not-applicable', spec: raw?.player?.spec, reason: resolved.reason }, actions: [], packages: [], assumptions: [], validation: { evidenceEngine: 'healing evidence is evaluated outside the DPS/TPS simulator.' }, version: VERSION };
   if (resolved.kind !== 'native') return { ...unsupported(resolved.reason), coverage: { kind: 'conditional', spec: raw?.player?.spec, reason: resolved.reason } };
+  if (resolved.model.id === 'rogue-assassination') {
+    const reason = 'Assassination gain estimates are withheld: the current action list does not validate poison, Rupture and Envenom decisions. Detailed talent input alone cannot validate that rotation. Use the event-backed action plan.';
+    return { ...unsupported(reason), coverage: { kind: 'conditional', spec: raw.player.spec, reason } };
+  }
   if (resolved.model.role === 'TANK') {
     const reason = 'Tank mitigation and threat depend on incoming hits, healing and assignment context that this controlled DPS model does not replay; use the pull evidence instead.';
     return { status: 'not-applicable', reason, coverage: { kind: 'not-applicable', spec: raw?.player?.spec, reason }, actions: [], packages: [], assumptions: [], validation: { evidenceEngine: 'tank evidence is evaluated outside the DPS simulator.' }, version: VERSION };

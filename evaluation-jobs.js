@@ -18,7 +18,7 @@ function modelFiles(directory) {
     });
 }
 const ENGINE_KEY = hash([VERSION, process.env.WCL_SIM_ITERATIONS || 'default',
-    ...['evaluation-service.js', 'evaluation-evidence.js', 'evaluation-role-evidence.js', 'evaluation-common-evidence.js', 'evaluation-damage-analysis.js', 'evaluation-paladin-evidence.js', 'evaluation-specs.js', 'evaluation-encounters.js', 'evaluation-models.js', 'evaluation-sim.js', 'vet-engine.js', 'vet-feedback.js', 'data/tbc-item-db.json'].map(file => path.join(__dirname, file)),
+    ...['evaluation-service.js', 'evaluation-reference.js', 'evaluation-investigation.js', 'evaluation-rogue-evidence.js', 'evaluation-hunter-evidence.js', 'evaluation-decision-evidence.js', 'evaluation-coaching.js', 'data/evaluation-on-use.json', 'evaluation-evidence.js', 'evaluation-role-evidence.js', 'evaluation-common-evidence.js', 'evaluation-damage-analysis.js', 'evaluation-paladin-evidence.js', 'evaluation-specs.js', 'evaluation-encounters.js', 'evaluation-models.js', 'evaluation-sim.js', 'vet-engine.js', 'vet-feedback.js', 'data/tbc-item-db.json'].map(file => path.join(__dirname, file)),
     ...modelFiles(path.join(__dirname, 'evaluation-sim')),
 ].map(value => path.isAbsolute(value) ? readFileSync(value, 'utf8') : value).join('\n'));
 

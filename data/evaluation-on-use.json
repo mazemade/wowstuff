@@ -1,0 +1,1463 @@
+{
+  "source": "https://github.com/wowsims/tbc-new/blob/72e0c8a8feaf62da67add31090666773d6040f69/assets/database/db.json",
+  "items": [
+    {
+      "itemId": 10455,
+      "name": "Chained Essence of Eranikus",
+      "spellId": 12766,
+      "durationSec": 45,
+      "cooldownSec": 900,
+      "categoryId": 1141,
+      "categoryCooldownSec": 45
+    },
+    {
+      "itemId": 13164,
+      "name": "Heart of the Scale",
+      "spellId": 17275,
+      "durationSec": 300,
+      "cooldownSec": 1800,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 13213,
+      "name": "Smolderweb's Eye",
+      "spellId": 17330,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 13382,
+      "name": "Cannonball Runner",
+      "spellId": 6251,
+      "durationSec": 10,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 13515,
+      "name": "Ramstein's Lightning Bolts",
+      "spellId": 17668,
+      "durationSec": 1,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 14022,
+      "name": "Barov Peasant Caller",
+      "spellId": 18307,
+      "durationSec": 20,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 14023,
+      "name": "Barov Peasant Caller",
+      "spellId": 18308,
+      "durationSec": 20,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 15867,
+      "name": "Prismcharm",
+      "spellId": 19638,
+      "durationSec": 30,
+      "cooldownSec": 1800,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 15873,
+      "name": "Ragged John's Neverending Cup",
+      "spellId": 20587,
+      "durationSec": 600,
+      "cooldownSec": 1800,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 16022,
+      "name": "Arcanite Dragonling",
+      "spellId": 19804,
+      "durationSec": 60,
+      "cooldownSec": 1200,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 17759,
+      "name": "Mark of Resolution",
+      "spellId": 21956,
+      "durationSec": 10,
+      "cooldownSec": 1800,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 18639,
+      "name": "Ultra-Flash Shadow Reflector",
+      "spellId": 23132,
+      "durationSec": 5,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 18820,
+      "name": "Talisman of Ephemeral Power",
+      "spellId": 23271,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 19336,
+      "name": "Arcane Infused Gem",
+      "spellId": 23721,
+      "durationSec": 10,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 19337,
+      "name": "The Black Book",
+      "spellId": 23720,
+      "durationSec": 30,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 30
+    },
+    {
+      "itemId": 19339,
+      "name": "Mind Quickening Gem",
+      "spellId": 23723,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19340,
+      "name": "Rune of Metamorphosis",
+      "spellId": 23724,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 19342,
+      "name": "Venomous Totem",
+      "spellId": 23726,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19343,
+      "name": "Scrolls of Blinding Light",
+      "spellId": 23733,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19344,
+      "name": "Natural Alignment Crystal",
+      "spellId": 23734,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19345,
+      "name": "Aegis of Preservation",
+      "spellId": 23780,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 19930,
+      "name": "Mar'li's Eye",
+      "spellId": 24268,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 19947,
+      "name": "Nat Pagle's Broken Reel",
+      "spellId": 24610,
+      "durationSec": 15,
+      "cooldownSec": 75,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 19948,
+      "name": "Zandalarian Hero Badge",
+      "spellId": 24574,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 19949,
+      "name": "Zandalarian Hero Medallion",
+      "spellId": 24661,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19950,
+      "name": "Zandalarian Hero Charm",
+      "spellId": 24658,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19952,
+      "name": "Gri'lek's Charm of Valor",
+      "spellId": 24498,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19955,
+      "name": "Wushoolay's Charm of Nature",
+      "spellId": 24542,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 19956,
+      "name": "Wushoolay's Charm of Spirits",
+      "spellId": 24499,
+      "durationSec": 20,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19957,
+      "name": "Hazza'rah's Charm of Destruction",
+      "spellId": 24543,
+      "durationSec": 20,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 19958,
+      "name": "Hazza'rah's Charm of Healing",
+      "spellId": 24546,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 19959,
+      "name": "Hazza'rah's Charm of Magic",
+      "spellId": 24544,
+      "durationSec": 20,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 20071,
+      "name": "Talisman of Arathor",
+      "spellId": 23991,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1155,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 20072,
+      "name": "Defiler's Talisman",
+      "spellId": 23991,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1155,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 20636,
+      "name": "Hibernation Crystal",
+      "spellId": 24998,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21180,
+      "name": "Earthstrike",
+      "spellId": 25891,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 21326,
+      "name": "Defender of the Timbermaw",
+      "spellId": 26066,
+      "durationSec": 40,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 21473,
+      "name": "Eye of Moam",
+      "spellId": 26166,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 30
+    },
+    {
+      "itemId": 21488,
+      "name": "Fetish of Chitinous Spikes",
+      "spellId": 26168,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21579,
+      "name": "Vanquished Tentacle of C'Thun",
+      "spellId": 26391,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21625,
+      "name": "Scarab Brooch",
+      "spellId": 26467,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21647,
+      "name": "Fetish of the Sand Reaver",
+      "spellId": 26400,
+      "durationSec": 20,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21670,
+      "name": "Badge of the Swarmguard",
+      "spellId": 26480,
+      "durationSec": 30,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21685,
+      "name": "Petrified Scarab",
+      "spellId": 26463,
+      "durationSec": 60,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 21784,
+      "name": "Figurine - Black Diamond Crab",
+      "spellId": 26609,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 28,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 21789,
+      "name": "Figurine - Dark Iron Scorpid",
+      "spellId": 26614,
+      "durationSec": 10,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 22268,
+      "name": "Draconic Infused Emblem",
+      "spellId": 27675,
+      "durationSec": 15,
+      "cooldownSec": 75,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 22678,
+      "name": "Talisman of Ascendance",
+      "spellId": 28200,
+      "durationSec": 20,
+      "cooldownSec": 60,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 22954,
+      "name": "Kiss of the Spider",
+      "spellId": 28866,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 23001,
+      "name": "Eye of Diminution",
+      "spellId": 28862,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 23040,
+      "name": "Glyph of Deflection",
+      "spellId": 28773,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 23041,
+      "name": "Slayer's Crest",
+      "spellId": 28777,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 23042,
+      "name": "Loatheb's Reflection",
+      "spellId": 28778,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 23046,
+      "name": "The Restrained Essence of Sapphiron",
+      "spellId": 28779,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 23047,
+      "name": "Eye of the Dead",
+      "spellId": 28780,
+      "durationSec": 30,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 23558,
+      "name": "The Burrower's Shell",
+      "spellId": 29506,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 23570,
+      "name": "Jom Gabbar",
+      "spellId": 29602,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 23836,
+      "name": "Goblin Rocket Launcher",
+      "spellId": 46567,
+      "durationSec": 3,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 24124,
+      "name": "Figurine - Felsteel Boar",
+      "spellId": 31038,
+      "durationSec": 35,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 24125,
+      "name": "Figurine - Dawnstone Crab",
+      "spellId": 31039,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 24126,
+      "name": "Figurine - Living Ruby Serpent",
+      "spellId": 31040,
+      "durationSec": 20,
+      "cooldownSec": 300,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 24127,
+      "name": "Figurine - Talasite Owl",
+      "spellId": 31045,
+      "durationSec": 12,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 24128,
+      "name": "Figurine - Nightseye Panther",
+      "spellId": 31047,
+      "durationSec": 12,
+      "cooldownSec": 180,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 24376,
+      "name": "Runed Fungalcap",
+      "spellId": 31771,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 24390,
+      "name": "Auslese's Light Channeler",
+      "spellId": 31794,
+      "durationSec": 10,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 25619,
+      "name": "Glowing Crystal Insignia",
+      "spellId": 32355,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 25620,
+      "name": "Ancient Crystal Talisman",
+      "spellId": 32355,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 25628,
+      "name": "Ogre Mauler's Badge",
+      "spellId": 32362,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 25633,
+      "name": "Uniting Charm",
+      "spellId": 32362,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 25634,
+      "name": "Oshu'gun Relic",
+      "spellId": 32367,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 25787,
+      "name": "Charm of Alacrity",
+      "spellId": 32600,
+      "durationSec": 10,
+      "cooldownSec": 90,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 25936,
+      "name": "Terokkar Tablet of Vim",
+      "spellId": 39201,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 25937,
+      "name": "Terokkar Tablet of Precision",
+      "spellId": 39200,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 25994,
+      "name": "Rune of Force",
+      "spellId": 32955,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 25995,
+      "name": "Star of Sha'naar",
+      "spellId": 32956,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 25996,
+      "name": "Emblem of Perseverance",
+      "spellId": 32957,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 26055,
+      "name": "Oculus of the Hidden Eye",
+      "spellId": 33012,
+      "durationSec": 10,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 27416,
+      "name": "Fetish of the Fallen",
+      "spellId": 33014,
+      "durationSec": 15,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 27529,
+      "name": "Figurine of the Colossus",
+      "spellId": 33089,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 27770,
+      "name": "Argussian Compass",
+      "spellId": 39228,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 27828,
+      "name": "Warp-Scarab Brooch",
+      "spellId": 33400,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 27891,
+      "name": "Adamantine Figurine",
+      "spellId": 33479,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 28040,
+      "name": "Vengeance of the Illidari",
+      "spellId": 33662,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 28041,
+      "name": "Bladefist's Breadth",
+      "spellId": 33667,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 28042,
+      "name": "Regal Protectorate",
+      "spellId": 33668,
+      "durationSec": 15,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 28121,
+      "name": "Icon of Unyielding Courage",
+      "spellId": 34106,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 28223,
+      "name": "Arcanist's Stone",
+      "spellId": 34000,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 28234,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28235,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28236,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28237,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28238,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28239,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28240,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28241,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28242,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28243,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 28288,
+      "name": "Abacus of Violent Odds",
+      "spellId": 33807,
+      "durationSec": 10,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 28370,
+      "name": "Bangle of Endless Blessings",
+      "spellId": 34210,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 28528,
+      "name": "Moroes' Lucky Pocket Watch",
+      "spellId": 34519,
+      "durationSec": 10,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 28590,
+      "name": "Ribbon of Sacrifice",
+      "spellId": 38332,
+      "durationSec": 10,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 28727,
+      "name": "Pendant of the Violet Eye",
+      "spellId": 29601,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 29132,
+      "name": "Scryer's Bloodgem",
+      "spellId": 35337,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 29179,
+      "name": "Xi'ri's Gift",
+      "spellId": 35337,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 29370,
+      "name": "Icon of the Silver Crescent",
+      "spellId": 35163,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 29376,
+      "name": "Essence of the Martyr",
+      "spellId": 35165,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 29383,
+      "name": "Bloodlust Brooch",
+      "spellId": 35166,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 29387,
+      "name": "Gnomeregan Auto-Blocker 600",
+      "spellId": 35169,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 29776,
+      "name": "Core of Ar'kelos",
+      "spellId": 35733,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 30293,
+      "name": "Heavenly Inspiration",
+      "spellId": 36347,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": null,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 30300,
+      "name": "Dabiri's Enigma",
+      "spellId": 36372,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 30340,
+      "name": "Starkiller's Bauble",
+      "spellId": 36432,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 30343,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30344,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30345,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30346,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30348,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30349,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30350,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30351,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 30620,
+      "name": "Spyglass of the Hidden Fleet",
+      "spellId": 38325,
+      "durationSec": 12,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 30629,
+      "name": "Scarab of Displacement",
+      "spellId": 38351,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 30665,
+      "name": "Earring of Soulful Meditation",
+      "spellId": 40402,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 31615,
+      "name": "Ancient Draenei Arcane Relic",
+      "spellId": 33662,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 31617,
+      "name": "Ancient Draenei War Talisman",
+      "spellId": 33667,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 32483,
+      "name": "The Skull of Gul'dan",
+      "spellId": 40396,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 32501,
+      "name": "Shadowmoon Insignia",
+      "spellId": 40464,
+      "durationSec": 20,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 32534,
+      "name": "Brooch of the Immortal King",
+      "spellId": 40538,
+      "durationSec": 15,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 32654,
+      "name": "Crystalforged Trinket",
+      "spellId": 40724,
+      "durationSec": 10,
+      "cooldownSec": 60,
+      "categoryId": 1141,
+      "categoryCooldownSec": 10
+    },
+    {
+      "itemId": 32658,
+      "name": "Badge of Tenacity",
+      "spellId": 40729,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 32694,
+      "name": "Overseer's Badge",
+      "spellId": 40811,
+      "durationSec": 40,
+      "cooldownSec": 600,
+      "categoryId": 1183,
+      "categoryCooldownSec": 600
+    },
+    {
+      "itemId": 32695,
+      "name": "Captain's Badge",
+      "spellId": 40815,
+      "durationSec": 40,
+      "cooldownSec": 600,
+      "categoryId": 1183,
+      "categoryCooldownSec": 600
+    },
+    {
+      "itemId": 32782,
+      "name": "Time-Lost Figurine",
+      "spellId": 41301,
+      "durationSec": 300,
+      "cooldownSec": 1800,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 32864,
+      "name": "Commander's Badge",
+      "spellId": 40815,
+      "durationSec": 40,
+      "cooldownSec": 600,
+      "categoryId": 1183,
+      "categoryCooldownSec": 600
+    },
+    {
+      "itemId": 33828,
+      "name": "Tome of Diabolic Remedy",
+      "spellId": 43710,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 33829,
+      "name": "Hex Shrunken Head",
+      "spellId": 43712,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 33830,
+      "name": "Ancient Aqir Artifact",
+      "spellId": 43713,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 33831,
+      "name": "Berserker's Call",
+      "spellId": 43716,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 33832,
+      "name": "Battlemaster's Determination",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 34029,
+      "name": "Tiny Voodoo Mask",
+      "spellId": 43995,
+      "durationSec": 30,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 34049,
+      "name": "Battlemaster's Audacity",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 34050,
+      "name": "Battlemaster's Perseverance",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 34162,
+      "name": "Battlemaster's Depravity",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 34163,
+      "name": "Battlemaster's Cruelty",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 34428,
+      "name": "Steely Naaru Sliver",
+      "spellId": 45049,
+      "durationSec": 15,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 34429,
+      "name": "Shifting Naaru Sliver",
+      "spellId": 45042,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 34430,
+      "name": "Glimmering Naaru Sliver",
+      "spellId": 45052,
+      "durationSec": 8,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 35326,
+      "name": "Battlemaster's Alacrity",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 35327,
+      "name": "Battlemaster's Alacrity",
+      "spellId": 44055,
+      "durationSec": 15,
+      "cooldownSec": 180,
+      "categoryId": 1190,
+      "categoryCooldownSec": 180
+    },
+    {
+      "itemId": 35693,
+      "name": "Figurine - Empyrean Tortoise",
+      "spellId": 46780,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 35694,
+      "name": "Figurine - Khorium Boar",
+      "spellId": 46782,
+      "durationSec": 35,
+      "cooldownSec": 300,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 35700,
+      "name": "Figurine - Crimson Serpent",
+      "spellId": 46783,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 35702,
+      "name": "Figurine - Shadowsong Panther",
+      "spellId": 46784,
+      "durationSec": 15,
+      "cooldownSec": 90,
+      "categoryId": 1141,
+      "categoryCooldownSec": 15
+    },
+    {
+      "itemId": 35703,
+      "name": "Figurine - Seaspray Albatross",
+      "spellId": 46785,
+      "durationSec": 12,
+      "cooldownSec": 180,
+      "categoryId": null,
+      "categoryCooldownSec": 0
+    },
+    {
+      "itemId": 37127,
+      "name": "Brightbrew Charm",
+      "spellId": 48041,
+      "durationSec": 35,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 37128,
+      "name": "Balebrew Charm",
+      "spellId": 48042,
+      "durationSec": 35,
+      "cooldownSec": 600,
+      "categoryId": 94,
+      "categoryCooldownSec": 60
+    },
+    {
+      "itemId": 37864,
+      "name": "Medallion of the Alliance",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 37865,
+      "name": "Medallion of the Horde",
+      "spellId": 42292,
+      "durationSec": 0.1,
+      "cooldownSec": 120,
+      "categoryId": 1182,
+      "categoryCooldownSec": 120
+    },
+    {
+      "itemId": 38287,
+      "name": "Empty Mug of Direbrew",
+      "spellId": 51955,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    },
+    {
+      "itemId": 38288,
+      "name": "Direbrew Hops",
+      "spellId": 51954,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 38289,
+      "name": "Coren's Lucky Coin",
+      "spellId": 51952,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": null,
+      "categoryCooldownSec": -0.001
+    },
+    {
+      "itemId": 38290,
+      "name": "Dark Iron Smoking Pipe",
+      "spellId": 51953,
+      "durationSec": 20,
+      "cooldownSec": 120,
+      "categoryId": 1141,
+      "categoryCooldownSec": 20
+    }
+  ]
+}

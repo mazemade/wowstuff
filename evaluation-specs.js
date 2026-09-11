@@ -10,7 +10,7 @@ const observable = (id, label, spells, kind, extra = {}) => {
   const spellIds = list(spells);
   return { id, label, spell: spellIds[spellIds.length - 1], spellIds, kind, ...extra };
 };
-const dot = (id, label, spells, auras = spells) => observable(id, label, spells, 'dot', { aura: list(auras).at(-1), auraIds: list(auras) });
+const dot = (id, label, spells, auras = spells, extra = {}) => observable(id, label, spells, 'dot', { aura: list(auras).at(-1), auraIds: list(auras), ...extra });
 const hot = (id, label, spells, auras = spells) => observable(id, label, spells, 'hot', { aura: list(auras).at(-1), auraIds: list(auras) });
 const targetDebuff = (id, label, spells, auras = spells) => observable(id, label, spells, 'target-debuff', { aura: list(auras).at(-1), auraIds: list(auras) });
 const targetBuff = (id, label, spells, auras = spells) => observable(id, label, spells, 'target-buff', { aura: list(auras).at(-1), auraIds: list(auras) });
@@ -30,7 +30,7 @@ const EARTH_SHIELD = [974, 32593, 32594];
 const REJUVENATION = [774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299, 26981, 26982];
 
 const SPECS = Object.freeze([
-  role('WARRIOR', 'Arms', 'melee', [dot('rend', 'Rend', 25208), cast('mortal-strike', 'Mortal Strike', 30330), cd('death-wish', 'Death Wish', 12292, 180)]),
+  role('WARRIOR', 'Arms', 'melee', [dot('rend', 'Rend', 25208, 25208, { duration: 21 }), cast('mortal-strike', 'Mortal Strike', 30330), cd('death-wish', 'Death Wish', 12292, 180)]),
   role('WARRIOR', 'Fury', 'melee', [cast('bloodthirst', 'Bloodthirst', 30335), cast('whirlwind', 'Whirlwind', 1680), cd('recklessness', 'Recklessness', 1719, 1800)]),
   role('WARRIOR', 'Protection', 'tank', [cast('shield-slam', 'Shield Slam', 30356), cast('devastate', 'Devastate', 30016), aura('shield-block', 'Shield Block', 2565)]),
   role('PALADIN', 'Holy', 'healer', [cast('holy-light', 'Holy Light', HOLY_LIGHT), cast('flash-of-light', 'Flash of Light', FLASH_OF_LIGHT), cd('divine-illumination', 'Divine Illumination', 31842, 180)]),
@@ -38,25 +38,25 @@ const SPECS = Object.freeze([
   role('PALADIN', 'Retribution', 'melee', [cast('crusader-strike', 'Crusader Strike', 35395), { ...aura('seal-of-blood', 'Seal of Blood / the Martyr', [31892, 348700]), coverageContext: 'Seal switching changes this coverage. Judge seal timing at swings, not a target of 100% aura uptime.' }, cd('avenging-wrath', 'Avenging Wrath', 31884, 180)]),
   role('HUNTER', 'Beast Mastery', 'ranged', [cast('steady-shot', 'Steady Shot', 34120), cast('kill-command', 'Kill Command', 34026), cd('bestial-wrath', 'Bestial Wrath', 19574, 120)]),
   role('HUNTER', 'Marksmanship', 'ranged', [cast('steady-shot', 'Steady Shot', 34120), cast('aimed-shot', 'Aimed Shot', 27065), cd('rapid-fire', 'Rapid Fire', 3045, 300)]),
-  role('HUNTER', 'Survival', 'ranged', [cast('steady-shot', 'Steady Shot', 34120), dot('serpent-sting', 'Serpent Sting', 27016), targetDebuff('expose-weakness', 'Expose Weakness', 34503)]),
-  role('ROGUE', 'Assassination', 'melee', [dot('rupture', 'Rupture', 26867), cast('mutilate', 'Mutilate', 34413), cast('envenom', 'Envenom', 32645)]),
+  role('HUNTER', 'Survival', 'ranged', [cast('steady-shot', 'Steady Shot', 34120), dot('serpent-sting', 'Serpent Sting', 27016, 27016, { duration: 15 }), targetDebuff('expose-weakness', 'Expose Weakness', 34503)]),
+  role('ROGUE', 'Assassination', 'melee', [aura('slice-and-dice', 'Slice and Dice', 6774), dot('rupture', 'Rupture', 26867), dot('deadly-poison', 'Deadly Poison', 27187), cast('mutilate', 'Mutilate', 34413), cast('envenom', 'Envenom', [32645, 32684]), aura('cold-blood', 'Cold Blood', 14177)]),
   role('ROGUE', 'Combat', 'melee', [aura('slice-and-dice', 'Slice and Dice', 6774), cast('sinister-strike', 'Sinister Strike', 26862), cd('adrenaline-rush', 'Adrenaline Rush', 13750, 300)]),
-  role('ROGUE', 'Subtlety', 'melee', [dot('rupture', 'Rupture', 26867), cast('hemorrhage', 'Hemorrhage', 26864), cd('shadowstep', 'Shadowstep', 36554, 30)]),
+  role('ROGUE', 'Subtlety', 'melee', [aura('slice-and-dice', 'Slice and Dice', 6774), dot('rupture', 'Rupture', 26867), cast('hemorrhage', 'Hemorrhage', 26864), cd('shadowstep', 'Shadowstep', 36554, 30)]),
   role('PRIEST', 'Discipline', 'healer', [targetBuff('power-word-shield', 'Power Word: Shield', POWER_WORD_SHIELD), cast('prayer-of-mending', 'Prayer of Mending', 33076), cd('pain-suppression', 'Pain Suppression', 33206, 180)]),
   role('PRIEST', 'Holy', 'healer', [cast('prayer-of-mending', 'Prayer of Mending', 33076), cast('circle-of-healing', 'Circle of Healing', CIRCLE_OF_HEALING), hot('renew', 'Renew', RENEW)]),
-  role('PRIEST', 'Shadow', 'caster', [dot('vampiric-touch', 'Vampiric Touch', 34914), dot('shadow-word-pain', 'Shadow Word: Pain', 25368), cast('mind-blast', 'Mind Blast', 25375)]),
+  role('PRIEST', 'Shadow', 'caster', [dot('vampiric-touch', 'Vampiric Touch', 34914, 34914, { duration: 15 }), dot('shadow-word-pain', 'Shadow Word: Pain', 25368), cast('mind-blast', 'Mind Blast', 25375)]),
   role('SHAMAN', 'Elemental', 'caster', [cast('lightning-bolt', 'Lightning Bolt', 25449), cast('chain-lightning', 'Chain Lightning', 25442), cast('totem-of-wrath', 'Totem of Wrath', 30706)]),
   role('SHAMAN', 'Enhancement', 'melee', [cast('stormstrike', 'Stormstrike', 17364), cast('earth-shock', 'Earth Shock', 25454), targetBuff('unleashed-rage', 'Unleashed Rage', 30809)]),
   role('SHAMAN', 'Restoration', 'healer', [cast('chain-heal', 'Chain Heal', CHAIN_HEAL), targetBuff('earth-shield', 'Earth Shield', EARTH_SHIELD), cd('mana-tide', 'Mana Tide Totem', 16190, 300)]),
   role('MAGE', 'Arcane', 'caster', [cast('arcane-blast', 'Arcane Blast', 30451), cast('arcane-missiles', 'Arcane Missiles', 27075), cd('arcane-power', 'Arcane Power', 12042, 180)]),
   role('MAGE', 'Fire', 'caster', [cast('fireball', 'Fireball', 27070), targetDebuff('improved-scorch', 'Improved Scorch', 27074, [12873, 22959]), cd('combustion', 'Combustion', 11129, 180)]),
   role('MAGE', 'Frost', 'caster', [cast('frostbolt', 'Frostbolt', 27071), targetDebuff('winters-chill', "Winter's Chill", 12579), cd('icy-veins', 'Icy Veins', 12472, 180)]),
-  role('WARLOCK', 'Affliction', 'caster', [dot('corruption', 'Corruption', 27216), dot('unstable-affliction', 'Unstable Affliction', 30108), dot('curse-of-agony', 'Curse of Agony', 27218)]),
+  role('WARLOCK', 'Affliction', 'caster', [dot('corruption', 'Corruption', 27216), dot('unstable-affliction', 'Unstable Affliction', 30108, 30108, { duration: 18 }), dot('curse-of-agony', 'Curse of Agony', 27218)]),
   role('WARLOCK', 'Demonology', 'caster', [cast('shadow-bolt', 'Shadow Bolt', 27209), aura('demonic-sacrifice', 'Demonic Sacrifice', 18788, [18789, 18790, 18791, 18792]), dot('corruption', 'Corruption', 27216)]),
   role('WARLOCK', 'Destruction', 'caster', [dot('immolate', 'Immolate', 27215), cast('shadow-bolt', 'Shadow Bolt', 27209), cast('conflagrate', 'Conflagrate', 30912)]),
-  role('DRUID', 'Balance', 'caster', [dot('moonfire', 'Moonfire', 26988), dot('insect-swarm', 'Insect Swarm', 27013), cast('starfire', 'Starfire', 27073)]),
-  role('DRUID', 'Feral', 'melee', [dot('rip', 'Rip', 27008), cast('mangle-cat', 'Mangle (Cat)', 33983), cast('shred', 'Shred', 27002)]),
-  role('DRUID', 'Guardian', 'tank', [cast('mangle-bear', 'Mangle (Bear)', 33987), dot('lacerate', 'Lacerate', 33745), targetDebuff('demoralizing-roar', 'Demoralizing Roar', 26998)]),
+  role('DRUID', 'Balance', 'caster', [dot('moonfire', 'Moonfire', 26988), dot('insect-swarm', 'Insect Swarm', 27013, 27013, { duration: 12 }), cast('starfire', 'Starfire', 27073)]),
+  role('DRUID', 'Feral', 'melee', [dot('rip', 'Rip', 27008, 27008, { duration: 12 }), cast('mangle-cat', 'Mangle (Cat)', 33983), cast('shred', 'Shred', 27002)]),
+  role('DRUID', 'Guardian', 'tank', [cast('mangle-bear', 'Mangle (Bear)', 33987), dot('lacerate', 'Lacerate', 33745), targetDebuff('demoralizing-roar', 'Demoralizing Roar', 26998), aura('barkskin', 'Barkskin', 22812)]),
   role('DRUID', 'Restoration', 'healer', [hot('lifebloom', 'Lifebloom', 33763), hot('rejuvenation', 'Rejuvenation', REJUVENATION), cast('swiftmend', 'Swiftmend', 18562)])
 ]);
 

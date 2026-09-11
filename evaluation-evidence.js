@@ -1,4 +1,5 @@
 'use strict';
+const { selectReferences } = require('./evaluation-reference.js');
 /**
  * Evidence-only player coaching. analyzeFight accepts WCL fightAndTables context/tables,
  * report/fight/source identifiers, player {classToken,spec}, and optional references.
@@ -105,8 +106,12 @@ function analyzeFight(raw = {}) {
     const info = describe(raw), tables = raw.tables || {}, comparison = [], findings = [], timeline = [], limitations = [];
     const sourceEvidence = (text, interval) => ({ text, ...(interval ? { startSec: round(interval[0]), endSec: round(interval[1]) } : {}), ...(info.url ? { url: info.url } : {}) });
     const add = (id, title, owner, action, evidence, confidence = 'observed') => findings.push({ id, title, owner, action, evidence, confidence, gainDps: null,
-        ...(['battle-shout-gap', 'recklessness-contact'].includes(id) ? { category: 'execution', priority: 'high' } : {}) });
-    const refs = (raw.references || []).map(describe).filter(r => r.duration && r.dps !== null &&
+        ...(['battle-shout-gap', 'recklessness-contact'].includes(id) ? { category: 'execution', priority: 'high',
+            disposition: id === 'battle-shout-gap' ? 'improve' : 'review',
+            why: id === 'battle-shout-gap' ? 'The recorded Shout bands leave part of the pull outside its attack-power buff. Confirm who owns the refresh so the next damage window starts with it active.' : 'The temporary critical-strike buff overlapped gaps between direct attacks. Mechanics or target access may explain those gaps; the entire overlap is not automatically avoidable.',
+            verification: id === 'battle-shout-gap' ? 'On the next comparable pull, check Shout coverage before each burst and avoid the same recorded refresh gap.' : 'Compare the next activation with safe melee contact and the encounter assignment.',
+            alternatives: id === 'battle-shout-gap' ? ['Another warrior may own the stronger Shout; coordinate the refresh rather than overwriting blindly.'] : ['A required hold, movement or control effect can explain this overlap.'] } : {}) });
+    const refs = selectReferences(raw).accepted.map(describe).filter(r => r.duration && r.dps !== null &&
         (!info.fight.name || r.fight.name === info.fight.name) &&
         (!info.spec || r.spec === info.spec) && (!info.classToken || r.classToken === info.classToken))
         .sort((a, b) => Number(b.raw.kind === 'benchmark') - Number(a.raw.kind === 'benchmark') || Math.abs(a.duration - info.duration) - Math.abs(b.duration - info.duration));
@@ -169,7 +174,7 @@ function analyzeFight(raw = {}) {
         }
         const shoutRows = auras(tables.buffs).filter(x => id(x) === SPELL.shout);
         const shout = bands(tables.buffs, [SPELL.shout], info);
-        if (info.duration && knownBuffs(tables.buffs) && shoutRows.every(x => Array.isArray(x.bands))) {
+        if (info.duration && knownBuffs(tables.buffs) && shoutRows.length && shoutRows.every(x => Array.isArray(x.bands))) {
             const missing = complement(shout, info.duration).filter(x => x[1] - x[0] >= 3);
             compare('Battle Shout coverage', uptime(tables.buffs, [SPELL.shout], info), ref ? uptime(ref.raw.tables?.buffs, [SPELL.shout], ref) : null, '%');
             if (missing.length) {

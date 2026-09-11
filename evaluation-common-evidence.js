@@ -1,4 +1,5 @@
 'use strict';
+const { selectReferences } = require('./evaluation-reference.js');
 
 // Checks shared across roles. Every conclusion is a recorded fact or a bounded review
 // window. No cast-gap seconds are converted to recoverable damage/healing.
@@ -15,7 +16,13 @@ function analyzeCommon(raw) {
     const evidence = (text, from, to) => ({ text, url, ...(finite(from) ? { startSec: round(from) } : {}), ...(finite(to) ? { endSec: round(to) } : {}) });
     const findings = [], comparison = [], timeline = [], checks = [], limitations = [];
     const add = (key, title, owner, action, records) => findings.push({ id: key, title, owner, action, evidence: records, confidence: 'observed', gainDps: null,
-        ...(key === 'cast-chaining' && raw.player?.role !== 'healer' ? { category: 'execution', priority: 'medium' } : {}) });
+        ...(key === 'cast-chaining' && raw.player?.role !== 'healer' ? { category: 'execution', priority: 'medium' } : {}),
+        ...(['preparation-enchants', 'equipment-sockets'].includes(key) ? {
+            disposition: 'improve', category: 'equipment', priority: 'low',
+            actionTitle: key === 'equipment-sockets' ? 'Fill your empty gem sockets before the next raid' : 'Enchant your recorded unenchanted equipment',
+            why: 'The equipment snapshot identifies an empty enhancement slot. Filling it provides its listed benefit without changing your rotation; the best option depends on your build.',
+            verification: 'Before the next raid, inspect the listed items and confirm the chosen enhancements are equipped.',
+        } : {}) });
     const check = (key, label, status, reason) => checks.push({ id: key, label, status, reason });
     const ci = raw.tables?.ci?.data?.find(e => e.sourceID === raw.sourceId) || raw.tables?.ci?.data?.find(e => e.sourceID == null);
     if (Array.isArray(ci?.gear)) {
@@ -100,7 +107,7 @@ function analyzeCommon(raw) {
         limitations.push('Class-resource snapshots are not trusted for this log format. Cast affordability, rage/energy capping and time spent out of mana are not inferred.');
     } else check('cast-timeline', 'Cast sequence', 'unknown', 'Incomplete events or invalid fight times prevent absence-of-cast conclusions.');
     if (!['healer', 'tank'].includes(raw.player?.role) && duration > 0 && !(raw.player?.classToken === 'WARRIOR' && raw.player?.spec === 'Fury')) {
-        const references = (raw.references || []).filter(r => r.player?.classToken === raw.player?.classToken && r.player?.spec === raw.player?.spec && r.context?.fights?.[0]?.name === fight.name)
+        const references = selectReferences(raw).accepted.filter(r => r.player?.classToken === raw.player?.classToken && r.player?.spec === raw.player?.spec && r.context?.fights?.[0]?.name === fight.name)
             .sort((a, b) => Number(b.kind === 'benchmark') - Number(a.kind === 'benchmark') || Math.abs((a.context.fights[0].endTime - a.context.fights[0].startTime) / 1000 - duration) - Math.abs((b.context.fights[0].endTime - b.context.fights[0].startTime) / 1000 - duration));
         const reference = references[0], refFight = reference?.context?.fights?.[0], refDuration = refFight ? (refFight.endTime - refFight.startTime) / 1000 : null;
         const refRows = rows(reference?.tables?.dmg), ownDamage = rows(raw.tables?.dmg).filter(r => finite(r.total) && finite(id(r)));

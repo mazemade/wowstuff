@@ -199,6 +199,8 @@ async function loadProfile(name, server, region, zone) {
   catch (err) { console.error('item table load failed:', err); const e = new Error('Item table data/tbc-item-db.json is missing or unreadable'); e.code = 'NO_DB'; throw e; }
   const profile = await VetProfile.fetchProfile(wclQuery, { name, server, region, zone }, db);
   if (!profile) return { profile: null, cached: false };
+  // A transient report timeout must be retryable immediately, not cached for 15 minutes.
+  if (profile.partial) return { profile, cached: false };
   // Reclaim memory from entries the read path above already treats as misses (past VET_CACHE_MS) —
   // this is a sweep, not an eviction policy: nothing here changes what a lookup returns.
   for (const [k, v] of vetCache) if (Date.now() - v.at >= VET_CACHE_MS) vetCache.delete(k);

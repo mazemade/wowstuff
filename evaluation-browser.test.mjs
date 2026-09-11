@@ -6,6 +6,12 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const recordedUtopik = require('./fixtures/evaluation/recorded-coaching.cjs').utopikReport();
+const recordedFunkell = require('./fixtures/evaluation/funkell-hunter.json');
+const { combinedEvidence } = require('./evaluation-service');
+const { buildFightCoaching, buildNightCoaching } = require('./evaluation-coaching');
 
 if (typeof WebSocket === "undefined") throw new Error("evaluation-browser.test.mjs requires Node 22 or newer (global WebSocket is required)");
 const root = dirname(fileURLToPath(import.meta.url));
@@ -120,7 +126,22 @@ async function navigate(url, readyExpr, what) { await send("Page.navigate", { ur
 // Deterministic UI fixtures only. These values are not real player estimates.
 const starts = [], jobs = new Map();
 let hold = true, retryFailures = 0;
+function funkellReport() {
+  const result = { schemaVersion: 2, player: recordedFunkell.fights[0].player, night: { code: recordedFunkell.provenance.report, date: recordedFunkell.provenance.date }, generatedAt: '2026-09-11T12:00:00.000Z', limitations: [] };
+  result.fights = recordedFunkell.fights.map(raw => {
+    const fightWindow = raw.context.fights[0];
+    const fight = { id: raw.reportCode + '/' + raw.fightId, name: raw.name, player: raw.player, durationSec: (fightWindow.endTime - fightWindow.startTime) / 1000,
+      encounter: raw.encounter, wclUrl: 'https://classic.warcraftlogs.com/reports/' + raw.reportCode + '#fight=' + raw.fightId + '&source=' + raw.sourceId,
+      ...combinedEvidence(structuredClone(raw)), simulation: { status: 'unsupported', actions: [], packages: [], reason: 'Recorded evidence replay; no modeled gains are assigned.' } };
+    fight.coaching = buildFightCoaching(fight);
+    return fight;
+  });
+  result.coaching = buildNightCoaching(result);
+  return result;
+}
 function reportFixture(code) {
+  if (code === 'NvByqL74tMA3X9Vc') return recordedUtopik;
+  if (code === 'FUNKELLHUNTER001') return funkellReport();
   if (code === 'VARENTHELUI0001' && varenthilFixture) return varenthilFixture;
   if (['HEALERFIXTURE001', 'TANKERFIXTURE001', 'CONDITIONALMODEL'].includes(code)) return roleReportFixture(code);
   const model = { status: 'complete', baselineDps: 1500, version: 'fixture-only-v1', actions: [
@@ -145,11 +166,14 @@ function reportFixture(code) {
     ], limitations: ['The comparison does not reconstruct movement or target availability.'] };
     fight.findings.push({ id: 'crusader-strike', title: 'Keep Crusader Strike on cooldown', owner: 'player', category: 'execution', priority: 'high', action: 'Use Crusader Strike whenever it is ready during boss contact.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Seven casts in this pull versus 20 for the reference.', url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1&source=4' }] });
     fight.findings.push({ id: 'seal-twist', title: 'Practice the seal twist window', owner: 'player', category: 'execution', priority: 'medium', action: 'Twist the seal in the judged window while staying on the target.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Seal damage and hit rate trailed the reference.' }] });
+    fight.coaching = { assessment: 'Start with Crusader Strike timing, then review movement before treating observations as mistakes.', improvements: [{ id: 'crusader-strike', what: 'Keep Crusader Strike on cooldown', priority: 'high', why: 'Seven casts were recorded here versus 20 for the reference; target availability remains a possible alternative.', change: 'Use Crusader Strike whenever it is ready during boss contact.', verification: 'On the next comparable pull, compare casts during confirmed boss contact.', alternatives: ['Movement or target swaps may have limited casts.'], evidence: [{ text: 'Seven casts in this pull versus 20 for the reference.', startSec: 18, url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1&source=4' }] }], keeps: [{ id: 'interrupt-keep', what: 'Interrupt landed', priority: 'low', why: 'The completion is recorded.', verification: 'Keep checking the completed cast.', evidence: [{ text: 'Kick completed at 0:44.' }] }], reviews: [{ id: 'movement-review', what: 'Review movement route', priority: 'medium', why: 'The log has no movement assignment.', verification: 'Record the route before the next pull.', evidence: [{ text: 'No assignment marker.' }] }], depth: { status: 'partial', reviewed: ['cast timing', 'damage rows'], unresolved: ['movement assignment'] } };
   }
   if (code === 'UNSUPPORTED') fight.findings.push({ id: 'cooldown-review', title: 'Review cooldown timing', owner: 'player', category: 'execution', priority: 'high', action: 'Use the recorded cooldown window as the next-pull review point.', confidence: 'observed', gainDps: null, evidence: [{ text: 'The log contains a cooldown window but no validated damage model.' }] });
+  if (code === 'MALFORMED') fight.coaching = { assessment: 9, improvements: [null, 'bad'], keeps: 'bad', reviews: [{}], depth: 'bad' };
   const second = structuredClone(fight); second.id = 2; second.name = 'Training Giant'; second.simulation = missing; second.wclUrl = 'javascript:window.BAD_LINK=true'; second.findings[0].title = '<img src=x onerror="window.BAD_HTML=true">'; second.findings[0].evidence[0].url = 'javascript:window.BAD_LINK=true';
   fight.findings.push({ id: 'haste-potion', title: 'Potion was absent', owner: 'player', action: 'Use the potion in the burst window.', confidence: 'observed', gainDps: null, evidence: [{ text: 'Fixture observed potion count: zero.', startSec: 18, url: 'https://classic.warcraftlogs.com/reports/fixture#fight=1' }] });
-  return { schemaVersion: code === 'NEWSCHEMA' ? 3 : 1, player: { name: 'FixtureWarrior', spec: 'Fury', classToken: 'WARRIOR' }, night: { code, date: '2026-09-06' }, generatedAt: '2026-09-10T12:00:00Z', fights: code === 'LATE_MODEL' ? [second, fight] : [fight, second], limitations: ['All values in this browser test are synthetic fixtures.'] };
+  const fights = code === 'LATE_MODEL' ? [second, fight] : [fight, second];
+  return { schemaVersion: code === 'NEWSCHEMA' ? 3 : 1, player: { name: 'FixtureWarrior', spec: 'Fury', classToken: 'WARRIOR' }, night: { code, date: '2026-09-06' }, generatedAt: '2026-09-10T12:00:00Z', fights, coaching: code === 'DIAGNOSIS' ? { assessment: 'Across the night, start with Crusader Strike timing on Training Demon.', topChanges: [{ what: 'Keep Crusader Strike on cooldown', priority: 'high', bosses: ['Training Demon'] }], openQuestions: ['movement assignment'] } : undefined, limitations: ['All values in this browser test are synthetic fixtures.'] };
 }
 function roleReportFixture(code) {
   const healer = code !== 'TANKERFIXTURE001';
@@ -185,7 +209,7 @@ try {
   pass('Modeled recommendations absorb matching observed proof; independent context remains visible');
   await evaluate("document.querySelector('#copyPlanBtn').click()");
   await waitFor('Boolean(window.__copied)', 'action plan clipboard');
-  const copied = await evaluate('window.__copied'); assert.match(copied, /0:18 alongside cooldowns/); assert.match(copied, /\+215 DPS modeled/); assert.match(copied, /not assigned to player fault/); assert.doesNotMatch(copied, /Training Giant/); assert.equal(copied.split('Use the potion in the burst window.').length - 1, 1);
+  const copied = await evaluate('window.__copied'); assert.match(copied, /0:18 alongside cooldowns/); assert.match(copied, /\+215 DPS modeled/); assert.doesNotMatch(copied, /not assigned to player fault/); assert.doesNotMatch(copied, /Training Giant/); assert.equal(copied.split('Use the potion in the burst window.').length - 1, 1);
   await evaluate("document.querySelector('#copyReportBtn').click()"); await waitFor("window.__copied.includes('Training Giant')", 'full report clipboard');
   assert.match(await evaluate('window.__copied'), /Synthetic UI estimate/); pass('Copy plan includes timing and modeling caveats; full report includes every encounter');
   await evaluate("document.querySelector('[role=tab][aria-selected=true]').focus()");
@@ -218,6 +242,8 @@ try {
   pass('Reload resumes the saved job without starting another analysis');
   await navigate(base + '&report=PARTIAL', "document.querySelector('#errorBox')?.textContent.includes('One simulation failed')", 'partial failure');
   assert.equal(await evaluate("document.querySelector('#report').hidden"), false);
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  await evaluate("document.querySelector('.report-background').open = true");
   assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Investigate rage supply/);
   assert.equal(await evaluate("document.querySelectorAll('.action-gain,.package').length"), 0);
   pass('Partial failure preserves observed findings and exposes the error');
@@ -225,7 +251,11 @@ try {
   await waitFor("document.querySelectorAll('.action').length === 4", 'reconnected report');
   assert.equal(await evaluate("document.querySelector('#errorBox').hidden"), true);
   pass('Transient polling failures reconnect and render the completed report');
-  await evaluate("localStorage.setItem('raidEvaluation:v1:eu/test-realm/fixturewarrior/1060/EXPIRED', JSON.stringify({version:1,id:'missing-job'}))");
+  const beforeStaleCache = starts.length;
+  await evaluate("localStorage.setItem('raidEvaluation:v1:eu/test-realm/fixturewarrior/1060/STALE', JSON.stringify({version:1,id:'old-engine-job'}))");
+  await navigate(base + '&report=STALE', "document.querySelectorAll('.action').length === 4", 'stale cache rebuild');
+  assert.equal(starts.length, beforeStaleCache + 1, 'an old cache version starts a current evaluation instead of polling an expired job');
+  await evaluate("localStorage.setItem('raidEvaluation:v2:eu/test-realm/fixturewarrior/1060/EXPIRED', JSON.stringify({version:2,id:'missing-job'}))");
   await navigate(base + '&report=EXPIRED', "document.querySelector('#errorBox')?.textContent.includes('expired')", 'expired job');
   assert.equal(await evaluate("document.querySelector('#refreshBtn').disabled"), false);
   await navigate(base + '&report=LATE_MODEL', "document.querySelectorAll('.action').length === 4", 'preferred modeled encounter');
@@ -237,21 +267,40 @@ try {
   assert.equal(await evaluate("document.querySelector('[role=tab][aria-selected=true]').id"), 'fight-tab-0');
   assert.equal(await evaluate("document.querySelectorAll('.action').length"), 0);
   pass('Default view prefers a modeled encounter; user boss selection survives later updates');
-  await navigate(base + '&report=DIAGNOSIS', "document.querySelector('#fightReport')?.innerText.includes('What the logs show')", 'damage diagnosis');
+  await navigate(base + '&report=DIAGNOSIS', "document.querySelector('#fightReport .coaching-section')", 'action-first diagnosis');
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  assert.equal(await evaluate("document.querySelector('.coaching-background').open"), false);
+  const defaultDiagnosisText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(defaultDiagnosisText, /Make these changes/);
+  assert.match(defaultDiagnosisText, /Keep Crusader Strike on cooldown/);
+  assert.doesNotMatch(defaultDiagnosisText, /What the logs show|ReferenceRet|Consecration|Inspection coverage/);
+  await evaluate("document.querySelector('.report-background').open = true; document.querySelector('.coaching-background').open = true; document.querySelector('.coaching-depth').open = true");
   const diagnosisText = await evaluate("document.querySelector('#fightReport').innerText");
   assert.match(diagnosisText, /ReferenceRet/);
   assert.match(diagnosisText, /1,052 DPS/);
   assert.match(diagnosisText, /Consecration/i);
   assert.match(diagnosisText, /Frequency \+128/i);
   assert.match(diagnosisText, /Keep Crusader Strike on cooldown/);
-  assert.ok(diagnosisText.indexOf('What the logs show') < diagnosisText.indexOf('Tested equipment & support options'));
+  assert.match(diagnosisText, /Make these changes/);
+  assert.match(diagnosisText, /Why it matters: Seven casts were recorded/);
+  assert.match(diagnosisText, /Keep doing \(1\)/);
+  assert.match(diagnosisText, /Open review \(1\)/);
+  assert.match(diagnosisText, /Inspection coverage.*Reviewed: cast timing, damage rows.*Unresolved: movement assignment/s);
+  assert.ok(diagnosisText.indexOf('Make these changes') < diagnosisText.indexOf('USEFUL MODELED ACTIONS'));
   assert.match(diagnosisText, /\+80 DPS\s*modeled/);
   assert.doesNotMatch(diagnosisText, /recoverable gain/);
-  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Damage diagnosis')", 'diagnosis action-plan copy');
-  assert.match(await evaluate('window.__copied'), /Priority execution \(High priority\): Keep Crusader Strike on cooldown/);
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Coaching change')", 'diagnosis action-plan copy');
+  assert.match(await evaluate('window.__copied'), /Coaching change \(High priority\): Keep Crusader Strike on cooldown/);
+  assert.doesNotMatch(await evaluate('window.__copied'), /Review movement route/);
+  assert.doesNotMatch(await evaluate('window.__copied'), /Damage diagnosis:|Consecration|check the coverage/);
   await evaluate("document.querySelector('#copyReportBtn').click()"); await waitFor("window.__copied.includes('ReferenceRet')", 'diagnosis full-report copy');
   assert.match(await evaluate('window.__copied'), /Consecration/);
-  pass('A large observed gap leads with damage accounting and high-priority execution, while tested options stay separate');
+  assert.match(await evaluate('window.__copied'), /Coaching assessment/);
+  pass('Action-first coaching and useful modeled actions stay visible; diagnosis and review evidence are optional background');
+  await navigate(base + '&report=MALFORMED', "document.querySelector('#fightReport')?.innerText.includes('Training Demon')", 'malformed coaching report');
+  await evaluate("document.querySelector('.report-background').open = true");
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Investigate rage supply/);
+  pass('Malformed coaching payloads remain safe and preserve legacy findings');
   await navigate(base + '&report=UNSUPPORTED', "document.querySelector('#fightReport')?.innerText.includes('Review cooldown timing')", 'unmodeled priority execution');
   const unmodeledText = await evaluate("document.querySelector('#fightReport').innerText");
   assert.match(unmodeledText, /Change these first on the next pull/);
@@ -264,13 +313,16 @@ try {
   pass('DPS execution priorities lead even without a reference ledger or modeled gain');
   if (varenthilFixture) {
     await navigate(`http://127.0.0.1:${port}/evaluation.html?report=VARENTHELUI0001&fightId=9&sourceId=1`, "document.querySelector('#playerTitle')?.textContent === 'Varenthil'", 'saved Varenthil review');
+    assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+    await evaluate("document.querySelector('.report-background').open = true");
     const varenthilText = await evaluate("document.querySelector('#fightReport').innerText");
     assert.match(varenthilText, /Aboujudger/);
     assert.match(varenthilText, /Observed account/i);
     assert.match(varenthilText, /Options supported by this pull/);
     assert.doesNotMatch(varenthilText, /Modeled baseline|iterations per scenario/i);
-    await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Damage diagnosis')", 'saved Varenthil action-plan copy');
-    pass('Saved Varenthil ledger renders without importing model assumptions');
+    await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('next raid action plan')", 'saved Varenthil action-plan copy');
+    assert.doesNotMatch(await evaluate('window.__copied'), /Damage diagnosis/);
+    pass('Saved Varenthil ledger stays optional and does not import model assumptions');
   }
   await navigate(base + '&report=NEWSCHEMA', "document.querySelector('#errorBox')?.textContent.includes('report format')", 'schema mismatch');
   assert.equal(await evaluate("document.querySelector('#refreshBtn').disabled"), false);
@@ -280,17 +332,22 @@ try {
   assert.deepEqual(starts.at(-1), { region: 'eu', zone: '1060', report: 'HEALERFIXTURE001', fightId: '7', sourceId: '19' });
   const healerText = await evaluate("document.querySelector('#fightReport').innerText");
   assert.match(healerText, /Effective healing \/ HPS observed/);
-  assert.match(healerText, /Effective healing is context, not a target to maximize/);
-  assert.match(healerText, /What was checked for Holy healer/);
-  assert.match(healerText, /Unknown.*Record the assignment before the next pull/);
-  assert.doesNotMatch(healerText, /DPS gains|recoverable|player fault/);
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  await evaluate("document.querySelector('.report-background').open = true");
+  const healerBackground = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(healerBackground, /Effective healing is context, not a target to maximize/);
+  assert.match(healerBackground, /What was checked for Holy healer/);
+  assert.match(healerBackground, /Unknown.*Record the assignment before the next pull/);
+  assert.doesNotMatch(healerBackground, /DPS gains|recoverable|player fault/);
   await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied.includes('Effective healing / HPS')", 'healer action-plan copy');
   assert.doesNotMatch(await evaluate('window.__copied'), /DPS/);
   pass('Direct healer reports work without ranked-night identity and keep healing evidence role-specific');
   await navigate(`http://127.0.0.1:${port}/evaluation.html?report=TANKERFIXTURE001&fightId=7&sourceId=19`, "document.querySelector('#playerTitle')?.textContent === 'FixtureTank'", 'direct tank report');
   const tankText = await evaluate("document.querySelector('#fightReport').innerText");
   assert.match(tankText, /Incoming damage \/ DTPS observed/);
-  assert.match(tankText, /Lower DTPS is not automatically better/);
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  await evaluate("document.querySelector('.report-background').open = true");
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Lower DTPS is not automatically better/);
   assert.match(tankText, /\+1 cooldown window/);
   assert.doesNotMatch(tankText, /DPS gains|recoverable/);
   pass('Tank reports present incoming damage as context and retain capacity improvements without a DPS model');
@@ -302,6 +359,52 @@ try {
   assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Conditional model/);
   assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Exact talent settings were supplied/);
   pass('Pasted Warcraft Logs pulls parse fight and source IDs; optional settings reach conditional models');
+  await navigate(`http://127.0.0.1:${port}/evaluation.html?report=NvByqL74tMA3X9Vc&sourceId=5`, "document.querySelector('#playerTitle')?.textContent === 'Utopik'", 'recorded Utopik coaching');
+  assert.match(await evaluate("document.querySelector('#nightOverview').innerText"), /Demonslaying.*Archimonde/s);
+  await evaluate("document.querySelector('#fight-tab-3').click()");
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Bloodlust Brooch: the final use had only 8 seconds/);
+  assert.equal(await evaluate("[...document.querySelectorAll('#fightReport h3')].filter(e=>e.textContent.includes('Bloodlust Brooch: the final use')).length"), 1, 'coaching is not duplicated in legacy cards');
+  await evaluate("document.querySelector('#fight-tab-4').click(); document.querySelector('#copyPlanBtn').click()");
+  await waitFor("window.__copied?.includes('103.6 seconds')", 'recorded Archimonde action plan');
+  assert.match(await evaluate('window.__copied'), /before the pull/);
+  assert.doesNotMatch(await evaluate('window.__copied'), /Damage source:|Open question:/);
+  await evaluate("document.querySelector('#shareBtn').click()");
+  await waitFor("document.querySelector('#shareLinkBox')?.hidden === false", 'recorded player link');
+  await navigate(await evaluate("document.querySelector('#shareLinkInput').value"), "document.querySelector('#playerTitle')?.textContent === 'Utopik'", 'recorded recipient report');
+  await evaluate("document.querySelector('#fight-tab-4').click()");
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Monitor five-stack Deadly Poison expiry/);
+  assert.equal(await evaluate("!!document.querySelector('nav, #identityForm, #refreshBtn')"), false);
+  const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  await writeFile(join(tmpdir(), 'utopik-coaching-browser.png'), Buffer.from(shot.data, 'base64'));
+  pass('Recorded Utopik evidence produces concrete encounter plans and identical protected recipient coaching');
+  await navigate(`http://127.0.0.1:${port}/evaluation.html?report=FUNKELLHUNTER001&sourceId=20`, "document.querySelector('#playerTitle')?.textContent === 'Funkell'", 'recorded Funkell hunter coaching');
+  assert.equal(await evaluate("document.querySelector('[role=tab][aria-selected=true]').textContent"), 'Archimonde');
+  await evaluate("document.querySelector('#fight-tab-3').click()");
+  const azgalorText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(azgalorText, /Move your pet out of damaging ground effects early/);
+  assert.match(azgalorText, /Observed at: 1:24–1:42/);
+  assert.doesNotMatch(azgalorText, /What the logs show|Observed account/);
+  await evaluate("document.querySelector('#fight-tab-4').click()");
+  const archimondeText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(archimondeText, /Move your pet out of damaging ground effects early/);
+  assert.match(archimondeText, /Observed at: 1:14–1:52/);
+  await evaluate("document.querySelector('#fight-tab-2').click()");
+  const kazText = await evaluate("document.querySelector('#fightReport').innerText");
+  assert.match(kazText, /Practice next pull/i);
+  assert.match(kazText, /Resume Steady Shot promptly when you can stand still/);
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  if (process.env.FUNKELL_SCREENSHOT) { const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await writeFile(process.env.FUNKELL_SCREENSHOT, Buffer.from(capture.data, 'base64')); }
+  await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied?.includes('Resume Steady Shot promptly')", 'Funkell action plan');
+  const funkellPlan = await evaluate('window.__copied');
+  assert.match(funkellPlan, /Practice next pull/);
+  assert.match(funkellPlan, /Observed: 5 long Steady Shot gaps/);
+  assert.doesNotMatch(funkellPlan, /Damage diagnosis:|check the coverage/);
+  await evaluate("document.querySelector('#shareBtn').click()"); await waitFor("document.querySelector('#shareLinkBox')?.hidden === false", 'Funkell player link');
+  await navigate(await evaluate("document.querySelector('#shareLinkInput').value"), "document.querySelector('#playerTitle')?.textContent === 'Funkell'", 'shared Funkell coaching');
+  await evaluate("document.querySelector('#fight-tab-2').click()");
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Practice next pull/i);
+  assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
+  pass('Recorded Funkell hunter coaching keeps pet recovery and conditional practice concrete in player and shared views');
   await navigate(base + '&report=DIAGNOSIS', "document.querySelector('#shareBtn')?.disabled === false", 'shareable report');
   await evaluate("document.querySelector('#shareBtn').click()");
   await waitFor("document.querySelector('#shareLinkBox')?.hidden === false", 'share link');
@@ -312,10 +415,12 @@ try {
   await navigate(sharedUrl.replace('#', '?name=DifferentPlayer&sourceId=99#'), "document.querySelector('#report')?.hidden === false", 'recipient report');
   assert.equal(await evaluate("document.querySelector('#playerTitle').textContent"), 'FixtureWarrior');
   assert.equal(await evaluate("!!document.querySelector('nav, .back-link, #identityForm, #refreshBtn, #nightSelect, #shareBtn')"), false);
+  assert.match(await evaluate("document.querySelector('#fightReport').innerText"), /Make these changes/);
+  assert.match(await evaluate("document.querySelector('#nightOverview').innerText"), /Night overview/i);
   assert.equal(starts.length, beforeShareStarts, 'recipient does not build or select another report');
   assert.equal(await evaluate("[...document.querySelectorAll('a[href]')].some(a => a.origin === location.origin)"), false);
   await evaluate("document.querySelector('#copyPlanBtn').click()");
-  await waitFor("window.__copied?.includes('Damage diagnosis')", 'recipient plan copy');
+  await waitFor("window.__copied?.includes('Coaching change')", 'recipient plan copy');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
   await navigate(`http://127.0.0.1:${port}/shared-evaluation.html#bad`, "document.querySelector('#errorBox')?.hidden === false", 'invalid shared link');

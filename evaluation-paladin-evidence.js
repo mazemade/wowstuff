@@ -233,6 +233,12 @@ function analyzePaladin(raw = {}) {
     const add = (id, title, category, priority, action, records, confidence = 'observed') => result.findings.push({
         id, title, category, priority, owner: category === 'support' ? 'raid' : category === 'context' ? 'context' : 'player',
         action, evidence: records, confidence, gainDps: null,
+        ...(['ret-seal-twist-execution', 'ret-post-judgement-seal', 'ret-seal-at-swing'].includes(id) && category === 'execution' ? {
+            disposition: 'improve',
+            why: id === 'ret-post-judgement-seal' ? 'Judgement consumes the seal. The recorded following white swings occurred before a seal returned, leaving those swings without its damage opportunity.' : id === 'ret-seal-at-swing' ? 'Seal state at the swing is the relevant decision. Whole-fight aura uptime cannot show whether the intended seal was present when an attack occurred.' : 'The recorded Command-to-Blood sequences show fewer completed twist opportunities than the named reference. Mana, target access and assignments still affect which opportunities are practical.',
+            verification: id === 'ret-post-judgement-seal' ? 'Reseal before the next ordinary white swing after Judgement and check the linked event sequence on the next pull.' : 'Check the intended seal state on actual white swings, while preserving Crusader Strike timing and resource availability.',
+            alternatives: ['Target access, mana and the intended seal-twist sequence can justify a different choice; this is not an additive DPS estimate.'],
+        } : {}),
     });
     const compare = (name, player, other, unit, note) => result.comparison.push({ name, player: round(player), reference: round(other), unit, ...(note ? { note } : {}) });
     const check = (id, label, status, reason) => result.checks.push({ id, label, status, reason });

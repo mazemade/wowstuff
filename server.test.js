@@ -138,6 +138,39 @@ function setupPipeline(fx) {
 
 const SAME_ORIGIN = { headers: { 'Sec-Fetch-Site': 'same-origin' } };
 
+test('GET /api/vet/player: timed-out gear keeps parses and the next request retries immediately', async () => {
+    app.__test.resetCaches();
+    let timedOut = true, lookups = 0;
+    app.__test.setWclQuery(async (q, vars) => {
+        if (q === P.CHAR_QUERY) {
+            lookups++;
+            return { characterData: { character: { classID: NOTT.character.classID, recentReports: NOTT.character.recentReports } } };
+        }
+        if (q === P.FIGHTS_QUERY) {
+            if (timedOut) throw new DOMException('Timed out', 'TimeoutError');
+            return { reportData: { report: { fights: NOTT.character.recentReports.data[0].fights } } };
+        }
+        if (q === P.REPORT_QUERY) return { reportData: { report: { masterData: { actors: NOTT.report.actors }, events: { data: [NOTT.report.combatant] } } } };
+        if (q === P.RANK_QUERY) return { characterData: { character: { zoneRankings: NOTT.zoneRankings[String(vars.zone)] } } };
+        throw new Error('Unexpected query');
+    });
+    const url = base + '/api/vet/player?name=Nottomwro&server=spineshatter&region=eu&zone=1060';
+    const first = await fetch(url);
+    assert.strictEqual(first.status, 200);
+    const partial = await first.json();
+    assert.strictEqual(partial.partial, true);
+    assert.ok(partial.parses);
+    assert.strictEqual(app.__test.caches.vetCache.size, 0);
+    timedOut = false;
+    const retry = await fetch(url);
+    assert.strictEqual(retry.status, 200);
+    const complete = await retry.json();
+    assert.ok(complete.gear);
+    assert.ok(!complete.partial);
+    assert.strictEqual(lookups, 2);
+    assert.strictEqual(app.__test.caches.vetCache.size, 1);
+});
+
 test('GET /api/vet/feedback: response shape, and X-Vet-Cache is a true hit on a repeat call', async () => {
     const s = setupPipeline();
     const r1 = await fetch(`${base}/api/vet/feedback?${QS}`, SAME_ORIGIN);

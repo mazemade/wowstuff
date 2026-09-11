@@ -1,0 +1,12 @@
+{
+  "reportCode":"aRXf6vHN8DtmAp7x","fightId":47,"sourceId":5,"player":{"name":"Utopik","classToken":"ROGUE","spec":"Assassination"},
+  "context":{"fights":[{"id":47,"name":"Azgalor","startTime":4855763,"endTime":5033425}]},
+  "tables":{"buffs":{"data":{"auras":[{"guid":6774,"name":"Slice and Dice","bands":[{"startTime":4859000,"endTime":4889000},{"startTime":4892000,"endTime":4922000}]}]}}},
+  "events":{"complete":true,"data":[
+    {"timestamp":4880639,"type":"applybuff","abilityGameID":14177,"sourceID":5},{"timestamp":4885009,"type":"damage","abilityGameID":32684,"sourceID":5,"targetID":108,"hitType":7,"amount":0},{"timestamp":4886008,"type":"damage","abilityGameID":32684,"sourceID":5,"targetID":108,"hitType":2,"amount":4114},{"timestamp":4886022,"type":"removebuff","abilityGameID":14177,"sourceID":5},
+    {"timestamp":4887350,"type":"cast","abilityGameID":34413,"sourceID":5,"targetID":108},{"timestamp":4887350,"type":"damage","abilityGameID":34419,"sourceID":5,"targetID":108,"amount":2272},{"timestamp":4887350,"type":"damage","abilityGameID":34418,"sourceID":5,"targetID":108,"amount":2217},
+    {"timestamp":4900642,"type":"cast","abilityGameID":34413,"sourceID":5,"targetID":108},{"timestamp":4900642,"type":"damage","abilityGameID":34413,"sourceID":5,"targetID":108,"hitType":7,"amount":0},
+    {"timestamp":4900642,"type":"applybuff","abilityGameID":37171,"sourceID":5},{"timestamp":4900642,"type":"removebuff","abilityGameID":37171,"sourceID":5},{"timestamp":4900642,"type":"refreshbuff","abilityGameID":31238,"sourceID":5},
+    {"timestamp":4910000,"type":"applydebuff","abilityGameID":27187,"sourceID":5,"targetID":108},{"timestamp":4915000,"type":"removedebuff","abilityGameID":27187,"sourceID":5,"targetID":108}
+  ]}
+}

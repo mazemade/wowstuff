@@ -8,7 +8,8 @@ const PREVIOUS_ZONE = { 1060: 1056 };
 const RECENT_REPORTS = 3;
 
 const CHAR_QUERY = 'query($name:String!,$server:String!,$region:String!){characterData{character(name:$name,serverSlug:$server,serverRegion:$region){' +
-    'id classID recentReports(limit:' + RECENT_REPORTS + '){data{code startTime fights(killType:Encounters){id name}}}}}}';
+    'id classID recentReports(limit:' + RECENT_REPORTS + '){data{code startTime}}}}}';
+const FIGHTS_QUERY = 'query($code:String!){reportData{report(code:$code){fights(killType:Encounters){id name}}}}';
 const REPORT_QUERY = 'query($code:String!,$fights:[Int]!){reportData{report(code:$code){' +
     'masterData{actors(type:"Player"){id name server subType}} events(dataType:CombatantInfo,fightIDs:$fights,limit:100){data}}}}';
 // Live schema check (2026-09-03): WCL's classic API rejects $metric typed as
@@ -103,22 +104,42 @@ async function fetchProfile(query, params, dbIndex) {
     if (!ch) return null;
     const classToken = V.WCL_CLASS_IDS[ch.classID] || null;
 
-    let combatant = null, report = null;
+    let combatant = null, report = null, gearError = null;
     const reports = (ch.recentReports && ch.recentReports.data) || [];
     for (const rep of reports) {
-        if (!rep.fights || !rep.fights.length) continue;
-        const fight = rep.fights[rep.fights.length - 1];
-        const rd = await query(REPORT_QUERY, { code: rep.code, fights: [fight.id] });
-        const r = rd && rd.reportData && rd.reportData.report;
-        if (!r) continue;
-        const actor = (r.masterData.actors || []).find(x => x.name && x.name.toLowerCase() === name.toLowerCase());
-        const row = actor ? (r.events.data || []).find(e => e.sourceID === actor.id) : null;
-        if (row) { combatant = row; report = { code: rep.code, startTime: rep.startTime, fightName: fight.name }; break; }
+        try {
+            // Load only the report we need. Nesting fights under recentReports forces WCL to
+            // open all three reports before even returning the character's identity.
+            const fd = await query(FIGHTS_QUERY, { code: rep.code });
+            const meta = fd && fd.reportData && fd.reportData.report;
+            const fights = meta && meta.fights;
+            if (!fights || !fights.length) continue;
+            const fight = fights[fights.length - 1];
+            const rd = await query(REPORT_QUERY, { code: rep.code, fights: [fight.id] });
+            const r = rd && rd.reportData && rd.reportData.report;
+            if (!r) continue;
+            const actor = (r.masterData.actors || []).find(x => x.name && x.name.toLowerCase() === name.toLowerCase());
+            const row = actor ? (r.events.data || []).find(e => e.sourceID === actor.id) : null;
+            if (row) { combatant = row; report = { code: rep.code, startTime: rep.startTime, fightName: fight.name }; break; }
+        } catch (err) {
+            if (err.name !== 'TimeoutError' && err.name !== 'AbortError') throw err;
+            // Do not silently substitute older gear or spend another timeout on each report.
+            // Rankings can still be fetched without the report's combatant data.
+            gearError = 'Warcraft Logs gear lookup timed out — use Refresh all to retry.';
+            break;
+        }
     }
 
     const talentSplit = combatant && Array.isArray(combatant.talents) ? combatant.talents.map(t => t.id) : null;
     const rk = await fetchRankings(query, { name, server, region, zone, classToken, talentSplit });
-    return buildProfile(Object.assign({ name, server, region, zone, classToken, combatant, report, dbIndex }, rk));
+    const profile = buildProfile(Object.assign({ name, server, region, zone, classToken, combatant, report, dbIndex }, rk));
+    if (gearError) {
+        profile.partial = true;
+        profile.fetchWarning = gearError;
+        profile.missing = profile.missing.filter(m => !m.startsWith('no combatant data'));
+        profile.missing.unshift(gearError);
+    }
+    return profile;
 }
 
 // The rankings half of a profile: tier gating, spec re-detection from WCL's label and the healer
@@ -142,9 +163,8 @@ async function fetchRankings(query, o) {
     // evidence of what the player currently plays), else the previous tier's — spec detection
     // must not follow whichever tier happens to gate the parse rule.
     async function selectGating(z, m) {
-        const cur = await rank(z, m);
         const prevZone = PREVIOUS_ZONE[z];
-        const prev = prevZone ? await rank(prevZone, m) : null;
+        const [cur, prev] = await Promise.all([rank(z, m), prevZone ? rank(prevZone, m) : null]);
         const curHas = hasKills(cur), prevHas = hasKills(prev);
         const specRankings = curHas ? cur : (prevHas ? prev : null);
         if (prevZone && prevHas && (!curHas || prev.medianPerformanceAverage > cur.medianPerformanceAverage)) {
@@ -174,4 +194,4 @@ function profileFromCombatant(a) {
                           specRankings: null, dbIndex: a.dbIndex, parsesPending: true });
 }
 
-module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, REPORT_QUERY, RANK_QUERY, buildParses, buildProfile, fetchRankings, profileFromCombatant, fetchProfile };
+module.exports = { ZONE_NAMES, PREVIOUS_ZONE, CHAR_QUERY, FIGHTS_QUERY, REPORT_QUERY, RANK_QUERY, buildParses, buildProfile, fetchRankings, profileFromCombatant, fetchProfile };

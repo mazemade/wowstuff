@@ -24,6 +24,10 @@ function stubQuery(opts) {
     return { calls, query: async (q, vars) => {
         calls.push({ q, vars });
         if (q === P.CHAR_QUERY) return { characterData: { character: o.character ? { id: FX.character.id, classID: FX.character.classID, recentReports: FX.character.recentReports } : null } };
+        if (q === P.FIGHTS_QUERY) {
+            const rep = FX.character.recentReports.data.find(r => r.code === vars.code);
+            return { reportData: { report: rep ? { fights: rep.fights } : null } };
+        }
         if (q === P.REPORT_QUERY) {
             const combatant = o.combatant && vars.code === FX.report.code ? [FX.report.combatant] : [];
             return { reportData: { report: { masterData: { actors: FX.report.actors }, events: { data: combatant } } } };
@@ -64,6 +68,8 @@ test('fetchProfile: happy path joins gear, reported stats, spec and current-tier
     assert.deepStrictEqual(p.missing, []);
     // One report query only: the first report had the row.
     assert.strictEqual(s.calls.filter(c => c.q === P.REPORT_QUERY).length, 1);
+    assert.strictEqual(s.calls.filter(c => c.q === P.FIGHTS_QUERY).length, 1, 'older reports are not opened when the latest has gear');
+    assert.ok(!P.CHAR_QUERY.includes('fights('), 'character discovery must not load every recent report');
     assert.strictEqual(s.calls.filter(c => c.q === P.RANK_QUERY).length, 2, 'both tiers are always queried now');
     assert.strictEqual(p.parses.other.zone, 1056);
     assert.strictEqual(Math.round(p.parses.other.medianPercent), 52);
@@ -279,6 +285,48 @@ test('profileFromCombatant: gear, stats and spec from the row; parses pending, n
                                   rankings: null, rankingsZone: 1060, fallback: false, metric: 'dps', dbIndex: db });
     assert.strictEqual('parsesPending' in full, false, 'the key only appears on pending profiles');
     assert.ok(full.missing.some(m => /no parses/.test(m)));
+});
+
+for (const failingQuery of [P.FIGHTS_QUERY, P.REPORT_QUERY]) {
+    test('fetchProfile: report timeout preserves parses and marks gear unavailable (' + (failingQuery === P.FIGHTS_QUERY ? 'fights' : 'combatant') + ')', async () => {
+        const s = stubQuery();
+        const calls = [];
+        const p = await P.fetchProfile(async (q, vars) => {
+            calls.push(q);
+            if (q === failingQuery) throw new DOMException('Timed out', 'TimeoutError');
+            return s.query(q, vars);
+        }, PARAMS, db);
+        assert.ok(p.parses && p.parses.bosses.length);
+        assert.strictEqual(p.gear, null);
+        assert.strictEqual(p.lastSeen, null);
+        assert.strictEqual(p.partial, true);
+        assert.match(p.fetchWarning, /gear lookup timed out/);
+        assert.ok(!p.missing.some(m => m.startsWith('no combatant data')), 'a timeout is not evidence of missing logs');
+        assert.strictEqual(calls.filter(q => q === P.FIGHTS_QUERY).length, 1, 'do not pile up timeouts on older reports');
+        assert.notStrictEqual(V.evaluate(p, V.DEFAULT_THRESHOLDS, NOW).verdict, 'pass');
+    });
+}
+
+test('fetchProfile: report rate limits still abort instead of returning a partial profile', async () => {
+    const s = stubQuery();
+    await assert.rejects(P.fetchProfile(async (q, vars) => {
+        if (q === P.FIGHTS_QUERY) { const e = new Error('Rate limited'); e.code = 'RATE_LIMIT'; throw e; }
+        return s.query(q, vars);
+    }, PARAMS, db), { code: 'RATE_LIMIT' });
+});
+
+test('fetchRankings: both tiers start before either tier completes', async () => {
+    const s = stubQuery();
+    const started = [];
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const result = P.fetchRankings(async (q, vars) => {
+        started.push(vars.zone);
+        await gate;
+        return s.query(q, vars);
+    }, Object.assign({}, PARAMS, { classToken: 'SHAMAN', talentSplit: [2, 45, 14] }));
+    try { assert.deepStrictEqual(started, [1060, 1056]); }
+    finally { release(); await result; }
 });
 
 Promise.all(pending).then(() => {

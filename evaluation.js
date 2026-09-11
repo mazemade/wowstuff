@@ -1,6 +1,7 @@
 'use strict';
 (function () {
     const VERSION = 1;
+    const CACHE_VERSION = 2;
     const sharedView = document.body.dataset.view === 'shared';
     const params = new URLSearchParams(sharedView ? '' : location.search);
     const query = {
@@ -57,6 +58,31 @@
         if (!findings.length) return '';
         return '<section class="report-section priority-section"><p class="eyebrow">Priority execution</p><h2>Change these first on the next pull</h2><div class="finding-grid">' + findings.map(item => '<div class="finding priority-' + esc(String(item.priority || '').toLowerCase()) + '"><span class="owner">' + esc(priorityLabel(item.priority)) + '<span class="evidence-tag">' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + '</span></span><h3>' + esc(item.title) + '</h3><p>' + esc(item.action) + '</p>' + detail('Inspect the evidence', item.evidence) + '</div>').join('') + '</div></section>';
     }
+    function coachingItemHtml(item) {
+        const alternatives = list(item.alternatives).map(value => '<li>' + esc(value) + '</li>').join('');
+        const basis = item.basis === 'practice' ? 'Practice next pull' : item.basis === 'correction' ? 'Correction' : '';
+        const timed = list(item.evidence).find(e => e && typeof e === 'object' && number(e.startSec));
+        const observedAt = timed ? '<p class="coaching-observed"><strong>Observed at:</strong> ' + seconds(timed.startSec) + (number(timed.endSec) ? '–' + seconds(timed.endSec) : '') + '</p>' : '';
+        return '<article class="coaching-item coaching-' + esc(item.priority || 'low') + '"><span class="owner">' + esc(priorityLabel(item.priority)) + (basis ? ' · ' + basis : '') + (item.owner ? ' · ' + esc(owner(item.owner)) : '') + '</span><h3>' + esc(item.what || item.title || 'Finding') + '</h3>' + (item.observed ? '<p class="coaching-observed"><strong>Observed:</strong> ' + esc(item.observed) + '</p>' : '') + observedAt + '<p><strong>Why it matters:</strong> ' + esc(item.why || 'The supplied evidence needs review in context.') + '</p>' + (item.change ? '<p class="coaching-change"><strong>Next pull:</strong> ' + esc(item.change) + '</p>' : '') + '<p><strong>Verify:</strong> ' + esc(item.verification || 'Inspect the source evidence on the next comparable pull.') + '</p>' + (alternatives ? '<details><summary>Alternatives to check</summary><ul>' + alternatives + '</ul></details>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
+    }
+    function coachingItems(value) { return list(value).filter(item => item && typeof item === 'object'); }
+    function coachedIds(coaching) { return new Set(['improvements', 'keeps', 'reviews'].flatMap(key => coachingItems(coaching?.[key]).map(item => item.id).filter(Boolean))); }
+    function coachingHtml(coaching) {
+        if (!coaching || typeof coaching !== 'object') return '';
+        const improvements = coachingItems(coaching.improvements), keeps = coachingItems(coaching.keeps), reviews = coachingItems(coaching.reviews), depth = coaching.depth && typeof coaching.depth === 'object' ? coaching.depth : {};
+        const keepHtml = keeps.length ? '<details class="coaching-details"><summary>Keep doing (' + keeps.length + ')</summary><div class="coaching-list">' + keeps.map(coachingItemHtml).join('') + '</div></details>' : '';
+        const reviewHtml = reviews.length ? '<details class="coaching-details"><summary>Open review (' + reviews.length + ')</summary><p class="model-note">These observations need encounter context before they become a change request.</p><div class="coaching-list">' + reviews.map(coachingItemHtml).join('') + '</div></details>' : '';
+        const coverage = depth && (list(depth.reviewed).length || list(depth.unresolved).length) ? '<details class="coaching-depth"><summary>' + esc(depth.status === 'complete' ? 'Review coverage' : 'Inspection coverage') + '</summary><span>Reviewed: ' + esc(list(depth.reviewed).join(', ') || '—') + '</span><span>Unresolved: ' + esc(list(depth.unresolved).join(', ') || '—') + '</span></details>' : '';
+        return '<section class="report-section coaching-section"><p class="eyebrow">Next-pull coaching</p><h2>Make these changes</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p><div class="coaching-list">' + (improvements.length ? improvements.map(coachingItemHtml).join('') : '<p class="model-note">No evidence-backed change is ready for this pull.</p>') + '</div>' + (keepHtml || reviewHtml || coverage ? '<details class="background-details coaching-background"><summary>Keep, review & coverage</summary>' + keepHtml + reviewHtml + coverage + '</details>' : '') + '</section>';
+    }
+    function nightCoachingHtml(coaching) {
+        if (!coaching || typeof coaching !== 'object') return '';
+        const questions = list(coaching.openQuestions);
+        const changes = coachingItems(coaching.topChanges || coaching.improvements).slice(0, 5);
+        const briefChange = value => { const text = String(value || '').trim(), sentence = text.match(/^.*?[.!?](?=\s|$)/)?.[0] || text; return sentence.length > 160 ? sentence.slice(0, 157).trimEnd() + '…' : sentence; };
+        const changeHtml = changes.length ? '<ol class="night-priorities">' + changes.map(item => '<li><strong>' + esc(item.what || item.title || 'Finding') + '</strong><span>' + esc(briefChange(item.change || item.observed || 'Review the available evidence before the next pull.')) + ' · ' + esc(priorityLabel(item.priority)) + ' · ' + esc(list(item.bosses).join(', ') || 'Encounter context unavailable') + '</span></li>').join('') + '</ol>' : '';
+        return '<section class="night-coaching"><p class="eyebrow">Night overview</p><p>' + esc(coaching.assessment || 'This overview summarizes the available encounter coaching.') + '</p>' + changeHtml + (questions.length ? '<details><summary>Open questions (' + questions.length + ')</summary><ul>' + questions.map(question => '<li>' + esc(question) + '</li>').join('') + '</ul></details>' : '') + '</section>';
+    }
     function modelEvidence(sim) {
         const lines = [...list(sim.assumptions)], v = sim.validation || {};
         if (sim.version) lines.push('Model version: ' + sim.version);
@@ -70,11 +96,11 @@
     function hasNamedReport() { return !!(query.name && query.report); }
     function hasDirectPull() { return !!(query.report && query.sourceId); }
     function canBuild() { return hasCharacter() || hasNamedReport() || hasDirectPull(); }
-    function cacheKey() { const base = [query.region, query.server, query.name.toLowerCase(), query.zone, query.report].map(encodeURIComponent).join('/'); const extra = [query.fightId, query.sourceId, query.race, query.talentsString]; return 'raidEvaluation:v' + VERSION + ':' + base + (extra.some(Boolean) ? '/' + extra.map(encodeURIComponent).join('/') : ''); }
+    function cacheKey() { const base = [query.region, query.server, query.name.toLowerCase(), query.zone, query.report].map(encodeURIComponent).join('/'); const extra = [query.fightId, query.sourceId, query.race, query.talentsString]; return 'raidEvaluation:v' + CACHE_VERSION + ':' + base + (extra.some(Boolean) ? '/' + extra.map(encodeURIComponent).join('/') : ''); }
     let shareJobId = null;
     let current = null, fightIndex = 0, userSelectedFight = false, generation = 0, timer = null, busy = false;
-    function savedJob() { try { const saved = JSON.parse(localStorage.getItem(cacheKey())); return saved && saved.version === VERSION && typeof saved.id === 'string' ? saved.id : null; } catch { return null; } }
-    function saveJob(id) { try { localStorage.setItem(cacheKey(), JSON.stringify({ version: VERSION, id })); } catch { /* Storage is optional. */ } }
+    function savedJob() { try { const saved = JSON.parse(localStorage.getItem(cacheKey())); return saved && saved.version === CACHE_VERSION && typeof saved.id === 'string' ? saved.id : null; } catch { return null; } }
+    function saveJob(id) { try { localStorage.setItem(cacheKey(), JSON.stringify({ version: CACHE_VERSION, id })); } catch { /* Storage is optional. */ } }
     function clearJob() { try { localStorage.removeItem(cacheKey()); } catch { /* Storage may be blocked. */ } }
     function error(message) { $('errorBox').textContent = message; $('errorBox').hidden = false; }
     function setBusy(value) { busy = value; if ($('shareBtn')) $('shareBtn').disabled = value || !shareJobId; $('refreshBtn').disabled = value || !canBuild(); $('refreshBtn').textContent = value ? 'Evaluating…' : current ? 'Rebuild evaluation' : 'Build evaluation'; }
@@ -142,13 +168,23 @@
     function render(data) {
         if (!validReport(data)) throw invalidReport('The report format or selected player does not match. Rebuild this evaluation.');
         current = data;
-        if (!userSelectedFight) { const modeledIndex = data.fights.findIndex(fight => fight.simulation?.status === 'complete'); fightIndex = Math.max(0, modeledIndex); } else fightIndex = Math.min(fightIndex, Math.max(0, data.fights.length - 1));
+        if (!userSelectedFight) {
+            let coachingIndex = -1, bestCoaching = null;
+            data.fights.forEach((fight, index) => coachingItems(fight?.coaching?.improvements).forEach(item => {
+                if (!bestCoaching || priorityRank(item.priority) < priorityRank(bestCoaching.priority) ||
+                    (priorityRank(item.priority) === priorityRank(bestCoaching.priority) && (number(item.priorityScore) ? item.priorityScore : 0) > (number(bestCoaching.priorityScore) ? bestCoaching.priorityScore : 0))) {
+                    coachingIndex = index; bestCoaching = item;
+                }
+            }));
+            const modeledIndex = data.fights.findIndex(fight => fight.simulation?.status === 'complete');
+            fightIndex = coachingIndex >= 0 ? coachingIndex : Math.max(0, modeledIndex);
+        } else fightIndex = Math.min(fightIndex, Math.max(0, data.fights.length - 1));
         $('report').hidden = false; $('emptyState').hidden = true;
         $('playerTitle').textContent = data.player.name || 'Player evaluation'; $('playerMeta').textContent = [data.player.spec, data.player.role, data.player.classToken || data.player.class, sharedView ? data.player.server : query.server, sharedView ? data.player.region?.toUpperCase() : query.region?.toUpperCase()].filter(Boolean).join(' · ');
         document.title = (data.player.name || 'Player') + ' · Deep evaluation';
         const date = new Date(data.generatedAt); $('reportStamp').textContent = [data.night?.date || data.night?.code || (query.report ? 'Selected report' : ''), !Number.isNaN(date.getTime()) ? 'Evaluated ' + date.toLocaleString() : ''].filter(Boolean).join(' · ');
         $('copyPlanBtn').disabled = !data.fights.length; $('copyReportBtn').disabled = !data.fights.length;
-        $('reportLimitations').innerHTML = detail('Report coverage & limitations', list(data.limitations)); renderFight();
+        $('nightOverview').innerHTML = nightCoachingHtml(data.coaching); $('reportLimitations').innerHTML = detail('Report coverage & limitations', list(data.limitations)); renderFight();
     }
     function renderFight() {
         const fights = current.fights;
@@ -162,9 +198,10 @@
         const stats = [['This pull', values.player], ['Reference', values.reference], ['Observed difference', values.difference]].map(([label, value]) => '<div class="stat"><span class="stat-label">' + label + '</span><span class="stat-number">' + fmt(value) + '</span><span class="stat-unit">' + esc(info.unit) + '</span></div>').join('');
         const actionHtml = actions.map(a => { const impact = impactFor(a, modeled); return '<li class="action"><div class="action-content"><span class="owner">' + owner(a.owner) + '</span><h3>' + esc(a.title) + '</h3><p>' + esc(a.change) + '</p>' + (a.when ? '<p class="when">When: ' + esc(a.when) + '</p>' : '') + detail('Why this change · evidence & assumptions', actionEvidence(a, f.findings), a.caveats) + '</div><div class="action-gain">' + impactText(impact) + '<small>' + esc(impactLabel(impact)) + '</small></div></li>'; }).join('');
         const packageHtml = packages.map(p => { const impact = impactFor(p, modeled); return '<div class="package"><h3>' + esc(p.title) + '</h3><span class="gain">' + impactText(impact) + '<span class="stat-unit">' + esc(impactLabel(impact)) + '</span></span><p>' + esc(list(p.actionIds).map(id => actions.find(a => a.id === id)?.title).filter(Boolean).join(' + ')) + '</p></div>'; }).join('');
-        const damageAnalysis = info.metric === 'dps' ? f.damageAnalysis : null, priorityFindings = info.metric === 'dps' ? priorityExecutionFindings(f.findings) : [];
+        const coaching = f.coaching && typeof f.coaching === 'object' ? f.coaching : null, coachingIdsForFight = coachedIds(coaching);
+        const damageAnalysis = info.metric === 'dps' ? f.damageAnalysis : null, priorityFindings = (info.metric === 'dps' ? priorityExecutionFindings(f.findings) : []).filter(item => !coachingIdsForFight.has(item.id));
         const priorityIds = new Set(priorityFindings.map(item => item.id));
-        const findings = remainingFindings(actions, f.findings).filter(item => !priorityIds.has(item.id));
+        const findings = remainingFindings(actions, f.findings).filter(item => !priorityIds.has(item.id) && !coachingIdsForFight.has(item.id));
         const findingHtml = findings.map(item => '<div class="finding"><span class="owner">' + owner(item.owner) + '<span class="evidence-tag">' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + '</span></span><h3>' + esc(item.title) + '</h3><p>' + esc(item.action) + '</p>' + detail('Inspect the evidence', item.evidence) + '</div>').join('');
         const comparisons = list(f.comparison);
         const comparisonHtml = comparisons.length ? '<section class="report-section"><p class="eyebrow">The comparison</p><h2>' + esc(info.comparison) + '</h2><p class="model-note">' + esc(info.context) + '</p><div class="comparison-wrap"><table><thead><tr><th scope="col">Measure</th><th scope="col">This player</th><th scope="col">Reference</th><th scope="col">Context</th></tr></thead><tbody>' + comparisons.map(c => '<tr><th scope="row">' + esc(c.name) + '</th><td>' + esc(c.player == null ? '—' : c.player) + (c.unit ? ' ' + esc(c.unit) : '') + '</td><td>' + esc(c.reference == null ? '—' : c.reference) + (c.unit ? ' ' + esc(c.unit) : '') + '</td><td>' + esc(c.note) + '</td></tr>').join('') + '</tbody></table></div></section>' : '';
@@ -172,19 +209,35 @@
         const timelineHtml = timeline.length ? '<section class="report-section"><p class="eyebrow">Pull timeline</p><h2>Where the evidence happens</h2><ol class="timeline">' + timeline.map(t => '<li><time>' + seconds(t.startSec) + (number(t.endSec) ? '–' + seconds(t.endSec) : '') + '</time><div class="event">' + esc(t.label) + '</div></li>').join('') + '</ol></section>' : '';
         const planTitle = modeled ? 'Tested equipment & support options' : 'Options supported by this pull';
         const modelCoverage = sim.coverage || {}, modelLabel = modelCoverage.kind === 'conditional' ? 'Conditional model' : modelCoverage.kind === 'native' ? 'Native model' : modeled ? 'Controlled estimate' : 'Encounter evidence';
-        const planNote = (modeled ? 'Each package is a separately tested combination. Do not add overlapping packages or individual estimates together. Modeled gains are estimates, not a promise of a particular outcome.' : 'Use the logged evidence and coverage below for the next pull. An impact is shown only when this report measured or tested that specific change.') + (modelCoverage.reason ? ' ' + modelCoverage.reason : '') + (modelCoverage.kind === 'conditional' ? ' Estimates depend on the build, buffs and target assumptions shown below.' : '');
-        const noActions = '<div class="unmodeled"><h3>' + (info.metric === 'dps' ? 'DPS gains are not quantified for this pull' : 'Start with the evidence that is available') + '</h3><p>' + esc(sim.reason || 'No tested change is ready for this pull yet.') + '</p><p class="model-note">Open the pull, check the missing coverage, and record the relevant casts, assignments, or mitigation on the next attempt.</p></div>';
+        const planNote = (modeled ? 'Use one tested package at a time. Do not add overlapping estimates together.' : 'These are useful options supported by this pull.') + (modelCoverage.reason ? ' ' + modelCoverage.reason : '');
+        const hasPrimaryCoaching = coachingItems(coaching?.improvements).length || priorityFindings.length;
+        const noActions = '<div class="unmodeled"><h3>' + (info.metric === 'dps' ? 'DPS gains are not quantified for this pull' : 'No tested option for this pull') + '</h3><p>' + esc(sim.reason || 'No tested change is ready for this pull yet.') + '</p></div>';
+        const optionsHtml = actions.length || !hasPrimaryCoaching ? '<section aria-label="Tested options" class="tested-options"><div class="section-top"><div><p class="eyebrow">Useful modeled actions</p><h2>' + esc(planTitle) + '</h2></div><span class="model-label">' + esc(modelLabel) + '</span></div>' + (packageHtml ? '<div class="package-grid">' + packageHtml + '</div>' : '') + '<p class="model-note">' + esc(planNote) + '</p>' + (actions.length ? '<ol class="action-list">' + actionHtml + '</ol>' : noActions) + '</section>' : '';
         const explain = info.metric === 'dtps' ? 'Incoming damage differs by mechanics, assignments, cooldown coverage, and who was targeted. Treat this comparison as context for a mitigation and survival review.' : info.metric === 'hps' ? 'Effective healing differs with damage patterns, assignments, overhealing, and other healers. Treat this comparison as context for the next healing plan.' : 'The observed difference can include gear, support, encounter conditions, random outcomes, and execution. It is context for the next pull, not a measure of player fault.';
-        $('fightReport').innerHTML = '<div class="fight-title"><h2>' + esc(f.name) + '</h2><span class="muted">' + seconds(f.durationSec) + ' pull</span></div><div class="observed-strip">' + stats + '</div>' + damageAnalysisHtml(damageAnalysis) + priorityFindingsHtml(priorityFindings) + '<section aria-label="Tested options"><div class="section-top"><div><p class="eyebrow">Tested options</p><h2>' + esc(planTitle) + '</h2></div><span class="model-label">' + esc(modelLabel) + '</span></div>' + (packageHtml ? '<div class="package-grid">' + packageHtml + '</div>' : '') + '<p class="model-note">' + esc(planNote) + '</p>' + (actions.length ? '<ol class="action-list">' + actionHtml + '</ol>' : noActions) + '</section>' + (findingHtml ? '<section class="report-section"><p class="eyebrow">' + (modeled ? 'Beyond the estimate' : 'More evidence-led changes') + '</p><h2>' + (modeled ? 'Execution, support & fight context' : 'Changes supported by the logs') + '</h2><div class="finding-grid">' + findingHtml + '</div></section>' : '') + coverageHtml(f.coverage, role) + comparisonHtml + timelineHtml + '<section class="report-section"><h2>' + (info.metric === 'dps' ? 'How to use this comparison' : 'How to use this pull') + '</h2><p class="model-note">' + esc(explain) + '</p>' + detail('Model assumptions & validation', modelEvidence(sim)) + detail('Encounter limitations', list(f.limitations)) + '</section>';
+        const background = damageAnalysisHtml(damageAnalysis) + (findingHtml ? '<section class="report-section"><p class="eyebrow">Additional findings</p><h2>Evidence to review</h2><div class="finding-grid">' + findingHtml + '</div></section>' : '') + coverageHtml(f.coverage, role) + comparisonHtml + timelineHtml + '<section class="report-section"><h2>' + (info.metric === 'dps' ? 'Comparison context' : 'Pull context') + '</h2><p class="model-note">' + esc(explain) + '</p>' + detail('Model assumptions & validation', modelEvidence(sim)) + detail('Encounter limitations', list(f.limitations)) + '</section>';
+        $('fightReport').innerHTML = '<div class="fight-title"><h2>' + esc(f.name) + '</h2><span class="muted">' + seconds(f.durationSec) + ' pull</span></div>' + coachingHtml(coaching) + priorityFindingsHtml(priorityFindings) + optionsHtml + '<div class="observed-strip">' + stats + '</div>' + (background ? '<details class="background-details report-background"><summary>Background details & evidence</summary><div class="background-content">' + background + '</div></details>' : '');
     }
     function reportText(full) {
         const fights = full ? current.fights : [current.fights[fightIndex]], lines = [current.player.name + ' — ' + (full ? 'deep evaluation' : 'next raid action plan'), current.night?.date || current.night?.code || 'Selected report'];
+        if (full && current.coaching?.assessment) {
+            lines.push('Night overview: ' + current.coaching.assessment);
+            list(current.coaching.openQuestions).forEach(question => lines.push('Open question: ' + question));
+        }
         fights.filter(Boolean).forEach(f => {
             const sim = f.simulation || {}, modeled = sim.status === 'complete', values = observedValues(f.observed || {}), info = metricInfo(f.observed || {}), actions = usableActions(sim, modeled), packages = usablePackages(sim, modeled);
             lines.push('', f.name, 'Observed: ' + fmt(values.player) + ' ' + info.title + '; reference ' + fmt(values.reference) + '; observed difference ' + fmt(values.difference) + '.');
+            const coaching = f.coaching && typeof f.coaching === 'object' ? f.coaching : {};
+            const coachingChanges = coachingItems(coaching.improvements);
+            if (coaching.assessment) lines.push('Coaching assessment: ' + coaching.assessment);
+            [...coachingChanges, ...(full ? [...coachingItems(coaching.keeps), ...coachingItems(coaching.reviews)] : [])].forEach(item => {
+                const basis = item.basis === 'practice' ? ' · Practice next pull' : item.basis === 'correction' ? ' · Correction' : '';
+                const label = coachingChanges.includes(item) ? 'Coaching change (' + priorityLabel(item.priority) + basis + ')' : coachingItems(coaching.keeps).includes(item) ? 'Keep' : 'Review';
+                lines.push(label + ': ' + (item.what || item.title || 'Finding') + (item.observed ? ' Observed: ' + item.observed : '') + ' — Why: ' + (item.why || '') + (item.change ? ' Change: ' + item.change : '') + ' Verify: ' + (item.verification || ''));
+                if (full) { list(item.alternatives).forEach(value => lines.push('  Alternative: ' + value)); list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); }
+            });
             const analysis = info.metric === 'dps' ? f.damageAnalysis : null;
-            const priorityFindings = info.metric === 'dps' ? priorityExecutionFindings(f.findings) : [];
-            if (analysis && number(analysis.gapDps)) {
+            const coachingIdsForFight = coachedIds(coaching), priorityFindings = (info.metric === 'dps' ? priorityExecutionFindings(f.findings) : []).filter(item => !coachingIdsForFight.has(item.id));
+            if (full && analysis && number(analysis.gapDps)) {
                 const reference = analysis.reference || {};
                 lines.push('Damage diagnosis: ' + (reference.name || 'reference player') + ' logged ' + fmt(analysis.gapDps) + ' DPS more' + (number(reference.durationSec) ? ' over ' + seconds(reference.durationSec) : '') + '.');
                 list(analysis.rows).forEach(row => { const account = [['frequency', row.frequencyDps], ['yield', row.yieldDps]].filter(([, value]) => number(value)).map(([label, value]) => label + ' ' + (value > 0 ? '+' : '') + fmt(value) + ' DPS').join(', '); lines.push('Damage source: ' + (row.name || row.id || 'Unlabelled damage') + ' — you ' + fmt(row.playerDps) + ' DPS, reference ' + fmt(row.referenceDps) + ' DPS, ref − you ' + (number(row.differenceDps) && row.differenceDps > 0 ? '+' : '') + fmt(row.differenceDps) + ' DPS' + (account ? '; ' + account : '') + '; count ' + fmt(row.playerCount) + ' / ' + fmt(row.referenceCount) + '.'); });
@@ -192,12 +245,12 @@
             }
             priorityFindings.forEach(item => { lines.push('Priority execution (' + priorityLabel(item.priority) + '): ' + item.title + ' — ' + item.action); if (full) list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); });
             actions.forEach(a => { const impact = impactFor(a, modeled); lines.push('- ' + owner(a.owner) + ': ' + a.title + ' — ' + a.change + (a.when ? ' When: ' + a.when + '.' : '') + ' [' + impactText(impact) + ' ' + impactLabel(impact) + ']'); if (full) { actionEvidence(a, f.findings).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); list(a.caveats).forEach(c => lines.push('  Limit: ' + c)); } });
-            if (!actions.length) lines.push('Next step: check the coverage and logged evidence before the next pull.');
+            if (!actions.length && !coachingChanges.length && !priorityFindings.length) lines.push('Next step: check the coverage and logged evidence before the next pull.');
             packages.forEach(p => { const impact = impactFor(p, modeled); lines.push('Tested package: ' + p.title + ' = ' + impactText(impact) + ' ' + impactLabel(impact) + '.'); });
             const priorityIds = new Set(priorityFindings.map(item => item.id));
-            remainingFindings(actions, f.findings).filter(item => !priorityIds.has(item.id)).forEach(item => { lines.push('- ' + owner(item.owner) + ': ' + item.title + ' — ' + item.action + ' [' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + ']'); if (full) list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); });
+            if (full) remainingFindings(actions, f.findings).filter(item => !priorityIds.has(item.id) && !coachingIdsForFight.has(item.id)).forEach(item => { lines.push('- ' + owner(item.owner) + ': ' + item.title + ' — ' + item.action + ' [' + (item.confidence === 'observed' ? 'Observed' : 'Inferred') + ']'); list(item.evidence).forEach(e => lines.push('  Evidence: ' + (number(e.startSec) ? seconds(e.startSec) + ' ' : '') + evidenceText(e) + (safeUrl(e.url) ? ' ' + safeUrl(e.url) : ''))); });
             if (full) { list(f.coverage?.checks).forEach(c => lines.push('Coverage: ' + (c.label || c.id) + ' — ' + (c.status || 'unknown') + (c.reason ? ': ' + c.reason : ''))); list(f.comparison).forEach(c => lines.push(c.name + ': ' + (c.player ?? 'unknown') + ' vs ' + (c.reference ?? 'unknown') + (c.unit ? ' ' + c.unit : '') + '. ' + (c.note || ''))); list(f.timeline).forEach(t => lines.push(seconds(t.startSec) + (number(t.endSec) ? '–' + seconds(t.endSec) : '') + ': ' + t.label)); modelEvidence(sim).forEach(a => lines.push('Model assumption: ' + a)); list(f.limitations).forEach(l => lines.push('Limitation: ' + l)); }
-            if (info.metric === 'dps') lines.push('Any remaining difference is not assigned to player fault.');
+            if (full && info.metric === 'dps') lines.push('Any remaining difference is not assigned to player fault.');
             if (safeUrl(f.wclUrl)) lines.push(safeUrl(f.wclUrl));
         });
         if (full) list(current.limitations).forEach(l => lines.push('Report limitation: ' + l)); return lines.join('\n');

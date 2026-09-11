@@ -1,4 +1,5 @@
 'use strict';
+const { selectReferences } = require('./evaluation-reference.js');
 /* Role-aware, evidence-only coaching for TBC logs.  See docs/evaluation-mechanics-sources.md. */
 const { resolveSpec } = require('./evaluation-specs');
 
@@ -149,7 +150,7 @@ function analyzeRole(raw = {}) {
     return { comparison, findings, timeline, limitations, coverage: { spec: null, role, checks } };
   }
   if (!info.duration) limitations.push('Fight timestamps are missing or invalid; rates and timing windows cannot be calculated.');
-  const references = (raw.references || []).map(reference => describe(reference, role)).filter(reference =>
+  const references = selectReferences(raw).accepted.map(reference => describe(reference, role)).filter(reference =>
     reference.duration && reference.value !== null && canonical(reference.raw.player?.classToken || reference.raw.player?.class) === canonical(spec.classToken) && canonical(reference.raw.player?.spec) === canonical(spec.spec)
   ).sort((a, b) => Math.abs(a.duration - (info.duration || 0)) - Math.abs(b.duration - (info.duration || 0)));
   const benchmark = references.filter(candidate => candidate.raw.kind === 'benchmark');
