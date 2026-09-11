@@ -38,6 +38,8 @@ test('ranged attacks can only miss or be blocked; spells only miss', () => {
     const spell = M.expectedOutcomes({ attack: 'spell', swings: 100, hitRating: 0, expertiseRating: 0, classToken: 'MAGE' });
     assert.equal(Math.round(spell.rates.miss.max * 1000) / 1000, 0.17);
     assert.equal(spell.rates.dodge.max, 0);
+    const highHit = M.expectedOutcomes({ attack: 'spell', swings: 100, hitRating: 300, expertiseRating: 0, classToken: 'MAGE' });
+    assert.equal(highHit.rates.miss.min, 0.01, 'spell miss floors at 1% (spell_result.go:261 math.Max(0.01, 1-hitChance))');
 });
 
 test('variance check uses two binomial standard deviations around the expected range', () => {

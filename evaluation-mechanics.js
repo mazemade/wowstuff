@@ -14,14 +14,14 @@ const BOSS = { // sim/core/target.go:393-403 (fifth column = level 73); dual-wie
     glance: 0.24, glanceMultiplier: 0.75, hitSuppression: 0.01, meleeCritSuppression: 0.048, spellCritSuppression: 0.021,
 };
 const CRIT_PERCENT_PER_AGILITY = { WARRIOR: 0.0303, PALADIN: 0.04, HUNTER: 0.025, ROGUE: 0.025, PRIEST: 0.04, SHAMAN: 0.04, MAGE: 0.04, WARLOCK: 0.0405, DRUID: 0.04 }; // sim/core/base_stats_auto_gen.go:24-35
-const ATTACK_POWER_PER_STRENGTH = { WARRIOR: 2, PALADIN: 2, SHAMAN: 2, HUNTER: 1, ROGUE: 1, DRUID: 1, WARLOCK: 1 }; // sim/<class>/<class>.go AddStatDependency(stats.Strength, stats.AttackPower, n)
+const ATTACK_POWER_PER_STRENGTH = { WARRIOR: 2, PALADIN: 2, SHAMAN: 2, HUNTER: 1, ROGUE: 1, DRUID: 1, WARLOCK: 1 }; // sim/warrior/warrior.go:235, sim/paladin/paladin.go:128, sim/shaman/shaman.go:36, sim/hunter/hunter.go:277, sim/rogue/rogue.go:210, sim/druid/druid.go:301, sim/warlock/warlock.go:168
 const ATTACK_POWER_PER_AGILITY = { HUNTER: 1, ROGUE: 1 }; // sim/hunter/hunter.go:278, sim/rogue/rogue.go:211 (hunter ranged AP also 1 per agility, hunter.go:279)
 // WCL combatant data does not expose talent ranks. These only widen the expected range and are named in the assumption text.
 const HIT_TALENTS = {
     ROGUE: { name: 'Precision', percent: 5, kind: 'physical' },      // sim/rogue/talents_combat.go:90
     HUNTER: { name: 'Surefooted', percent: 3, kind: 'physical' },    // sim/hunter/talents.go:526
 };
-const SPELL_TALENT_RANGE = 10; // widest TBC spell-hit talent (Shadow Focus / Suppression); used when no verified entry exists
+const SPELL_TALENT_RANGE = 10; // sim/priest/talents.go:323-328 (Shadow Focus 2% × 5 ranks), sim/warlock/talents.go:74-81 (Suppression 2% × 5 ranks); used when no verified entry exists
 
 const clamp = (value) => Math.max(0, value);
 const range = (min, max) => ({ min: Math.min(min, max), max: Math.max(min, max) });
@@ -46,7 +46,7 @@ function expectedOutcomes({ attack, swings = 0, hitRating = 0, expertiseRating =
     const hit = hitPercentRange({ rating: hitRating, kind, classToken });
     if (hit.assumption) assumptions.push(hit.assumption);
     let miss;
-    if (attack === 'spell') miss = range(clamp(BOSS.spellMiss - hit.max / 100), clamp(BOSS.spellMiss - hit.min / 100));
+    if (attack === 'spell') miss = range(Math.max(0.01, BOSS.spellMiss - hit.max / 100), Math.max(0.01, BOSS.spellMiss - hit.min / 100)); // sim/core/spell_result.go:261 floors at 1%
     else {
         const penalty = attack === 'melee-white' ? BOSS.dualWieldPenalty : 0; // sim/core/spell_outcome.go:573; ranged and yellow use the no-penalty path (:591, :467)
         miss = range(clamp(BOSS.meleeMiss + penalty - clamp(hit.max / 100 - BOSS.hitSuppression)), clamp(BOSS.meleeMiss + penalty - clamp(hit.min / 100 - BOSS.hitSuppression)));
