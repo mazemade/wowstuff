@@ -754,4 +754,4 @@ async function evaluateFight(raw, { onProgress } = {}) {
   return work;
 }
 
-module.exports = { evaluateFight, _internals: { abilityIds, buildBaseline, buildModelBaseline, candidateActions, changes, combatant, enchantScenarioProof, exactStatAgreement, fightInfo, genericActions, genericStatValidation, modelFor: Models.modelFor, normalizeGear, observedFuryStats, observedStats, positiveDefinitions, potionProof, publishablePackage, sourceAbilityIds, statValidation, talentTreeTotals, validTalentOverride } };
+module.exports = { evaluateFight, _internals: { abilityIds, buildBaseline, buildModelBaseline, candidateActions, changes, checkedBinaries, combatant, computeStats, enchantScenarioProof, exactStatAgreement, fightInfo, genericActions, genericStatValidation, modelFor: Models.modelFor, normalizeGear, observedFuryStats, observedStats, positiveDefinitions, potionProof, publishablePackage, simulate, sourceAbilityIds, statValidation, talentTreeTotals, validTalentOverride } };
