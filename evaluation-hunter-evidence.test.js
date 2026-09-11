@@ -131,3 +131,17 @@ test('mana validation never reinterprets malformed positional or target resource
     assert.equal(validMana({ resourceActor: 2, classResources: [{ amount: 1000, max: 6000, type: 0 }] }), null);
     assert.equal(validMana({ resourceActor: 1, classResources: [{ amount: 1000, max: 6000, type: 0 }] }), 1000);
 });
+
+test('pet survival findings carry a bucket and an observed-rate measure', () => {
+    const arch = finding(raw('Archimonde'), 'hunter-pet-survival');
+    assert.equal(arch.bucket, 'pet-damage');
+    assert.equal(Math.round(arch.measure.lostSeconds * 10) / 10, 115.7);
+    assert.ok(arch.measure.activeRateDps > 300 && arch.measure.activeRateDps < 600, 'pet rate while alive, not over the whole pull: ' + arch.measure.activeRateDps);
+    const kc = finding(raw("Kaz'rogal"), 'hunter-kill-command');
+    // This fixture's Kill Command casts (34026) never appear as a hunter-sourced damage
+    // event, so the observed average is correctly 0, not invented: see task-6-report.md.
+    assert.equal(kc.bucket, 'kill command'); assert.equal(kc.measure.lostCasts, 2); assert.equal(kc.measure.averageDamage, 0);
+    const steady = finding(raw("Kaz'rogal"), 'hunter-shot-rhythm');
+    assert.equal(steady.bucket, 'steady shot'); assert.ok(steady.measure.lostSeconds > 40 && steady.measure.lostSeconds < 60, 'five gaps minus three seconds each: ' + steady.measure.lostSeconds);
+    assert.ok(steady.measure.activeRateDps > 364.8, 'rate outside the gaps exceeds the whole-pull 364.8 DPS');
+});

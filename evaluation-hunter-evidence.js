@@ -106,7 +106,8 @@ function analyzeHunter(raw = {}) {
             'Aim for a pull with no pet deaths; if one occurs, compare the death-to-next-attack interval. Keep required pet recalls and your own survival ahead of uptime.',
             [...records, ...(sharedPullDeath ? playerDeaths.map(d => evidence('Player death (not Feign Death).', at(d))) : [])],
             { priority: 'high', priorityScore: 100 + round(seconds), basis: sharedPullDeath ? 'practice' : 'correction',
-                alternatives: ['Boss targeting, unavoidable damage and healing support can contribute; the log does not assign all responsibility to the hunter.'] });
+                alternatives: ['Boss targeting, unavoidable damage and healing support can contribute; the log does not assign all responsibility to the hunter.'],
+                bucket: 'pet-damage', measure: { lostSeconds: round(seconds), activeRateDps: round(petTotal / Math.max(1, duration - seconds)), note: 'Pet damage rate while the pet was alive on this pull.' } });
     } else if (petDamage.length) {
         add('hunter-pet-survival', 'Keep your pet contributing throughout the pull',
             'No pet death recorded; ' + round(petTotal / duration) + ' pet DPS',
@@ -135,6 +136,8 @@ function analyzeHunter(raw = {}) {
         const damage = shots.filter(e => spell(e) === 34120);
         const average = damage.length ? round(damage.reduce((sum, e) => sum + e.amount, 0) / damage.length) : null;
         const resourcesKnown = gaps.every(w => w.autos.every(e => validMana(e) !== null));
+        const lostSteady = gaps.reduce((s, w) => s + Math.max(0, (w.end.timestamp - w.start.timestamp) / 1000 - 3), 0);
+        const steadyTotal = damage.reduce((sum, e) => sum + e.amount, 0);
         // This is a conditional practice plan, not an assertion that movement or
         // resource spending was wrong. There is no missing-cast counterfactual.
         add('hunter-shot-rhythm', 'Resume Steady Shot promptly when you can stand still',
@@ -146,7 +149,8 @@ function analyzeHunter(raw = {}) {
             'Review ' + time(at(worst.start)) + '–' + time(at(worst.end)) + ' first. On the next pull, aim to resume Steady immediately after movement ends, without delaying Auto Shot or spending mana needed for the encounter.',
             gaps.slice(0, 4).map(w => evidence(round((w.end.timestamp - w.start.timestamp) / 1000) + ' seconds between completed Steady Shots; ' + w.autos.length +
                 ' Auto Shot casts on the same target. No recognized control or Revive Pet overlaps.', at(w.start), at(w.end))),
-            { basis: 'practice', confidence: 'inferred', alternatives: [resourcesKnown ? 'Recorded mana snapshots do not reconstruct regeneration or the intended mana reserve.' : 'Mana snapshots are unavailable or malformed; the evaluator cannot establish affordability.', 'Movement, latency and assignments can explain these intervals. No extra Steady Shot count or DPS gain is claimed.'] });
+            { basis: 'practice', confidence: 'inferred', alternatives: [resourcesKnown ? 'Recorded mana snapshots do not reconstruct regeneration or the intended mana reserve.' : 'Mana snapshots are unavailable or malformed; the evaluator cannot establish affordability.', 'Movement, latency and assignments can explain these intervals. No extra Steady Shot count or DPS gain is claimed.'],
+                bucket: 'steady shot', measure: { lostSeconds: round(lostSteady), activeRateDps: round(steadyTotal / Math.max(1, duration - lostSteady)), note: 'Steady Shot rate outside the gaps; the first three seconds of each gap are allowed for movement.' } });
     }
 
     const kc = casts.filter(e => spell(e) === 34026);
@@ -180,6 +184,7 @@ function analyzeHunter(raw = {}) {
     check('hunter-kill-command', 'Kill Command after critical shots', controls && pets.size ? 'checked' : 'unknown',
         controls && pets.size ? missed.length + ' refreshed crit opportunities expired after the cooldown was ready with active pet damage and no Kill Command; affordability and range are separate checks.' : 'Complete control and owned-pet evidence are required.');
     if (missed.length >= 2) {
+        const kcDamage = own.filter(e => e.type === 'damage' && spell(e) === 34026 && e.amount > 0);
         add('hunter-kill-command', 'Make Kill Command easy to trigger after a critical shot',
             missed.length + ' refreshed critical-shot opportunit' + (missed.length === 1 ? 'y expired' : 'ies expired') + ' without Kill Command while the pet attacked',
             'A hunter critical shot opens a short Kill Command opportunity. In these windows the pet was dealing damage to the same target and no recent Kill Command cast explains the omission. That makes input timing worth practicing; mana, command range and pet control still matter.',
@@ -188,7 +193,8 @@ function analyzeHunter(raw = {}) {
             missed.slice(0, 4).map(w => evidence('Critical shots opened/refreshed the opportunity at ' + time(at(w.first)) + '–' + time(at(w.last)) +
                 '. Kill Command cooldown was ready by ' + time((w.start - f.startTime) / 1000) + '; the opportunity expired at ' + time((w.end - f.startTime) / 1000) +
                 ' with no command, despite pet damage on the same target. Mana and command range remain unverified.', (w.start - f.startTime) / 1000, (w.end - f.startTime) / 1000)),
-            { basis: 'practice', confidence: 'inferred', alternatives: ['The pet attacking the boss does not prove command range from the hunter. Mana snapshots do not establish affordability in malformed Classic records.', 'No hypothetical command count or DPS gain is assigned.'] });
+            { basis: 'practice', confidence: 'inferred', alternatives: ['The pet attacking the boss does not prove command range from the hunter. Mana snapshots do not establish affordability in malformed Classic records.', 'No hypothetical command count or DPS gain is assigned.'],
+                bucket: 'kill command', measure: { lostCasts: missed.length, averageDamage: kcDamage.length ? round(kcDamage.reduce((s, e) => s + e.amount, 0) / kcDamage.length) : 0, note: "One Kill Command per expired opportunity at this pull's average landed damage." } });
     }
 
     const bw = casts.filter(e => spell(e) === 19574);

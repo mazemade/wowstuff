@@ -130,6 +130,8 @@ function analyzeRogue(raw = {}) {
         alternatives,
         disposition = 'improve',
         impact,
+        bucket,
+        measure,
     ) =>
         result.findings.push({
             id,
@@ -145,6 +147,8 @@ function analyzeRogue(raw = {}) {
             alternatives,
             disposition,
             ...(impact ? { impact } : {}),
+            ...(bucket ? { bucket } : {}),
+            ...(measure ? { measure } : {}),
         });
     if (!d || !events) {
         check(
@@ -649,6 +653,16 @@ function analyzeRogue(raw = {}) {
                 'These outcomes occurred after one SnD band ended and before the next began.',
                 'Check target access and movement before changing the timing.',
                 ['An intentional resource or finisher choice.'],
+                'improve',
+                undefined,
+                'melee',
+                {
+                    lostSeconds: round(between.end - between.start),
+                    activeRateDps: round(
+                        (0.3 * events.filter((e) => spell(e) === 1 && e.type === 'damage').reduce((s, e) => s + e.amount, 0)) / d,
+                    ),
+                    note: 'Slice and Dice is 30% attack speed with 3/3 Improved Slice and Dice and 20% without; the talent is not recorded.',
+                },
             );
         if (pct !== null)
             result.timeline.push(

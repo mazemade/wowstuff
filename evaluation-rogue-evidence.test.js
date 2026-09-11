@@ -48,3 +48,12 @@ test('compact Utopik multi-boss white bands preserve observed SnD counts', () =>
   const expected=['211/226','188/196','241/247','272/276','340/346'];
   assert.deepEqual([[211,226],[188,196],[241,247],[272,276],[340,346]].map(pair => analyzeRogue(sample(...pair)).checks.find(x=>x.id==='rogue-snd-attack-coverage').reason.match(/^\d+\/\d+/)[0]),expected);
 });
+
+test('the Slice and Dice gap finding carries a melee bucket and a bounded measure', () => {
+    const raw = structuredClone(require('./fixtures/evaluation/utopik-investigation.json').fights.find(f => f.name === 'Rage Winterchill'));
+    const snd = analyzeRogue(raw).findings.find(f => f.id === 'rogue-snd-midfight-gap');
+    assert.equal(snd.bucket, 'melee');
+    assert.equal(Math.round(snd.measure.lostSeconds * 10) / 10, 3.5);
+    assert.ok(snd.measure.activeRateDps > 200 && snd.measure.activeRateDps < 300, '30% of 874 melee DPS');
+    assert.match(snd.measure.note, /Improved Slice and Dice/);
+});
