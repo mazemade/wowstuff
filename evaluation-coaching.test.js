@@ -77,9 +77,9 @@ test('coaching buckets omit the heavy outcomes payload but keep factors and assu
 });
 
 test('withheld pricing labels every cause and old reports without a budget keep the current shape', () => {
-    const fight = { name: 'A', durationSec: 100, budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] }, causes: [{ id: 'stat-hit', bucket: 'all', owner: 'you', title: 't', observation: 'o', action: 'a', evidence: [], sim: {} }], pricing: { status: 'withheld', reason: "The model lands well below both your observed 1000 DPS and Jofrey's 1100 DPS, so gear and buff prices are withheld; enter your talents in Model settings to price them.", prices: {} }, findings: [] };
+    const fight = { name: 'A', durationSec: 100, budget: { status: 'decomposed', gapDps: 100, player: { dps: 1000 }, reference: { dps: 1100 }, buckets: [], limitations: [] }, causes: [{ id: 'stat-hit', bucket: 'all', owner: 'you', title: 't', observation: 'o', action: 'a', evidence: [], sim: {} }], pricing: { status: 'withheld', reason: "The model cannot reproduce your observed 1000 DPS or Jofrey's 1100 DPS, so gear and buff prices are withheld; enter your talents in Model settings to price them.", prices: {} }, findings: [] };
     const c = buildFightCoaching(fight);
-    assert.match(c.buckets[0].items[0].size.label, /not sized: The model lands well below/);
+    assert.match(c.buckets[0].items[0].size.label, /not sized: The model cannot reproduce/);
     const legacy = buildFightCoaching({ name: 'B', findings: [{ id: 'x', title: 'X', disposition: 'improve', action: 'a', evidence: ['e'] }] });
     assert.equal(legacy.buckets, undefined); assert.equal(legacy.improvements.length, 1);
     const night = buildNightCoaching({ fights: [{ name: 'A', coaching: c }, { name: 'B', coaching: legacy }] });
@@ -101,14 +101,16 @@ test('a priced cause with a negative price is labelled no measurable gain and so
         budget: { status: 'decomposed', gapDps: 50, player: { dps: 500 }, reference: { dps: 550 }, buckets: [{ id: 'melee', name: 'Melee', differenceDps: 50 }], limitations: [] },
         causes: [
             { id: 'neg-cause', bucket: 'melee', owner: 'you', title: 'Negative thing', evidence: [] },
+            { id: 'unsized-cause', bucket: 'melee', owner: 'you', title: 'Unsized thing', evidence: [] },
             { id: 'luck-cause', bucket: 'melee', owner: 'luck', title: 'Luck thing', evidence: [] },
         ],
         pricing: { status: 'priced', rotation: 'validated', prices: { 'neg-cause': { dps: -3 } } },
         findings: [{ id: 'bound-finding', title: 'Gap', disposition: 'improve', action: 'Fix', evidence: [{ text: 'x' }], bucket: 'melee', measure: { lostSeconds: 5, activeRateDps: 100 } }] };
     const c = buildFightCoaching(fight);
     const melee = c.buckets.find((b) => b.id === 'melee');
-    assert.deepEqual(melee.items.map((i) => i.id), ['bound-finding', 'neg-cause', 'luck-cause']);
+    assert.deepEqual(melee.items.map((i) => i.id), ['bound-finding', 'neg-cause', 'unsized-cause', 'luck-cause'], 'an unsized change sorts ahead of a variance card');
     assert.equal(melee.items[1].size.label, 'no measurable gain in the model');
+    assert.equal(melee.items[2].size.kind, 'unsized'); assert.equal(melee.items[3].size.kind, 'variance');
 });
 
 test('budget.pricing.baselineDps is present only when the rotation is validated', () => {

@@ -64,11 +64,10 @@ async function priceCauses(raw, { budget, causes }, deps = {}) {
     result.baselineDps = Math.round(baseline.dps);
     if (!sane(playerObserved) && !sane(referenceObserved)) {
         // The rotation behind this baseline is not validated, so the reason names only observed
-        // values and the direction of the miss — never the absolute model DPS.
+        // values — never the absolute model DPS, and never a direction: a baseline can sit inside
+        // the spread and so be above one observed value while below the other.
         const referenceName = budget.reference?.name || 'reference';
-        const anchor = playerObserved > 0 ? playerObserved : referenceObserved;
-        const direction = !(anchor > 0) || baseline.dps / anchor < SANITY.low ? 'below' : 'above';
-        return { ...result, status: 'withheld', reason: 'The model lands well ' + direction + ' both your observed ' + Math.round(playerObserved) + ' DPS and ' + referenceName + "'s " + Math.round(referenceObserved) + ' DPS, so gear and buff prices are withheld; enter your talents in Model settings to price them.' };
+        return { ...result, status: 'withheld', reason: 'The model cannot reproduce your observed ' + Math.round(playerObserved) + ' DPS or ' + referenceName + "'s " + Math.round(referenceObserved) + ' DPS, so gear and buff prices are withheld; enter your talents in Model settings to price them.' };
     }
     let priced; try {
         const size = c => c.bucket === 'all' ? Math.abs(Number(budget.gapDps) || 0) : Math.abs(Number(budget.buckets.find(b => b.id === c.bucket)?.differenceDps) || 0);

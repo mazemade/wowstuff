@@ -66,11 +66,13 @@ function coachingFinding(finding) {
 
 // A priced cause with dps <= 0 still ranks ahead of variance/unsized items
 // (it was actually modeled), but behind any item with a measurable gain.
+// Variance sorts last, behind unsized changes: a "no change; this is variance" luck card must
+// never lead a bucket on a report where nothing could be priced.
 const sizeRank = (s) => {
-    if (!s) return 3;
+    if (!s) return 2;
     if (s.kind === 'priced' || s.kind === 'bound') return Number.isFinite(s.dps) && s.dps > 0 ? 0 : 1;
-    if (s.kind === 'variance') return 2;
-    return 3;
+    if (s.kind === 'variance') return 3;
+    return 2;
 };
 const ownerRank = (o) => ({ you: 0, player: 0, raid: 1, luck: 2 })[o] ?? 3;
 function sizeForCause(cause, pricing) {

@@ -151,12 +151,23 @@ test('a baseline sane for either the player or the reference DPS is priced', asy
 test('a baseline far from both observed values withholds every price with an actionable reason', async () => {
     const { deps } = fakeDeps(666, () => 700);
     const result = await priceCauses({ player: { classToken: 'ROGUE', spec: 'Assassination' } }, { budget, causes }, deps);
-    assert.equal(result.status, 'withheld'); assert.match(result.reason, /well below/); assert.match(result.reason, /Model settings/);
+    assert.equal(result.status, 'withheld'); assert.match(result.reason, /cannot reproduce/); assert.match(result.reason, /Model settings/);
     assert.match(result.reason, /1546 DPS/); assert.match(result.reason, /1815 DPS/);
     assert.doesNotMatch(result.reason, /666|667/, 'an unvalidated rotation never prints an absolute model DPS');
     assert.equal(result.baselineDps, 666, 'the baseline stays in the result for callers that may use it');
     assert.deepEqual(result.prices, {});
     assert.ok(666 / 1815 < SANITY.low);
+});
+
+test('a baseline between the two observed values is still withheld and claims no direction', async () => {
+    const { deps } = fakeDeps(1800, () => 1830);
+    const spread = { status: 'decomposed', gapDps: 2000, player: { dps: 1000 }, reference: { dps: 3000 }, buckets: [{ id: 'melee', differenceDps: 2000 }] };
+    const result = await priceCauses({ player: { classToken: 'ROGUE', spec: 'Assassination' } }, { budget: spread, causes }, deps);
+    assert.equal(result.status, 'withheld');
+    assert.match(result.reason, /The model cannot reproduce your observed 1000 DPS or reference's 3000 DPS/);
+    assert.doesNotMatch(result.reason, /above|below/, 'a baseline inside the spread is neither above nor below both values');
+    assert.deepEqual(result.prices, {});
+    assert.ok(1800 / 1000 > SANITY.high && 1800 / 3000 < SANITY.low);
 });
 
 test('an unvalidated rotation is labelled but still priced when the baseline is sane', async () => {
