@@ -44,6 +44,14 @@ test('prices each cause against the same baseline with its change applied, large
     assert.equal(calls[1].simOptions.iterations, 3000);
 });
 
+test('a baseline sane for either the player or the reference DPS is priced', async () => {
+    const { deps } = fakeDeps(1949, (request, index) => 1949 + 10 * index);
+    const eitherBudget = { status: 'decomposed', gapDps: 268, player: { dps: 2127 }, reference: { dps: 2965 }, buckets: [{ id: 'melee', differenceDps: 183 }] };
+    const result = await priceCauses({ player: { classToken: 'HUNTER', spec: 'Beast Mastery' }, modelOverrides: { talentsString: 'x' } }, { budget: eitherBudget, causes }, deps);
+    assert.equal(result.status, 'priced');
+    assert.equal(result.baselineDps, 1949);
+});
+
 test('a baseline far from both observed values withholds every price with an actionable reason', async () => {
     const { deps } = fakeDeps(666, () => 700);
     const result = await priceCauses({ player: { classToken: 'ROGUE', spec: 'Assassination' } }, { budget, causes }, deps);

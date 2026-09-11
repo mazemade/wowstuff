@@ -46,10 +46,14 @@ async function priceCauses(raw, { budget, causes }, deps = {}) {
     let built; try { built = d.buildBaseline(raw, info, model); } catch (error) { return { ...result, reason: 'Model build failed: ' + error.message }; }
     const baselineRequest = clone(built.request); baselineRequest.simOptions.iterations = ITERATIONS;
     let baseline; try { baseline = await d.simulate(baselineRequest, binaries.sim); } catch (error) { return { ...result, reason: 'WoWSims execution failed: ' + error.message }; }
-    const observed = Math.max(Number(budget.player?.dps) || 0, Number(budget.reference?.dps) || 0);
-    const ratio = observed > 0 ? baseline.dps / observed : 0;
+    const playerObserved = Number(budget.player?.dps) || 0;
+    const referenceObserved = Number(budget.reference?.dps) || 0;
+    const sane = observed => observed > 0 && baseline.dps / observed >= SANITY.low && baseline.dps / observed <= SANITY.high;
     result.baselineDps = Math.round(baseline.dps);
-    if (ratio < SANITY.low || ratio > SANITY.high) return { ...result, status: 'withheld', reason: 'The model baseline (' + Math.round(baseline.dps) + ' DPS) cannot reproduce the observed ' + Math.round(observed) + ' DPS; enter your talents in Model settings to price gear and buffs.' };
+    if (!sane(playerObserved) && !sane(referenceObserved)) {
+        const referenceName = budget.reference?.name || 'reference';
+        return { ...result, status: 'withheld', reason: 'The model baseline (' + Math.round(baseline.dps) + ' DPS) cannot reproduce the observed ' + Math.round(playerObserved) + ' (you) or ' + Math.round(referenceObserved) + ' (' + referenceName + ') DPS; enter your talents in Model settings to price gear and buffs.' };
+    }
     const size = c => c.bucket === 'all' ? Math.abs(Number(budget.gapDps) || 0) : Math.abs(Number(budget.buckets.find(b => b.id === c.bucket)?.differenceDps) || 0);
     const priced = (causes || []).filter(c => c.sim && ['you', 'raid'].includes(c.owner)).sort((a, b) => size(b) - size(a)).slice(0, MAX_SCENARIOS);
     for (const cause of priced) {
