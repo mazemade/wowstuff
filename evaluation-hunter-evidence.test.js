@@ -138,9 +138,9 @@ test('pet survival findings carry a bucket and an observed-rate measure', () => 
     assert.equal(Math.round(arch.measure.lostSeconds * 10) / 10, 115.7);
     assert.ok(arch.measure.activeRateDps > 300 && arch.measure.activeRateDps < 600, 'pet rate while alive, not over the whole pull: ' + arch.measure.activeRateDps);
     const kc = finding(raw("Kaz'rogal"), 'hunter-kill-command');
-    // This fixture's Kill Command casts (34026) never appear as a hunter-sourced damage
-    // event, so the observed average is correctly 0, not invented: see task-6-report.md.
-    assert.equal(kc.bucket, 'kill command'); assert.equal(kc.measure.lostCasts, 2); assert.equal(kc.measure.averageDamage, 0);
+    // WCL attributes Kill Command's landed damage to the pet under spell id 34027;
+    // 34026 is only the hunter's cast. See task-6-report.md fix round 1.
+    assert.equal(kc.bucket, 'pet-damage'); assert.equal(kc.measure.lostCasts, 2); assert.ok(kc.measure.averageDamage > 600 && kc.measure.averageDamage < 750);
     const steady = finding(raw("Kaz'rogal"), 'hunter-shot-rhythm');
     assert.equal(steady.bucket, 'steady shot'); assert.ok(steady.measure.lostSeconds > 40 && steady.measure.lostSeconds < 60, 'five gaps minus three seconds each: ' + steady.measure.lostSeconds);
     assert.ok(steady.measure.activeRateDps > 364.8, 'rate outside the gaps exceeds the whole-pull 364.8 DPS');

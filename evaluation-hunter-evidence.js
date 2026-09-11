@@ -184,7 +184,7 @@ function analyzeHunter(raw = {}) {
     check('hunter-kill-command', 'Kill Command after critical shots', controls && pets.size ? 'checked' : 'unknown',
         controls && pets.size ? missed.length + ' refreshed crit opportunities expired after the cooldown was ready with active pet damage and no Kill Command; affordability and range are separate checks.' : 'Complete control and owned-pet evidence are required.');
     if (missed.length >= 2) {
-        const kcDamage = own.filter(e => e.type === 'damage' && spell(e) === 34026 && e.amount > 0);
+        const kcDamage = events.filter(e => pets.has(e.sourceID) && e.type === 'damage' && spell(e) === 34027);
         add('hunter-kill-command', 'Make Kill Command easy to trigger after a critical shot',
             missed.length + ' refreshed critical-shot opportunit' + (missed.length === 1 ? 'y expired' : 'ies expired') + ' without Kill Command while the pet attacked',
             'A hunter critical shot opens a short Kill Command opportunity. In these windows the pet was dealing damage to the same target and no recent Kill Command cast explains the omission. That makes input timing worth practicing; mana, command range and pet control still matter.',
@@ -194,7 +194,7 @@ function analyzeHunter(raw = {}) {
                 '. Kill Command cooldown was ready by ' + time((w.start - f.startTime) / 1000) + '; the opportunity expired at ' + time((w.end - f.startTime) / 1000) +
                 ' with no command, despite pet damage on the same target. Mana and command range remain unverified.', (w.start - f.startTime) / 1000, (w.end - f.startTime) / 1000)),
             { basis: 'practice', confidence: 'inferred', alternatives: ['The pet attacking the boss does not prove command range from the hunter. Mana snapshots do not establish affordability in malformed Classic records.', 'No hypothetical command count or DPS gain is assigned.'],
-                bucket: 'kill command', measure: { lostCasts: missed.length, averageDamage: kcDamage.length ? round(kcDamage.reduce((s, e) => s + e.amount, 0) / kcDamage.length) : 0, note: "One Kill Command per expired opportunity at this pull's average landed damage." } });
+                bucket: 'pet-damage', measure: { lostCasts: missed.length, averageDamage: kcDamage.length ? round(kcDamage.reduce((s, e) => s + e.amount, 0) / kcDamage.length) : 0, note: "One Kill Command per expired opportunity at this pull's average landed damage." } });
     }
 
     const bw = casts.filter(e => spell(e) === 19574);
