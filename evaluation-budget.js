@@ -46,7 +46,10 @@ function factorsFor(attack, own, other, duration, otherDuration, ownCi, otherCi,
         return null;
     }
     const hitKey = attack === 'spell' ? 'hitSpell' : attack === 'ranged' ? 'hitRanged' : 'hitMelee';
-    const expect = (p, c) => expectedOutcomes({ attack, swings: p.outcomes, hitRating: c?.[hitKey] ?? 0, expertiseRating: c?.expertise ?? 0, classToken, inFront: p.zero.parry > 0 });
+    // Parries are not modelled from observed counts: recorded parries do not prove the player
+    // stood in front for the whole pull, so the expected parry rate is always the "behind the
+    // target" case (0) and the parry variance object goes unused.
+    const expect = (p, c) => expectedOutcomes({ attack, swings: p.outcomes, hitRating: c?.[hitKey] ?? 0, expertiseRating: c?.expertise ?? 0, classToken, inFront: false });
     const eP = expect(own, ownCi), eR = expect(other, otherCi);
     for (const a of [...eP.assumptions, ...eR.assumptions]) if (!assumptions.includes(a)) assumptions.push(a);
     if (!ownCi || !otherCi) assumptions.push('A combatant snapshot is missing on one side; expected outcome rates use zero hit and expertise rating for it.');
