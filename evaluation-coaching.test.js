@@ -195,3 +195,55 @@ test('an unsized finding always carries an explicit dps: null on its size, match
     assert.equal(item.size.dps, null);
     assert.ok('dps' in item.size);
 });
+
+// --- Fix round 1 ---
+
+test('an empty one-sided bucket that survives the size gate gets a synthetic unresolved item naming the reason', () => {
+    const fight = { name: 'Winterchill', durationSec: 141.4,
+        budget: { status: 'decomposed', gapDps: 268, player: { name: 'Utopik', dps: 1546 }, reference: { name: 'Jofrey', dps: 1815 }, limitations: [], residualDps: 0,
+            buckets: [{ id: 'eviscerate', name: 'Eviscerate', attack: 'melee-yellow', playerDps: 0, referenceDps: 92.7, differenceDps: 92.7, factors: null, assumptions: ['Only one player recorded this damage family.'] }] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const eviscerate = c.buckets.find((b) => b.id === 'eviscerate');
+    assert.equal(eviscerate.items.length, 1);
+    const item = eviscerate.items[0];
+    assert.equal(item.id, 'unresolved-eviscerate');
+    assert.equal(item.itemKind, 'note');
+    assert.equal(item.owner, 'context');
+    assert.equal(item.title, 'Only Jofrey used Eviscerate');
+    assert.equal(item.observation, 'You recorded no Eviscerate damage; Jofrey did 93 DPS with it.');
+    assert.deepEqual(item.size, { kind: 'unsized', dps: null, label: 'not sized' });
+});
+
+test('an empty one-sided bucket reverses the naming when the player is the only one who used it', () => {
+    const fight = { name: 'A', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 30, player: { name: 'You', dps: 500 }, reference: { name: 'Ref', dps: 470 }, limitations: [], residualDps: 0,
+            buckets: [{ id: 'garrote', name: 'Garrote', attack: 'periodic', playerDps: 30, referenceDps: 0, differenceDps: -30, factors: null, assumptions: ['Only one player recorded this damage family.'] }] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const item = c.buckets.find((b) => b.id === 'garrote').items[0];
+    assert.equal(item.title, 'Only you used Garrote');
+    assert.equal(item.observation, 'Ref recorded no Garrote damage; you did 30 DPS with it.');
+});
+
+test('an empty pet bucket gets the pet-not-decomposed note', () => {
+    const fight = { name: 'Anetheron', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 300, player: { name: 'Funkell', dps: 632.3 }, reference: { name: 'Swagfan', dps: 930.4 }, limitations: [], residualDps: 0,
+            buckets: [{ id: 'pet', name: 'Pet damage', attack: 'pet', playerDps: 632.3, referenceDps: 930.4, differenceDps: 298.1, factors: null, assumptions: ['Pet damage is not decomposed into outcomes.'] }] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const item = c.buckets.find((b) => b.id === 'pet').items[0];
+    assert.equal(item.title, 'Pet damage is not decomposed');
+    assert.equal(item.observation, 'Pet talents and pet gear are not compared; 298 DPS of pet damage separates you from Swagfan.');
+});
+
+test('an empty bucket with no special assumption gets the generic no-named-cause note', () => {
+    const fight = { name: 'A', durationSec: 100,
+        budget: { status: 'decomposed', gapDps: 25, player: { name: 'You', dps: 500 }, reference: { name: 'Ref', dps: 525 }, limitations: [], residualDps: 0,
+            buckets: [{ id: 'mutilate', name: 'Mutilate', attack: 'melee-yellow', playerDps: 100, referenceDps: 125, differenceDps: 25, factors: null, assumptions: ['Too few outcomes to decompose (5 against 8).'] }] },
+        causes: [], pricing: { status: 'unavailable', prices: {} }, findings: [] };
+    const c = buildFightCoaching(fight);
+    const item = c.buckets.find((b) => b.id === 'mutilate').items[0];
+    assert.equal(item.title, 'No named cause resolved for Mutilate');
+    assert.equal(item.observation, 'The 25 DPS difference in Mutilate has no resolved source on this pull.');
+});

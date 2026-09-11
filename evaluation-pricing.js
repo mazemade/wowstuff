@@ -24,6 +24,25 @@ function boundFor(finding, bucket) {
     return { kind: 'bound', dps: value, capped, label: 'up to about ' + Math.round(value) + ' DPS on this pull' + (capped ? ' (capped at the bucket difference)' : '') + (m.note ? '. ' + m.note : '') };
 }
 
+// A WoWSims panic (an unknown item id, a bad request) surfaces as a multi-line Go stack trace
+// in error.message; that must never reach pricing.reason verbatim. Trim to the first line, cap
+// it, and translate the one recognized panic shape (an unknown item) into a sentence a player
+// can act on instead of a Go trace.
+function trimFailureReason(error) {
+    const raw = error && error.message != null ? String(error.message) : String(error);
+    const firstLine = raw.split('\n')[0].trim();
+    const itemMatch = firstLine.match(/No item with id:\s*(\d+)/);
+    if (itemMatch) return 'The simulator has no data for item ' + itemMatch[1] + '; prices are unavailable for this pull.';
+    return firstLine.length > 200 ? firstLine.slice(0, 200) : firstLine;
+}
+// The recognized-panic sentence is already a complete, specific reason; a generic prefix
+// ("WoWSims execution failed: ", "Pricing could not finish: ") only helps for an unrecognized
+// message, so it is applied only then.
+function reasonFor(prefix, error) {
+    const trimmed = trimFailureReason(error);
+    return /^The simulator has no data for item \d+;/.test(trimmed) ? trimmed : prefix + trimmed;
+}
+
 function setPath(target, path, value) {
     let node = target;
     for (const key of path.slice(0, -1)) {
@@ -55,9 +74,9 @@ async function priceCauses(raw, { budget, causes }, deps = {}) {
     let binaries; try { binaries = await d.checkedBinaries(); } catch (error) { return { ...result, reason: error.message }; }
     let info; try { info = d.combatant(raw); } catch (error) { return { ...result, reason: error.message }; }
     if (!info?.gear || !Array.isArray(info.gear) || info.gear.length < 16) return { ...result, reason: 'A complete combatant equipment snapshot is required to price changes.' };
-    let built; try { built = d.buildBaseline(raw, info, model); } catch (error) { return { ...result, reason: 'Model build failed: ' + error.message }; }
+    let built; try { built = d.buildBaseline(raw, info, model); } catch (error) { return { ...result, reason: reasonFor('Model build failed: ', error) }; }
     const baselineRequest = clone(built.request); baselineRequest.simOptions.iterations = ITERATIONS;
-    let baseline; try { baseline = await d.simulate(baselineRequest, binaries.sim); } catch (error) { return { ...result, reason: 'WoWSims execution failed: ' + error.message }; }
+    let baseline; try { baseline = await d.simulate(baselineRequest, binaries.sim); } catch (error) { return { ...result, reason: reasonFor('WoWSims execution failed: ', error) }; }
     const playerObserved = Number(budget.player?.dps) || 0;
     const referenceObserved = Number(budget.reference?.dps) || 0;
     const sane = observed => observed > 0 && baseline.dps / observed >= SANITY.low && baseline.dps / observed <= SANITY.high;
@@ -82,4 +101,4 @@ async function priceCauses(raw, { budget, causes }, deps = {}) {
     result.assumptions.unshift('Prices are one change at a time on your reconstructed character with ' + ITERATIONS + ' iterations; ' + (result.rotation === 'validated' ? 'validated rotation.' : 'unvalidated rotation, so only stat deltas are shown and never an absolute DPS.'));
     return result;
 }
-module.exports = { boundFor, priceCauses, applyChange, SANITY, ITERATIONS, MAX_SCENARIOS };
+module.exports = { boundFor, priceCauses, applyChange, trimFailureReason, reasonFor, SANITY, ITERATIONS, MAX_SCENARIOS };

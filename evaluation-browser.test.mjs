@@ -368,6 +368,7 @@ try {
   assert.match(winterchillText, /not sized/, 'unpriced causes say so instead of inventing a number');
   assert.match(winterchillText, /These values overlap and do not add up to the gap/);
   assert.match(winterchillText, /Whole pull[\s\S]*Keep, review & coverage/i, 'buckets come before the collapsed legacy sections');
+  assert.match(winterchillText, /Only Jofrey used Eviscerate/, 'an empty one-sided bucket that clears the size gate names the reason instead of rendering nothing');
   assert.equal(await evaluate("document.querySelector('.report-background').open"), false);
   await evaluate("document.querySelector('#copyPlanBtn').click()"); await waitFor("window.__copied?.includes('Budget: you 1546 DPS, Jofrey 1815 DPS, gap 269.')", 'budget plan');
   assert.match(await evaluate('window.__copied'), /\[you\] Close the expertise gap/);

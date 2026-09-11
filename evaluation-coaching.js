@@ -134,7 +134,32 @@ function buildBuckets(fight, improvements) {
     const result = [all, ...buckets.filter((b) => b.items.length || Math.abs(b.differenceDps) >= 20), pull].filter(
         (b) => b.items.length || (b.id !== 'pull' && b.id !== 'all'),
     );
+    // A bucket other than the two synthetic ones can survive the filter above (its gap is
+    // large enough) with no cause and no finding attached — e.g. only one side recorded the
+    // family, or pet damage is never decomposed. Leaving it empty reads as "nothing to say"
+    // when there is a real, named reason nothing resolved; say the reason instead.
+    const referenceName = text(budget.reference?.name) || 'the reference';
     for (const b of result) {
+        if (b.id !== 'all' && b.id !== 'pull' && !b.items.length) {
+            const n = Math.round(Math.abs(b.differenceDps));
+            let title, observation;
+            if (list(b.assumptions).includes('Only one player recorded this damage family.')) {
+                if (!b.playerDps) {
+                    title = 'Only ' + referenceName + ' used ' + b.name;
+                    observation = 'You recorded no ' + b.name + ' damage; ' + referenceName + ' did ' + n + ' DPS with it.';
+                } else {
+                    title = 'Only you used ' + b.name;
+                    observation = referenceName + ' recorded no ' + b.name + ' damage; you did ' + n + ' DPS with it.';
+                }
+            } else if (b.attack === 'pet') {
+                title = 'Pet damage is not decomposed';
+                observation = 'Pet talents and pet gear are not compared; ' + n + ' DPS of pet damage separates you from ' + referenceName + '.';
+            } else {
+                title = 'No named cause resolved for ' + b.name;
+                observation = 'The ' + n + ' DPS difference in ' + b.name + ' has no resolved source on this pull.';
+            }
+            b.items.push({ id: 'unresolved-' + b.id, itemKind: 'note', owner: 'context', title, observation, size: { kind: 'unsized', dps: null, label: 'not sized' } });
+        }
         sortItems(b.items);
         b.note = 'These values overlap and do not add up to the gap.';
     }

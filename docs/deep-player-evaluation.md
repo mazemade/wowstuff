@@ -163,10 +163,19 @@ DPS reports now lead with a damage budget instead of a bare damage table. The re
 gap against the comparison player once ("You did 1546 DPS, Jofrey did 1815 over a similar pull"),
 then opens the gap into buckets: one "Whole pull" bucket for consumables, blessings, raid buffs,
 procs and debuffs that apply to every family, one bucket per damage family whose difference is at
-least 20 DPS or that already has causes attached, and a final "Execution and survival" bucket for
+least 20 DPS or that already has an item attached (a cause or a finding — either one keeps a small
+bucket alive, not causes alone), and a final "Execution and survival" bucket for
 findings — deaths, positioning, timing — that touch no single family. Every existing execution
 finding (Slice and Dice gaps, pet deaths, Kill Command windows, Steady Shot gaps, cooldown timing,
-consumable timing) now lands inside the bucket it affects instead of a separate list.
+consumable timing) now lands inside the bucket it affects instead of a separate list. Warcraft Logs
+attributes Kill Command's damage to the pet (spell 34027), so Kill Command findings live in the
+pet-damage bucket alongside the rest of the pet's damage, not in a hunter-ranged bucket.
+
+On a bucketed page the three legacy cards a single-ability comparison used to produce — the
+per-ability "damage driver" findings, the "throughput-stat context" finding, and the
+"equipment comparison" finding — are superseded and no longer render; the buckets and their named
+causes replace them. Priority-execution findings still render, immediately after the budget
+section, for anything that touches no single damage family (deaths, positioning, timing).
 
 A decomposable family (white melee, yellow melee, ranged, spell) is split into four factors from
 the damage table's hit and miss details, each carrying its own DPS: **zero-damage outcomes** (miss,
@@ -198,7 +207,21 @@ uptime band. Parries are never modelled from observed counts — a recorded parr
 spent in front of the target, so the expected parry rate is always the "behind the target" case,
 and extra parries on the player's side surface as a positioning note, not a stat cause. A
 reference-only proc item is a gear cause only when the player is wearing a trinket with no damage
-stats in that slot; otherwise it is luck.
+stats in that slot; otherwise it is luck. Expertise and hit are melee-role stats, so their causes
+target the white-swing bucket but also cover every decomposed yellow-attack bucket for the same
+role (`alsoBuckets`) — a Mutilate dodge count that lines up with an expertise gap is folded into
+the expertise cause instead of being reported as a separate, unexplained luck line on Mutilate.
+
+**Mechanics constants.** The rating conversions, boss-level avoidance table, dual-wield penalty and
+similar constants are read from the pinned `wowsims/tbc-new` checkout `72e0c8a8`, one file:line
+citation per constant in `evaluation-mechanics.js`. Warcraft Logs does not record talent ranks, so
+two talents widen the *expected* range for a stat rather than narrowing it to a single number:
+Precision (rogue, 5%) and Surefooted (hunter, 3%) both widen the expected-miss range, and the
+report's assumption text says so ("Precision is not recorded by Warcraft Logs; the expected range
+spans 0/5 to 5/5."). Dual-wield white swings carry a fixed 19% miss penalty on top of the boss's
+base melee miss chance; single-wield and yellow-attack swings do not. Parries are expected zero
+from behind the target (see Source resolution above). Spell miss is floored at 1% regardless of
+hit rating, matching the sim's own floor.
 
 **Sizes.** Every cause and finding carries a `size`, one of four kinds:
 

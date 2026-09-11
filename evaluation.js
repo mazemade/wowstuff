@@ -87,12 +87,13 @@
     const sizeText = size => esc(size && size.label ? size.label : 'not sized');
     function bucketItemHtml(item) {
         const title = item.title || item.what || 'Finding';
+        const isNote = item.itemKind === 'note';
         const action = item.itemKind === 'finding' ? item.change : item.action;
         const basis = basisLabel(item) ? ' · ' + basisLabel(item) : '';
         const observedAt = observedAtHtml(item);
-        return '<article class="bucket-item owner-' + esc(item.owner || 'review') + ' size-' + esc(item.size?.kind || 'unsized') + '"><span class="owner">' + ownerTag(item.owner) + ' · <span class="size">' + sizeText(item.size) + basis + '</span></span><h4>' + esc(title) + '</h4>' +
+        return '<article class="bucket-item owner-' + esc(item.owner || 'review') + ' size-' + esc(item.size?.kind || 'unsized') + '"><span class="owner">' + (isNote ? 'Context' : ownerTag(item.owner)) + ' · <span class="size">' + sizeText(item.size) + basis + '</span></span><h4>' + esc(title) + '</h4>' +
             (item.observation || item.observed ? '<p class="bucket-observation">' + esc(item.observation || item.observed) + '</p>' : '') + observedAt + (item.why && item.itemKind === 'finding' ? '<p><strong>Why it matters:</strong> ' + esc(item.why) + '</p>' : '') +
-            (action ? '<p class="coaching-change"><strong>Next:</strong> ' + esc(action) + '</p>' : '') + (item.verification ? '<p><strong>Verify:</strong> ' + esc(item.verification) + '</p>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
+            (!isNote && action ? '<p class="coaching-change"><strong>Next:</strong> ' + esc(action) + '</p>' : '') + (!isNote && item.verification ? '<p><strong>Verify:</strong> ' + esc(item.verification) + '</p>' : '') + detail('Inspect the evidence', item.evidence) + '</article>';
     }
     function factorLineHtml(b) {
         const f = b.factors; if (!f || typeof f !== 'object') return '';
@@ -100,14 +101,22 @@
         // A partial factors object must degrade to '—', never throw inside innerHTML.
         const exact = v => number(v) ? String(v) : '—';
         const zero = f.zeroDamage || {}, per = f.rate || {}, landed = f.yield || {}, crit = landed.crit || {};
-        return '<p class="factor-line">Zero-damage outcomes ' + exact(zero.player) + '% vs ' + exact(zero.reference) + '% (' + signed(zero.dps) + ') · Rate ' + exact(per.player) + ' vs ' + exact(per.reference) + '/min (' + signed(per.dps) + ') · Per landed hit ' + fmt(landed.player) + ' vs ' + fmt(landed.reference) + ' (' + signed(landed.dps) + '; crit share ' + exact(crit.player) + '% vs ' + exact(crit.reference) + '%)</p>' + (list(b.assumptions).length ? '<p class="model-note">' + esc(b.assumptions.join(' ')) + '</p>' : '');
+        return '<p class="factor-line">Zero-damage outcomes ' + exact(zero.player) + '% vs ' + exact(zero.reference) + '% (' + signed(zero.dps) + ') · Rate ' + exact(per.player) + ' vs ' + exact(per.reference) + '/min (' + signed(per.dps) + ') · Per landed hit ' + fmt(landed.player) + ' vs ' + fmt(landed.reference) + ' (' + signed(landed.dps) + '; crit share ' + exact(crit.player) + '% vs ' + exact(crit.reference) + '%)</p>';
+    }
+    // Assumptions explain a bucket's numbers (pet/periodic exclusion, "only one player
+    // recorded this", the outcome-count gate, Precision/Surefooted ranges) whether or not the
+    // bucket cleared the ≥20-outcomes-both-sides gate that produces `factors` — a bucket with
+    // no factors is exactly the case where the reader most needs the explanation, so this must
+    // not be gated on `b.factors` the way the numeric factor line is.
+    function assumptionsHtml(b) {
+        return list(b.assumptions).length ? '<p class="model-note">' + esc(b.assumptions.join(' ')) + '</p>' : '';
     }
     function budgetHtml(coaching) {
         const budget = coaching.budget, buckets = list(coaching.buckets); if (!budget) return '';
         const pricing = budget.pricing || {};
         const priceLine = pricing.status === 'priced' ? 'Prices use the ' + (pricing.rotation === 'validated' ? 'validated' : 'unvalidated') + ' rotation on your recorded gear.' : 'Prices are not available: ' + (pricing.reason || 'no simulator run.');
         const strip = '<div class="budget-strip"><div class="stat"><span class="stat-label">You</span><span class="stat-number">' + fmt(budget.player?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">' + link(budget.reference?.url, budget.reference?.name || 'Reference') + '</span><span class="stat-number">' + fmt(budget.reference?.dps) + '</span><span class="stat-unit">DPS</span></div><div class="stat"><span class="stat-label">Gap</span><span class="stat-number">' + fmt(budget.gapDps) + '</span><span class="stat-unit">DPS</span></div></div>';
-        const bucketHtml = buckets.map(b => '<section class="bucket"><div class="bucket-head"><h3>' + esc(b.name) + '</h3>' + (number(b.playerDps) ? '<span class="muted">you ' + fmt(b.playerDps) + ' · ref ' + fmt(b.referenceDps) + ' · diff ' + (b.differenceDps > 0 ? '+' : '') + fmt(b.differenceDps) + ' DPS</span>' : '') + '</div>' + factorLineHtml(b) + '<div class="bucket-items">' + list(b.items).filter(i => i && !i.mirrored).map(bucketItemHtml).join('') + '</div><p class="model-note">' + esc(b.note) + '</p></section>').join('');
+        const bucketHtml = buckets.map(b => '<section class="bucket"><div class="bucket-head"><h3>' + esc(b.name) + '</h3>' + (number(b.playerDps) ? '<span class="muted">you ' + fmt(b.playerDps) + ' · ref ' + fmt(b.referenceDps) + ' · diff ' + (b.differenceDps > 0 ? '+' : '') + fmt(b.differenceDps) + ' DPS</span>' : '') + '</div>' + factorLineHtml(b) + assumptionsHtml(b) + '<div class="bucket-items">' + list(b.items).filter(i => i && !i.mirrored).map(bucketItemHtml).join('') + '</div><p class="model-note">' + esc(b.note) + '</p></section>').join('');
         return '<section class="report-section budget-section"><p class="eyebrow">Damage budget</p><h2>Where the gap is and what it is worth</h2><p class="coaching-assessment">' + esc(coaching.assessment || 'This report summarizes the available evidence.') + '</p>' + strip + (budget.headline ? '<p class="budget-headline">' + esc(budget.headline) + '</p>' : '') + '<p class="model-note">' + esc(priceLine) + ' ' + esc(list(budget.limitations).join(' ')) + '</p>' + bucketHtml + '</section>';
     }
     function nightCoachingHtml(coaching) {

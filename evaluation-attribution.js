@@ -28,6 +28,32 @@ const STATS = [
 function slotStat(slot, index) { return Number(slot?.stats?.[index]) || 0; }
 function describeSlot(slot, index) { return slot.label + ': ' + slot.name + (slot.enchant ? ' (' + slot.enchant.name + ')' : '') + (slot.gems?.length ? ' [' + slot.gems.map(g => g.name).join(', ') + ']' : '') + ' supplies ' + slotStat(slot, index); }
 
+// Auras present on the reference's pull-time snapshot and absent from the player's (slot-based
+// consumables covered by whatever fills that slot on the player's side, plus general blessings/
+// party/raid auras, with the Kings-over-Salvation special case) — shared between the "auras at
+// pull" causes below and the stat-gap wording, which names these instead of a vague "buffs,
+// scrolls or consumables at pull".
+function resolveAuraGaps(ownAuras, otherAuras) {
+    if (!Array.isArray(ownAuras) || !Array.isArray(otherAuras)) return [];
+    const ownIds = new Set(ownAuras.map(a => Number(a.ability))), otherIds = new Set(otherAuras.map(a => Number(a.ability)));
+    const bySlot = (ids) => { const m = new Map(); for (const id of ids) { const e = lookupAura(id); if (e?.slot) m.set(e.slot, e); } return m; };
+    const ownSlots = bySlot(ownIds), otherSlots = bySlot(otherIds);
+    const covering = (slots, slot) => slots.get(slot) || (slot === 'battle' || slot === 'guardian' ? slots.get('flask') : null) || (slot === 'flask' ? slots.get('battle') || slots.get('guardian') : null);
+    const gaps = [];
+    for (const slot of ['flask', 'battle', 'guardian', 'food']) {
+        const theirs = otherSlots.get(slot); if (!theirs) continue;
+        const mine = covering(ownSlots, slot);
+        if (mine && (mine.id === theirs.id || (mine.slot === 'flask' && slot !== 'flask'))) continue;
+        gaps.push({ kind: 'slot', slot, mine, theirs });
+    }
+    for (const id of otherIds) {
+        const e = lookupAura(id); if (!e || e.slot || ownIds.has(id)) continue;
+        gaps.push({ kind: 'general', entry: e, isKings: e.kind === 'blessing' && e.id === 25898 && ownIds.has(25895) });
+    }
+    return gaps;
+}
+function auraGapNames(gaps) { return gaps.map(g => g.kind === 'slot' ? g.theirs.name : (g.isKings ? 'Greater Blessing of Kings' : g.entry.name)); }
+
 // Every melee-role stat (expertise, hit, crit, haste, strength/agility) targets the primary
 // 'melee' bucket with every other decomposed melee-yellow bucket carried in alsoBuckets, so a
 // gear cause on 'melee' also covers e.g. Mutilate instead of leaving it as an unexplained luck line.
@@ -63,6 +89,7 @@ function attributeCauses(raw, budget) {
     // 1. Stat snapshot differences resolved through equipment
     if (own && other) {
         const slots = raw.gearAudit?.slots, otherSlots = reference.gearAudit?.slots;
+        const auraGaps = auraGapNames(resolveAuraGaps(own.auras, other.auras));
         for (const [key, index, label, factor, threshold, roles] of STATS) {
             if (!roles.includes(role) || !finite(own[key]) || !finite(other[key])) continue;
             const diff = other[key] - own[key];
@@ -73,8 +100,20 @@ function attributeCauses(raw, budget) {
             let gearDiff = null;
             const contributors = [];
             if (slots && otherSlots) {
-                gearDiff = 0;
-                for (const s of slots) { const o = otherSlots.find(x => x.key === s.key); if (!o) continue; const d = slotStat(o, index) - slotStat(s, index); if (d) { gearDiff += d; if (d > 0) contributors.push({ name: o.name, label: o.label, d }); evidence.push(ev('Your ' + describeSlot(s, index) + ' ' + label + '.')); evidence.push(ev(reference.player.name + "'s " + describeSlot(o, index) + ' ' + label + '.', reference)); } }
+                // Compared slots (matched by key on both sides): a genuinely empty slot (no item
+                // equipped, vet-engine's summarizeGear returns it without a stats field at all —
+                // e.g. an off-hand slot behind a two-hander) legitimately supplies 0 and is not a
+                // data gap. But a populated slot (has an item id) missing its stats object means
+                // the gear audit was captured without per-slot stats — slotStat's 0 fallback would
+                // otherwise silently read "supplies 0" for e.g. Fang of Vashj's 21 expertise. Treat
+                // the whole comparison as unavailable in that case rather than misattribute it to buffs.
+                const populatedNoStats = s => !!s.id && (!s.stats || typeof s.stats !== 'object');
+                const pairs = slots.map(s => [s, otherSlots.find(x => x.key === s.key)]).filter(([, o]) => o);
+                const statsUnavailable = pairs.some(([s, o]) => populatedNoStats(s) || populatedNoStats(o));
+                if (!statsUnavailable) {
+                    gearDiff = 0;
+                    for (const [s, o] of pairs) { const d = slotStat(o, index) - slotStat(s, index); if (d) { gearDiff += d; if (d > 0) contributors.push({ name: o.name, label: o.label, d }); evidence.push(ev('Your ' + describeSlot(s, index) + ' ' + label + '.')); evidence.push(ev(reference.player.name + "'s " + describeSlot(o, index) + ' ' + label + '.', reference)); } }
+                }
             }
             // The report collapses evidence into a details element, so the named items have to
             // survive in the visible observation: name the two biggest reference contributions.
@@ -82,7 +121,8 @@ function attributeCauses(raw, budget) {
             const sources = top.length ? ' ' + reference.player.name + "'s " + other[key] + ' ' + label + ' comes from ' + top.join(' and ') + '.' : '';
             if (!evidence.length) evidence.push(ev('Combatant snapshot: you have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.'));
             const unexplained = gearDiff === null ? null : diff - gearDiff;
-            const observation = (key === 'expertise' ? zeroNote(bucket, 'dodge') + ' ' : key.startsWith('hit') ? zeroNote(bucket, 'miss') + ' ' : '') + 'You have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.' + (gearDiff === null ? ' Equipment stats are unavailable for one side.' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + ' is buffs, scrolls or consumables at pull.') + sources;
+            const remaining = gearDiff === null ? '' : Math.abs(unexplained) <= Math.max(5, Math.abs(diff) * 0.15) ? ' The difference comes from equipment.' : ' Equipment explains ' + round(gearDiff) + ' of it; the remaining ' + round(unexplained) + (auraGaps.length ? ' matches auras the reference had at pull: ' + auraGaps.join(', ') + '.' : ' is not explained by equipment or auras at pull.');
+            const observation = (key === 'expertise' ? zeroNote(bucket, 'dodge') + ' ' : key.startsWith('hit') ? zeroNote(bucket, 'miss') + ' ' : '') + 'You have ' + own[key] + ' ' + label + '; ' + reference.player.name + ' has ' + other[key] + '.' + (gearDiff === null ? ' Equipment stats are unavailable for one side.' : remaining) + sources;
             // Only a stat the reference has more of becomes a cause; the luck lines below carry the counts either way.
             if (diff > 0) push({ id: 'stat-' + key.replace(/Melee|Ranged|Spell/, ''), bucket: target.bucket, alsoBuckets: target.alsoBuckets, factor, kind: 'gear', owner: 'you', title: 'Close the ' + label + ' gap', observation, action: gearDiff === null ? "Equipment stats are unavailable for one side; compare your items with the reference's." : gearDiff > 0 ? 'Compare the named slots above; the reference item, gem or enchant supplies the stat you lack.' : 'The stat gap is not from equipment; check the aura causes below.', evidence, statDelta: { [index]: round(diff) }, sim: { bonusStats: { [index]: round(diff) } }, priority: factor === 'zeroDamage' ? 'high' : 'medium' });
         }

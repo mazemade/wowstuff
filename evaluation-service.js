@@ -15,7 +15,7 @@ const { analyzeInvestigation, requestsFor } = require('./evaluation-investigatio
 const { selectReferences } = require('./evaluation-reference.js');
 const { analyzeBudget } = require('./evaluation-budget.js');
 const { attributeCauses } = require('./evaluation-attribution.js');
-const { priceCauses } = require('./evaluation-pricing.js');
+const { priceCauses, reasonFor } = require('./evaluation-pricing.js');
 const { buildFightCoaching, buildNightCoaching } = require('./evaluation-coaching.js');
 const { encounterContext } = require('./evaluation-encounters.js');
 const V = require('./vet-engine.js');
@@ -358,7 +358,7 @@ async function buildEvaluation(identity, deps, progress = () => {}) {
         }
         await progress({ stage: 'pricing', message: 'Pricing gear and buff changes for ' + raw.name + '.', completed: result.fights.length, total: raws.length }, result);
         try { fight.pricing = await (deps.priceCauses || priceCauses)(raw, { budget: fight.budget, causes: fight.causes }); }
-        catch (error) { fight.pricing = { status: 'unavailable', reason: 'Pricing could not finish: ' + ((error && error.message) || String(error)), prices: {} }; }
+        catch (error) { fight.pricing = { status: 'unavailable', reason: reasonFor('Pricing could not finish: ', error), prices: {} }; }
         fight.coaching = buildFightCoaching(fight);
         result.fights.push(fight);
         result.coaching = buildNightCoaching(result);

@@ -134,3 +134,22 @@ test('a buff already named as an aura-at-pull cause is not priced again as an up
     assert.ok(causes.some(c => c.id === 'aura-2048'), 'expected aura-2048 (Battle Shout at pull) to exist');
     assert.equal(causes.find(c => c.id === 'uptime-2048'), undefined, 'Battle Shout must not also be priced as an uptime cause');
 });
+
+// --- Fix round 1 ---
+
+test('a gear audit captured without per-slot stats treats gearDiff as unavailable, not zero (Utopik Winterchill expertise)', () => {
+    const raw = fight('Rage Winterchill');
+    for (const s of raw.references[0].gearAudit.slots) delete s.stats;
+    const causes = attributeCauses(raw, analyzeBudget(raw)).causes;
+    const expertise = causes.find(c => c.id === 'stat-expertise');
+    assert.match(expertise.observation, /unavailable for one side/);
+    assert.doesNotMatch(expertise.observation, /explains 0/);
+});
+
+test('the stat-gap remainder names the auras the reference had at pull instead of a vague "buffs, scrolls or consumables" (Funkell/Anetheron agility)', () => {
+    const raw = structuredClone(funkellHunter.fights.find(f => f.name === 'Anetheron'));
+    const causes = attributeCauses(raw, analyzeBudget(raw)).causes;
+    const agility = causes.find(c => c.id === 'stat-agility');
+    assert.match(agility.observation, /matches auras the reference had at pull: .*Kings/);
+    assert.doesNotMatch(agility.observation, /buffs, scrolls or consumables/);
+});

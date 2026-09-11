@@ -183,3 +183,14 @@ test('simulator failure leaves causes unpriced with the reason', async () => {
     const result = await priceCauses({ player: { classToken: 'HUNTER', spec: 'Beast Mastery' } }, { budget, causes }, deps);
     assert.equal(result.status, 'unavailable'); assert.match(result.reason, /not installed/);
 });
+
+// --- Fix round 1 ---
+
+test('a WoWSims panic (a Go stack trace for an unknown item) is trimmed to a single-line, actionable reason', async () => {
+    const { deps } = fakeDeps(1600, () => 1600);
+    deps.simulate = async () => { throw new Error('No item with id: 18846\ngoroutine 1 [running]:\nmain.main()\n\t/build/main.go:42 +0x1a2'); };
+    const result = await priceCauses({ player: { classToken: 'HUNTER', spec: 'Beast Mastery' } }, { budget, causes }, deps);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'The simulator has no data for item 18846; prices are unavailable for this pull.');
+    assert.equal(result.reason.includes('\n'), false);
+});
